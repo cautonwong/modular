@@ -34,8 +34,7 @@ typedef enum edge_status {
     EDGE_ENOTSUP = -9
 } edge_status_t;
 
-#define EDGE_ERR(mod, code) \
-    (-(int32_t)(((uint32_t)(mod) & 0xFF00u) | ((uint32_t)(code) & 0xFFu)))
+#define EDGE_ERR(mod, code) (-(int32_t)(((uint32_t)(mod) & 0xFF00u) | ((uint32_t)(code) & 0xFFu)))
 
 /* The framework range is reserved: module errors must stay out of it. */
 _Static_assert(EDGE_ERR(0x1000u, 1u) < EDGE_EINVAL, "module error collides with framework range");

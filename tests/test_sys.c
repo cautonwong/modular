@@ -64,8 +64,7 @@ static edge_status_t fake_poll(edge_module_t *m) {
     fake_app_t *a = as_fake(m);
     ++a->poll_count;
     g_now += g_poll_advance;
-    if (a->shutdown_sys != NULL && a->shutdown_after_polls > 0 &&
-        --a->shutdown_after_polls == 0)
+    if (a->shutdown_sys != NULL && a->shutdown_after_polls > 0 && --a->shutdown_after_polls == 0)
         (void)edge_sys_power_off(a->shutdown_sys);
     return a->poll_rc;
 }
