@@ -34,6 +34,7 @@ __attribute__((noreturn)) static void qemu_exit(int status) {
 #define EDGE_IRQ_HANDLER(irq) ((uintptr_t)default_handler)
 #endif
 
+// clang-format off
 __attribute__((used, section(".isr_vector"))) const uintptr_t edge_vector_table[48] = {
     (uintptr_t)&_estack,
     (uintptr_t)&_start + 1u,
@@ -84,6 +85,7 @@ __attribute__((used, section(".isr_vector"))) const uintptr_t edge_vector_table[
     (uintptr_t)default_handler,
     (uintptr_t)default_handler,
 };
+// clang-format on
 
 void _start(void) {
     uint8_t *src = &_sidata;
