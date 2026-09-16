@@ -11,8 +11,7 @@ void product_example_make_storage(dlt645_storage_if_t *out, void *flash_state);
 
 static uint64_t monotonic_ticks(void *self)
 {
-    uint64_t *tick = (uint64_t *)self;
-    return ++(*tick);
+    return ++(*(uint64_t *)self);
 }
 
 int main(void)
