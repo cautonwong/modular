@@ -33,6 +33,9 @@ typedef edge_status_t (*edge_module_deinit_fn)(edge_module_t *self);
 typedef struct edge_module {
     uint32_t module_id;
     uint32_t priority;
+    uint32_t period;
+    uint32_t budget;
+    uint64_t next_due;
     edge_module_init_fn init;
     edge_module_poll_fn poll;
     edge_module_event_fn on_event;
@@ -47,7 +50,7 @@ typedef struct edge_module {
 
 #ifdef EDGE_TARGET_ARM32
 _Static_assert(sizeof(void *) == 4u, "embedded ABI requires 32-bit pointers");
-_Static_assert(sizeof(edge_module_t) == 36u, "edge_module_t ABI changed for 32-bit target");
+_Static_assert(sizeof(edge_module_t) == 52u, "edge_module_t ABI changed for 32-bit target");
 #endif
 
 static inline void *edge_module_data(edge_module_t *self) {
