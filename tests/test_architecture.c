@@ -6,7 +6,7 @@
 
 #include "edge/event.h"
 #include "edge/module.h"
-#include "edge/sys.h"
+#include "example/sys.h"
 
 static void test_public_contracts(void **state)
 {
