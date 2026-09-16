@@ -1,0 +1,77 @@
+name: Embedded Smoke
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: embedded-smoke-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cortex-m4-qemu:
+    name: Cortex-M4 + QEMU smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install ARM GNU toolchain and QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build gcc-arm-none-eabi binutils-arm-none-eabi \
+            libnewlib-arm-none-eabi qemu-system-arm
+      - name: Verify tools
+        run: |
+          arm-none-eabi-gcc --version
+          qemu-system-arm --version
+          qemu-system-arm -machine help | grep -E '^mps2-an386'
+      - name: Set reproducible-build timestamp
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
+      - name: Configure Cortex-M4 firmware
+        run: |
+          cmake -S . -B build-m4 -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=.github/arm/arm-none-eabi.cmake \
+            -DEDGE_MODULE_BUILD_ARM_CORTEX_M4=ON \
+            -DEDGE_MODULE_ARM_QEMU_SEMIHOSTING=ON \
+            -DEDGE_MODULE_BUILD_TESTS=OFF \
+            -DEDGE_MODULE_BUILD_EXAMPLE=OFF \
+            -DEDGE_MODULE_ENABLE_WERROR=ON
+      - name: Build Cortex-M4 ELF and binary
+        run: cmake --build build-m4 --parallel
+      - name: Verify Cortex-M4 ELF
+        run: |
+          arm-none-eabi-readelf -h build-m4/example_cortex_m4 | tee build-m4/readelf.txt
+          grep -E 'Class:.*ELF32' build-m4/readelf.txt
+          grep -E 'Machine:.*ARM' build-m4/readelf.txt
+          arm-none-eabi-size build-m4/example_cortex_m4
+          python3 .github/scripts/check_size.py build-m4/example_cortex_m4 4194304 524288
+      - name: QEMU MPS2 AN386 smoke
+        run: |
+          set +e
+          timeout --signal=KILL 10s \
+            qemu-system-arm \
+              -M mps2-an386 \
+              -kernel build-m4/example_cortex_m4 \
+              -semihosting-config enable=on,target=native \
+              -nographic
+          rc=$?
+          set -e
+          test "$rc" -eq 0
+      - name: Upload Cortex-M4 image
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cortex-m4-firmware
+          path: |
+            build-m4/example_cortex_m4
+            build-m4/example_cortex_m4.bin
+            build-m4/example_cortex_m4.map
+            build-m4/readelf.txt
+          if-no-files-found: error
