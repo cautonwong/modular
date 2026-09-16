@@ -25,12 +25,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: gcc-debug, cc: gcc, cxx: g++, build_type: Debug, sanitizer: OFF }
-          - { name: gcc-release, cc: gcc, cxx: g++, build_type: Release, sanitizer: OFF }
-          - { name: clang-debug, cc: clang, cxx: clang++, build_type: Debug, sanitizer: OFF }
-          - { name: clang-release, cc: clang, cxx: clang++, build_type: Release, sanitizer: OFF }
-          - { name: gcc-asan-ubsan, cc: gcc, cxx: g++, build_type: Debug, sanitizer: ON }
-          - { name: clang-asan-ubsan, cc: clang, cxx: clang++, build_type: Debug, sanitizer: ON }
+          - { name: gcc-debug, cc: gcc, build_type: Debug, sanitizer: OFF }
+          - { name: gcc-release, cc: gcc, build_type: Release, sanitizer: OFF }
+          - { name: clang-debug, cc: clang, build_type: Debug, sanitizer: OFF }
+          - { name: clang-release, cc: clang, build_type: Release, sanitizer: OFF }
+          - { name: gcc-asan-ubsan, cc: gcc, build_type: Debug, sanitizer: ON }
+          - { name: clang-asan-ubsan, cc: clang, build_type: Debug, sanitizer: ON }
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 1 }
@@ -39,9 +39,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build pkg-config libcmocka-dev
       - name: Configure
-        env:
-          CC: ${{ matrix.cc }}
-          CXX: ${{ matrix.cxx }}
+        env: { CC: ${{ matrix.cc }} }
         run: >-
           cmake -S . -B build -G Ninja
           -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
@@ -57,15 +55,12 @@ jobs:
           ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: ctest --test-dir build --output-on-failure --parallel 2
-      - name: Upload build diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: diagnostics-${{ matrix.name }}
-          path: |
-            build/Testing/
-            build/compile_commands.json
-          if-no-files-found: ignore
+      - name: Product size gate
+        if: matrix.name == 'gcc-release'
+        run: |
+          test -f build/example
+          size build/example
+          python3 .github/scripts/check_size.py build/example 65536 16384
 
   static-analysis:
     name: static-analysis
@@ -81,16 +76,20 @@ jobs:
         env: { CC: clang }
         run: >-
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
-          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-          -DEDGE_MODULE_ENABLE_WERROR=ON
-          -DEDGE_MODULE_BUILD_TESTS=ON
-          -DEDGE_MODULE_BUILD_EXAMPLE=ON
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DEDGE_MODULE_ENABLE_WERROR=ON
+          -DEDGE_MODULE_BUILD_TESTS=ON -DEDGE_MODULE_BUILD_EXAMPLE=ON
       - name: Build
         run: cmake --build build --parallel
       - name: clang-tidy
-        run: clang-tidy -p build src/*.c
+        run: |
+          clang-tidy -p build src/event.c src/sys.c sys/example/sys_example.c app/dlt645/src/dlt645.c infra/flash/src/flash.c board/example/src/board.c
       - name: cppcheck
-        run: cppcheck --enable=warning,style,performance,portability --error-exitcode=1 --inline-suppr -I include src tests
+        run: >-
+          cppcheck --enable=warning,style,performance,portability
+          --error-exitcode=1 --inline-suppr
+          -I include -I app/dlt645/include -I infra/flash/include
+          -I board/example/include -I sys/example/include
+          src sys app board infra tests
 
   architecture:
     name: architecture-guards
@@ -100,13 +99,22 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify app dependency boundary
         run: python3 .github/scripts/check_app_isolation.py
-      - name: Verify repository hygiene
+      - name: Verify event ID uniqueness
+        run: python3 .github/scripts/check_event_ids.py
+      - name: Verify forbidden framework dependencies
         run: |
-          test ! -d app || true
-          test ! -d sys || true
-          test ! -d board || true
-          test ! -d infra || true
-          grep -RInE '#include[[:space:]]*[\"<](stm32|nrf|gd32|hal|FreeRTOS|zephyr)' app 2>/dev/null && exit 1 || true
+          if grep -RInE '#include[[:space:]]*["<](FreeRTOS|zephyr|cmsis_os|rtthread)' app edge_module 2>/dev/null; then
+            echo 'forbidden RTOS/framework dependency found'
+            exit 1
+          fi
+      - name: Verify required repository layers
+        run: |
+          test -d app
+          test -d sys
+          test -d board
+          test -d infra
+          test -d product
+          test -d include/edge
 
   coverage:
     name: coverage
