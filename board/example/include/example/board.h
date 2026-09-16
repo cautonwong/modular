@@ -2,6 +2,7 @@
 #define BOARD_EXAMPLE_H
 
 #include "edge/event.h"
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
