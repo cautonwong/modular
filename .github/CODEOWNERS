@@ -1,0 +1,15 @@
+# Default owners for the modular platform.
+# See CONTRIBUTING.md for review expectations.
+
+*                       @cautonwong
+
+# Certifiable core: changes require explicit review against the frozen ADRs.
+/edge_module/           @cautonwong
+/sys/                   @cautonwong
+/board/                 @cautonwong
+/infra/                 @cautonwong
+
+# Product composition roots and CI are release-critical.
+/product/               @cautonwong
+/.github/               @cautonwong
+/CMakeLists.txt         @cautonwong

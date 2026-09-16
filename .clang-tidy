@@ -1,0 +1,21 @@
+---
+# Curated, deterministic static-analysis profile for the framework and layers.
+# Keep the enabled set explicit so results do not drift with the clang-tidy
+# default checks across toolchain versions.
+Checks: >
+  clang-analyzer-*,
+  bugprone-*,
+  performance-*,
+  portability-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-macro-parentheses,
+  -bugprone-narrowing-conversions,
+  -bugprone-signed-char-misuse,
+  -performance-no-int-to-ptr,
+  -portability-avoid-pragma-once
+WarningsAsErrors: '*'
+HeaderFilterRegex: ''
+FormatStyle: file
+CheckOptions:
+  - key: readability-identifier-naming.EnumConstantPrefix
+    value: EDGE_

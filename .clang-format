@@ -1,0 +1,20 @@
+---
+Language: Cpp
+BasedOnStyle: LLVM
+Standard: c++17
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 100
+BreakBeforeBraces: Attach
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+SortIncludes: CaseSensitive
+IncludeBlocks: Preserve
+PointerAlignment: Right
+SpaceAfterCStyleCast: false
+AlignAfterOpenBracket: Align
+BinPackArguments: true
+BinPackParameters: true
