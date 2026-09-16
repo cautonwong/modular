@@ -1,10 +1,10 @@
 #ifndef EDGE_EVENT_H
 #define EDGE_EVENT_H
 
-#include <stddef.h>
-#include <stdint.h>
 #include "clock.h"
 #include "module.h"
+#include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -43,13 +43,10 @@ typedef struct edge_event_sink {
     const edge_irq_guard_t *guard;
 } edge_event_sink_t;
 
-edge_status_t edge_event_queue_init(edge_event_queue_t *queue,
-                                    edge_event_t *storage,
+edge_status_t edge_event_queue_init(edge_event_queue_t *queue, edge_event_t *storage,
                                     uint32_t capacity);
-edge_status_t edge_event_push_isr(edge_event_queue_t *queue,
-                                  const edge_event_t *event);
-edge_status_t edge_event_sink_push_isr(edge_event_sink_t *sink,
-                                       const edge_event_t *event);
+edge_status_t edge_event_push_isr(edge_event_queue_t *queue, const edge_event_t *event);
+edge_status_t edge_event_sink_push_isr(edge_event_sink_t *sink, const edge_event_t *event);
 edge_status_t edge_event_pop(edge_event_queue_t *queue, edge_event_t *event);
 size_t edge_event_count(const edge_event_queue_t *queue);
 uint32_t edge_event_dropped(const edge_event_queue_t *queue);

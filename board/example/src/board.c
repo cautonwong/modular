@@ -3,13 +3,11 @@
 
 static edge_event_sink_t *g_event_sink;
 
-void board_example_init(edge_event_sink_t *sink)
-{
+void board_example_init(edge_event_sink_t *sink) {
     g_event_sink = sink;
 }
 
-void board_example_irq_uart0_rx(uint32_t byte_count)
-{
+void board_example_irq_uart0_rx(uint32_t byte_count) {
     if (g_event_sink == NULL) {
         return;
     }

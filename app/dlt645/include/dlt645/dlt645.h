@@ -22,8 +22,8 @@ typedef struct dlt645 {
     uint32_t last_event;
 } dlt645_t;
 
-void dlt645_construct(dlt645_t *self, uint32_t module_id,
-                     uint32_t priority, const dlt645_storage_if_t *storage);
+void dlt645_construct(dlt645_t *self, uint32_t module_id, uint32_t priority,
+                      const dlt645_storage_if_t *storage);
 
 #ifdef __cplusplus
 }

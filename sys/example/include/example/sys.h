@@ -43,9 +43,8 @@ edge_status_t edge_sys_run_once(edge_sys_t *sys);
 edge_status_t edge_sys_power_off(edge_sys_t *sys);
 edge_status_t edge_sys_deinit(edge_sys_t *sys);
 
-edge_status_t sys_example_init(edge_sys_t *sys, edge_module_t **apps,
-                               size_t app_count, edge_event_queue_t *events,
-                               edge_sys_subscription_t *subscriptions,
+edge_status_t sys_example_init(edge_sys_t *sys, edge_module_t **apps, size_t app_count,
+                               edge_event_queue_t *events, edge_sys_subscription_t *subscriptions,
                                size_t subscription_capacity);
 
 #endif

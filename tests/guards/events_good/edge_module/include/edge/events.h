@@ -1,0 +1,2 @@
+#define EDGE_EVT_UART0_RX (0x0100u + 0x01u)
+#define EDGE_EVT_DLT645_RX (0x1000u + 0x01u)

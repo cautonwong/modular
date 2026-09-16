@@ -26,8 +26,7 @@ typedef struct edge_module edge_module_t;
 
 typedef edge_status_t (*edge_module_init_fn)(edge_module_t *self);
 typedef edge_status_t (*edge_module_poll_fn)(edge_module_t *self);
-typedef edge_status_t (*edge_module_event_fn)(edge_module_t *self,
-                                               const edge_event_t *event);
+typedef edge_status_t (*edge_module_event_fn)(edge_module_t *self, const edge_event_t *event);
 typedef edge_status_t (*edge_module_power_off_fn)(edge_module_t *self);
 typedef edge_status_t (*edge_module_deinit_fn)(edge_module_t *self);
 
@@ -51,8 +50,7 @@ _Static_assert(sizeof(void *) == 4u, "embedded ABI requires 32-bit pointers");
 _Static_assert(sizeof(edge_module_t) == 36u, "edge_module_t ABI changed for 32-bit target");
 #endif
 
-static inline void *edge_module_data(edge_module_t *self)
-{
+static inline void *edge_module_data(edge_module_t *self) {
     return self ? self->private_data : NULL;
 }
 

@@ -47,6 +47,8 @@ target_include_directories(app_dlt645 PUBLIC
 )
 target_link_libraries(app_dlt645 PUBLIC edge_module)
 edge_enable_quality(app_dlt645)
+# App registry consumed by edge_add_product(); keep in sync with app/ targets.
+set(EDGE_APP_TARGET_dlt645 app_dlt645)
 
 add_library(infra_flash STATIC infra/flash/src/flash.c)
 target_include_directories(infra_flash PUBLIC
@@ -72,11 +74,10 @@ function(edge_add_product name)
 
     set(app_targets)
     foreach(app IN LISTS P_apps)
-        if(app STREQUAL "dlt645")
-            list(APPEND app_targets app_dlt645)
-        else()
+        if(NOT DEFINED EDGE_APP_TARGET_${app})
             message(FATAL_ERROR "edge_add_product(${name}): unknown app '${app}'")
         endif()
+        list(APPEND app_targets ${EDGE_APP_TARGET_${app}})
     endforeach()
 
     if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/product/${name}/main.c")
@@ -154,22 +155,28 @@ if(EDGE_MODULE_BUILD_TESTS)
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(CMOCKA REQUIRED IMPORTED_TARGET cmocka)
 
-    add_executable(test_event tests/test_event.c)
-    target_link_libraries(test_event PRIVATE edge_module PkgConfig::CMOCKA)
-    target_include_directories(test_event PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include)
-    edge_enable_quality(test_event)
-    add_test(NAME event COMMAND test_event)
+    # Host tests link the full layer set so any public contract can be exercised.
+    function(edge_add_host_test name)
+        add_executable(${name} ${ARGN})
+        target_include_directories(${name} PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/sys/example/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/app/dlt645/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/infra/flash/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/board/example/include
+        )
+        target_link_libraries(${name} PRIVATE
+            edge_module sys_example app_dlt645 infra_flash board_example
+            PkgConfig::CMOCKA
+        )
+        edge_enable_quality(${name})
+        add_test(NAME ${name} COMMAND ${name})
+        set_tests_properties(${name} PROPERTIES LABELS "host")
+    endfunction()
 
-    add_executable(test_sys tests/test_sys.c)
-    target_link_libraries(test_sys PRIVATE edge_module PkgConfig::CMOCKA)
-    target_include_directories(test_sys PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include ${CMAKE_CURRENT_SOURCE_DIR}/sys/example/include)
-    target_link_libraries(test_sys PRIVATE sys_example)
-    edge_enable_quality(test_sys)
-    add_test(NAME sys COMMAND test_sys)
-
-    add_executable(test_architecture tests/test_architecture.c)
-    target_link_libraries(test_architecture PRIVATE edge_module PkgConfig::CMOCKA)
-    target_include_directories(test_architecture PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include)
-    edge_enable_quality(test_architecture)
-    add_test(NAME architecture COMMAND test_architecture)
+    edge_add_host_test(test_event tests/test_event.c)
+    edge_add_host_test(test_sys tests/test_sys.c)
+    edge_add_host_test(test_architecture tests/test_architecture.c)
+    edge_add_host_test(test_app_dlt645 tests/test_app_dlt645.c)
+    edge_add_host_test(test_flash_glue tests/test_flash_glue.c product/example/glue.c)
 endif()
