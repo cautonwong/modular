@@ -12,6 +12,7 @@ option(EDGE_MODULE_ENABLE_WERROR "Treat compiler warnings as errors" ON)
 option(EDGE_MODULE_ENABLE_SANITIZERS "Enable ASan and UBSan" OFF)
 option(EDGE_MODULE_ENABLE_COVERAGE "Enable GCC coverage" OFF)
 option(EDGE_MODULE_BUILD_ARM_CORTEX_M0 "Build Cortex-M0 cross target" OFF)
+option(EDGE_MODULE_BUILD_ARM_CORTEX_M4 "Build Cortex-M4 cross target" OFF)
 
 function(edge_enable_quality target)
     target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
@@ -47,7 +48,6 @@ target_include_directories(app_dlt645 PUBLIC
 )
 target_link_libraries(app_dlt645 PUBLIC edge_module)
 edge_enable_quality(app_dlt645)
-# App registry consumed by edge_add_product(); keep in sync with app/ targets.
 set(EDGE_APP_TARGET_dlt645 app_dlt645)
 
 add_library(infra_flash STATIC infra/flash/src/flash.c)
@@ -105,12 +105,12 @@ if(EDGE_MODULE_BUILD_EXAMPLE)
     edge_add_product(example family example board example apps dlt645)
 endif()
 
-if(EDGE_MODULE_BUILD_ARM_CORTEX_M0)
+function(edge_add_arm_firmware name cpu linker_script)
     if(NOT CMAKE_C_COMPILER MATCHES "arm-none-eabi-gcc$")
-        message(FATAL_ERROR "EDGE_MODULE_BUILD_ARM_CORTEX_M0 requires arm-none-eabi-gcc toolchain")
+        message(FATAL_ERROR "${name} requires arm-none-eabi-gcc toolchain")
     endif()
 
-    add_executable(example_cortex_m0
+    add_executable(${name}
         product/example/main.c
         product/example/glue.c
         board/example/src/board.c
@@ -121,7 +121,7 @@ if(EDGE_MODULE_BUILD_ARM_CORTEX_M0)
         edge_module/src/event.c
         .github/arm/startup.c
     )
-    target_include_directories(example_cortex_m0 PRIVATE
+    target_include_directories(${name} PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include
         ${CMAKE_CURRENT_SOURCE_DIR}/sys/example/include
         ${CMAKE_CURRENT_SOURCE_DIR}/app/dlt645/include
@@ -129,33 +129,40 @@ if(EDGE_MODULE_BUILD_ARM_CORTEX_M0)
         ${CMAKE_CURRENT_SOURCE_DIR}/board/example/include
         ${CMAKE_CURRENT_SOURCE_DIR}/product/example
     )
-    target_compile_definitions(example_cortex_m0 PRIVATE EDGE_TARGET_ARM32=1)
-    target_compile_options(example_cortex_m0 PRIVATE
-        -mcpu=cortex-m0 -mthumb -mno-unaligned-access
+    target_compile_definitions(${name} PRIVATE EDGE_TARGET_ARM32=1)
+    target_compile_options(${name} PRIVATE
+        -mcpu=${cpu} -mthumb -mno-unaligned-access
         -ffreestanding -fdata-sections -ffunction-sections
         -fno-common -Os
     )
-    target_link_options(example_cortex_m0 PRIVATE
-        -mcpu=cortex-m0 -mthumb
-        -T${CMAKE_CURRENT_SOURCE_DIR}/.github/arm/cortex-m0.ld
+    target_link_options(${name} PRIVATE
+        -mcpu=${cpu} -mthumb
+        -T${CMAKE_CURRENT_SOURCE_DIR}/${linker_script}
         -nostartfiles
         --specs=nosys.specs
         -Wl,--gc-sections
-        -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/example_cortex_m0.map
+        -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/${name}.map
     )
-    set_target_properties(example_cortex_m0 PROPERTIES OUTPUT_NAME example_cortex_m0)
-    add_custom_command(TARGET example_cortex_m0 POST_BUILD
-        COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:example_cortex_m0> ${CMAKE_CURRENT_BINARY_DIR}/example_cortex_m0.bin
-        COMMAND ${CMAKE_SIZE} $<TARGET_FILE:example_cortex_m0>
+    set_target_properties(${name} PROPERTIES OUTPUT_NAME ${name})
+    add_custom_command(TARGET ${name} POST_BUILD
+        COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:${name}> ${CMAKE_CURRENT_BINARY_DIR}/${name}.bin
+        COMMAND ${CMAKE_SIZE} $<TARGET_FILE:${name}>
         VERBATIM
     )
+endfunction()
+
+if(EDGE_MODULE_BUILD_ARM_CORTEX_M0)
+    edge_add_arm_firmware(example_cortex_m0 cortex-m0 .github/arm/cortex-m0.ld)
+endif()
+
+if(EDGE_MODULE_BUILD_ARM_CORTEX_M4)
+    edge_add_arm_firmware(example_cortex_m4 cortex-m4 .github/arm/cortex-m4.ld)
 endif()
 
 if(EDGE_MODULE_BUILD_TESTS)
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(CMOCKA REQUIRED IMPORTED_TARGET cmocka)
 
-    # Host tests link the full layer set so any public contract can be exercised.
     function(edge_add_host_test name)
         add_executable(${name} ${ARGN})
         target_include_directories(${name} PRIVATE
