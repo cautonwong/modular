@@ -1,36 +1,49 @@
 #ifndef EDGE_MODULE_H
 #define EDGE_MODULE_H
 
-#include "module_abi.h"
-#include "event.h"
 #include <stddef.h>
 #include <stdint.h>
 
 typedef enum edge_status {
-    EDGE_OK = 0, EDGE_EINVAL = -1, EDGE_ENOENT = -2, EDGE_EBUSY = -3,
-    EDGE_ESTATE = -4, EDGE_EABI = -5, EDGE_EDEPEND = -6,
-    EDGE_EOVERFLOW = -7, EDGE_EQUEUE = -8, EDGE_ENOSPC = -9, EDGE_ENOTSUP = -10
+    EDGE_OK = 0,
+    EDGE_EINVAL = -1,
+    EDGE_ENOENT = -2,
+    EDGE_EBUSY = -3,
+    EDGE_ESTATE = -4,
+    EDGE_EABI = -5,
+    EDGE_EDEPEND = -6,
+    EDGE_EOVERFLOW = -7,
+    EDGE_EQUEUE = -8,
+    EDGE_ENOSPC = -9,
+    EDGE_ENOTSUP = -10
 } edge_status_t;
 
-typedef enum edge_module_state {
-    EDGE_MODULE_CREATED, EDGE_MODULE_INITIALIZED, EDGE_MODULE_RUNNING,
-    EDGE_MODULE_SUSPENDED, EDGE_MODULE_STOPPED, EDGE_MODULE_FAILED
-} edge_module_state_t;
+typedef struct edge_event edge_event_t;
 
-struct edge_module_context;
-typedef int (*edge_module_init_fn)(struct edge_module_context *);
-typedef int (*edge_module_power_fn)(struct edge_module_context *);
-typedef int (*edge_module_poll_fn)(struct edge_module_context *);
-typedef int (*edge_module_deinit_fn)(struct edge_module_context *);
-typedef int (*edge_module_suspend_fn)(struct edge_module_context *);
-typedef int (*edge_module_resume_fn)(struct edge_module_context *);
+typedef struct edge_module edge_module_t;
+typedef int (*edge_module_init_fn)(edge_module_t *self);
+typedef int (*edge_module_poll_fn)(edge_module_t *self);
+typedef int (*edge_module_event_fn)(edge_module_t *self, const edge_event_t *event);
+typedef int (*edge_module_power_off_fn)(edge_module_t *self);
 
+typedef struct edge_module {
+    uint32_t module_id;
+    uint32_t priority;
+    edge_module_init_fn init;
+    edge_module_poll_fn poll;
+    edge_module_event_fn on_event;
+    edge_module_power_off_fn power_off;
+    void *private_data;
+} edge_module_t;
+
+/* Legacy descriptor API remains available to existing SDK consumers. */
+#include "module_abi.h"
 typedef struct edge_module_context {
     void *private_data;
     const edge_module_preamble_v1_t *preamble;
     void *platform;
     void *config;
-    edge_event_queue_t *events;
+    void *events;
     uint32_t state;
     uint32_t instance_id;
 } edge_module_context_t;
@@ -41,26 +54,16 @@ typedef struct edge_module_descriptor {
     uint32_t module_id;
     uint32_t priority;
     edge_module_context_t *ctx;
-    edge_module_init_fn init;
-    edge_module_power_fn power_on;
-    edge_module_poll_fn poll;
-    edge_module_power_fn power_off;
-    edge_module_deinit_fn deinit;
-    edge_module_suspend_fn suspend;
-    edge_module_resume_fn resume;
+    int (*legacy_init)(edge_module_context_t *);
+    int (*legacy_power_on)(edge_module_context_t *);
+    int (*legacy_poll)(edge_module_context_t *);
+    int (*legacy_power_off)(edge_module_context_t *);
+    int (*legacy_deinit)(edge_module_context_t *);
+    int (*legacy_suspend)(edge_module_context_t *);
+    int (*legacy_resume)(edge_module_context_t *);
     const uint32_t *dependencies;
     size_t dependency_count;
 } edge_module_descriptor_t;
-
-/* Consumer-facing foreground module handle. No registry or service locator. */
-typedef struct edge_module {
-    uint32_t module_id;
-    uint32_t priority;
-    int (*init)(struct edge_module *self);
-    int (*poll)(struct edge_module *self);
-    int (*power_off)(struct edge_module *self);
-    void *private_data;
-} edge_module_t;
 
 typedef struct edge_module_manager {
     edge_module_descriptor_t *instances;
@@ -80,9 +83,5 @@ int edge_module_deinit_all(edge_module_manager_t *);
 int edge_module_suspend_all(edge_module_manager_t *);
 int edge_module_resume_all(edge_module_manager_t *);
 const edge_module_descriptor_t *edge_module_find(const edge_module_manager_t *, uint32_t instance_id);
-
-#if defined(__GNUC__)
-#define EDGE_MODULE_REGISTER(name, descriptor) static const edge_module_descriptor_t * const edge_module_registry_##name __attribute__((section(".edge_module_registry"), used)) = &(descriptor)
-#endif
 
 #endif
