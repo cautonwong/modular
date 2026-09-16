@@ -12,6 +12,7 @@ typedef struct {
 } edge_sys_t;
 
 int edge_sys_init(edge_sys_t *sys, edge_module_t **apps, size_t count);
+int edge_sys_validate_required(const edge_sys_t *sys, const uint32_t *required_ids, size_t required_count);
 int edge_sys_run_once(edge_sys_t *sys);
 int edge_sys_power_off(edge_sys_t *sys);
 
