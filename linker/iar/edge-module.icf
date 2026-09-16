@@ -1,0 +1,3 @@
+/* IAR integration sketch: place the module registry in a root/kept region.
+ * Use #pragma location="EDGE_MODULE_REGISTRY" and __root on each pointer.
+ * Export begin/end symbols according to the project's ICF syntax. */
