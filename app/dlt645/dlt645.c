@@ -1,4 +1,5 @@
 #include "dlt645.h"
+#include <stddef.h>
 
 static int dlt645_init(edge_module_t *self) {
     dlt645_t *app = (dlt645_t *)self->private_data;
