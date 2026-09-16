@@ -115,6 +115,7 @@ if(EDGE_MODULE_BUILD_ARM_CORTEX_M0)
         board/example/src/board.c
         infra/flash/src/flash.c
         app/dlt645/src/dlt645.c
+        sys/example/sys_example.c
         sys/example/src/sys.c
         edge_module/src/event.c
         .github/arm/startup.c
@@ -136,6 +137,7 @@ if(EDGE_MODULE_BUILD_ARM_CORTEX_M0)
     target_link_options(example_cortex_m0 PRIVATE
         -mcpu=cortex-m0 -mthumb
         -T${CMAKE_CURRENT_SOURCE_DIR}/.github/arm/cortex-m0.ld
+        -nostartfiles
         --specs=nosys.specs
         -Wl,--gc-sections
         -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/example_cortex_m0.map
