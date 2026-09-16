@@ -1,6 +1,8 @@
 #include "dlt645.h"
 #include "edge/sys.h"
 #include "flash.h"
+#include <stddef.h>
+#include <stdint.h>
 
 static int storage_read(void *self, uint32_t key, void *buf, size_t len) {
     return flash_read(self, key, buf, len);
