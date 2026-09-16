@@ -2,68 +2,75 @@
 
 > **Architecture / TODO Source of Truth**
 >
-> 当前架构以仓库根目录 `todo.md` 为完整设计记录；本 README 是其面向仓库首页的执行版摘要。两者共同描述同一套冻结架构。
+> 根目录 `todo.md` 是完整架构决策与实施清单；README 保持与其核心原则一致，并记录当前已经落地的代码边界。
 
 ## 目标
 
-这是一个面向前后台（foreground/background）嵌入式环境的软件产品线架构，不依赖 RTOS、线程或运行期动态分配。
+面向**前后台（foreground/background）**嵌入式环境，不依赖 RTOS、线程或运行期动态分配。
 
 ```text
-             sys/<family>          board/<board>
-                   \                 /
-                    \               /
-                    product/<name>
-                 Composition Root
-                    /             \
-                   /               \
-             app/<name>         infra/<name>
-                    \               /
-                     \             /
-                       edge_module
+sys/<family>          board/<board>
+       \                 /
+        \               /
+          product/<name>
+       Composition Root
+          /         \
+         /           \
+   app/<name>     infra/<name>
+         \           /
+          \         /
+           edge_module
 ```
 
-- **sys**：每个产品族一个；负责运行期调度与策略。
-- **board**：每块板一个；负责 IRQ 转发和硬件动作，不认识业务 app。
-- **app**：跨产品复用的业务模块；只依赖 `edge_module` 和自己定义的消费者接口。
-- **infra**：具体存储、通信、设备等实现。
-- **product**：唯一组合根，负责选型、构造、adapter、连接和启动。
+- `edge_module`：极薄框架契约；生命周期、事件队列、公共小工具。
+- `sys`：每个产品族一个；负责排序、启动/回滚、事件路由、foreground 调度和关停策略。
+- `board`：每块板一个；IRQ 清理/最小采集/事件转发及安全硬件动作，不认识业务 app。
+- `app`：可复用业务模块；只依赖 `edge_module` 与自己定义的消费者接口。
+- `infra`：具体基础设施实现；不依赖 app 业务类型。
+- `product`：唯一组合根；选择 family/board/infra，构造 app，连接 adapter，启动产品。
 
-## 已冻结的核心原则
+## 已冻结原则
 
-1. **显式装配**：`main()` 明确构造 app；不依赖链接段自动注册。
-2. **构造注入**：`xxx_init(self, deps)`，禁止 service locator / `get_service()`。
-3. **消费者定义接口**：接口跟随 app；infra 只提供自己的具体 API；adapter 位于 `product/<name>/glue`。
-4. **零具体依赖**：app 不 include 其它 app、具体 infra、board/HAL/寄存器。
-5. **sys 只调度**：按 `priority` 排序，同 priority 按 `module_id` 升序。
-6. **board 只做板级工作**：ISR 清状态、最小采集、push event；绝不调用 app callback。
-7. **事件只有事实语义**：命令使用直接 contract 调用。
-8. **事件 payload 固定标量**：`{id, source, arg0, arg1, timestamp}`，禁止原生指针。
-9. **运行期零分配**：对象、队列、buffer 由调用者提供。
-10. **产品事实来源只有 CMake + main()**：不引入第三套 manifest。
+1. `main()` 显式构造 app；不使用链接段自动注册。
+2. 构造注入，禁止 service locator / `get_service()`。
+3. 接口跟随消费者；adapter 位于 product glue。
+4. app 不依赖其它 app、具体 infra、board/HAL/寄存器。
+5. sys 按 `priority` 调度；同 priority 按 `module_id` 升序。
+6. required 与 priority 分离；required 单独校验。
+7. ISR 不调用 app callback，只进入注入的 event sink。
+8. event payload 固定 `{id, source, arg0, arg1, timestamp}`，禁止裸指针。
+9. 队列容量由调用者提供；满时 drop-newest 并累计 counter。
+10. 时间通过 `edge_clock_port_t` 注入；sink 入队时写 monotonic timestamp。
+11. 运行期零 malloc/free；对象和 buffer 由组合根提供。
+12. 产品事实来源只有 CMake + `main()`，不引入平行 manifest。
 
 ## 目录
 
 ```text
 edge_module/
     include/edge/module.h
+    include/edge/event.h
     include/edge/events.h
     include/edge/clock.h
-    include/edge/log.h
-    include/edge/util/
-    src/
+    src/event.c
 app/<name>/
-    include/<name>/
-    src/
+    include/<name>/*.h
+    src/*.c
 sys/<family>/
+    include/<family>/sys.h
+    src/*.c
 board/<board>/
+    include/<board>/*.h
+    src/*.c
 infra/<name>/
+    include/<name>/*.h
+    src/*.c
 product/<name>/
-    glue/
+    glue.c / glue/*.c
     main.c
-    apps/
 ```
 
-依赖方向严格为：
+依赖方向：
 
 ```text
 app     -> edge_module
@@ -73,52 +80,83 @@ infra   -> edge_module
 product -> 全部
 ```
 
-## 运行模型
+## 生命周期与 super-loop
 
 ```text
-board IRQ
-   |
-   v
-injected event sink
-   |
-   v
-bounded SPSC queue
-   |
-   v
-sys router -- explicit subscription --> app.on_event()
-   |
-   v
-app.poll()  (cooperative / bounded)
+construct
+   -> sys_init
+   -> validate required
+   -> app.init()          （失败自动回滚）
+   -> running
+   -> event dispatch
+   -> app.poll()          （bounded / cooperative）
+   -> power_off           （逆序）
+   -> deinit              （逆序）
 ```
 
-启动：
+当前 sys 已实现：
+
+- priority + module_id deterministic ordering
+- duplicate module ID rejection
+- explicit required-module validation
+- init failure rollback
+- event subscription/routing
+- failed app isolation from后续 poll/dispatch
+- reverse-order power-off/deinit
+- caller-owned storage
+
+## IRQ / Event
 
 ```text
-board init
-  -> infra init
-  -> product glue
-  -> app_init(deps)
-  -> apps[]
-  -> sys_subscribe()
-  -> sys loop
+hardware IRQ
+    |
+    v
+board ISR
+    |  clear IRQ + minimal capture
+    v
+edge_event_sink
+    |  timestamp + bounded queue
+    v
+sys router
+    |  explicit sys_subscribe(event_id, app)
+    v
+app.on_event()
 ```
 
-## Port / Adapter 示例
+事件队列本身采用无动态分配的环形缓冲。`edge_event_push_isr()` 面向单生产者；如果多个 IRQ 共享一个 sink，board 必须注入 `edge_irq_guard_t`，由平台实现临界区序列化生产者。框架本身不包含任何架构相关关中断代码。
+
+中央事件号表位于 `edge_module/include/edge/events.h`，同时有 `_Static_assert` 与 CI collision checker。
+
+## Consumer-defined Port / Adapter
+
+例如 DLT645 定义自己需要的 KV 存储能力：
 
 ```c
-typedef struct {
+typedef struct dlt645_storage_if {
     edge_status_t (*read)(void *self, uint32_t key, void *buf, size_t len);
     edge_status_t (*write)(void *self, uint32_t key, const void *buf, size_t len);
-} dlt645_storage_if;
-
-int dlt645_init(dlt645_t *self, const dlt645_storage_if *storage);
+    void *self;
+} dlt645_storage_if_t;
 ```
 
-`dlt645` 定义它真正需要的接口；`infra/flash` 不需要知道 `dlt645_t`；`product/glue` 把两者连接起来。
+`infra/flash` 只提供自己的 `flash_read/write()`；`product/example/glue.c` 把二者适配起来。app 不 include infra 实现头。
 
-## 工程质量门
+## 构建
 
-CI 已包含：
+```cmake
+edge_add_product(
+    example
+    family example
+    board example
+    apps dlt645
+)
+```
+
+产品入口是 `product/example/main.c`，没有自动注册和隐藏依赖。
+
+## CI/CD 质量门
+
+当前 CI 包含：
 
 - GCC Debug / Release
 - Clang Debug / Release
@@ -126,38 +164,49 @@ CI 已包含：
 - Clang ASan + UBSan
 - `-Wall -Wextra -Wpedantic -Werror`
 - CMocka unit tests
-- clang-tidy
-- cppcheck
-- architecture dependency guards
-- coverage / gcovr artifact
-- PR、main push、手动触发
+- clang-tidy / cppcheck
+- app include boundary guard
+- central event ID collision check
+- product layer existence guard
+- gcovr coverage artifact
+- GCC Release ELF Flash/RAM budget gate
+- PR / main push / manual workflow
 - concurrency cancellation
-- failure diagnostics artifact
+- failure diagnostics
 
-后续 CI 必须继续扩展到合法的 **family × board** 产品矩阵、双工具链（GCC + IAR/iccarm）、map Flash/RAM budget 和 reproducible-build metadata。
+下一阶段 CI：合法 `family × board × app-set` 全矩阵、GCC + IAR/iccarm 双工具链、map 文件预算、reproducible-build metadata。
 
-## 当前实施重点
+## 当前状态
 
-- [x] monorepo 基础结构
-- [x] 显式 composition root 示例
-- [x] constructor injection 示例
-- [x] priority + `module_id` tie-break
-- [x] required module 校验接口
-- [x] board IRQ -> injected sink
-- [x] bounded event queue + drop counter
-- [x] central event ID header
-- [x] explicit `sys_subscribe()` / event routing
-- [x] injected clock/log port contracts
-- [x] GCC/Clang + sanitizer CI matrix
-- [x] static analysis + coverage
-- [ ] 完成 D15 极薄 framework 的最终收缩
-- [ ] 完成 CMake `edge_add_product()` 与清单一致性检查
-- [ ] 完成 IAR/iccarm CMake toolchain
-- [ ] 完成产品 family × board matrix
-- [ ] 完成 map Flash/RAM budget gate
-- [ ] 完成 Renode/HIL IRQ 测试
-- [ ] 完成 scheduler 周期、预算、低功耗和 fault isolation
-- [ ] 完成 ABI/contract compatibility matrix
+已落地：
+
+- [x] monorepo 分层
+- [x] thin `edge_module`
+- [x] explicit composition root
+- [x] consumer-defined port + product adapter
+- [x] deterministic scheduler ordering
+- [x] required validation
+- [x] transactional init rollback
+- [x] reverse shutdown
+- [x] bounded event queue + drop accounting
+- [x] injected monotonic clock
+- [x] multi-IRQ guard contract
+- [x] central event IDs + static/CI checks
+- [x] CMocka event/sys tests
+- [x] GCC/Clang/sanitizer/coverage CI
+- [x] product Flash/RAM size gate
+
+待实施：
+
+- [ ] scheduler 周期分频 / execution budget / idle-low-power
+- [ ] 更细的 fault policy 与 diagnostics
+- [ ] Renode/HIL IRQ 测试
+- [ ] family × board × app-set matrix
+- [ ] GCC + IAR/iccarm CMake toolchain
+- [ ] reproducible-build metadata
+- [ ] ABI/contract compatibility matrix
+- [ ] SDK distribution / compliance 独立项目
+- [ ] persistence schema + migration
 
 ## 明确禁止
 
@@ -172,8 +221,8 @@ CI 已包含：
 - event / command 语义混用
 - 运行期 malloc/free
 - manifest 与 CMake/main 平行定义产品
-- 为当前模块系统重新引入 RTOS/thread 模型
+- 为当前系统重新引入 RTOS/thread 模型
 
 ## 完整设计
 
-请以仓库根目录的 [`todo.md`](todo.md) 作为完整架构、D1-D45 决策和实施清单。
+以根目录 `todo.md` 作为 D1-D45 决策、边界规则和后续实施清单的完整记录。
