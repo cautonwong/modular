@@ -1,5 +1,6 @@
 #include "example/sys.h"
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -155,8 +156,8 @@ edge_status_t edge_sys_start(edge_sys_t *sys) {
             rc = app->init(app);
             if (rc < 0) {
                 app->failed = 1u;
-                sys->stats.errors++;
-                sys->stats.isolated++;
+                ++sys->stats.errors;
+                ++sys->stats.isolated;
                 if (app->initialized && app->deinit != NULL)
                     (void)app->deinit(app);
                 while (started > 0u) {
@@ -194,7 +195,7 @@ edge_status_t edge_sys_dispatch_events(edge_sys_t *sys) {
         if (pop_rc == EDGE_ENOENT)
             break;
         if (pop_rc < 0) {
-            sys->stats.errors++;
+            ++sys->stats.errors;
             if (first_error == EDGE_OK)
                 first_error = pop_rc;
             break;
