@@ -8,6 +8,38 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Central module ID table (`edge/modules.h`) and error allocation table
+  (`edge/errors.h`) with `EDGE_ERR(segment, code)` composition and static asserts.
+- Canonical narrow port shapes (`edge/ports.h`).
+- Runtime API completion for the ADR catalogue: `edge_sys_step`/`edge_sys_run`,
+  `edge_sys_idle` plus an injectable idle hook, `edge_sys_publish` with a
+  runner-owned deferred queue (`edge_sys_bind_pending_queue`),
+  `edge_sys_unsubscribe`, `edge_sys_suspend_all`/`edge_sys_resume_all`, and
+  `edge_sys_stats_reset`.
+- Optional `suspend`/`resume` module callbacks and a `fatal` module flag.
+- `check_module_ids.py` with positive/negative fixtures, wired into the guard
+  self-test and CI.
+- App isolation guard now rejects raw register access (N3) and heavy libc use
+  (N5), with negative fixtures.
+
+### Changed
+
+- `init` failures are now skipped and recorded by default; only modules marked
+  `fatal` roll back the already started modules and fail the product (D53).
+- Product module IDs come from the central table instead of magic numbers.
+- `edge_add_product()` enforces a legal family x board whitelist; a new negative
+  CI case covers a known-but-illegal pair.
+- Runtime stats gained `idle_calls` and `pending_high_water`.
+- `edge_module_t` grew append-only (`suspend`, `resume`, `suspended`, `fatal`);
+  the ABI size assertions were updated (104 bytes LP64 / 64 bytes ARM32).
+
+### Docs
+
+- Added `docs/adr-conformance.md`; refreshed README, `todo.md` and
+  `docs/todo-status.md` to match the implemented state.
+
+### Added
+
 - Shared `sys/runtime` scheduler with per-module `period`/`budget`, injected clock,
   bounded event dispatch, fault isolation and runtime statistics; `sys/example`
   and `sys/meter` are thin family wrappers.

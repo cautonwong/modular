@@ -17,17 +17,31 @@ typedef struct fake_app {
     int event_count;
     int off_count;
     int deinit_count;
+    int suspend_count;
+    int resume_count;
     edge_status_t init_rc;
     edge_status_t poll_rc;
     edge_status_t event_rc;
     edge_status_t off_rc;
     edge_status_t deinit_rc;
+    edge_status_t suspend_rc;
+    edge_status_t resume_rc;
+    edge_sys_t *shutdown_sys;
+    int shutdown_after_polls;
+    edge_sys_t *publish_sys;
+    uint32_t publish_id;
 } fake_app_t;
 
 static uint64_t g_now;
 static uint64_t g_poll_advance;
 static int g_order[8];
 static size_t g_order_count;
+static int g_idle_calls;
+
+static void fake_idle(void *ctx) {
+    (void)ctx;
+    ++g_idle_calls;
+}
 
 static uint64_t fake_clock(void *self) {
     (void)self;
@@ -50,14 +64,32 @@ static edge_status_t fake_poll(edge_module_t *m) {
     fake_app_t *a = as_fake(m);
     ++a->poll_count;
     g_now += g_poll_advance;
+    if (a->shutdown_sys != NULL && a->shutdown_after_polls > 0 &&
+        --a->shutdown_after_polls == 0)
+        (void)edge_sys_power_off(a->shutdown_sys);
     return a->poll_rc;
 }
 
 static edge_status_t fake_event(edge_module_t *m, const edge_event_t *e) {
-    (void)e;
     fake_app_t *a = as_fake(m);
     ++a->event_count;
+    if (a->publish_sys != NULL) {
+        const edge_event_t out = {.id = a->publish_id, .arg0 = e->id};
+        (void)edge_sys_publish(a->publish_sys, &out);
+    }
     return a->event_rc;
+}
+
+static edge_status_t fake_suspend(edge_module_t *m) {
+    fake_app_t *a = as_fake(m);
+    ++a->suspend_count;
+    return a->suspend_rc;
+}
+
+static edge_status_t fake_resume(edge_module_t *m) {
+    fake_app_t *a = as_fake(m);
+    ++a->resume_count;
+    return a->resume_rc;
 }
 
 static edge_status_t fake_off(edge_module_t *m) {
@@ -90,6 +122,8 @@ static void make_app(fake_app_t *a, uint32_t id, uint32_t priority) {
         .on_event = fake_event,
         .power_off = fake_off,
         .deinit = fake_deinit,
+        .suspend = fake_suspend,
+        .resume = fake_resume,
         .private_data = a,
     };
 }
@@ -255,6 +289,7 @@ static void test_init_rollback_and_power_failure(void **state) {
     make_app(&a, 1u, 1u);
     make_app(&b, 2u, 2u);
     b.init_rc = EDGE_EIO;
+    b.module.fatal = 1u;
     edge_module_t *apps[] = {&a.module, &b.module};
     edge_sys_t sys;
 
@@ -362,6 +397,7 @@ static void test_init_failure_clears_partial(void **state) {
     make_app(&a, 1u, 1u);
     make_app(&b, 2u, 2u);
     b.module.init = fake_init_set_then_fail;
+    b.module.fatal = 1u;
     edge_module_t *apps[] = {&a.module, &b.module};
     edge_sys_t sys;
 
@@ -459,6 +495,223 @@ static void test_meter_wrapper(void **state) {
     assert_int_equal(sys_meter_init(&sys, apps, 1u, NULL, 1u, &queue, subs, 2u), EDGE_EINVAL);
 }
 
+static void test_init_skip_non_fatal(void **state) {
+    (void)state;
+    fake_app_t a, b;
+    make_app(&a, 1u, 1u);
+    make_app(&b, 2u, 2u);
+    b.init_rc = EDGE_EIO;
+    edge_module_t *apps[] = {&a.module, &b.module};
+    edge_sys_t sys;
+    edge_sys_stats_t stats;
+
+    assert_int_equal(edge_sys_init(&sys, apps, 2u), EDGE_OK);
+    assert_int_equal(edge_sys_start(&sys), EDGE_OK);
+    assert_int_equal(sys.state, EDGE_SYS_RUNNING);
+    assert_int_equal(b.module.failed, 1u);
+    assert_int_equal(b.module.running, 0u);
+    assert_int_equal(a.module.initialized, 1u);
+    assert_int_equal(edge_sys_run_once(&sys), EDGE_OK);
+    assert_int_equal(b.poll_count, 0);
+    assert_int_equal(a.poll_count, 1);
+    assert_int_equal(edge_sys_stats_get(&sys, &stats), EDGE_OK);
+    assert_int_equal(stats.isolated, 1u);
+    assert_int_equal(stats.errors, 1u);
+}
+
+static void test_publish_deferred_queue(void **state) {
+    (void)state;
+    fake_app_t a;
+    make_app(&a, 1u, 1u);
+    edge_module_t *apps[] = {&a.module};
+    edge_event_t storage[4];
+    edge_event_queue_t queue;
+    edge_event_t pending[4];
+    edge_sys_subscription_t subs[2];
+    edge_sys_t sys;
+    edge_sys_stats_t stats;
+    edge_event_t ev = {.id = EDGE_EVT_UART0_RX};
+
+    assert_int_equal(edge_event_queue_init(&queue, storage, 4u), EDGE_OK);
+    assert_int_equal(edge_sys_init(&sys, apps, 1u), EDGE_OK);
+    assert_int_equal(edge_sys_set_event_budget(&sys, 1u), EDGE_OK);
+    assert_int_equal(edge_sys_bind_event_queue(&sys, &queue, subs, 2u), EDGE_OK);
+    assert_int_equal(edge_sys_bind_pending_queue(&sys, pending, 4u), EDGE_OK);
+    assert_int_equal(edge_sys_subscribe(&sys, EDGE_EVT_UART0_RX, &a.module), EDGE_OK);
+    assert_int_equal(edge_sys_publish(&sys, &ev), EDGE_ESTATE);
+    assert_int_equal(edge_sys_start(&sys), EDGE_OK);
+    assert_int_equal(edge_sys_publish(&sys, &ev), EDGE_OK);
+    assert_int_equal(edge_sys_stats_get(&sys, &stats), EDGE_OK);
+    assert_int_equal(stats.pending_high_water, 1u);
+    assert_int_equal(edge_sys_run_once(&sys), EDGE_OK);
+    assert_int_equal(a.event_count, 1);
+}
+
+static void test_publish_overflow_and_binding(void **state) {
+    (void)state;
+    fake_app_t a;
+    make_app(&a, 1u, 1u);
+    edge_module_t *apps[] = {&a.module};
+    edge_event_t pending[2];
+    edge_sys_t sys;
+    edge_sys_stats_t stats;
+    edge_event_t ev = {.id = EDGE_EVT_UART0_RX};
+
+    assert_int_equal(edge_sys_init(&sys, apps, 1u), EDGE_OK);
+    assert_int_equal(edge_sys_start(&sys), EDGE_OK);
+    assert_int_equal(edge_sys_publish(&sys, &ev), EDGE_ENOTSUP);
+    assert_int_equal(edge_sys_power_off(&sys), EDGE_OK);
+
+    assert_int_equal(edge_sys_init(&sys, apps, 1u), EDGE_OK);
+    assert_int_equal(edge_sys_bind_pending_queue(&sys, pending, 2u), EDGE_OK);
+    assert_int_equal(edge_sys_start(&sys), EDGE_OK);
+    assert_int_equal(edge_sys_publish(&sys, &ev), EDGE_OK);
+    assert_int_equal(edge_sys_publish(&sys, &ev), EDGE_EOVERFLOW);
+    assert_int_equal(edge_sys_stats_get(&sys, &stats), EDGE_OK);
+    assert_int_equal(stats.drops, 1u);
+    assert_int_equal(stats.pending_high_water, 1u);
+}
+
+static void test_unsubscribe(void **state) {
+    (void)state;
+    fake_app_t a;
+    make_app(&a, 1u, 1u);
+    edge_module_t *apps[] = {&a.module};
+    edge_event_t storage[4];
+    edge_event_queue_t queue;
+    edge_sys_subscription_t subs[2];
+    edge_sys_t sys;
+    edge_event_t ev = {.id = EDGE_EVT_UART0_RX};
+
+    assert_int_equal(edge_event_queue_init(&queue, storage, 4u), EDGE_OK);
+    assert_int_equal(edge_sys_init(&sys, apps, 1u), EDGE_OK);
+    assert_int_equal(edge_sys_bind_event_queue(&sys, &queue, subs, 2u), EDGE_OK);
+    assert_int_equal(edge_sys_subscribe(&sys, EDGE_EVT_UART0_RX, &a.module), EDGE_OK);
+    assert_int_equal(edge_sys_unsubscribe(&sys, EDGE_EVT_UART0_RX, &a.module), EDGE_OK);
+    assert_int_equal(edge_sys_unsubscribe(&sys, EDGE_EVT_UART0_RX, &a.module), EDGE_ENOENT);
+    assert_int_equal(edge_sys_start(&sys), EDGE_OK);
+    assert_int_equal(edge_event_push_isr(&queue, &ev), EDGE_OK);
+    assert_int_equal(edge_sys_run_once(&sys), EDGE_OK);
+    assert_int_equal(a.event_count, 0);
+}
+
+static void test_suspend_resume(void **state) {
+    (void)state;
+    fake_app_t a;
+    make_app(&a, 1u, 1u);
+    edge_module_t *apps[] = {&a.module};
+    edge_sys_t sys;
+
+    assert_int_equal(edge_sys_init(&sys, apps, 1u), EDGE_OK);
+    assert_int_equal(edge_sys_start(&sys), EDGE_OK);
+    assert_int_equal(edge_sys_suspend_all(&sys), EDGE_OK);
+    assert_int_equal(a.suspend_count, 1);
+    assert_int_equal(a.module.suspended, 1u);
+    assert_int_equal(edge_sys_run_once(&sys), EDGE_OK);
+    assert_int_equal(a.poll_count, 0);
+    assert_int_equal(edge_sys_resume_all(&sys), EDGE_OK);
+    assert_int_equal(a.resume_count, 1);
+    assert_int_equal(a.module.suspended, 0u);
+    assert_int_equal(edge_sys_run_once(&sys), EDGE_OK);
+    assert_int_equal(a.poll_count, 1);
+    assert_int_equal(edge_sys_suspend_all(&sys), EDGE_OK);
+    assert_int_equal(edge_sys_power_off(&sys), EDGE_OK);
+    assert_int_equal(a.module.suspended, 0u);
+}
+
+static void test_idle_hook(void **state) {
+    (void)state;
+    fake_app_t a;
+    make_app(&a, 1u, 1u);
+    a.module.period = 0u;
+    edge_module_t *apps[] = {&a.module};
+    edge_sys_t sys;
+    edge_sys_stats_t stats;
+
+    g_idle_calls = 0;
+    assert_int_equal(edge_sys_init(&sys, apps, 1u), EDGE_OK);
+    assert_int_equal(edge_sys_set_idle(&sys, fake_idle, NULL), EDGE_OK);
+    assert_int_equal(edge_sys_start(&sys), EDGE_OK);
+    assert_int_equal(edge_sys_run_once(&sys), EDGE_OK);
+    assert_int_equal(g_idle_calls, 1);
+    assert_int_equal(edge_sys_stats_get(&sys, &stats), EDGE_OK);
+    assert_int_equal(stats.idle_calls, 1u);
+}
+
+static void test_step_and_run_shutdown(void **state) {
+    (void)state;
+    fake_app_t a;
+    make_app(&a, 1u, 1u);
+    edge_module_t *apps[] = {&a.module};
+    edge_sys_t sys;
+
+    assert_int_equal(edge_sys_init(&sys, apps, 1u), EDGE_OK);
+    assert_int_equal(edge_sys_start(&sys), EDGE_OK);
+    a.shutdown_sys = &sys;
+    a.shutdown_after_polls = 3;
+    assert_int_equal(edge_sys_run(&sys), EDGE_OK);
+    assert_int_equal(sys.state, EDGE_SYS_STOPPED);
+    assert_int_equal(a.poll_count, 3);
+
+    assert_int_equal(edge_sys_step(NULL), EDGE_ESTATE);
+}
+
+static void test_stats_reset(void **state) {
+    (void)state;
+    fake_app_t a;
+    make_app(&a, 1u, 1u);
+    edge_module_t *apps[] = {&a.module};
+    edge_sys_t sys;
+    edge_sys_stats_t stats;
+
+    assert_int_equal(edge_sys_init(&sys, apps, 1u), EDGE_OK);
+    assert_int_equal(edge_sys_start(&sys), EDGE_OK);
+    assert_int_equal(edge_sys_run_once(&sys), EDGE_OK);
+    assert_int_equal(edge_sys_stats_get(&sys, &stats), EDGE_OK);
+    assert_int_equal(stats.polls, 1u);
+    assert_int_equal(edge_sys_stats_reset(&sys), EDGE_OK);
+    assert_int_equal(edge_sys_stats_get(&sys, &stats), EDGE_OK);
+    assert_int_equal(stats.polls, 0u);
+}
+
+static void test_new_api_argument_guards(void **state) {
+    (void)state;
+    fake_app_t a;
+    make_app(&a, 1u, 1u);
+    edge_module_t *apps[] = {&a.module};
+    edge_event_t pending[4];
+    edge_event_t ev = {.id = EDGE_EVT_UART0_RX};
+    edge_sys_t sys;
+
+    assert_int_equal(edge_sys_bind_pending_queue(NULL, pending, 4u), EDGE_EINVAL);
+    assert_int_equal(edge_sys_bind_pending_queue(&sys, NULL, 4u), EDGE_EINVAL);
+    assert_int_equal(edge_sys_init(&sys, apps, 1u), EDGE_OK);
+    assert_int_equal(edge_sys_bind_pending_queue(&sys, pending, 1u), EDGE_EINVAL);
+    assert_int_equal(edge_sys_bind_pending_queue(&sys, pending, 4u), EDGE_OK);
+    assert_int_equal(edge_sys_set_idle(NULL, NULL, NULL), EDGE_EINVAL);
+    assert_int_equal(edge_sys_set_idle(&sys, NULL, NULL), EDGE_OK);
+    assert_int_equal(edge_sys_publish(NULL, &ev), EDGE_EINVAL);
+    assert_int_equal(edge_sys_publish(&sys, NULL), EDGE_EINVAL);
+    assert_int_equal(edge_sys_publish(&sys, &ev), EDGE_ESTATE);
+    assert_int_equal(edge_sys_unsubscribe(NULL, 1u, &a.module), EDGE_EINVAL);
+    assert_int_equal(edge_sys_unsubscribe(&sys, 1u, NULL), EDGE_EINVAL);
+    assert_int_equal(edge_sys_unsubscribe(&sys, 1u, &a.module), EDGE_EINVAL);
+    assert_int_equal(edge_sys_idle(NULL), EDGE_EINVAL);
+    assert_int_equal(edge_sys_stats_reset(NULL), EDGE_EINVAL);
+    assert_int_equal(edge_sys_step(NULL), EDGE_ESTATE);
+    assert_int_equal(edge_sys_run(NULL), EDGE_EINVAL);
+    assert_int_equal(edge_sys_suspend_all(NULL), EDGE_ESTATE);
+    assert_int_equal(edge_sys_resume_all(NULL), EDGE_ESTATE);
+    assert_int_equal(edge_sys_start(&sys), EDGE_OK);
+    assert_int_equal(edge_sys_suspend_all(&sys), EDGE_OK);
+    assert_int_equal(edge_sys_suspend_all(&sys), EDGE_OK);
+    assert_int_equal(edge_sys_resume_all(&sys), EDGE_OK);
+    assert_int_equal(edge_sys_power_off(&sys), EDGE_OK);
+    assert_int_equal(edge_sys_suspend_all(&sys), EDGE_ESTATE);
+    assert_int_equal(edge_sys_resume_all(&sys), EDGE_ESTATE);
+    assert_int_equal(edge_sys_set_idle(&sys, NULL, NULL), EDGE_ESTATE);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_init_and_order),
@@ -477,6 +730,15 @@ int main(void) {
         cmocka_unit_test(test_execution_budget),
         cmocka_unit_test(test_deinit_error_propagation),
         cmocka_unit_test(test_meter_wrapper),
+        cmocka_unit_test(test_init_skip_non_fatal),
+        cmocka_unit_test(test_publish_deferred_queue),
+        cmocka_unit_test(test_publish_overflow_and_binding),
+        cmocka_unit_test(test_unsubscribe),
+        cmocka_unit_test(test_suspend_resume),
+        cmocka_unit_test(test_idle_hook),
+        cmocka_unit_test(test_step_and_run_shutdown),
+        cmocka_unit_test(test_stats_reset),
+        cmocka_unit_test(test_new_api_argument_guards),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

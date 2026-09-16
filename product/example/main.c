@@ -2,6 +2,7 @@
 #include "edge/clock.h"
 #include "edge/event.h"
 #include "edge/events.h"
+#include "edge/modules.h"
 #include "example/board.h"
 #include "example/sys.h"
 
@@ -28,7 +29,7 @@ int main(void) {
     edge_sys_t sys;
 
     product_example_make_storage(&storage, flash_state);
-    dlt645_construct(&dlt645, 0x1001u, 100u, &storage);
+    dlt645_construct(&dlt645, EDGE_MOD_DLT645, 100u, &storage);
     apps[0] = &dlt645.module;
 
     if (edge_event_queue_init(&event_queue, event_storage, 16u) < 0)

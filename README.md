@@ -51,7 +51,12 @@ edge_module/
     include/edge/module.h
     include/edge/event.h
     include/edge/events.h
+    include/edge/modules.h
+    include/edge/errors.h
+    include/edge/ports.h
     include/edge/clock.h
+    include/edge/log.h
+    include/edge/pal.h
     src/event.c
 app/<name>/
     include/<name>/*.h
@@ -163,8 +168,8 @@ edge_add_product(
 - CMocka 单元测试（事件、调度、app 契约、集成、PAL、GPIO），产出 JUnit 报告
 - 覆盖率门禁（gcovr `--fail-under-line 95`，当前 ~99.8%）+ XML/HTML 产物
 - clang-format 格式门禁、clang-tidy（`.clang-tidy`，warnings-as-errors）、cppcheck
-- **产品线组合矩阵**：`edge_add_product(name family board infra apps)` 从注册表解析，构建 `example` / `meter_host` / `meter_mps2` 三个合法产品并运行；非法 family/board/app/infra 组合由 CMake 拒绝（CI 反例）
-- 架构守卫：app 依赖边界（含 app→app / 具体层 / RTOS）、中央事件号唯一性、CMake↔main app 清单一致性，并带**反例自测**
+- **产品线组合矩阵**：`edge_add_product(name family board infra apps)` 从注册表解析并校验**合法 family×board 白名单**，构建 `example` / `meter_host` / `meter_mps2` 三个合法产品并运行；未知 family/board/app/infra 与非法族×板组合均由 CMake 拒绝（CI 反例）
+- 架构守卫：app 依赖边界（app→app / 具体层 / RTOS / **SoC 头 / 裸寄存器 N3 / 重 libc N5**）、中央事件号唯一性、**中央模块号唯一性**、CMake↔main app 清单一致性，并带**反例自测**
 - Cortex-M0 / Cortex-M4 交叉编译 + Cortex-M4 MPS2 QEMU 外设中断冒烟 + ELF 架构校验
 - **map 文件级分层预算**（`edge_module/sys/board/infra/app/product/startup/other`）+ ELF Flash/RAM 总量门
 - **可复现固件**（两次构建逐字节比对）+ provenance metadata + SBOM + SHA256SUMS
@@ -191,18 +196,28 @@ edge_add_product(
 - [x] injected monotonic clock
 - [x] multi-IRQ guard contract
 - [x] central event IDs + static/CI checks
+- [x] **central module IDs（`edge/modules.h`）+ 编译期/CI 唯一性**
+- [x] **central error table（`edge/errors.h`）+ 规范窄接口（`edge/ports.h`）**
 - [x] CMocka event/sys tests
 - [x] GCC/Clang/sanitizer/coverage CI
 - [x] product Flash/RAM size gate
+- [x] **period/budget 调度 + execution-budget 计数 + fault isolation**
+- [x] **`suspend`/`resume` 生命周期回调与 `suspend_all`/`resume_all`**
+- [x] **runner 内 `edge_sys_publish`（延后投递 + 深度上限 + drop 计数）**
+- [x] **`edge_sys_step`/`edge_sys_run` 分解 + `edge_sys_idle` 空闲钩子**
+- [x] **非致命 init 失败默认跳过并记录，`fatal` 模块才整机失败**
+- [x] **stats 高水位 / `edge_sys_stats_reset`**
+- [x] **合法 family×board 白名单 + 负例 CI**
+- [x] **app 隔离守卫覆盖 N3（裸寄存器）与 N5（重 libc）**
 
 待实施：
 
-- [ ] scheduler 周期分频 / execution budget / idle-low-power
-- [ ] 更细的 fault policy 与 diagnostics
+- [ ] `board_enter_low_power` / `board_feed_watchdog` 与 idle 钩子的板级接线（`pal/cortex-m-bare` 仍缺，当前仅 `pal/host`）
+- [ ] scheduler 周期分频 / 每模块高水位诊断
+- [ ] 多生产者 SPSC 队列（当前为单队列 + 注入 IRQ guard）
 - [ ] Renode/HIL IRQ 测试
-- [ ] family × board × app-set matrix
-- [ ] GCC + IAR/iccarm CMake toolchain
-- [ ] reproducible-build metadata
+- [ ] family × board × app-set 全量枚举矩阵
+- [ ] GCC + IAR/iccarm CI toolchain（工具链文件已备，未进 CI）
 - [ ] ABI/contract compatibility matrix
 - [ ] SDK distribution / compliance 独立项目
 - [ ] persistence schema + migration
@@ -224,4 +239,6 @@ edge_add_product(
 
 ## 完整设计
 
-以根目录 `todo.md` 作为 D1-D45 决策、边界规则和后续实施清单的完整记录。
+- 根目录 `todo.md`：冻结的 D1-D45 决策、边界规则与实施清单。
+- `docs/adr.md`：扩展决策记录 D1-D85（PAL / 并发 / 多驱动模型 / 中立性蓝图）。
+- `docs/adr-conformance.md`：ADR 决策与当前实现的逐项对照（含未闭合项）。

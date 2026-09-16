@@ -2,6 +2,7 @@
 #include "edge/clock.h"
 #include "edge/event.h"
 #include "edge/events.h"
+#include "edge/modules.h"
 #include "example/board.h"
 #include "meter/sys.h"
 #include "relay/relay.h"
@@ -31,12 +32,12 @@ int main(void) {
     edge_event_sink_t event_sink;
     edge_sys_subscription_t subscriptions[4];
     edge_sys_t sys;
-    const uint32_t required[] = {0x1001u, 0x1002u};
+    const uint32_t required[] = {EDGE_MOD_DLT645, EDGE_MOD_RELAY};
 
     product_meter_host_make_storage(&storage, flash_state);
     product_meter_host_make_relay_out(&relay_out, gpio_state);
-    dlt645_construct(&dlt645, 0x1001u, 100u, &storage);
-    relay_construct(&relay, 0x1002u, 110u, &relay_out);
+    dlt645_construct(&dlt645, EDGE_MOD_DLT645, 100u, &storage);
+    relay_construct(&relay, EDGE_MOD_RELAY, 110u, &relay_out);
     apps[0] = &dlt645.module;
     apps[1] = &relay.module;
 

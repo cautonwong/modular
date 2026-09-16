@@ -89,11 +89,11 @@
 
 ### 强制零依赖规则
 
-- [ ] N1 app 不 include 其它 app。
-- [ ] N2 app 不 include 具体 infra。
-- [ ] N3 app 不访问寄存器/外设地址。
-- [ ] N4 app 不依赖 RTOS、线程或动态分配。
-- [ ] N5 app 不使用 printf/malloc 等重 libc；若确有需要必须进入明确白名单。
+- [x] N1 app 不 include 其它 app。
+- [x] N2 app 不 include 具体 infra。
+- [x] N3 app 不访问寄存器/外设地址。
+- [x] N4 app 不依赖 RTOS、线程或动态分配。
+- [x] N5 app 不使用 printf/malloc 等重 libc；确有需要时用 `N5-allow` 注释显式白名单。
 
 ## 4. 目录标准
 
@@ -423,28 +423,32 @@ APP  = core 外部资产
 - [x] ASan/UBSan matrix。
 - [x] clang-tidy/cppcheck。
 - [x] coverage job。
+- [x] 唯一 `edge/events.h` 与编译期重复事件号检查。
+- [x] `sys_subscribe()` + 多 subscriber 路由，以及 `sys_unsubscribe()`。
+- [x] event sink 入队 monotonic timestamp。
+- [x] bounded queue overflow/drop 统计与背压策略。
+- [x] `clock_port_t` / `log_port_t` 注入。
+- [x] 中央 `edge/errors.h` 统一 `edge_status_t` 与 `EDGE_ERR` 号段。
+- [x] `edge_add_product()` 产品矩阵 + 合法 family×board 白名单。
+- [x] CMake/main app 清单一致性检查。
+- [x] app target 精确 include 隔离，反例 CI 验证失败（含 N3/N5）。
+- [x] 重复 module ID 编译期检查（`edge/modules.h` + `check_module_ids.py`）。
+- [x] 产品 map Flash/RAM budget gate（总量 + 分层）。
+- [x] reproducible-build metadata + 逐字节比对。
+- [x] scheduler `period`/`budget` + idle 钩子 + fault isolation + stats。
+- [x] 生命周期 callback 最终定义（`poll`/`on_event`/`suspend`/`resume`/`power_off`）。
+- [x] runner 内 `sys_publish`（延后投递 + 深度上限 + drop 计数）。
+- [x] 非致命 init 失败跳过并记录，`fatal` 模块才整机失败。
 
 ### 下一阶段必须实现
 
-- [ ] 把 `edge_module` 收缩为 D15 的最终极薄契约。
-- [ ] 增加唯一 `edge/events.h` 并建立编译期重复事件号检查。
-- [ ] 完成 `sys_subscribe()` + 多 subscriber 路由。
-- [ ] event sink 入队时增加 monotonic timestamp。
-- [ ] 完成 bounded queue overflow/drop 统计和明确背压策略。
-- [ ] 增加 `clock_port_t` / `log_port_t`。
-- [ ] 明确并统一各层 `edge_status_t` 返回集合。
-- [ ] 用 CMake function 实现 `edge_add_product()` 产品矩阵。
-- [ ] CMake/main app 清单一致性检查。
-- [ ] app target 精确 include 隔离，反例 CI 必须验证失败。
-- [ ] 重复 module ID 编译期检查。
-- [ ] 完成 GCC + IAR/iccarm CMake 双工具链路径。
-- [ ] 产品 map Flash/RAM budget gate。
-- [ ] 固定工具链版本与 reproducible-build metadata。
+- [ ] 把 `edge_module` 收缩为 D15 的最终极薄契约（D51 与当前结构体仍有分歧）。
+- [ ] 完成 GCC + IAR/iccarm CMake 双工具链路径（工具链文件已备，未进 CI）。
 - [ ] 完成 Renode/HIL board IRQ 测试。
-- [ ] 完成合法 family × board matrix。
-- [ ] 完成生命周期 callback 最终定义。
-- [ ] 完成 scheduler 周期/分频/预算模型。
-- [ ] 完成 fault isolation / watchdog / low-power 策略。
+- [ ] family × board × app-set 全量枚举矩阵（当前为白名单 + 3 个合法产品）。
+- [ ] scheduler 周期分频 / 每模块高水位诊断。
+- [ ] 完成 watchdog / low-power 板级策略（idle 钩子已有，`board_enter_low_power` 未接）。
+- [ ] 多生产者 SPSC 队列（当前单队列 + 注入 IRQ guard）。
 - [ ] 完成 ABI/contract version compatibility matrix。
 
 ## 15. 明确禁止的反模式

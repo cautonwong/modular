@@ -133,6 +133,10 @@ target_link_libraries(board_mps2 PUBLIC edge_module)
 edge_enable_quality(board_mps2)
 set(EDGE_BOARD_TARGET_mps2 board_mps2)
 
+# Legal family x board combinations (D39). An unknown family/board fails above;
+# a known-but-unlisted pair is a product composition error and fails here.
+set(EDGE_LEGAL_FAMILY_BOARD "example:example;meter:example;meter:mps2")
+
 function(edge_add_product name)
     cmake_parse_arguments(P "" "family;board" "apps;infra" ${ARGN})
     if(NOT P_family OR NOT P_board OR NOT P_apps)
@@ -143,6 +147,9 @@ function(edge_add_product name)
     endif()
     if(NOT DEFINED EDGE_BOARD_TARGET_${P_board})
         message(FATAL_ERROR "edge_add_product(${name}): unknown board '${P_board}'")
+    endif()
+    if(NOT "${P_family}:${P_board}" IN_LIST EDGE_LEGAL_FAMILY_BOARD)
+        message(FATAL_ERROR "edge_add_product(${name}): illegal family/board combination '${P_family}' + '${P_board}'")
     endif()
 
     set(dep_targets ${EDGE_SYS_TARGET_${P_family}} ${EDGE_BOARD_TARGET_${P_board}})

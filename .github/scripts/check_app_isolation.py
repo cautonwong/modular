@@ -19,6 +19,18 @@ FORBIDDEN_RTOS = re.compile(
     r'^\s*#\s*include\s*[<"](?:FreeRTOS\.h|cmsis_os\.h|rtthread\.h|zephyr/|task\.h)',
     re.M,
 )
+# SoC/vendor headers would leak the platform into an app (N3).
+FORBIDDEN_SOC = re.compile(
+    r'^\s*#\s*include\s*[<"](?:soc/|cmsis|core_cm|stm32|gd32|nrf|rn8|mps2|hal/)', re.M
+)
+# Direct register access: a volatile pointer cast on a literal address (N3).
+REGISTER_ACCESS = re.compile(
+    r'\(\s*volatile\s+[A-Za-z_][A-Za-z0-9_]*\s*\*\s*\)\s*\(?\s*0[xX][0-9A-Fa-f]+'
+)
+# Heavy libc facilities an app must not depend on without a whitelist (N5).
+HEAVY_LIBC = re.compile(
+    r'\b(?:printf|sprintf|snprintf|vprintf|vfprintf|malloc|calloc|realloc|free|strdup|abort|exit)\s*\('
+)
 INCLUDE = re.compile(r'^\s*#\s*include\s*[<"]([^">]+)[">]', re.M)
 
 
@@ -51,6 +63,15 @@ def check(root: Path) -> list:
             violations.append(f"{rel}: includes a concrete infra/product/board/sys path")
         if FORBIDDEN_RTOS.search(text):
             violations.append(f"{rel}: includes a forbidden RTOS header")
+        if FORBIDDEN_SOC.search(text):
+            violations.append(f"{rel}: includes a SoC/vendor header")
+        for lineno, line in enumerate(text.splitlines(), 1):
+            if "N5-allow" in line:
+                continue
+            if REGISTER_ACCESS.search(line):
+                violations.append(f"{rel}:{lineno}: app touches a raw register address")
+            if HEAVY_LIBC.search(line):
+                violations.append(f"{rel}:{lineno}: app uses a heavy libc call")
 
         owner = path.relative_to(app_root).parts[0]
         for include in INCLUDE.findall(text):

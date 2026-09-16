@@ -17,10 +17,14 @@ CASES = [
     ("check_app_isolation.py", "tests/guards/isolation_bad_infra", False),
     ("check_app_isolation.py", "tests/guards/isolation_bad_app", False),
     ("check_app_isolation.py", "tests/guards/isolation_bad_rtos", False),
+    ("check_app_isolation.py", "tests/guards/isolation_bad_register", False),
+    ("check_app_isolation.py", "tests/guards/isolation_bad_libc", False),
     ("check_cmake_apps.py", "tests/guards/cmake_good", True),
     ("check_cmake_apps.py", "tests/guards/cmake_bad", False),
     ("check_event_ids.py", "tests/guards/events_good", True),
     ("check_event_ids.py", "tests/guards/events_bad", False),
+    ("check_module_ids.py", "tests/guards/modules_good", True),
+    ("check_module_ids.py", "tests/guards/modules_bad", False),
 ]
 
 
