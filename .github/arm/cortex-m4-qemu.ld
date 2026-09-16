@@ -1,11 +1,10 @@
 ENTRY(_start)
 
-/* QEMU MPS2 AN386 exposes the low-memory boot region through ZBT SSRAM1.
- * Keep the firmware linked at the emulated PSRAM address so absolute
- * references remain valid when QEMU loads the ELF. */
+/* QEMU MPS2 AN386 boots the low 16K from ZBT SSRAM1 at 0x00000000.
+ * The image is therefore linked at the actual reset/vector address. */
 MEMORY
 {
-    FLASH (rx)  : ORIGIN = 0x21000000, LENGTH = 64K
+    FLASH (rx)  : ORIGIN = 0x00000000, LENGTH = 64K
     RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 16K
 }
 
