@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   cortex-m4-qemu:
-    name: Cortex-M4 + QEMU smoke
+    name: Cortex-M4 + QEMU peripheral IRQ smoke
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -51,16 +51,17 @@ jobs:
           arm-none-eabi-readelf -h build-m4/example_cortex_m4_qemu | tee build-m4/readelf.txt
           grep -E 'Class:.*ELF32' build-m4/readelf.txt
           grep -E 'Machine:.*ARM' build-m4/readelf.txt
-          grep -E 'Entry point address:.*2100' build-m4/readelf.txt
+          grep -E 'Entry point address:.*0x0000' build-m4/readelf.txt
           arm-none-eabi-size build-m4/example_cortex_m4_qemu
           python3 .github/scripts/check_size.py build-m4/example_cortex_m4_qemu 65536 16384
-      - name: QEMU MPS2 AN386 smoke
+      - name: QEMU MPS2 AN386 peripheral IRQ smoke
         run: |
-          qemu-system-arm \
-            -M mps2-an386 \
-            -nographic \
-            -semihosting-config enable=on,target=native \
-            -kernel build-m4/example_cortex_m4_qemu
+          timeout --signal=KILL 10s \
+            qemu-system-arm \
+              -M mps2-an386 \
+              -nographic \
+              -semihosting-config enable=on,target=native \
+              -kernel build-m4/example_cortex_m4_qemu
       - name: Upload Cortex-M4 QEMU image
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
