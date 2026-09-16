@@ -196,6 +196,7 @@ static void test_event_budget_and_stats(void **state) {
     edge_sys_subscription_t subs[8];
     edge_sys_t sys;
     edge_sys_stats_t stats;
+    edge_event_t queued = {.id = EDGE_EVT_UART0_RX};
 
     assert_int_equal(edge_event_queue_init(&queue, storage, 8u), EDGE_OK);
     assert_int_equal(edge_sys_init(&sys, apps, 1u), EDGE_OK);
@@ -203,11 +204,8 @@ static void test_event_budget_and_stats(void **state) {
     assert_int_equal(edge_sys_set_event_budget(&sys, 2u), EDGE_OK);
     assert_int_equal(edge_sys_subscribe(&sys, EDGE_EVT_UART0_RX, &a.module), EDGE_OK);
     assert_int_equal(edge_sys_start(&sys), EDGE_OK);
-    for (int i = 0; i < 5; ++i) {
-        assert_int_equal(edge_event_push_isr(&queue,
-                                             &(edge_event_t){.id = EDGE_EVT_UART0_RX}),
-                         EDGE_OK);
-    }
+    for (int i = 0; i < 5; ++i)
+        assert_int_equal(edge_event_push_isr(&queue, &queued), EDGE_OK);
     assert_int_equal(edge_sys_dispatch_events(&sys), EDGE_OK);
     assert_int_equal(a.event_count, 2);
     assert_int_equal(edge_event_count(&queue), 3u);
