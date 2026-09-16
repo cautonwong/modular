@@ -46,6 +46,11 @@ typedef struct edge_module {
     uint8_t reserved;
 } edge_module_t;
 
+#ifdef EDGE_TARGET_ARM32
+_Static_assert(sizeof(void *) == 4u, "embedded ABI requires 32-bit pointers");
+_Static_assert(sizeof(edge_module_t) == 32u, "edge_module_t ABI changed for 32-bit target");
+#endif
+
 static inline void *edge_module_data(edge_module_t *self)
 {
     return self ? self->private_data : NULL;
