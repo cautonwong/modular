@@ -48,13 +48,15 @@ jobs:
         run: cmake --build build-m4 --parallel
       - name: Verify Cortex-M4 QEMU ELF
         run: |
-          arm-none-eabi-readelf -h build-m4/example_cortex_m4_qemu | tee build-m4/readelf.txt
+          arm-none-eabi-readelf -h build-m4/meter_mps2_fw | tee build-m4/readelf.txt
           grep -E 'Class:.*ELF32' build-m4/readelf.txt
           grep -E 'Machine:.*ARM' build-m4/readelf.txt
           entry=$(awk '/Entry point address/{print $NF}' build-m4/readelf.txt)
           python3 -c "e=int('$entry',16); assert 0 < e < 0x10000, f'entry {e:#x} outside low flash'; print(f'Cortex-M4 entry in low flash: {e:#x}')"
-          arm-none-eabi-size build-m4/example_cortex_m4_qemu
-          python3 .github/scripts/check_size.py build-m4/example_cortex_m4_qemu 65536 16384
+          arm-none-eabi-size build-m4/meter_mps2_fw
+          python3 .github/scripts/check_size.py build-m4/meter_mps2_fw 65536 16384
+          python3 .github/scripts/check_map_budget.py build-m4/meter_mps2_fw.map \
+            --report build-m4/size-report.json
       - name: QEMU MPS2 AN386 peripheral IRQ smoke
         run: |
           timeout --signal=KILL 10s \
@@ -62,14 +64,15 @@ jobs:
               -M mps2-an386 \
               -nographic \
               -semihosting-config enable=on,target=native \
-              -kernel build-m4/example_cortex_m4_qemu
+              -kernel build-m4/meter_mps2_fw
       - name: Upload Cortex-M4 QEMU image
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cortex-m4-qemu-firmware
           path: |
-            build-m4/example_cortex_m4_qemu
-            build-m4/example_cortex_m4_qemu.bin
-            build-m4/example_cortex_m4_qemu.map
+            build-m4/meter_mps2_fw
+            build-m4/meter_mps2_fw.bin
+            build-m4/meter_mps2_fw.map
+            build-m4/size-report.json
             build-m4/readelf.txt
           if-no-files-found: error

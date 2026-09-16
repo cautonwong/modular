@@ -1,0 +1,14 @@
+{
+  "flash_total": 65536,
+  "ram_total": 16384,
+  "layers": {
+    "edge_module": { "flash": 1024, "ram": 1024 },
+    "sys": { "flash": 8192, "ram": 1024 },
+    "board": { "flash": 1024, "ram": 1024 },
+    "infra": { "flash": 1024, "ram": 1024 },
+    "app": { "flash": 2048, "ram": 1024 },
+    "product": { "flash": 2048, "ram": 2048 },
+    "startup": { "flash": 1024, "ram": 0 },
+    "other": { "flash": 16384, "ram": 8192 }
+  }
+}

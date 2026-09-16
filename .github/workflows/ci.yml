@@ -128,9 +128,10 @@ jobs:
             --filter 'sys/' \
             --filter 'app/' \
             --filter 'infra/' \
+            --filter 'pal/' \
             --filter 'product/example/glue.c' \
             --exclude 'tests/' \
-            --fail-under-line 90 \
+            --fail-under-line 95 \
             --txt --xml-pretty --xml coverage.xml \
             --html-details coverage.html
       - name: Upload coverage artifacts
@@ -143,6 +144,46 @@ jobs:
             coverage.html
             test-results.xml
           if-no-files-found: ignore
+
+  product-matrix:
+    name: product-matrix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config libcmocka-dev
+      - name: Build all legal products
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DEDGE_MODULE_ENABLE_WERROR=ON \
+            -DEDGE_MODULE_BUILD_TESTS=ON \
+            -DEDGE_MODULE_BUILD_EXAMPLE=ON
+          cmake --build build --parallel
+      - name: Run host products
+        run: |
+          for product in example meter_host meter_mps2; do
+            echo "running $product"
+            ./build/$product
+          done
+      - name: Reject illegal family/board/app/infra combinations
+        run: |
+          for negative in family board app infra; do
+            echo "--- negative case: $negative ---"
+            if cmake -S . -B "/tmp/neg-$negative" -G Ninja \
+                 -DEDGE_MODULE_NEGATIVE_CASE=$negative \
+                 -DEDGE_MODULE_BUILD_TESTS=OFF \
+                 -DEDGE_MODULE_BUILD_EXAMPLE=OFF >"/tmp/neg-$negative.log" 2>&1; then
+              echo "expected configure to fail for $negative"
+              exit 1
+            fi
+            grep -q "unknown $negative" "/tmp/neg-$negative.log"
+          done
 
   cross-compile-arm:
     name: cross-compile (Cortex-M0)
@@ -185,6 +226,10 @@ jobs:
         run: |
           arm-none-eabi-size build-arm/example_cortex_m0
           python3 .github/scripts/check_size.py build-arm/example_cortex_m0 65536 16384
+      - name: Map-level layer budget
+        run: |
+          python3 .github/scripts/check_map_budget.py build-arm/example_cortex_m0.map \
+            --report build-arm/size-report.json
       - name: Reproducible firmware check
         run: |
           cmake -S . -B build-arm-repro -G Ninja \
@@ -247,11 +292,16 @@ jobs:
         run: |
           clang-tidy -p build \
             edge_module/src/event.c \
-            sys/example/src/sys.c \
+            sys/runtime/src/sys.c \
             sys/example/sys_example.c \
+            sys/meter/sys_meter.c \
             app/dlt645/src/dlt645.c \
+            app/relay/src/relay.c \
             infra/flash/src/flash.c \
-            board/example/src/board.c
+            infra/gpio/src/gpio.c \
+            board/example/src/board.c \
+            board/mps2/src/board.c \
+            pal/host/src/host.c
       - name: cppcheck
         run: |
           cppcheck \
@@ -259,11 +309,17 @@ jobs:
             --error-exitcode=1 --inline-suppr \
             -i tests/guards \
             -I edge_module/include \
-            -I app/dlt645/include \
-            -I infra/flash/include \
-            -I board/example/include \
+            -I sys/runtime/include \
             -I sys/example/include \
-            edge_module sys app board infra product tests
+            -I sys/meter/include \
+            -I app/dlt645/include \
+            -I app/relay/include \
+            -I infra/flash/include \
+            -I infra/gpio/include \
+            -I board/example/include \
+            -I board/mps2/include \
+            -I pal/host/include \
+            edge_module sys app board infra pal product tests
 
   architecture:
     name: architecture-guards
@@ -302,6 +358,7 @@ jobs:
     needs:
       - build-test
       - coverage
+      - product-matrix
       - cross-compile-arm
       - static-analysis
       - architecture
@@ -311,6 +368,7 @@ jobs:
         run: |
           test "${{ needs.build-test.result }}" = success
           test "${{ needs.coverage.result }}" = success
+          test "${{ needs.product-matrix.result }}" = success
           test "${{ needs.cross-compile-arm.result }}" = success
           test "${{ needs.static-analysis.result }}" = success
           test "${{ needs.architecture.result }}" = success

@@ -9,10 +9,6 @@ extern uint8_t _edata;
 extern uint8_t _sbss;
 extern uint8_t _ebss;
 
-#ifdef EDGE_QEMU_SEMIHOSTING
-extern void board_example_irq_timer0(void);
-#endif
-
 typedef void (*edge_isr_handler_t)(void);
 
 typedef struct {
@@ -36,10 +32,11 @@ __attribute__((noreturn)) static void qemu_exit(int status) {
 }
 #endif
 
-#ifdef EDGE_QEMU_SEMIHOSTING
-#define EDGE_IRQ_HANDLER(irq) board_example_irq_timer0
+#if defined(EDGE_BOARD_TIMER_ISR)
+extern void EDGE_BOARD_TIMER_ISR(void);
+#define EDGE_TIMER_HANDLER EDGE_BOARD_TIMER_ISR
 #else
-#define EDGE_IRQ_HANDLER(irq) default_handler
+#define EDGE_TIMER_HANDLER default_handler
 #endif
 
 // clang-format off
@@ -69,7 +66,7 @@ __attribute__((used, section(".isr_vector"))) const edge_vector_table_t edge_vec
         [19] = default_handler,
         [20] = default_handler,
         [21] = default_handler,
-        [22] = EDGE_IRQ_HANDLER(8),
+        [22] = EDGE_TIMER_HANDLER,
         [23] = default_handler,
         [24] = default_handler,
         [25] = default_handler,

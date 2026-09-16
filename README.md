@@ -160,18 +160,20 @@ edge_add_product(
 
 - 构建矩阵：GCC / Clang × Debug / Release、GCC / Clang ASan + UBSan
 - `-Wall -Wextra -Wpedantic -Werror`
-- CMocka 单元测试（事件、调度、app 契约、集成适配），产出 JUnit 报告
-- 覆盖率门禁（gcovr `--fail-under-line 90`，当前 ~97%）+ XML/HTML 产物
+- CMocka 单元测试（事件、调度、app 契约、集成、PAL、GPIO），产出 JUnit 报告
+- 覆盖率门禁（gcovr `--fail-under-line 95`，当前 ~99.8%）+ XML/HTML 产物
 - clang-format 格式门禁、clang-tidy（`.clang-tidy`，warnings-as-errors）、cppcheck
+- **产品线组合矩阵**：`edge_add_product(name family board infra apps)` 从注册表解析，构建 `example` / `meter_host` / `meter_mps2` 三个合法产品并运行；非法 family/board/app/infra 组合由 CMake 拒绝（CI 反例）
 - 架构守卫：app 依赖边界（含 app→app / 具体层 / RTOS）、中央事件号唯一性、CMake↔main app 清单一致性，并带**反例自测**
-- Cortex-M0 交叉编译 + ELF 架构校验 + Flash/RAM 预算门
+- Cortex-M0 / Cortex-M4 交叉编译 + Cortex-M4 MPS2 QEMU 外设中断冒烟 + ELF 架构校验
+- **map 文件级分层预算**（`edge_module/sys/board/infra/app/product/startup/other`）+ ELF Flash/RAM 总量门
 - **可复现固件**（两次构建逐字节比对）+ provenance metadata + SBOM + SHA256SUMS
-- Actions 全部按 commit SHA 固定、Dependabot 每周更新
-- CodeQL C/C++ 代码扫描
+- 主机 PAL 契约实现（`pal/host`）与事件 sink 集成测试；IAR/iccarm 工具链文件（`cmake/toolchains/iar-arm.cmake`）
+- Actions 全部按 commit SHA 固定、Dependabot 每周更新、CodeQL C/C++ 代码扫描
 - tag 触发 Release 流水线（`.github/workflows/release.yml`）：校验和 + release 附件
 - PR / main push / manual 触发、并发取消、失败诊断 artifact、`ci-success` 汇总门
 
-下一阶段 CI：合法 `family × board × app-set` 全矩阵、GCC + IAR/iccarm 双工具链、map 文件级预算、Renode/HIL。
+下一阶段：Renode/HIL（需自定义 MPS2/CMSDK 平台描述与真实台架）、IAR/iccarm 授权 CI job、family/app 维度扩充（dlms）、ABI/contract 兼容矩阵。
 
 ## 当前状态
 

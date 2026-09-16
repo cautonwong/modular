@@ -8,6 +8,34 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Shared `sys/runtime` scheduler with per-module `period`/`budget`, injected clock,
+  bounded event dispatch, fault isolation and runtime statistics; `sys/example`
+  and `sys/meter` are thin family wrappers.
+- Generic `edge_add_product(family board infra apps)` product combinator with
+  sys/board/infra/app registries, three legal products (`example`, `meter_host`,
+  `meter_mps2`) and CMake negative validation for illegal combinations.
+- New axes: `board/mps2` (Cortex-M4 MPS2 AN386), `app/relay` + `infra/gpio`.
+- Map-file per-layer size budgets (`check_map_budget.py`, `ci/size-budget.json`)
+  in addition to the ELF total gate.
+- Host PAL implementation (`pal/host`) with an event-sink bridge test, and an
+  IAR/iccarm CMake toolchain file (`cmake/toolchains/iar-arm.cmake`).
+- CI: `product-matrix` job, map budgets on ARM targets, host-PAL static analysis,
+  and coverage gate raised to 95% (currently ~99.8%).
+
+### Fixed
+
+- Cortex-M4 QEMU smoke: correct timer vector index (IRQ 8 -> `handlers[22]`) and
+  make the ELF entry check accept the Thumb address; compile all ARM library
+  objects in Thumb mode so the firmware no longer faults at reset.
+
+### Changed
+
+- Moved the scheduler implementation from `sys/example` to `sys/runtime` and
+  rewrote the ARM firmware factory to link product targets instead of listing
+  sources.
+
+### Added
+
 - Full architecture decision record `docs/adr.md` (D1-D85).
 - Industrial CI/CD: build caching, coverage gate, JUnit test reports,
   reproducible build metadata, pinned GitHub Actions, and a tag-driven

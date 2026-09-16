@@ -8,6 +8,7 @@
 #include "edge/event.h"
 #include "edge/events.h"
 #include "example/sys.h"
+#include "meter/sys.h"
 
 typedef struct fake_app {
     edge_module_t module;
@@ -20,9 +21,11 @@ typedef struct fake_app {
     edge_status_t poll_rc;
     edge_status_t event_rc;
     edge_status_t off_rc;
+    edge_status_t deinit_rc;
 } fake_app_t;
 
 static uint64_t g_now;
+static uint64_t g_poll_advance;
 static int g_order[8];
 static size_t g_order_count;
 
@@ -46,6 +49,7 @@ static edge_status_t fake_init(edge_module_t *m) {
 static edge_status_t fake_poll(edge_module_t *m) {
     fake_app_t *a = as_fake(m);
     ++a->poll_count;
+    g_now += g_poll_advance;
     return a->poll_rc;
 }
 
@@ -63,8 +67,15 @@ static edge_status_t fake_off(edge_module_t *m) {
 }
 
 static edge_status_t fake_deinit(edge_module_t *m) {
-    ++as_fake(m)->deinit_count;
-    return EDGE_OK;
+    fake_app_t *a = as_fake(m);
+    ++a->deinit_count;
+    return a->deinit_rc;
+}
+
+static edge_status_t fake_init_set_then_fail(edge_module_t *m) {
+    m->initialized = 1u;
+    ++as_fake(m)->init_count;
+    return EDGE_EIO;
 }
 
 static void make_app(fake_app_t *a, uint32_t id, uint32_t priority) {
@@ -280,6 +291,174 @@ static void test_wrapper_and_guards(void **state) {
     assert_int_equal(edge_sys_deinit(&sys), EDGE_ESTATE);
 }
 
+static void test_argument_and_state_guards(void **state) {
+    (void)state;
+    fake_app_t a;
+    make_app(&a, 1u, 1u);
+    edge_module_t *apps[] = {&a.module};
+    edge_event_t storage[4];
+    edge_event_queue_t queue;
+    edge_sys_subscription_t subs[2];
+    edge_clock_port_t clock = {.monotonic_ticks = fake_clock, .wall_time = NULL};
+    edge_sys_t sys;
+    edge_sys_t fresh;
+    const uint32_t ids[] = {1u};
+
+    assert_int_equal(edge_event_queue_init(&queue, storage, 4u), EDGE_OK);
+    assert_int_equal(edge_sys_init(&sys, NULL, 1u), EDGE_EINVAL);
+    assert_int_equal(edge_sys_init(&sys, apps, 0u), EDGE_OK);
+    assert_int_equal(edge_sys_init(&sys, apps, 1u), EDGE_OK);
+    assert_int_equal(edge_sys_bind_event_queue(NULL, &queue, subs, 2u), EDGE_EINVAL);
+    assert_int_equal(edge_sys_bind_event_queue(&sys, &queue, NULL, 2u), EDGE_EINVAL);
+    assert_int_equal(edge_sys_set_clock(NULL, &clock), EDGE_EINVAL);
+    assert_int_equal(edge_sys_set_clock(&sys, &clock), EDGE_OK);
+    assert_int_equal(edge_sys_set_event_budget(NULL, 1u), EDGE_EINVAL);
+    assert_int_equal(edge_sys_set_event_budget(&sys, 0u), EDGE_EINVAL);
+    assert_int_equal(edge_sys_set_event_budget(&sys, 2u), EDGE_OK);
+    assert_int_equal(edge_sys_set_required(NULL, ids, 1u), EDGE_EINVAL);
+    assert_int_equal(edge_sys_set_required(&sys, NULL, 1u), EDGE_EINVAL);
+    assert_int_equal(edge_sys_validate_required(NULL), EDGE_EINVAL);
+    assert_int_equal(edge_sys_subscribe(&sys, EDGE_EVT_UART0_RX, &a.module), EDGE_EINVAL);
+    assert_int_equal(edge_sys_bind_event_queue(&sys, &queue, subs, 2u), EDGE_OK);
+    assert_int_equal(edge_sys_subscribe(&sys, 0u, &a.module), EDGE_EINVAL);
+    assert_int_equal(edge_sys_subscribe(&sys, EDGE_EVT_UART0_RX, NULL), EDGE_EINVAL);
+    assert_int_equal(edge_sys_subscribe(&sys, EDGE_EVT_UART0_RX, &a.module), EDGE_OK);
+    assert_int_equal(edge_sys_subscribe(&sys, EDGE_EVT_UART0_TX_DONE, &a.module), EDGE_OK);
+    assert_int_equal(edge_sys_subscribe(&sys, EDGE_EVT_DLT645_RX, &a.module), EDGE_ENOSPC);
+    assert_int_equal(edge_sys_dispatch_events(&sys), EDGE_ESTATE);
+    assert_int_equal(edge_sys_power_off(&sys), EDGE_ESTATE);
+    assert_int_equal(edge_sys_start(&sys), EDGE_OK);
+    assert_int_equal(edge_sys_start(NULL), EDGE_ESTATE);
+    assert_int_equal(edge_sys_set_clock(&sys, &clock), EDGE_ESTATE);
+    assert_int_equal(edge_sys_set_event_budget(&sys, 2u), EDGE_ESTATE);
+    assert_int_equal(edge_sys_bind_event_queue(&sys, &queue, subs, 2u), EDGE_ESTATE);
+    assert_int_equal(edge_sys_subscribe(&sys, EDGE_EVT_DLT645_RX, &a.module), EDGE_ESTATE);
+    assert_int_equal(edge_sys_dispatch_events(NULL), EDGE_EINVAL);
+    assert_int_equal(edge_sys_init(&fresh, apps, 1u), EDGE_OK);
+    assert_int_equal(edge_sys_run_once(NULL), EDGE_ESTATE);
+    assert_int_equal(edge_sys_run_once(&fresh), EDGE_ESTATE);
+    assert_int_equal(edge_sys_dispatch_events(&fresh), EDGE_EINVAL);
+    assert_int_equal(edge_sys_power_off(&fresh), EDGE_ESTATE);
+}
+
+static void test_required_missing(void **state) {
+    (void)state;
+    fake_app_t a;
+    make_app(&a, 1u, 1u);
+    edge_module_t *apps[] = {&a.module};
+    edge_sys_t sys;
+    const uint32_t missing[] = {99u};
+
+    assert_int_equal(edge_sys_init(&sys, apps, 1u), EDGE_OK);
+    assert_int_equal(edge_sys_set_required(&sys, missing, 1u), EDGE_OK);
+    assert_int_equal(edge_sys_validate_required(&sys), EDGE_EDEPEND);
+    assert_int_equal(edge_sys_start(&sys), EDGE_EDEPEND);
+    assert_int_equal(a.init_count, 0);
+}
+
+static void test_init_failure_clears_partial(void **state) {
+    (void)state;
+    fake_app_t a, b;
+    make_app(&a, 1u, 1u);
+    make_app(&b, 2u, 2u);
+    b.module.init = fake_init_set_then_fail;
+    edge_module_t *apps[] = {&a.module, &b.module};
+    edge_sys_t sys;
+
+    assert_int_equal(edge_sys_init(&sys, apps, 2u), EDGE_OK);
+    assert_int_equal(edge_sys_start(&sys), EDGE_EIO);
+    assert_int_equal(b.deinit_count, 1);
+    assert_int_equal(a.deinit_count, 1);
+    assert_int_equal(a.module.initialized, 0u);
+}
+
+static void test_dispatch_event_failure_and_pop_error(void **state) {
+    (void)state;
+    fake_app_t a;
+    make_app(&a, 1u, 1u);
+    a.event_rc = EDGE_EIO;
+    edge_module_t *apps[] = {&a.module};
+    edge_event_t storage[4];
+    edge_event_queue_t queue;
+    edge_sys_subscription_t subs[2];
+    edge_sys_t sys;
+    edge_sys_stats_t stats;
+    edge_event_t event = {.id = EDGE_EVT_UART0_RX};
+
+    assert_int_equal(edge_event_queue_init(&queue, storage, 4u), EDGE_OK);
+    assert_int_equal(edge_sys_init(&sys, apps, 1u), EDGE_OK);
+    assert_int_equal(edge_sys_bind_event_queue(&sys, &queue, subs, 2u), EDGE_OK);
+    assert_int_equal(edge_sys_subscribe(&sys, EDGE_EVT_UART0_RX, &a.module), EDGE_OK);
+    assert_int_equal(edge_sys_start(&sys), EDGE_OK);
+    assert_int_equal(edge_event_push_isr(&queue, &event), EDGE_OK);
+    assert_int_equal(edge_sys_run_once(&sys), EDGE_EIO);
+    assert_int_equal(edge_sys_stats_get(&sys, &stats), EDGE_OK);
+    assert_int_equal(stats.errors, 1u);
+    assert_int_equal(stats.isolated, 1u);
+
+    queue.items = NULL;
+    assert_int_equal(edge_sys_dispatch_events(&sys), EDGE_EINVAL);
+}
+
+static void test_execution_budget(void **state) {
+    (void)state;
+    fake_app_t a;
+    make_app(&a, 1u, 1u);
+    a.module.period = 1u;
+    a.module.budget = 1u;
+    edge_module_t *apps[] = {&a.module};
+    edge_sys_t sys;
+    edge_sys_stats_t stats;
+    edge_clock_port_t clock = {.monotonic_ticks = fake_clock, .wall_time = NULL};
+
+    g_now = 10u;
+    g_poll_advance = 5u;
+    assert_int_equal(edge_sys_init(&sys, apps, 1u), EDGE_OK);
+    assert_int_equal(edge_sys_set_clock(&sys, &clock), EDGE_OK);
+    assert_int_equal(edge_sys_start(&sys), EDGE_OK);
+    g_now = 11u;
+    assert_int_equal(edge_sys_run_once(&sys), EDGE_EOVERFLOW);
+    assert_int_equal(edge_sys_stats_get(&sys, &stats), EDGE_OK);
+    assert_int_equal(stats.budget_hits, 1u);
+    assert_int_equal(stats.polls, 1u);
+    g_poll_advance = 0u;
+}
+
+static void test_deinit_error_propagation(void **state) {
+    (void)state;
+    fake_app_t a;
+    make_app(&a, 1u, 1u);
+    a.deinit_rc = EDGE_EIO;
+    edge_module_t *apps[] = {&a.module};
+    edge_sys_t sys;
+
+    assert_int_equal(edge_sys_init(&sys, apps, 1u), EDGE_OK);
+    assert_int_equal(edge_sys_start(&sys), EDGE_OK);
+    assert_int_equal(edge_sys_power_off(&sys), EDGE_OK);
+    assert_int_equal(edge_sys_deinit(&sys), EDGE_EIO);
+}
+
+static void test_meter_wrapper(void **state) {
+    (void)state;
+    fake_app_t a;
+    make_app(&a, 1u, 1u);
+    edge_module_t *apps[] = {&a.module};
+    edge_event_t storage[4];
+    edge_event_queue_t queue;
+    edge_sys_subscription_t subs[2];
+    edge_sys_t sys;
+    const uint32_t required[] = {1u};
+
+    assert_int_equal(edge_event_queue_init(&queue, storage, 4u), EDGE_OK);
+    assert_int_equal(sys_meter_init(&sys, apps, 1u, required, 1u, &queue, subs, 2u), EDGE_OK);
+    assert_int_equal(edge_sys_validate_required(&sys), EDGE_OK);
+    assert_int_equal(edge_sys_start(&sys), EDGE_OK);
+
+    assert_int_equal(sys_meter_init(&sys, NULL, 1u, required, 1u, &queue, subs, 2u), EDGE_EINVAL);
+    assert_int_equal(sys_meter_init(&sys, apps, 1u, required, 1u, NULL, subs, 2u), EDGE_EINVAL);
+    assert_int_equal(sys_meter_init(&sys, apps, 1u, NULL, 1u, &queue, subs, 2u), EDGE_EINVAL);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_init_and_order),
@@ -291,6 +470,13 @@ int main(void) {
         cmocka_unit_test(test_fault_isolation),
         cmocka_unit_test(test_init_rollback_and_power_failure),
         cmocka_unit_test(test_wrapper_and_guards),
+        cmocka_unit_test(test_argument_and_state_guards),
+        cmocka_unit_test(test_required_missing),
+        cmocka_unit_test(test_init_failure_clears_partial),
+        cmocka_unit_test(test_dispatch_event_failure_and_pop_error),
+        cmocka_unit_test(test_execution_budget),
+        cmocka_unit_test(test_deinit_error_propagation),
+        cmocka_unit_test(test_meter_wrapper),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
