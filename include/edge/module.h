@@ -5,26 +5,17 @@
 #include <stdint.h>
 
 typedef enum edge_status {
-    EDGE_OK = 0,
-    EDGE_EINVAL = -1,
-    EDGE_ENOENT = -2,
-    EDGE_EBUSY = -3,
-    EDGE_ESTATE = -4,
-    EDGE_EABI = -5,
-    EDGE_EDEPEND = -6,
-    EDGE_EOVERFLOW = -7,
-    EDGE_EQUEUE = -8,
-    EDGE_ENOSPC = -9,
-    EDGE_ENOTSUP = -10
+    EDGE_OK = 0, EDGE_EINVAL = -1, EDGE_ENOENT = -2, EDGE_EBUSY = -3,
+    EDGE_ESTATE = -4, EDGE_EABI = -5, EDGE_EDEPEND = -6,
+    EDGE_EOVERFLOW = -7, EDGE_EQUEUE = -8, EDGE_ENOSPC = -9, EDGE_ENOTSUP = -10
 } edge_status_t;
 
 typedef struct edge_event edge_event_t;
-
 typedef struct edge_module edge_module_t;
-typedef int (*edge_module_init_fn)(edge_module_t *self);
-typedef int (*edge_module_poll_fn)(edge_module_t *self);
-typedef int (*edge_module_event_fn)(edge_module_t *self, const edge_event_t *event);
-typedef int (*edge_module_power_off_fn)(edge_module_t *self);
+typedef int (*edge_module_init_fn)(edge_module_t *);
+typedef int (*edge_module_poll_fn)(edge_module_t *);
+typedef int (*edge_module_event_fn)(edge_module_t *, const edge_event_t *);
+typedef int (*edge_module_power_off_fn)(edge_module_t *);
 
 typedef struct edge_module {
     uint32_t module_id;
@@ -36,7 +27,7 @@ typedef struct edge_module {
     void *private_data;
 } edge_module_t;
 
-/* Legacy descriptor API remains available to existing SDK consumers. */
+/* Existing descriptor ABI is retained for source compatibility. New products use edge_module_t directly. */
 #include "module_abi.h"
 typedef struct edge_module_context {
     void *private_data;
@@ -54,13 +45,13 @@ typedef struct edge_module_descriptor {
     uint32_t module_id;
     uint32_t priority;
     edge_module_context_t *ctx;
-    int (*legacy_init)(edge_module_context_t *);
-    int (*legacy_power_on)(edge_module_context_t *);
-    int (*legacy_poll)(edge_module_context_t *);
-    int (*legacy_power_off)(edge_module_context_t *);
-    int (*legacy_deinit)(edge_module_context_t *);
-    int (*legacy_suspend)(edge_module_context_t *);
-    int (*legacy_resume)(edge_module_context_t *);
+    int (*init)(edge_module_context_t *);
+    int (*power_on)(edge_module_context_t *);
+    int (*poll)(edge_module_context_t *);
+    int (*power_off)(edge_module_context_t *);
+    int (*deinit)(edge_module_context_t *);
+    int (*suspend)(edge_module_context_t *);
+    int (*resume)(edge_module_context_t *);
     const uint32_t *dependencies;
     size_t dependency_count;
 } edge_module_descriptor_t;
