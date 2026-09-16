@@ -28,9 +28,19 @@ typedef struct edge_event_queue {
     volatile uint32_t dropped;
 } edge_event_queue_t;
 
+typedef void (*edge_irq_enter_fn)(void *self);
+typedef void (*edge_irq_exit_fn)(void *self);
+
+typedef struct edge_irq_guard {
+    edge_irq_enter_fn enter;
+    edge_irq_exit_fn exit;
+    void *self;
+} edge_irq_guard_t;
+
 typedef struct edge_event_sink {
     edge_event_queue_t *queue;
     const edge_clock_port_t *clock;
+    const edge_irq_guard_t *guard;
 } edge_event_sink_t;
 
 edge_status_t edge_event_queue_init(edge_event_queue_t *queue,
