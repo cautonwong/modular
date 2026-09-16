@@ -38,6 +38,8 @@ int main(void) {
 
     if (sys_example_init(&sys, apps, 1u, &event_queue, subscriptions, 4u) < 0)
         return 2;
+    if (edge_sys_set_clock(&sys, &clock) < 0)
+        return 5;
     if (edge_sys_subscribe(&sys, EDGE_EVT_UART0_RX, &dlt645.module) < 0)
         return 3;
     if (edge_sys_start(&sys) < 0)
