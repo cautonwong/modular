@@ -1,0 +1,6 @@
+range,owner,meaning
+0x0000-0x00FF,edge,reserved framework events
+0x0100-0x01FF,board,board-originated hardware events
+0x1000-0x10FF,app.dlt645,DLT645 application events
+0x1100-0x11FF,app.dlms,DLMS application events
+0x1200-0x12FF,app.relay,relay application events
