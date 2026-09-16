@@ -1,3 +1,4 @@
+#include "edge/clock.h"
 #include "edge/event.h"
 #include "edge/events.h"
 #include "edge/sys.h"
@@ -24,6 +25,11 @@ int main(void)
     edge_module_t *apps[1];
     edge_event_t event_storage[16];
     edge_event_queue_t event_queue;
+    edge_clock_port_t clock = {
+        .monotonic_ticks = monotonic_ticks,
+        .wall_time = NULL,
+        .self = &clock_tick,
+    };
     edge_event_sink_t event_sink;
     edge_sys_subscription_t subscriptions[4];
     edge_sys_t sys;
@@ -35,11 +41,7 @@ int main(void)
     if (edge_event_queue_init(&event_queue, event_storage, 16u) < 0) {
         return 1;
     }
-    event_sink = (edge_event_sink_t){
-        .queue = &event_queue,
-        .monotonic_ticks = monotonic_ticks,
-        .clock_self = &clock_tick,
-    };
+    event_sink = (edge_event_sink_t){.queue = &event_queue, .clock = &clock};
     board_example_init(&event_sink);
 
     if (sys_example_init(&sys, apps, 1u, &event_queue,
