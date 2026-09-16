@@ -2,7 +2,8 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   pull_request:
   workflow_dispatch:
 
@@ -18,42 +19,69 @@ env:
 
 jobs:
   build-test:
-    name: ${{ matrix.name }}
+    name: build-test (${{ matrix.name }})
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { name: gcc-debug, cc: gcc, build_type: Debug, sanitizer: OFF }
-          - { name: gcc-release, cc: gcc, build_type: Release, sanitizer: OFF }
-          - { name: clang-debug, cc: clang, build_type: Debug, sanitizer: OFF }
-          - { name: clang-release, cc: clang, build_type: Release, sanitizer: OFF }
-          - { name: gcc-asan-ubsan, cc: gcc, build_type: Debug, sanitizer: ON }
-          - { name: clang-asan-ubsan, cc: clang, build_type: Debug, sanitizer: ON }
+          - name: gcc-debug
+            cc: gcc
+            build_type: Debug
+            sanitizer: OFF
+          - name: gcc-release
+            cc: gcc
+            build_type: Release
+            sanitizer: OFF
+          - name: clang-debug
+            cc: clang
+            build_type: Debug
+            sanitizer: OFF
+          - name: clang-release
+            cc: clang
+            build_type: Release
+            sanitizer: OFF
+          - name: gcc-asan-ubsan
+            cc: gcc
+            build_type: Debug
+            sanitizer: ON
+          - name: clang-asan-ubsan
+            cc: clang
+            build_type: Debug
+            sanitizer: ON
     steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 1 }
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build pkg-config libcmocka-dev
+
       - name: Configure
-        env: { CC: ${{ matrix.cc }} }
-        run: >-
-          cmake -S . -B build -G Ninja
-          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
-          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-          -DEDGE_MODULE_ENABLE_WERROR=ON
-          -DEDGE_MODULE_ENABLE_SANITIZERS=${{ matrix.sanitizer }}
-          -DEDGE_MODULE_BUILD_TESTS=ON -DEDGE_MODULE_BUILD_EXAMPLE=ON
+        env:
+          CC: ${{ matrix.cc }}
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DEDGE_MODULE_ENABLE_WERROR=ON \
+            -DEDGE_MODULE_ENABLE_SANITIZERS=${{ matrix.sanitizer }} \
+            -DEDGE_MODULE_BUILD_TESTS=ON \
+            -DEDGE_MODULE_BUILD_EXAMPLE=ON
+
       - name: Build
         run: cmake --build build --parallel
+
       - name: Test
         env:
           ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: ctest --test-dir build --output-on-failure --parallel 2
+
       - name: Product size gate
         if: matrix.name == 'gcc-release'
         run: |
@@ -61,51 +89,78 @@ jobs:
           size build/example
           python3 .github/scripts/check_size.py build/example 65536 16384
 
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostics-${{ matrix.name }}
+          path: |
+            build/Testing/
+            build/compile_commands.json
+          if-no-files-found: ignore
+
   static-analysis:
     name: static-analysis
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - name: Install analysis tools
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install tools
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build pkg-config libcmocka-dev clang-tidy cppcheck
       - name: Configure
-        env: { CC: clang }
-        run: >-
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
-          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DEDGE_MODULE_ENABLE_WERROR=ON
-          -DEDGE_MODULE_BUILD_TESTS=ON -DEDGE_MODULE_BUILD_EXAMPLE=ON
+        env:
+          CC: clang
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DEDGE_MODULE_ENABLE_WERROR=ON \
+            -DEDGE_MODULE_BUILD_TESTS=ON \
+            -DEDGE_MODULE_BUILD_EXAMPLE=ON
       - name: Build
         run: cmake --build build --parallel
       - name: clang-tidy
         run: |
-          clang-tidy -p build edge_module/src/event.c sys/example/src/sys.c sys/example/sys_example.c app/dlt645/src/dlt645.c infra/flash/src/flash.c board/example/src/board.c
+          clang-tidy -p build \
+            edge_module/src/event.c \
+            sys/example/src/sys.c \
+            sys/example/sys_example.c \
+            app/dlt645/src/dlt645.c \
+            infra/flash/src/flash.c \
+            board/example/src/board.c
       - name: cppcheck
-        run: >-
-          cppcheck --enable=warning,style,performance,portability --error-exitcode=1 --inline-suppr
-          -I edge_module/include -I app/dlt645/include -I infra/flash/include
-          -I board/example/include -I sys/example/include
-          edge_module sys app board infra product tests
+        run: |
+          cppcheck \
+            --enable=warning,style,performance,portability \
+            --error-exitcode=1 --inline-suppr \
+            -I edge_module/include \
+            -I app/dlt645/include \
+            -I infra/flash/include \
+            -I board/example/include \
+            -I sys/example/include \
+            edge_module sys app board infra product tests
 
   architecture:
     name: architecture-guards
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - name: Verify app dependency boundary
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Application dependency boundary
         run: python3 .github/scripts/check_app_isolation.py
-      - name: Verify event ID uniqueness
+      - name: Event ID uniqueness
         run: python3 .github/scripts/check_event_ids.py
-      - name: Verify forbidden framework dependencies
+      - name: Forbidden framework dependencies
         run: |
           if grep -RInE '#include[[:space:]]*["<](FreeRTOS|zephyr|cmsis_os|rtthread)' app edge_module 2>/dev/null; then
             echo 'forbidden RTOS/framework dependency found'
             exit 1
           fi
-      - name: Verify required repository layers
+      - name: Required layers
         run: |
           test -d edge_module
           test -d app
@@ -119,25 +174,32 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build pkg-config libcmocka-dev gcovr
       - name: Configure
-        env: { CC: gcc }
-        run: >-
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
-          -DEDGE_MODULE_ENABLE_COVERAGE=ON -DEDGE_MODULE_BUILD_TESTS=ON
-          -DEDGE_MODULE_BUILD_EXAMPLE=OFF
+        env:
+          CC: gcc
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DEDGE_MODULE_ENABLE_COVERAGE=ON \
+            -DEDGE_MODULE_BUILD_TESTS=ON \
+            -DEDGE_MODULE_BUILD_EXAMPLE=OFF
       - name: Build and test
         run: |
           cmake --build build --parallel
           ctest --test-dir build --output-on-failure
-      - name: Generate coverage report
-        run: >-
-          gcovr --root . --object-directory build --filter 'edge_module/|sys/'
-          --exclude 'tests/' --txt --xml-pretty --xml coverage.xml
+      - name: Coverage report
+        run: |
+          gcovr --root . --object-directory build \
+            --filter 'edge_module/' \
+            --filter 'sys/' \
+            --exclude 'tests/' \
+            --txt --xml-pretty --xml coverage.xml
       - name: Upload coverage
         uses: actions/upload-artifact@v4
         with:
@@ -147,10 +209,14 @@ jobs:
   ci-success:
     name: ci-success
     if: always()
-    needs: [build-test, static-analysis, architecture, coverage]
+    needs:
+      - build-test
+      - static-analysis
+      - architecture
+      - coverage
     runs-on: ubuntu-24.04
     steps:
-      - name: Require all CI jobs to pass
+      - name: Require all quality gates
         run: |
           test "${{ needs.build-test.result }}" = success
           test "${{ needs.static-analysis.result }}" = success
