@@ -13,6 +13,7 @@ option(EDGE_MODULE_ENABLE_SANITIZERS "Enable ASan and UBSan" OFF)
 option(EDGE_MODULE_ENABLE_COVERAGE "Enable GCC coverage" OFF)
 option(EDGE_MODULE_BUILD_ARM_CORTEX_M0 "Build Cortex-M0 cross target" OFF)
 option(EDGE_MODULE_BUILD_ARM_CORTEX_M4 "Build Cortex-M4 cross target" OFF)
+option(EDGE_MODULE_ARM_QEMU_SEMIHOSTING "Enable ARM semihosting exit for QEMU smoke tests" OFF)
 
 function(edge_enable_quality target)
     target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
@@ -130,6 +131,9 @@ function(edge_add_arm_firmware name cpu linker_script)
         ${CMAKE_CURRENT_SOURCE_DIR}/product/example
     )
     target_compile_definitions(${name} PRIVATE EDGE_TARGET_ARM32=1)
+    if(EDGE_MODULE_ARM_QEMU_SEMIHOSTING)
+        target_compile_definitions(${name} PRIVATE EDGE_QEMU_SEMIHOSTING=1)
+    endif()
     target_compile_options(${name} PRIVATE
         -mcpu=${cpu} -mthumb -mno-unaligned-access
         -ffreestanding -fdata-sections -ffunction-sections
