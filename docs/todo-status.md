@@ -1,27 +1,23 @@
 # TODO implementation status
 
-This file tracks the uploaded architecture TODO against the current repository.
+This file tracks the frozen architecture TODO against the current repository.
 
-| Item | Status | Implementation |
+| Area | Status | Implementation |
 |---|---|---|
-| S1 | done | D1-D14 are treated as frozen architecture decisions. |
-| S2 | done | `docs/architecture.md` and the layer rules are reflected in the source layout. |
-| S3 | done | `app/dlt645` defines its consumer port; `infra/flash` provides the concrete API; `product/example` contains the adapter and explicit construction; `edge_sys` runs the foreground loop. |
-| S4 | partial | `edge/board_irq.h` and `board/example/irq.c` define IRQ-to-event forwarding; `docs/event_ids.csv` defines ownership ranges. Queue overflow remains an explicit `EDGE_EOVERFLOW` condition. A real MCU IRQ/HIL test is hardware-specific and is not fabricated here. |
-| S5 | done | `edge_module`, `app`, `sys`, `board`, `infra`, and `product` monorepo areas now exist, with a buildable example product. |
-| S6 | done | `.github/scripts/check_app_isolation.py` rejects app includes of concrete `infra/`, `product/`, `board/`, or `sys/` headers. |
-| S7 | done | The CI isolation job executes the negative-boundary checker on every push/PR. |
-| S8 | partial | `edge_sys` implements priority ordering with `module_id` ascending tie-break and mandatory-module validation. A generated CMake/main consistency checker is still product-specific and intentionally not inferred. |
+| Thin framework | done | `edge_module` owns the module lifecycle contract and bounded event primitives. |
+| Explicit composition | done | `product/example/main.c` constructs the app, binds ports, subscribes events, then starts `sys`. |
+| Consumer-defined port | done | `app/dlt645` owns `dlt645_storage_if_t`; `product/example/glue.c` adapts `infra/flash`. |
+| Scheduler | done | `sys/example` sorts by priority then `module_id`, validates required IDs, starts with rollback, polls cooperatively, and shuts down in reverse order. |
+| Event routing | done | Board pushes into an injected sink; `sys_subscribe()` explicitly routes event IDs to app callbacks. |
+| ISR safety boundary | done | Event payload is scalar-only; timestamp is injected; multi-IRQ sinks can inject `edge_irq_guard_t`. |
+| Dependency isolation | done | CI checks app includes and forbidden RTOS/framework headers. |
+| Event ID governance | done | Central `edge_module/include/edge/events.h`, `_Static_assert` guards, and CI collision checker. |
+| Tests | done | CMocka covers queue timestamp/overflow and scheduler ordering/routing/rollback. |
+| CI/CD | partial | GCC/Clang matrix, sanitizers, CMocka, clang-tidy, cppcheck, coverage, architecture checks and ELF size gate are implemented. IAR/iccarm and full family×board×app matrix remain. |
+| Hardware validation | pending | Renode/HIL and real MCU IRQ validation remain target-specific. |
+| Scheduler budgets | pending | Periodic division, execution budgets, idle/low-power and richer fault policy remain. |
+| Distribution | pending | ABI/contract compatibility matrix, SDK packaging and compliance are separate follow-up work. |
 
-## CI quality gates
+## Important cutover
 
-The CI matrix covers GCC and Clang, Debug and Release, and ASan/UBSan configurations. Tests use CMocka. A separate static-analysis job runs clang-tidy and cppcheck, and the application dependency boundary is checked independently.
-
-## Explicit architectural rules
-
-- Product composition is explicit in `product/<name>/main.c`.
-- App interfaces are owned by the consuming app.
-- Concrete infrastructure is kept out of app include paths.
-- The sys module schedules; it does not construct concrete infrastructure.
-- Board code owns hardware IRQ entry points and hardware-level actions; application policy stays above it.
-- Foreground callbacks must return; they must not become private infinite loops.
+The obsolete descriptor/preamble manager, linker-section registration path, generic service/resource registry and old flat app/board APIs are no longer part of the active implementation. The repository follows the frozen explicit foreground architecture directly; there is no V2/V3 compatibility layer.
