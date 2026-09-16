@@ -46,8 +46,7 @@ jobs:
           -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
           -DEDGE_MODULE_ENABLE_WERROR=ON
           -DEDGE_MODULE_ENABLE_SANITIZERS=${{ matrix.sanitizer }}
-          -DEDGE_MODULE_BUILD_TESTS=ON
-          -DEDGE_MODULE_BUILD_EXAMPLE=ON
+          -DEDGE_MODULE_BUILD_TESTS=ON -DEDGE_MODULE_BUILD_EXAMPLE=ON
       - name: Build
         run: cmake --build build --parallel
       - name: Test
@@ -82,14 +81,13 @@ jobs:
         run: cmake --build build --parallel
       - name: clang-tidy
         run: |
-          clang-tidy -p build src/event.c src/sys.c sys/example/sys_example.c app/dlt645/src/dlt645.c infra/flash/src/flash.c board/example/src/board.c
+          clang-tidy -p build edge_module/src/event.c sys/example/src/sys.c sys/example/sys_example.c app/dlt645/src/dlt645.c infra/flash/src/flash.c board/example/src/board.c
       - name: cppcheck
         run: >-
-          cppcheck --enable=warning,style,performance,portability
-          --error-exitcode=1 --inline-suppr
-          -I include -I app/dlt645/include -I infra/flash/include
+          cppcheck --enable=warning,style,performance,portability --error-exitcode=1 --inline-suppr
+          -I edge_module/include -I app/dlt645/include -I infra/flash/include
           -I board/example/include -I sys/example/include
-          src sys app board infra tests
+          edge_module sys app board infra product tests
 
   architecture:
     name: architecture-guards
@@ -109,12 +107,12 @@ jobs:
           fi
       - name: Verify required repository layers
         run: |
+          test -d edge_module
           test -d app
           test -d sys
           test -d board
           test -d infra
           test -d product
-          test -d include/edge
 
   coverage:
     name: coverage
@@ -138,7 +136,7 @@ jobs:
           ctest --test-dir build --output-on-failure
       - name: Generate coverage report
         run: >-
-          gcovr --root . --object-directory build --filter 'src/'
+          gcovr --root . --object-directory build --filter 'edge_module/|sys/'
           --exclude 'tests/' --txt --xml-pretty --xml coverage.xml
       - name: Upload coverage
         uses: actions/upload-artifact@v4
