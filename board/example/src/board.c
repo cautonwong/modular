@@ -33,8 +33,7 @@ void board_example_irq_uart0_rx(uint32_t byte_count) {
 void board_example_qemu_timer0_init(void) {
     *(volatile uint32_t *)(TIMER0_BASE + TIMER_RELOAD) = 250u;
     *(volatile uint32_t *)(TIMER0_BASE + TIMER_INTSTATUS) = 1u;
-    *(volatile uint32_t *)(TIMER0_BASE + TIMER_CTRL) =
-        TIMER_CTRL_ENABLE | TIMER_CTRL_IRQEN;
+    *(volatile uint32_t *)(TIMER0_BASE + TIMER_CTRL) = TIMER_CTRL_ENABLE | TIMER_CTRL_IRQEN;
     NVIC_ISER0 = (1u << 8);
 }
 
