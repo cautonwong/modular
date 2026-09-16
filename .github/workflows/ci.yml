@@ -2,8 +2,7 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -26,41 +25,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: gcc-debug
-            cc: gcc
-            build_type: Debug
-            sanitizer: OFF
-          - name: gcc-release
-            cc: gcc
-            build_type: Release
-            sanitizer: OFF
-          - name: clang-debug
-            cc: clang
-            build_type: Debug
-            sanitizer: OFF
-          - name: clang-release
-            cc: clang
-            build_type: Release
-            sanitizer: OFF
-          - name: gcc-asan-ubsan
-            cc: gcc
-            build_type: Debug
-            sanitizer: ON
-          - name: clang-asan-ubsan
-            cc: clang
-            build_type: Debug
-            sanitizer: ON
+          - { name: gcc-debug, cc: gcc, build_type: Debug, sanitizer: OFF }
+          - { name: gcc-release, cc: gcc, build_type: Release, sanitizer: OFF }
+          - { name: clang-debug, cc: clang, build_type: Debug, sanitizer: OFF }
+          - { name: clang-release, cc: clang, build_type: Release, sanitizer: OFF }
+          - { name: gcc-asan-ubsan, cc: gcc, build_type: Debug, sanitizer: ON }
+          - { name: clang-asan-ubsan, cc: clang, build_type: Debug, sanitizer: ON }
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
-
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build pkg-config libcmocka-dev
-
       - name: Configure
         env:
           CC: ${{ matrix.cc }}
@@ -72,23 +51,19 @@ jobs:
             -DEDGE_MODULE_ENABLE_SANITIZERS=${{ matrix.sanitizer }} \
             -DEDGE_MODULE_BUILD_TESTS=ON \
             -DEDGE_MODULE_BUILD_EXAMPLE=ON
-
       - name: Build
         run: cmake --build build --parallel
-
       - name: Test
         env:
           ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: ctest --test-dir build --output-on-failure --parallel 2
-
       - name: Product size gate
         if: matrix.name == 'gcc-release'
         run: |
           test -f build/example
           size build/example
           python3 .github/scripts/check_size.py build/example 65536 16384
-
       - name: Upload diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
@@ -98,6 +73,55 @@ jobs:
             build/Testing/
             build/compile_commands.json
           if-no-files-found: ignore
+
+  cross-compile-arm:
+    name: cross-compile (Cortex-M0)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Install ARM GNU toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build gcc-arm-none-eabi binutils-arm-none-eabi
+      - name: Verify target toolchain
+        run: |
+          arm-none-eabi-gcc --version
+          arm-none-eabi-size --version
+      - name: Configure Cortex-M0 target
+        run: |
+          cmake -S . -B build-arm -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=.github/arm/arm-none-eabi.cmake \
+            -DEDGE_MODULE_BUILD_ARM_CORTEX_M0=ON \
+            -DEDGE_MODULE_BUILD_TESTS=OFF \
+            -DEDGE_MODULE_BUILD_EXAMPLE=OFF \
+            -DEDGE_MODULE_ENABLE_WERROR=ON
+      - name: Build Cortex-M0 ELF and binary
+        run: cmake --build build-arm --parallel
+      - name: Verify target ELF architecture
+        run: |
+          arm-none-eabi-readelf -h build-arm/example_cortex_m0 | tee build-arm/readelf.txt
+          grep -E 'Class:.*ELF32' build-arm/readelf.txt
+          grep -E 'Machine:.*ARM' build-arm/readelf.txt
+      - name: Target Flash/RAM size gate
+        env:
+          SIZE_TOOL: arm-none-eabi-size
+        run: |
+          arm-none-eabi-size build-arm/example_cortex_m0
+          python3 .github/scripts/check_size.py build-arm/example_cortex_m0 65536 16384
+      - name: Upload target image and map
+        uses: actions/upload-artifact@v4
+        with:
+          name: cortex-m0-example
+          path: |
+            build-arm/example_cortex_m0
+            build-arm/example_cortex_m0.bin
+            build-arm/example_cortex_m0.map
+            build-arm/readelf.txt
 
   static-analysis:
     name: static-analysis
@@ -211,6 +235,7 @@ jobs:
     if: always()
     needs:
       - build-test
+      - cross-compile-arm
       - static-analysis
       - architecture
       - coverage
@@ -219,6 +244,7 @@ jobs:
       - name: Require all quality gates
         run: |
           test "${{ needs.build-test.result }}" = success
+          test "${{ needs.cross-compile-arm.result }}" = success
           test "${{ needs.static-analysis.result }}" = success
           test "${{ needs.architecture.result }}" = success
           test "${{ needs.coverage.result }}" = success
