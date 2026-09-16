@@ -7,6 +7,7 @@ MEMORY
 }
 
 _estack = ORIGIN(RAM) + LENGTH(RAM);
+_start_thumb = _start + 1;
 
 SECTIONS
 {
