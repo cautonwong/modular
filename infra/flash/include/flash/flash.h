@@ -9,7 +9,7 @@
 extern "C" {
 #endif
 
-edge_status_t flash_read(void *self, uint32_t key, void *buf, size_t len);
+edge_status_t flash_read(const void *self, uint32_t key, void *buf, size_t len);
 edge_status_t flash_write(void *self, uint32_t key, const void *buf, size_t len);
 
 #ifdef __cplusplus
