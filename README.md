@@ -156,25 +156,22 @@ edge_add_product(
 
 ## CI/CD 质量门
 
-当前 CI 包含：
+当前 CI（`.github/workflows/ci.yml`）包含：
 
-- GCC Debug / Release
-- Clang Debug / Release
-- GCC ASan + UBSan
-- Clang ASan + UBSan
+- 构建矩阵：GCC / Clang × Debug / Release、GCC / Clang ASan + UBSan
 - `-Wall -Wextra -Wpedantic -Werror`
-- CMocka unit tests
-- clang-tidy / cppcheck
-- app include boundary guard
-- central event ID collision check
-- product layer existence guard
-- gcovr coverage artifact
-- GCC Release ELF Flash/RAM budget gate
-- PR / main push / manual workflow
-- concurrency cancellation
-- failure diagnostics
+- CMocka 单元测试（事件、调度、app 契约、集成适配），产出 JUnit 报告
+- 覆盖率门禁（gcovr `--fail-under-line 90`，当前 ~97%）+ XML/HTML 产物
+- clang-format 格式门禁、clang-tidy（`.clang-tidy`，warnings-as-errors）、cppcheck
+- 架构守卫：app 依赖边界（含 app→app / 具体层 / RTOS）、中央事件号唯一性、CMake↔main app 清单一致性，并带**反例自测**
+- Cortex-M0 交叉编译 + ELF 架构校验 + Flash/RAM 预算门
+- **可复现固件**（两次构建逐字节比对）+ provenance metadata + SBOM + SHA256SUMS
+- Actions 全部按 commit SHA 固定、Dependabot 每周更新
+- CodeQL C/C++ 代码扫描
+- tag 触发 Release 流水线（`.github/workflows/release.yml`）：校验和 + release 附件
+- PR / main push / manual 触发、并发取消、失败诊断 artifact、`ci-success` 汇总门
 
-下一阶段 CI：合法 `family × board × app-set` 全矩阵、GCC + IAR/iccarm 双工具链、map 文件预算、reproducible-build metadata。
+下一阶段 CI：合法 `family × board × app-set` 全矩阵、GCC + IAR/iccarm 双工具链、map 文件级预算、Renode/HIL。
 
 ## 当前状态
 

@@ -13,7 +13,7 @@ This file tracks the frozen architecture TODO against the current repository.
 | Dependency isolation | done | CI checks app includes and forbidden RTOS/framework headers. |
 | Event ID governance | done | Central `edge_module/include/edge/events.h`, `_Static_assert` guards, and CI collision checker. |
 | Tests | done | CMocka covers queue timestamp/overflow and scheduler ordering/routing/rollback. |
-| CI/CD | partial | GCC/Clang matrix, sanitizers, CMocka, clang-tidy, cppcheck, coverage, architecture checks and ELF size gate are implemented. IAR/iccarm and full family×board×app matrix remain. |
+| CI/CD | done | GCC/Clang Debug+Release, ASan/UBSan, CMocka with JUnit reports, gcovr coverage gate, clang-format/clang-tidy/cppcheck, architecture guards with self-tests, Cortex-M0 cross build with size gate, reproducible firmware + provenance/SBOM, pinned Actions, CodeQL and a tag-driven release pipeline. IAR/iccarm and the full family×board×app matrix remain. |
 | Hardware validation | pending | Renode/HIL and real MCU IRQ validation remain target-specific. |
 | Scheduler budgets | pending | Periodic division, execution budgets, idle/low-power and richer fault policy remain. |
 | Distribution | pending | ABI/contract compatibility matrix, SDK packaging and compliance are separate follow-up work. |
