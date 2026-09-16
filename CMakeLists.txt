@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(edge_modular VERSION 0.4.0 LANGUAGES C)
+project(edge_modular VERSION 0.5.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -11,6 +11,7 @@ option(EDGE_MODULE_BUILD_EXAMPLE "Build example product" ON)
 option(EDGE_MODULE_ENABLE_WERROR "Treat compiler warnings as errors" ON)
 option(EDGE_MODULE_ENABLE_SANITIZERS "Enable ASan and UBSan" OFF)
 option(EDGE_MODULE_ENABLE_COVERAGE "Enable GCC coverage" OFF)
+option(EDGE_MODULE_BUILD_ARM_CORTEX_M0 "Build Cortex-M0 cross target" OFF)
 
 function(edge_enable_quality target)
     target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
@@ -101,6 +102,50 @@ endfunction()
 
 if(EDGE_MODULE_BUILD_EXAMPLE)
     edge_add_product(example family example board example apps dlt645)
+endif()
+
+if(EDGE_MODULE_BUILD_ARM_CORTEX_M0)
+    if(NOT CMAKE_C_COMPILER MATCHES "arm-none-eabi-gcc$")
+        message(FATAL_ERROR "EDGE_MODULE_BUILD_ARM_CORTEX_M0 requires arm-none-eabi-gcc toolchain")
+    endif()
+
+    add_executable(example_cortex_m0
+        product/example/main.c
+        product/example/glue.c
+        board/example/src/board.c
+        infra/flash/src/flash.c
+        app/dlt645/src/dlt645.c
+        sys/example/src/sys.c
+        edge_module/src/event.c
+        .github/arm/startup.c
+    )
+    target_include_directories(example_cortex_m0 PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/sys/example/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/app/dlt645/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/infra/flash/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/board/example/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/product/example
+    )
+    target_compile_definitions(example_cortex_m0 PRIVATE EDGE_TARGET_ARM32=1)
+    target_compile_options(example_cortex_m0 PRIVATE
+        -mcpu=cortex-m0 -mthumb -mno-unaligned-access
+        -ffreestanding -fdata-sections -ffunction-sections
+        -fno-common -Os
+    )
+    target_link_options(example_cortex_m0 PRIVATE
+        -mcpu=cortex-m0 -mthumb
+        -T${CMAKE_CURRENT_SOURCE_DIR}/.github/arm/cortex-m0.ld
+        --specs=nosys.specs
+        -Wl,--gc-sections
+        -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/example_cortex_m0.map
+    )
+    set_target_properties(example_cortex_m0 PROPERTIES OUTPUT_NAME example_cortex_m0)
+    add_custom_command(TARGET example_cortex_m0 POST_BUILD
+        COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:example_cortex_m0> ${CMAKE_CURRENT_BINARY_DIR}/example_cortex_m0.bin
+        COMMAND ${CMAKE_SIZE} $<TARGET_FILE:example_cortex_m0>
+        VERBATIM
+    )
 endif()
 
 if(EDGE_MODULE_BUILD_TESTS)
