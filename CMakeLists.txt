@@ -8,7 +8,7 @@ set(CMAKE_C_EXTENSIONS OFF)
 include(CTest)
 option(EDGE_MODULE_BUILD_TESTS "Build unit tests" ${BUILD_TESTING})
 option(EDGE_MODULE_BUILD_EXAMPLE "Build example product" ON)
-option(EDGE_MODULE_ENABLE_WERROR "Treat warnings as errors" ON)
+option(EDGE_MODULE_ENABLE_WERROR "Treat compiler warnings as errors" ON)
 option(EDGE_MODULE_ENABLE_SANITIZERS "Enable ASan and UBSan" OFF)
 option(EDGE_MODULE_ENABLE_COVERAGE "Enable GCC coverage" OFF)
 
@@ -27,9 +27,7 @@ function(edge_enable_quality target)
     endif()
 endfunction()
 
-add_library(edge_module STATIC
-    src/event.c
-)
+add_library(edge_module STATIC src/event.c)
 target_include_directories(edge_module PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 edge_enable_quality(edge_module)
 
@@ -67,12 +65,26 @@ edge_enable_quality(board_example)
 
 function(edge_add_product name)
     cmake_parse_arguments(P "" "family;board" "apps" ${ARGN})
-    if(NOT P_family OR NOT P_board)
-        message(FATAL_ERROR "edge_add_product(${name}): family and board are required")
+    if(NOT P_family OR NOT P_board OR NOT P_apps)
+        message(FATAL_ERROR "edge_add_product(${name}): family, board and apps are required")
     endif()
-    if(NOT P_apps)
-        message(FATAL_ERROR "edge_add_product(${name}): at least one app is required")
+
+    set(app_targets)
+    foreach(app IN LISTS P_apps)
+        if(app STREQUAL "dlt645")
+            list(APPEND app_targets app_dlt645)
+        else()
+            message(FATAL_ERROR "edge_add_product(${name}): unknown app '${app}'")
+        endif()
+    endforeach()
+
+    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/product/${name}/main.c")
+        message(FATAL_ERROR "product/${name}/main.c is missing")
     endif()
+    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/product/${name}/glue.c")
+        message(FATAL_ERROR "product/${name}/glue.c is missing")
+    endif()
+
     add_executable(${name}
         product/${name}/main.c
         product/${name}/glue.c
@@ -82,13 +94,13 @@ function(edge_add_product name)
         ${CMAKE_CURRENT_SOURCE_DIR}/include
     )
     target_link_libraries(${name} PRIVATE
-        edge_module sys_example board_example infra_flash app_dlt645
+        edge_module sys_example board_example infra_flash ${app_targets}
     )
     edge_enable_quality(${name})
 endfunction()
 
 if(EDGE_MODULE_BUILD_EXAMPLE)
-    edge_add_product(example family example apps dlt645)
+    edge_add_product(example family example board example apps dlt645)
 endif()
 
 if(EDGE_MODULE_BUILD_TESTS)
