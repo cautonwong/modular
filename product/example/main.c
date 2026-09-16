@@ -34,11 +34,12 @@ int main(void)
     apps[0] = &dlt645.module;
 
     if (edge_event_queue_init(&event_queue, event_storage, 16u) < 0) return 1;
-    event_sink = (edge_event_sink_t){.queue=&event_queue, .clock=&clock};
+    event_sink = (edge_event_sink_t){.queue=&event_queue, .clock=&clock, .guard=NULL};
     board_example_init(&event_sink);
 
     if (sys_example_init(&sys, apps, 1u, &event_queue, subscriptions, 4u) < 0) return 2;
     if (edge_sys_subscribe(&sys, EDGE_EVT_UART0_RX, &dlt645.module) < 0) return 3;
+    if (edge_sys_start(&sys) < 0) return 4;
 
     for (unsigned i = 0u; i < 100u; ++i) {
         if (edge_sys_run_once(&sys) < 0) break;
