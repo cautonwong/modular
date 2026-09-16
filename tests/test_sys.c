@@ -73,7 +73,9 @@ static void test_init_failure_rolls_back(void **state)
     edge_module_t *apps[] = {&a.module, &b.module}; edge_sys_t sys; order_count = 0u;
     assert_int_equal(edge_sys_init(&sys, apps, 2u), EDGE_OK);
     assert_int_equal(edge_sys_start(&sys), EDGE_EIO);
-    assert_int_equal(a.deinit_count, 1); assert_int_equal(a.initialized, 0u); assert_int_equal(b.failed, 1u);
+    assert_int_equal(a.deinit_count, 1);
+    assert_int_equal(a.module.initialized, 0u);
+    assert_int_equal(b.module.failed, 1u);
 }
 
 int main(void)
