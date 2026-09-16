@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "clock.h"
 #include "module.h"
 
 #ifdef __cplusplus
@@ -27,12 +28,9 @@ typedef struct edge_event_queue {
     volatile uint32_t dropped;
 } edge_event_queue_t;
 
-typedef uint64_t (*edge_event_clock_fn)(void *self);
-
 typedef struct edge_event_sink {
     edge_event_queue_t *queue;
-    edge_event_clock_fn monotonic_ticks;
-    void *clock_self;
+    const edge_clock_port_t *clock;
 } edge_event_sink_t;
 
 edge_status_t edge_event_queue_init(edge_event_queue_t *queue,
