@@ -6,6 +6,8 @@ MEMORY
     RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 16K
 }
 
+_estack = ORIGIN(RAM) + LENGTH(RAM);
+
 SECTIONS
 {
     .isr_vector :
@@ -34,6 +36,7 @@ SECTIONS
         . = ALIGN(4);
         _edata = .;
     } > RAM
+    _sidata = LOADADDR(.data);
 
     .bss (NOLOAD) :
     {
