@@ -16,6 +16,15 @@ __attribute__((noreturn)) static void default_handler(void) {
     }
 }
 
+#ifdef EDGE_QEMU_SEMIHOSTING
+__attribute__((noreturn)) static void qemu_exit(int status) {
+    register int r0 __asm("r0") = 0x18; /* SYS_EXIT */
+    register int r1 __asm("r1") = status;
+    __asm volatile("bkpt 0xAB" : : "r"(r0), "r"(r1) : "memory");
+    default_handler();
+}
+#endif
+
 __attribute__((used, section(".isr_vector"))) const uintptr_t edge_vector_table[16] = {
     (uintptr_t)&_estack,        (uintptr_t)&_start_thumb,   (uintptr_t)default_handler,
     (uintptr_t)default_handler, (uintptr_t)default_handler, (uintptr_t)default_handler,
@@ -37,6 +46,11 @@ void _start(void) {
         *dst++ = 0u;
     }
 
-    (void)main();
+    const int status = main();
+#ifdef EDGE_QEMU_SEMIHOSTING
+    qemu_exit(status);
+#else
+    (void)status;
     default_handler();
+#endif
 }
