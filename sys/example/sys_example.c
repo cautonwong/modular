@@ -7,7 +7,5 @@ edge_status_t sys_example_init(edge_sys_t *sys, edge_module_t **apps,
 {
     edge_status_t rc = edge_sys_init(sys, apps, app_count);
     if (rc < 0) return rc;
-    rc = edge_sys_bind_event_queue(sys, events, subscriptions, subscription_capacity);
-    if (rc < 0) return rc;
-    return edge_sys_start(sys);
+    return edge_sys_bind_event_queue(sys, events, subscriptions, subscription_capacity);
 }
