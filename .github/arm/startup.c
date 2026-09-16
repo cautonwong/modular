@@ -19,7 +19,7 @@ __attribute__((noreturn)) static void default_handler(void) {
 #ifdef EDGE_QEMU_SEMIHOSTING
 __attribute__((noreturn)) static void qemu_exit(int status) {
     register int r0 __asm("r0") = 0x18; /* SYS_EXIT */
-    register int r1 __asm("r1") = status;
+    register int r1 __asm("r1") = status == 0 ? 0x20026 : 0x20023;
     __asm volatile("bkpt 0xAB" : : "r"(r0), "r"(r1) : "memory");
     default_handler();
 }
