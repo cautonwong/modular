@@ -42,17 +42,34 @@ int main(void) {
         return 5;
     if (edge_sys_subscribe(&sys, EDGE_EVT_UART0_RX, &dlt645.module) < 0)
         return 3;
+#ifdef EDGE_QEMU_SEMIHOSTING
+    if (edge_sys_subscribe(&sys, EDGE_EVT_BOARD_TIMER0, &dlt645.module) < 0)
+        return 6;
+#endif
     if (edge_sys_start(&sys) < 0)
         return 4;
 
-    for (unsigned i = 0u; i < 100u; ++i) {
+#ifdef EDGE_QEMU_SEMIHOSTING
+    board_example_qemu_timer0_init();
+#endif
+
+    for (unsigned i = 0u; i < 100000u; ++i) {
         if (edge_sys_run_once(&sys) < 0)
             break;
-        if (i == 10u)
-            board_example_irq_uart0_rx(3u);
+#ifdef EDGE_QEMU_SEMIHOSTING
+        if (dlt645.last_event == EDGE_EVT_BOARD_TIMER0) {
+            (void)edge_sys_power_off(&sys);
+            (void)edge_sys_deinit(&sys);
+            return 0;
+        }
+#endif
     }
 
     (void)edge_sys_power_off(&sys);
     (void)edge_sys_deinit(&sys);
+#ifdef EDGE_QEMU_SEMIHOSTING
+    return 7;
+#else
     return 0;
+#endif
 }
