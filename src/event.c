@@ -1,13 +1,14 @@
 #include "edge/event.h"
-#include "edge/module.h"
 
-int edge_event_queue_init(edge_event_queue_t *queue, edge_event_t *items,
-                          uint32_t capacity)
+edge_status_t edge_event_queue_init(edge_event_queue_t *queue,
+                                    edge_event_t *storage,
+                                    uint32_t capacity)
 {
-    if (!queue || !items || capacity < 2u) {
+    if (queue == NULL || storage == NULL || capacity < 2u) {
         return EDGE_EINVAL;
     }
-    queue->items = items;
+
+    queue->items = storage;
     queue->capacity = capacity;
     queue->head = 0u;
     queue->tail = 0u;
@@ -15,9 +16,11 @@ int edge_event_queue_init(edge_event_queue_t *queue, edge_event_t *items,
     return EDGE_OK;
 }
 
-int edge_event_push_isr(edge_event_queue_t *queue, const edge_event_t *event)
+edge_status_t edge_event_push_isr(edge_event_queue_t *queue,
+                                  const edge_event_t *event)
 {
-    if (!queue || !event || !queue->items || queue->capacity < 2u) {
+    if (queue == NULL || event == NULL || queue->items == NULL ||
+        queue->capacity < 2u) {
         return EDGE_EINVAL;
     }
 
@@ -33,9 +36,24 @@ int edge_event_push_isr(edge_event_queue_t *queue, const edge_event_t *event)
     return EDGE_OK;
 }
 
-int edge_event_pop(edge_event_queue_t *queue, edge_event_t *event)
+edge_status_t edge_event_sink_push_isr(edge_event_sink_t *sink,
+                                       const edge_event_t *event)
 {
-    if (!queue || !event || !queue->items || queue->capacity < 2u) {
+    if (sink == NULL || event == NULL || sink->queue == NULL) {
+        return EDGE_EINVAL;
+    }
+
+    edge_event_t stamped = *event;
+    if (sink->monotonic_ticks != NULL) {
+        stamped.timestamp = sink->monotonic_ticks(sink->clock_self);
+    }
+    return edge_event_push_isr(sink->queue, &stamped);
+}
+
+edge_status_t edge_event_pop(edge_event_queue_t *queue, edge_event_t *event)
+{
+    if (queue == NULL || event == NULL || queue->items == NULL ||
+        queue->capacity < 2u) {
         return EDGE_EINVAL;
     }
 
@@ -51,7 +69,7 @@ int edge_event_pop(edge_event_queue_t *queue, edge_event_t *event)
 
 size_t edge_event_count(const edge_event_queue_t *queue)
 {
-    if (!queue || queue->capacity < 2u) {
+    if (queue == NULL || queue->items == NULL || queue->capacity < 2u) {
         return 0u;
     }
     return (size_t)((queue->head + queue->capacity - queue->tail) % queue->capacity);
@@ -59,10 +77,5 @@ size_t edge_event_count(const edge_event_queue_t *queue)
 
 uint32_t edge_event_dropped(const edge_event_queue_t *queue)
 {
-    return queue ? queue->dropped : 0u;
-}
-
-int edge_event_queue_sink_isr(const edge_event_t *event, void *arg)
-{
-    return edge_event_push_isr((edge_event_queue_t *)arg, event);
+    return queue != NULL ? queue->dropped : 0u;
 }
