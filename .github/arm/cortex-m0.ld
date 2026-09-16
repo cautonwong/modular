@@ -60,6 +60,9 @@ SECTIONS
         *(.comment)
         *(.note*)
         *(.eh_frame*)
+        *(.ARM.attributes)
+        *(.ARM.exidx*)
+        *(.ARM.extab*)
     }
 
     _end = .;
