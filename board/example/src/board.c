@@ -52,6 +52,9 @@ void board_example_irq_timer0(void) {
     (void)edge_event_sink_push_isr(g_event_sink, &event);
 }
 #else
-void board_example_qemu_timer0_init(void) {}
-void board_example_irq_timer0(void) {}
+void board_example_qemu_timer0_init(void) {
+}
+
+void board_example_irq_timer0(void) {
+}
 #endif
