@@ -1,53 +1,112 @@
-cmake_minimum_required(VERSION 3.16)
-project(edge_modular VERSION 0.3.0 LANGUAGES C)
+cmake_minimum_required(VERSION 3.20)
+project(edge_modular VERSION 0.4.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
+
 include(CTest)
-option(EDGE_MODULE_BUILD_TESTS "Build tests" ${BUILD_TESTING})
-option(EDGE_MODULE_BUILD_EXAMPLE "Build example" ON)
-option(EDGE_MODULE_ENABLE_WERROR "Treat compiler warnings as errors" OFF)
+option(EDGE_MODULE_BUILD_TESTS "Build unit tests" ${BUILD_TESTING})
+option(EDGE_MODULE_BUILD_EXAMPLE "Build example product" ON)
+option(EDGE_MODULE_ENABLE_WERROR "Treat warnings as errors" ON)
 option(EDGE_MODULE_ENABLE_SANITIZERS "Enable ASan and UBSan" OFF)
 option(EDGE_MODULE_ENABLE_COVERAGE "Enable GCC coverage" OFF)
 
-add_library(edge_modular STATIC src/module_manager.c src/event.c src/resource.c src/service.c src/sys.c)
-target_include_directories(edge_modular PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_compile_options(edge_modular PRIVATE -Wall -Wextra -Wpedantic)
-if(EDGE_MODULE_ENABLE_WERROR)
-    target_compile_options(edge_modular PRIVATE -Werror)
-endif()
-if(EDGE_MODULE_ENABLE_SANITIZERS)
-    target_compile_options(edge_modular PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer -g)
-    target_link_options(edge_modular INTERFACE -fsanitize=address,undefined)
-endif()
-if(EDGE_MODULE_ENABLE_COVERAGE)
-    target_compile_options(edge_modular PRIVATE --coverage -O0 -g)
-    target_link_options(edge_modular INTERFACE --coverage)
-endif()
+function(edge_enable_quality target)
+    target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+    if(EDGE_MODULE_ENABLE_WERROR)
+        target_compile_options(${target} PRIVATE -Werror)
+    endif()
+    if(EDGE_MODULE_ENABLE_SANITIZERS)
+        target_compile_options(${target} PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer -g)
+        target_link_options(${target} PRIVATE -fsanitize=address,undefined)
+    endif()
+    if(EDGE_MODULE_ENABLE_COVERAGE)
+        target_compile_options(${target} PRIVATE --coverage -O0 -g)
+        target_link_options(${target} PRIVATE --coverage)
+    endif()
+endfunction()
+
+add_library(edge_module STATIC
+    src/event.c
+)
+target_include_directories(edge_module PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+edge_enable_quality(edge_module)
+
+add_library(sys_example STATIC sys/example/sys_example.c)
+target_include_directories(sys_example PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/sys/example/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_link_libraries(sys_example PUBLIC edge_module)
+edge_enable_quality(sys_example)
+
+add_library(app_dlt645 STATIC app/dlt645/src/dlt645.c)
+target_include_directories(app_dlt645 PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/app/dlt645/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_link_libraries(app_dlt645 PUBLIC edge_module)
+edge_enable_quality(app_dlt645)
+
+add_library(infra_flash STATIC infra/flash/src/flash.c)
+target_include_directories(infra_flash PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/infra/flash/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_link_libraries(infra_flash PUBLIC edge_module)
+edge_enable_quality(infra_flash)
+
+add_library(board_example STATIC board/example/src/board.c)
+target_include_directories(board_example PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/board/example/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_link_libraries(board_example PUBLIC edge_module)
+edge_enable_quality(board_example)
+
+function(edge_add_product name)
+    cmake_parse_arguments(P "" "family;board" "apps" ${ARGN})
+    if(NOT P_family OR NOT P_board)
+        message(FATAL_ERROR "edge_add_product(${name}): family and board are required")
+    endif()
+    if(NOT P_apps)
+        message(FATAL_ERROR "edge_add_product(${name}): at least one app is required")
+    endif()
+    add_executable(${name}
+        product/${name}/main.c
+        product/${name}/glue.c
+    )
+    target_include_directories(${name} PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/product/${name}
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    target_link_libraries(${name} PRIVATE
+        edge_module sys_example board_example infra_flash app_dlt645
+    )
+    edge_enable_quality(${name})
+endfunction()
 
 if(EDGE_MODULE_BUILD_EXAMPLE)
-    add_executable(edge_modular_example examples/superloop_main.c)
-    target_link_libraries(edge_modular_example PRIVATE edge_modular)
-    add_executable(product_example product/example/main.c app/dlt645/dlt645.c infra/flash/flash.c board/example/irq.c)
-    target_include_directories(product_example PRIVATE app/dlt645 infra/flash)
-    target_link_libraries(product_example PRIVATE edge_modular)
+    edge_add_product(example family example apps dlt645)
 endif()
 
 if(EDGE_MODULE_BUILD_TESTS)
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(CMOCKA REQUIRED IMPORTED_TARGET cmocka)
+
     add_executable(test_event tests/test_event.c)
-    target_link_libraries(test_event PRIVATE edge_modular PkgConfig::CMOCKA)
+    target_link_libraries(test_event PRIVATE edge_module PkgConfig::CMOCKA)
+    edge_enable_quality(test_event)
     add_test(NAME event COMMAND test_event)
-    add_executable(test_abi tests/test_abi.c)
-    target_link_libraries(test_abi PRIVATE edge_modular PkgConfig::CMOCKA)
-    add_test(NAME abi COMMAND test_abi)
-    add_executable(test_manager tests/test_manager.c)
-    target_link_libraries(test_manager PRIVATE edge_modular PkgConfig::CMOCKA)
-    add_test(NAME manager COMMAND test_manager)
-    add_executable(test_board_irq tests/test_board_irq.c board/example/irq.c)
-    target_include_directories(test_board_irq PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-    target_link_libraries(test_board_irq PRIVATE PkgConfig::CMOCKA)
-    add_test(NAME board_irq COMMAND test_board_irq)
+
+    add_executable(test_sys tests/test_sys.c)
+    target_link_libraries(test_sys PRIVATE edge_module PkgConfig::CMOCKA)
+    edge_enable_quality(test_sys)
+    add_test(NAME sys COMMAND test_sys)
+
+    add_executable(test_architecture tests/test_architecture.c)
+    target_link_libraries(test_architecture PRIVATE edge_module PkgConfig::CMOCKA)
+    edge_enable_quality(test_architecture)
+    add_test(NAME architecture COMMAND test_architecture)
 endif()
