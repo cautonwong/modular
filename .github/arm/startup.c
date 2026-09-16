@@ -8,6 +8,7 @@ extern uint8_t _sdata;
 extern uint8_t _edata;
 extern uint8_t _sbss;
 extern uint8_t _ebss;
+extern uint8_t _start_thumb;
 
 __attribute__((noreturn)) static void default_handler(void)
 {
@@ -19,7 +20,7 @@ __attribute__((noreturn)) static void default_handler(void)
 __attribute__((used, section(".isr_vector")))
 const uintptr_t edge_vector_table[16] = {
     (uintptr_t)&_estack,
-    (uintptr_t)_start | 1u,
+    (uintptr_t)&_start_thumb,
     (uintptr_t)default_handler,
     (uintptr_t)default_handler,
     (uintptr_t)default_handler,
