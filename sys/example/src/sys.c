@@ -35,7 +35,7 @@ static edge_status_t validate_apps(edge_module_t **apps, size_t count) {
 static uint64_t now_ticks(edge_sys_t *sys) {
     if (sys->clock != NULL && sys->clock->monotonic_ticks != NULL)
         return sys->clock->monotonic_ticks(sys->clock->self);
-    return sys->tick + 1u;
+    return ++sys->tick;
 }
 
 static bool tick_due(uint64_t now, uint64_t due) {
@@ -258,7 +258,6 @@ edge_status_t edge_sys_run_once(edge_sys_t *sys) {
         }
     }
 
-    ++sys->tick;
     return first_error;
 }
 
