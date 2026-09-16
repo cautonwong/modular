@@ -6,6 +6,7 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Least privilege by default; individual jobs opt into more if ever required.
 permissions:
   contents: read
 
@@ -15,12 +16,13 @@ concurrency:
 
 env:
   CMAKE_BUILD_PARALLEL_LEVEL: 2
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
 
 jobs:
   build-test:
     name: build-test (${{ matrix.name }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -33,13 +35,19 @@ jobs:
           - { name: clang-asan-ubsan, cc: clang, build_type: Debug, sanitizer: ON }
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build pkg-config libcmocka-dev
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config libcmocka-dev ccache
+      - name: Restore compiler cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ${{ runner.os }}-ccache-${{ matrix.cc }}-${{ matrix.build_type }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-${{ matrix.cc }}-${{ matrix.build_type }}-
       - name: Configure
         env:
           CC: ${{ matrix.cc }}
@@ -47,6 +55,7 @@ jobs:
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DEDGE_MODULE_ENABLE_WERROR=ON \
             -DEDGE_MODULE_ENABLE_SANITIZERS=${{ matrix.sanitizer }} \
             -DEDGE_MODULE_BUILD_TESTS=ON \
@@ -57,21 +66,82 @@ jobs:
         env:
           ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
-        run: ctest --test-dir build --output-on-failure --parallel 2
+        run: |
+          ctest --test-dir build --output-on-failure --parallel 2 \
+            --output-junit test-results.xml
+      - name: Compiler cache stats
+        if: always()
+        run: ccache --show-stats || true
       - name: Product size gate
         if: matrix.name == 'gcc-release'
         run: |
           test -f build/example
           size build/example
           python3 .github/scripts/check_size.py build/example 65536 16384
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: test-results-${{ matrix.name }}
+          path: build/test-results.xml
+          if-no-files-found: ignore
       - name: Upload diagnostics
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: diagnostics-${{ matrix.name }}
           path: |
             build/Testing/
             build/compile_commands.json
+          if-no-files-found: ignore
+
+  coverage:
+    name: coverage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config libcmocka-dev gcovr
+      - name: Configure
+        env:
+          CC: gcc
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DEDGE_MODULE_ENABLE_COVERAGE=ON \
+            -DEDGE_MODULE_BUILD_TESTS=ON \
+            -DEDGE_MODULE_BUILD_EXAMPLE=ON
+      - name: Build and test
+        run: |
+          cmake --build build --parallel
+          ctest --test-dir build --output-on-failure --parallel 2 \
+            --output-junit test-results.xml
+      - name: Coverage report and gate
+        run: |
+          gcovr --root . --object-directory build \
+            --filter 'edge_module/' \
+            --filter 'sys/' \
+            --filter 'app/' \
+            --filter 'infra/' \
+            --filter 'product/example/glue.c' \
+            --exclude 'tests/' \
+            --fail-under-line 90 \
+            --txt --xml-pretty --xml coverage.xml \
+            --html-details coverage.html
+      - name: Upload coverage artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage
+          path: |
+            coverage.xml
+            coverage.html
+            test-results.xml
           if-no-files-found: ignore
 
   cross-compile-arm:
@@ -80,17 +150,19 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Install ARM GNU toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build gcc-arm-none-eabi binutils-arm-none-eabi
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build gcc-arm-none-eabi binutils-arm-none-eabi \
+            libnewlib-arm-none-eabi
       - name: Verify target toolchain
         run: |
           arm-none-eabi-gcc --version
           arm-none-eabi-size --version
+      - name: Set reproducible-build timestamp
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
       - name: Configure Cortex-M0 target
         run: |
           cmake -S . -B build-arm -G Ninja \
@@ -113,27 +185,50 @@ jobs:
         run: |
           arm-none-eabi-size build-arm/example_cortex_m0
           python3 .github/scripts/check_size.py build-arm/example_cortex_m0 65536 16384
-      - name: Upload target image and map
-        uses: actions/upload-artifact@v4
+      - name: Reproducible firmware check
+        run: |
+          cmake -S . -B build-arm-repro -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=.github/arm/arm-none-eabi.cmake \
+            -DEDGE_MODULE_BUILD_ARM_CORTEX_M0=ON \
+            -DEDGE_MODULE_BUILD_TESTS=OFF \
+            -DEDGE_MODULE_BUILD_EXAMPLE=OFF
+          cmake --build build-arm-repro --parallel
+          sha256sum build-arm/example_cortex_m0.bin build-arm-repro/example_cortex_m0.bin
+          cmp build-arm/example_cortex_m0.bin build-arm-repro/example_cortex_m0.bin
+      - name: Generate provenance metadata and SBOM
+        run: |
+          CC=arm-none-eabi-gcc python3 .github/scripts/generate_build_metadata.py build-arm/build-metadata.json
+          CC=arm-none-eabi-gcc python3 .github/scripts/generate_sbom.py build-arm/sbom.cdx.json
+          (cd build-arm && sha256sum example_cortex_m0 example_cortex_m0.bin > SHA256SUMS)
+          cat build-arm/build-metadata.json
+      - name: Upload target image and provenance
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: cortex-m0-example
+          name: cortex-m0-firmware
           path: |
             build-arm/example_cortex_m0
             build-arm/example_cortex_m0.bin
             build-arm/example_cortex_m0.map
             build-arm/readelf.txt
+            build-arm/SHA256SUMS
+            build-arm/build-metadata.json
+            build-arm/sbom.cdx.json
+          if-no-files-found: error
 
   static-analysis:
     name: static-analysis
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Install tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build pkg-config libcmocka-dev clang-tidy cppcheck
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config libcmocka-dev \
+            clang clang-tidy clang-format cppcheck
       - name: Configure
         env:
           CC: clang
@@ -146,6 +241,8 @@ jobs:
             -DEDGE_MODULE_BUILD_EXAMPLE=ON
       - name: Build
         run: cmake --build build --parallel
+      - name: Formatting check
+        run: git ls-files '*.c' '*.h' | xargs clang-format --dry-run --Werror
       - name: clang-tidy
         run: |
           clang-tidy -p build \
@@ -160,6 +257,7 @@ jobs:
           cppcheck \
             --enable=warning,style,performance,portability \
             --error-exitcode=1 --inline-suppr \
+            -i tests/guards \
             -I edge_module/include \
             -I app/dlt645/include \
             -I infra/flash/include \
@@ -170,17 +268,22 @@ jobs:
   architecture:
     name: architecture-guards
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Application dependency boundary
         run: python3 .github/scripts/check_app_isolation.py
-      - name: Event ID uniqueness
+      - name: Central event ID uniqueness
         run: python3 .github/scripts/check_event_ids.py
-      - name: Forbidden framework dependencies
+      - name: CMake/main product consistency
+        run: python3 .github/scripts/check_cmake_apps.py
+      - name: Guard self-test (negative fixtures)
+        run: python3 tests/guards/run_guard_selftest.py
+      - name: Forbidden RTOS/framework dependencies
         run: |
-          if grep -RInE '#include[[:space:]]*["<](FreeRTOS|zephyr|cmsis_os|rtthread)' app edge_module 2>/dev/null; then
+          if grep -RInE '#include[[:space:]]*["<](FreeRTOS|zephyr|cmsis_os|rtthread)' \
+              app edge_module sys board infra product 2>/dev/null; then
             echo 'forbidden RTOS/framework dependency found'
             exit 1
           fi
@@ -193,58 +296,21 @@ jobs:
           test -d infra
           test -d product
 
-  coverage:
-    name: coverage
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake ninja-build pkg-config libcmocka-dev gcovr
-      - name: Configure
-        env:
-          CC: gcc
-        run: |
-          cmake -S . -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Debug \
-            -DEDGE_MODULE_ENABLE_COVERAGE=ON \
-            -DEDGE_MODULE_BUILD_TESTS=ON \
-            -DEDGE_MODULE_BUILD_EXAMPLE=OFF
-      - name: Build and test
-        run: |
-          cmake --build build --parallel
-          ctest --test-dir build --output-on-failure
-      - name: Coverage report
-        run: |
-          gcovr --root . --object-directory build \
-            --filter 'edge_module/' \
-            --filter 'sys/' \
-            --exclude 'tests/' \
-            --txt --xml-pretty --xml coverage.xml
-      - name: Upload coverage
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage
-          path: coverage.xml
-
   ci-success:
     name: ci-success
     if: always()
     needs:
       - build-test
+      - coverage
       - cross-compile-arm
       - static-analysis
       - architecture
-      - coverage
     runs-on: ubuntu-24.04
     steps:
       - name: Require all quality gates
         run: |
           test "${{ needs.build-test.result }}" = success
+          test "${{ needs.coverage.result }}" = success
           test "${{ needs.cross-compile-arm.result }}" = success
           test "${{ needs.static-analysis.result }}" = success
           test "${{ needs.architecture.result }}" = success
-          test "${{ needs.coverage.result }}" = success

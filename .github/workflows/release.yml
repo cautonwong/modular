@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CMAKE_BUILD_PARALLEL_LEVEL: 2
+
+jobs:
+  firmware:
+    name: firmware release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install ARM GNU toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build gcc-arm-none-eabi binutils-arm-none-eabi \
+            libnewlib-arm-none-eabi
+      - name: Set reproducible-build timestamp
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
+      - name: Configure firmware
+        run: |
+          cmake -S . -B build-arm -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=.github/arm/arm-none-eabi.cmake \
+            -DEDGE_MODULE_BUILD_ARM_CORTEX_M0=ON \
+            -DEDGE_MODULE_BUILD_TESTS=OFF \
+            -DEDGE_MODULE_BUILD_EXAMPLE=OFF \
+            -DEDGE_MODULE_ENABLE_WERROR=ON
+      - name: Build firmware
+        run: cmake --build build-arm --parallel
+      - name: Size gate
+        env:
+          SIZE_TOOL: arm-none-eabi-size
+        run: python3 .github/scripts/check_size.py build-arm/example_cortex_m0 65536 16384
+      - name: Provenance, SBOM and checksums
+        run: |
+          CC=arm-none-eabi-gcc python3 .github/scripts/generate_build_metadata.py build-arm/build-metadata.json
+          CC=arm-none-eabi-gcc python3 .github/scripts/generate_sbom.py build-arm/sbom.cdx.json
+          (cd build-arm && sha256sum example_cortex_m0 example_cortex_m0.bin > SHA256SUMS)
+          arm-none-eabi-size build-arm/example_cortex_m0
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: firmware-${{ github.ref_name }}
+          path: |
+            build-arm/example_cortex_m0
+            build-arm/example_cortex_m0.bin
+            build-arm/example_cortex_m0.map
+            build-arm/SHA256SUMS
+            build-arm/build-metadata.json
+            build-arm/sbom.cdx.json
+          if-no-files-found: error
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            build-arm/example_cortex_m0
+            build-arm/example_cortex_m0.bin
+            build-arm/SHA256SUMS
+            build-arm/build-metadata.json
+            build-arm/sbom.cdx.json

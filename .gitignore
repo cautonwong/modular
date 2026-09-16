@@ -1,0 +1,40 @@
+# Build outputs
+/build/
+/build-*/
+/cmake-build-*/
+out/
+*.o
+*.obj
+*.a
+*.elf
+*.bin
+*.hex
+*.map
+*.lst
+
+# Coverage
+*.gcda
+*.gcno
+*.gcov
+coverage.xml
+coverage.html
+coverage/
+
+# Tooling
+compile_commands.json
+.cache/
+ccache/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
