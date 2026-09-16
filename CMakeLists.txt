@@ -13,6 +13,7 @@ option(EDGE_MODULE_ENABLE_SANITIZERS "Enable ASan and UBSan" OFF)
 option(EDGE_MODULE_ENABLE_COVERAGE "Enable GCC coverage" OFF)
 option(EDGE_MODULE_BUILD_ARM_CORTEX_M0 "Build Cortex-M0 cross target" OFF)
 option(EDGE_MODULE_BUILD_ARM_CORTEX_M4 "Build Cortex-M4 cross target" OFF)
+option(EDGE_MODULE_BUILD_ARM_CORTEX_M4_QEMU "Build Cortex-M4 MPS2 AN386 target" OFF)
 option(EDGE_MODULE_ARM_QEMU_SEMIHOSTING "Enable ARM semihosting exit for QEMU smoke tests" OFF)
 
 function(edge_enable_quality target)
@@ -161,6 +162,10 @@ endif()
 
 if(EDGE_MODULE_BUILD_ARM_CORTEX_M4)
     edge_add_arm_firmware(example_cortex_m4 cortex-m4 .github/arm/cortex-m4.ld)
+endif()
+
+if(EDGE_MODULE_BUILD_ARM_CORTEX_M4_QEMU)
+    edge_add_arm_firmware(example_cortex_m4_qemu cortex-m4 .github/arm/cortex-m4-qemu.ld)
 endif()
 
 if(EDGE_MODULE_BUILD_TESTS)
