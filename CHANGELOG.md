@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `check_error_ids.py` (D68) rejecting duplicate framework values, values outside
+  `-99 .. 0`, zero-segment `EDGE_ERR` allocations and module-error collisions;
+  positive/negative fixtures wired into CI and the guard self-test. Per-layer
+  error sets are documented in `docs/error-model.md`.
 - Central module ID table (`edge/modules.h`) and error allocation table
   (`edge/errors.h`) with `EDGE_ERR(segment, code)` composition and static asserts.
 - Canonical narrow port shapes (`edge/ports.h`).

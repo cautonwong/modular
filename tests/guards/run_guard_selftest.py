@@ -25,6 +25,9 @@ CASES = [
     ("check_event_ids.py", "tests/guards/events_bad", False),
     ("check_module_ids.py", "tests/guards/modules_good", True),
     ("check_module_ids.py", "tests/guards/modules_bad", False),
+    ("check_error_ids.py", "tests/guards/errors_good", True),
+    ("check_error_ids.py", "tests/guards/errors_bad", False),
+    ("check_error_ids.py", "tests/guards/errors_bad_segment", False),
 ]
 
 
