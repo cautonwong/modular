@@ -170,7 +170,7 @@ edge_status_t edge_sys_subscribe(edge_sys_t *sys, uint32_t event_id, edge_module
     return EDGE_OK;
 }
 
-edge_status_t edge_sys_unsubscribe(edge_sys_t *sys, uint32_t event_id, edge_module_t *app) {
+edge_status_t edge_sys_unsubscribe(edge_sys_t *sys, uint32_t event_id, const edge_module_t *app) {
     if (sys == NULL || app == NULL || sys->subscriptions == NULL)
         return EDGE_EINVAL;
     if (sys->state != EDGE_SYS_CONSTRUCTED && sys->state != EDGE_SYS_RUNNING)

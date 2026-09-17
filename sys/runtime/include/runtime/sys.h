@@ -67,7 +67,7 @@ edge_status_t edge_sys_set_event_budget(edge_sys_t *sys, uint32_t max_events_per
 edge_status_t edge_sys_set_required(edge_sys_t *sys, const uint32_t *ids, size_t count);
 edge_status_t edge_sys_set_idle(edge_sys_t *sys, edge_sys_idle_fn hook, void *ctx);
 edge_status_t edge_sys_subscribe(edge_sys_t *sys, uint32_t event_id, edge_module_t *app);
-edge_status_t edge_sys_unsubscribe(edge_sys_t *sys, uint32_t event_id, edge_module_t *app);
+edge_status_t edge_sys_unsubscribe(edge_sys_t *sys, uint32_t event_id, const edge_module_t *app);
 /* Publish a fact from the runner context; deferred into the pending queue (D70). */
 edge_status_t edge_sys_publish(edge_sys_t *sys, const edge_event_t *event);
 edge_status_t edge_sys_validate_required(const edge_sys_t *sys);
