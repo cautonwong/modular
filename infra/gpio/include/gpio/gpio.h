@@ -11,6 +11,7 @@ extern "C" {
 
 /* Concrete infrastructure API; products adapt it to consumer-defined ports. */
 edge_status_t gpio_write(void *self, uint8_t channel, bool level);
+edge_status_t gpio_read(void *self, uint8_t channel, bool *level);
 
 #ifdef __cplusplus
 }

@@ -303,6 +303,7 @@ jobs:
             app/relay/src/relay.c \
             infra/flash/src/flash.c \
             infra/gpio/src/gpio.c \
+            infra/uart/src/uart.c \
             board/example/src/board.c \
             board/mps2/src/board.c \
             pal/host/src/host.c \
@@ -321,6 +322,7 @@ jobs:
             -I app/relay/include \
             -I infra/flash/include \
             -I infra/gpio/include \
+            -I infra/uart/include \
             -I board/example/include \
             -I board/mps2/include \
             -I pal/host/include \

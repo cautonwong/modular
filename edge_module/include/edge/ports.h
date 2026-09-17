@@ -5,6 +5,7 @@
 #include "errors.h"
 #include "log.h"
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -34,6 +35,20 @@ typedef struct edge_storage_kv {
     edge_status_t (*write)(void *self, uint32_t key, const void *buf, size_t len);
     void *self;
 } edge_storage_kv_t;
+
+/* Non-blocking byte-stream transport (e.g. UART). RX facts are delivered as
+ * events through the injected sink, not through this port. */
+typedef struct edge_uart_port {
+    edge_status_t (*write)(void *self, const void *buf, size_t len);
+    void *self;
+} edge_uart_port_t;
+
+/* Discrete digital I/O: level set and level read. IRQ-driven changes are events. */
+typedef struct edge_gpio_port {
+    edge_status_t (*write)(void *self, uint8_t channel, bool level);
+    edge_status_t (*read)(void *self, uint8_t channel, bool *level);
+    void *self;
+} edge_gpio_port_t;
 
 /* clock and log port shapes are owned by their own headers and re-exported here. */
 typedef edge_clock_port_t edge_clock_t;
