@@ -52,6 +52,9 @@ typedef struct edge_module {
 #ifdef EDGE_TARGET_ARM32
 _Static_assert(sizeof(void *) == 4u, "embedded ABI requires 32-bit pointers");
 _Static_assert(sizeof(edge_module_t) == 64u, "edge_module_t ABI changed for 32-bit target");
+#elif defined(EDGE_TARGET_RISCV32)
+_Static_assert(sizeof(void *) == 4u, "rv32 ABI requires 32-bit pointers");
+_Static_assert(sizeof(edge_module_t) == 64u, "edge_module_t ABI changed for rv32 target");
 #elif defined(__LP64__) || defined(_LP64)
 _Static_assert(sizeof(void *) == 8u, "host ABI requires 64-bit pointers");
 _Static_assert(sizeof(edge_module_t) == 104u, "edge_module_t ABI changed on 64-bit host");
