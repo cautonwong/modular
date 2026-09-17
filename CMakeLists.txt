@@ -190,6 +190,7 @@ set(EDGE_BOARD_TARGET_example board_example)
 add_library(board_mps2 STATIC board/mps2/src/board.c)
 target_include_directories(board_mps2 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/board/mps2/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/soc/mps2/include
     ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include
 )
 target_link_libraries(board_mps2 PUBLIC edge_module)
@@ -269,10 +270,55 @@ function(edge_add_product name)
     edge_enable_quality(${name})
 endfunction()
 
+# T7b neutrality fixture: one minimal product, parameterised over board + runner
+# (and app). The app is never modified for a variant.
+if(NOT CMAKE_CROSSCOMPILING)
+    find_package(Threads REQUIRED)
+endif()
+function(edge_add_minimal_variant name board runner app)
+    if(NOT DEFINED EDGE_BOARD_TARGET_${board})
+        message(FATAL_ERROR "edge_add_minimal_variant(${name}): unknown board '${board}'")
+    endif()
+    if(NOT DEFINED EDGE_APP_TARGET_${app})
+        message(FATAL_ERROR "edge_add_minimal_variant(${name}): unknown app '${app}'")
+    endif()
+    if(runner STREQUAL "baremetal")
+        set(main_src test/minimal_product/main_baremetal.c)
+    elseif(runner STREQUAL "thread")
+        set(main_src test/minimal_product/main_thread.c)
+    else()
+        message(FATAL_ERROR "edge_add_minimal_variant(${name}): unknown runner '${runner}'")
+    endif()
+
+    add_executable(${name} ${main_src} test/minimal_product/glue.c)
+    target_include_directories(${name} PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/test/minimal_product
+        ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/sys/example/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/app/${app}/include
+    )
+    target_link_libraries(${name} PRIVATE
+        edge_module sys_example ${EDGE_BOARD_TARGET_${board}} ${EDGE_APP_TARGET_${app}}
+        infra_flash
+    )
+    if(runner STREQUAL "thread")
+        target_link_libraries(${name} PRIVATE Threads::Threads)
+    endif()
+    edge_enable_quality(${name})
+    add_test(NAME ${name} COMMAND ${name})
+    set_tests_properties(${name} PROPERTIES LABELS "host")
+endfunction()
+
 edge_add_product(example family example board example infra flash apps dlt645)
 edge_add_product(meter_host family meter board example infra flash gpio apps dlt645 relay)
 edge_add_product(meter_mps2 family meter board mps2 infra flash gpio apps dlt645 relay)
 edge_add_product(meter_gateway_host family meter board example infra flash uart apps dlt645 modbus_slave)
+
+# Host neutrality matrix: board example x {baremetal, thread} runner, same app.
+if(NOT CMAKE_CROSSCOMPILING)
+    edge_add_minimal_variant(minimal_host_baremetal example baremetal dlt645)
+    edge_add_minimal_variant(minimal_host_thread example thread dlt645)
+endif()
 if(EDGE_MODULE_BUILD_RISCV32_QEMU)
     edge_add_product(riscv_meter family meter board riscv_virt infra flash apps dlt645)
 endif()
@@ -449,7 +495,7 @@ if(EDGE_MODULE_BUILD_TESTS)
         target_link_libraries(${name} PRIVATE
             edge_module sys_example sys_meter app_dlt645 app_relay app_modbus_slave
             infra_flash infra_gpio infra_uart board_example pal_host pal_os
-            PkgConfig::CMOCKA
+            PkgConfig::CMOCKA Threads::Threads
         )
         edge_enable_quality(${name})
         add_test(NAME ${name} COMMAND ${name})
@@ -466,5 +512,6 @@ if(EDGE_MODULE_BUILD_TESTS)
     edge_add_host_test(test_ports tests/test_ports.c)
     edge_add_host_test(test_pal_host tests/test_pal_host.c)
     edge_add_host_test(test_pal_os tests/test_pal_os.c)
+    edge_add_host_test(test_runner_threads tests/test_runner_threads.c)
     edge_add_host_test(test_flash_glue tests/test_flash_glue.c product/example/glue.c)
 endif()

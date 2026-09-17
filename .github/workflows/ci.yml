@@ -189,6 +189,36 @@ jobs:
             fi
           done
 
+  neutrality:
+    name: neutrality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config libcmocka-dev
+      - name: Configure host matrix
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DEDGE_MODULE_ENABLE_WERROR=ON \
+            -DEDGE_MODULE_BUILD_TESTS=ON \
+            -DEDGE_MODULE_BUILD_EXAMPLE=ON
+      - name: Build board x runner matrix (same app)
+        run: cmake --build build --parallel
+      - name: Run baremetal and RTOS-like runners
+        run: |
+          ./build/minimal_host_baremetal
+          ./build/minimal_host_thread
+      - name: App must be unchanged by any variant
+        run: |
+          git diff --exit-code -- app/
+          test -z "$(git status --porcelain app/)"
+
   cross-compile-arm:
     name: cross-compile (Cortex-M0)
     runs-on: ubuntu-24.04
@@ -331,6 +361,7 @@ jobs:
             -I infra/uart/include \
             -I board/example/include \
             -I board/mps2/include \
+            -I soc/mps2/include \
             -I pal/host/include \
             -I pal/os/include \
             -I pal/rtos/include \
@@ -345,6 +376,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Application dependency boundary
         run: python3 .github/scripts/check_app_isolation.py
+      - name: App transitive include boundary
+        run: python3 .github/scripts/check_app_transitive_includes.py
       - name: Central event ID uniqueness
         run: python3 .github/scripts/check_event_ids.py
       - name: Central module ID uniqueness
@@ -382,6 +415,7 @@ jobs:
       - build-test
       - coverage
       - product-matrix
+      - neutrality
       - cross-compile-arm
       - static-analysis
       - architecture
@@ -392,6 +426,7 @@ jobs:
           test "${{ needs.build-test.result }}" = success
           test "${{ needs.coverage.result }}" = success
           test "${{ needs.product-matrix.result }}" = success
+          test "${{ needs.neutrality.result }}" = success
           test "${{ needs.cross-compile-arm.result }}" = success
           test "${{ needs.static-analysis.result }}" = success
           test "${{ needs.architecture.result }}" = success
