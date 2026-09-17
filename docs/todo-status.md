@@ -24,7 +24,7 @@
 | CI/CD | done | GCC/Clang Debug+Release, ASan/UBSan, CMocka with JUnit reports, gcovr line gate (95%), clang-format/clang-tidy/cppcheck, architecture guards with self-tests, Cortex-M0/Cortex-M4 cross builds, MPS2 QEMU IRQ smoke, map-level size budgets, reproducible firmware + provenance/SBOM, pinned Actions, CodeQL and a tag-driven release pipeline. IAR/iccarm remains an opt-in toolchain file. |
 | Hardware validation | in progress | Cortex-M4 firmware is built and exercised on QEMU MPS2 AN386 (timer IRQ -> event -> superloop). Renode needs a custom MPS2/CMSDK platform description; real MCU HIL needs a self-hosted runner and is not yet wired. |
 | Scheduler budgets | partial | Periodic scheduling, execution-budget accounting, bounded event dispatch, fault isolation, idle hook and statistics are implemented. Low-power board wiring, watchdog policy and per-module high-water marks remain. |
-| Target portability | partial | Cortex-M0 and Cortex-M4 ARM GNU builds are present, plus an IAR/iccarm CMake toolchain file. RV32 and RTOS-neutral PAL remain. |
+| Target portability | partial | Cortex-M0/M4 ARM GNU builds and a RISC-V 32 (`qemu-system-riscv32 -M virt`) build are present, plus an IAR/iccarm CMake toolchain file. A real RISC-V board and the RTOS-neutral PAL remain. |
 | Distribution | pending | ABI/contract compatibility matrix, SDK packaging and compliance are separate follow-up work. |
 
 ## Current runtime contract

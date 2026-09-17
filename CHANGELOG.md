@@ -12,6 +12,10 @@ All notable changes to this project are documented here. The format follows
   `-99 .. 0`, zero-segment `EDGE_ERR` allocations and module-error collisions;
   positive/negative fixtures wired into CI and the guard self-test. Per-layer
   error sets are documented in `docs/error-model.md`.
+- RISC-V 32 (`rv32imc_zicsr`) bare-metal target: `cmake/toolchains/riscv-elf.cmake`,
+  `board/riscv_virt` (CLINT machine timer + QEMU test finisher), `product/riscv_meter`
+  and a `riscv32-qemu` CI job that builds and runs it under `qemu-system-riscv32 -M virt`.
+  It reuses the same `app/dlt645` source with zero app changes.
 - Central module ID table (`edge/modules.h`) and error allocation table
   (`edge/errors.h`) with `EDGE_ERR(segment, code)` composition and static asserts.
 - Canonical narrow port shapes (`edge/ports.h`).

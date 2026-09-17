@@ -42,4 +42,11 @@
 
 - #43 `pal/os` + RTOS runner；#44 RISC-V QEMU；#32 中立性验收
 - #14 端口命名对齐；#15 全量组合矩阵；#30 HIL（非门禁）
-- 工具链可行性（已验证）：`gcc-riscv64-unknown-elf` 支持 `-march=rv32imc -mabi=ilp32`；`qemu-system-misc` 提供 `qemu-system-riscv32 -M sifive_e`。
+- 工具链可行性（已验证）：`gcc-riscv64-unknown-elf` 支持 `-march=rv32imc_zicsr -mabi=ilp32`；`qemu-system-misc` 提供 `qemu-system-riscv32 -M virt`。
+
+## 进度
+
+- [x] **#44 RISC-V 32 QEMU 目标**：`cmake/toolchains/riscv-elf.cmake` + `board/riscv_virt`（CLINT 机器定时器 + QEMU test finisher）+ `product/riscv_meter`，CI 在 `qemu-system-riscv32 -M virt` 跑通“定时器 IRQ → 事件 → superloop → 退出”，复用同一 `app/dlt645`、app 零改动。
+- [ ] #43 `pal/os` + FreeRTOS 单任务宿主
+- [ ] #47 `app/modbus_slave`
+- [ ] #48 UART/GPIO 端口契约

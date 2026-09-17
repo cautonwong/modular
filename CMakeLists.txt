@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(edge_modular VERSION 0.5.0 LANGUAGES C)
+project(edge_modular VERSION 0.5.0 LANGUAGES C ASM)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -15,6 +15,7 @@ option(EDGE_MODULE_BUILD_ARM_CORTEX_M0 "Build Cortex-M0 cross target" OFF)
 option(EDGE_MODULE_BUILD_ARM_CORTEX_M4 "Build Cortex-M4 cross target" OFF)
 option(EDGE_MODULE_BUILD_ARM_CORTEX_M4_QEMU "Build Cortex-M4 MPS2 AN386 target" OFF)
 option(EDGE_MODULE_ARM_QEMU_SEMIHOSTING "Enable ARM semihosting exit for QEMU smoke tests" OFF)
+option(EDGE_MODULE_BUILD_RISCV32_QEMU "Build RISC-V 32 QEMU (virt) target" OFF)
 
 # When targeting bare-metal ARM, every compiled object (including static
 # libraries) must use the same core and Thumb mode. Selecting it globally avoids
@@ -133,9 +134,20 @@ target_link_libraries(board_mps2 PUBLIC edge_module)
 edge_enable_quality(board_mps2)
 set(EDGE_BOARD_TARGET_mps2 board_mps2)
 
+if(EDGE_MODULE_BUILD_RISCV32_QEMU)
+    add_library(board_riscv_virt STATIC board/riscv_virt/src/board.c)
+    target_include_directories(board_riscv_virt PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/board/riscv_virt/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include
+    )
+    target_link_libraries(board_riscv_virt PUBLIC edge_module)
+    edge_enable_quality(board_riscv_virt)
+    set(EDGE_BOARD_TARGET_riscv_virt board_riscv_virt)
+endif()
+
 # Legal family x board combinations (D39). An unknown family/board fails above;
 # a known-but-unlisted pair is a product composition error and fails here.
-set(EDGE_LEGAL_FAMILY_BOARD "example:example;meter:example;meter:mps2")
+set(EDGE_LEGAL_FAMILY_BOARD "example:example;meter:example;meter:mps2;meter:riscv_virt")
 
 function(edge_add_product name)
     cmake_parse_arguments(P "" "family;board" "apps;infra" ${ARGN})
@@ -195,6 +207,9 @@ endfunction()
 edge_add_product(example family example board example infra flash apps dlt645)
 edge_add_product(meter_host family meter board example infra flash gpio apps dlt645 relay)
 edge_add_product(meter_mps2 family meter board mps2 infra flash gpio apps dlt645 relay)
+if(EDGE_MODULE_BUILD_RISCV32_QEMU)
+    edge_add_product(riscv_meter family meter board riscv_virt infra flash apps dlt645)
+endif()
 
 # Negative validation for the combinator: configuring with
 # -DEDGE_MODULE_NEGATIVE_CASE=<family|board|app|infra> must fail. Consumers live
@@ -256,6 +271,43 @@ endif()
 
 if(EDGE_MODULE_BUILD_ARM_CORTEX_M4_QEMU)
     edge_add_arm_firmware(meter_mps2_fw meter_mps2 cortex-m4 .github/arm/cortex-m4-qemu.ld board_mps2_irq_timer0)
+endif()
+
+function(edge_add_riscv_firmware name product linker_script)
+    if(NOT CMAKE_C_COMPILER MATCHES "riscv.*-gcc$")
+        message(FATAL_ERROR "${name} requires a RISC-V gcc toolchain")
+    endif()
+    if(NOT DEFINED EDGE_PRODUCT_${product}_TARGETS)
+        message(FATAL_ERROR "${name}: unknown product '${product}'")
+    endif()
+
+    add_executable(${name}
+        product/${product}/main.c
+        product/${product}/glue.c
+        .github/riscv/startup.S
+        .github/riscv/support.c
+    )
+    target_link_libraries(${name} PRIVATE edge_module ${EDGE_PRODUCT_${product}_TARGETS} -lgcc)
+    target_compile_definitions(${name} PRIVATE EDGE_TARGET_RISCV32=1)
+    target_compile_options(${name} PRIVATE
+        -ffreestanding -fdata-sections -ffunction-sections -fno-common -Os
+    )
+    target_link_options(${name} PRIVATE
+        -nostdlib
+        -T${CMAKE_CURRENT_SOURCE_DIR}/${linker_script}
+        -Wl,--gc-sections
+        -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/${name}.map
+    )
+    set_target_properties(${name} PROPERTIES OUTPUT_NAME ${name})
+    add_custom_command(TARGET ${name} POST_BUILD
+        COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:${name}> ${CMAKE_CURRENT_BINARY_DIR}/${name}.bin
+        COMMAND ${CMAKE_SIZE} $<TARGET_FILE:${name}>
+        VERBATIM
+    )
+endfunction()
+
+if(EDGE_MODULE_BUILD_RISCV32_QEMU)
+    edge_add_riscv_firmware(riscv_meter riscv_meter .github/riscv/riscv-virt.ld)
 endif()
 
 if(EDGE_MODULE_BUILD_TESTS)
