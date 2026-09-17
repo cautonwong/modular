@@ -1,6 +1,8 @@
 # Architecture
 
-This repository implements the frozen foreground/background architecture from `todo.md`.
+This repository implements the foreground/background architecture defined by
+[`docs/adr.md`](adr.md) (the single decision source); [`adr-conformance.md`](adr-conformance.md)
+tracks decision-vs-implementation drift.
 
 ```text
                     product/<name>

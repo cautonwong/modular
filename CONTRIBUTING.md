@@ -1,9 +1,11 @@
 # Contributing
 
 Thanks for improving the modular foreground/background platform. This project is
-governed by the architecture decisions in [`todo.md`](todo.md) (frozen D1-D45) and
-[`docs/adr.md`](docs/adr.md) (extended decision record). Changes that violate a
-frozen decision will not be accepted without an explicit ADR update.
+governed by [`docs/adr.md`](docs/adr.md) (D1-D85), the single source of truth for
+decisions. [`docs/adr-conformance.md`](docs/adr-conformance.md) is the only
+decision-vs-implementation view. `todo.md` is retained as an archive of the early
+D1-D45 subset. Changes that violate a decision will not be accepted without an
+explicit ADR update.
 
 ## Ground rules
 

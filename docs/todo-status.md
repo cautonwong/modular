@@ -1,6 +1,8 @@
 # TODO implementation status
 
-This file tracks the frozen architecture TODO against the current repository.
+> Summary view only. [`docs/adr-conformance.md`](adr-conformance.md) is the
+> single authoritative decision-vs-implementation diff view; `todo.md` is an
+> archived D1-D45 subset.
 
 | Area | Status | Implementation |
 |---|---|---|

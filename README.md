@@ -1,8 +1,9 @@
 # 模块化系统
 
-> **Architecture / TODO Source of Truth**
+> **Architecture source of truth**
 >
-> 根目录 `todo.md` 是完整架构决策与实施清单；README 保持与其核心原则一致，并记录当前已经落地的代码边界。
+> [`docs/adr.md`](docs/adr.md)（D1-D85）是唯一决策源；[`docs/adr-conformance.md`](docs/adr-conformance.md)
+> 是决策与实现的唯一差异视图。根目录 `todo.md` 仅作历史存档。
 
 ## 目标
 
@@ -239,6 +240,6 @@ edge_add_product(
 
 ## 完整设计
 
-- 根目录 `todo.md`：冻结的 D1-D45 决策、边界规则与实施清单。
-- `docs/adr.md`：扩展决策记录 D1-D85（PAL / 并发 / 多驱动模型 / 中立性蓝图）。
-- `docs/adr-conformance.md`：ADR 决策与当前实现的逐项对照（含未闭合项）。
+- `docs/adr.md`：**唯一决策源**，D1-D85（含 PAL / 并发 / 多驱动模型 / 中立性蓝图）。
+- `docs/adr-conformance.md`：决策与实现的唯一差异视图（含未闭合项与 wontfix）。
+- 根目录 `todo.md`：历史存档（早期 D1-D45 冻结子集），不再更新。

@@ -1,6 +1,8 @@
-# 模块化系统 TODO / Architecture Source of Truth
+# 模块化系统 TODO（历史存档）
 
-> 本文件为当前模块化系统的冻结架构与实施清单。`README.md` 与本文件保持一致。
+> **已被 [`docs/adr.md`](docs/adr.md) 取代。** `docs/adr.md`（D1-D85）是本项目唯一的决策源；
+> 本文件保留 D1-D45 冻结子集与早期实施清单，仅作存档、不再更新。
+> 决策与实现的唯一差异视图见 [`docs/adr-conformance.md`](docs/adr-conformance.md)。
 
 ## 1. 总体架构
 

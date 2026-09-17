@@ -1,10 +1,11 @@
 # ADR conformance
 
 Tracks how far the current implementation matches the decisions in
-[`adr.md`](adr.md) (D1-D85). `todo.md` (D1-D45) is the frozen subset; this file
-covers the extended record.
+[`adr.md`](adr.md) (D1-D85). `adr.md` is the single decision source and this file
+is the **only** decision-vs-implementation view; `todo.md` (D1-D45) is an archived
+early subset.
 
-Legend: ✅ implemented · 🟡 partial · ❌ not implemented · ⛔ contradicts the ADR.
+Legend: ✅ implemented · 🟡 partial · ❌ not implemented · ⛔ contradicts the ADR · 🚫 wontfix (decided not to do).
 
 ## Framework and composition
 
@@ -17,11 +18,11 @@ Legend: ✅ implemented · 🟡 partial · ❌ not implemented · ⛔ contradict
 | D14 | Consumer-defined interfaces, adapters in product glue | ✅ | `dlt645_storage_if_t` + `product/example/glue.c` |
 | D15 | Extremely thin `edge_module` | 🟡 | Lifecycle + event primitives + tables; `init`/`deinit` still live in `edge_module_t` (see conflicts) |
 | D16-D18 | Events are facts; scalar payload; no pointers | ✅ | `edge_event_t{id,source,arg0,arg1,timestamp}` with `_Static_assert` |
-| D19/D68 | Unified `edge_status_t` + central error allocation | ✅ | `edge/errors.h` with `EDGE_ERR(segment, code)` |
+| D19/D68 | Unified `edge_status_t` + central error allocation | ✅ | `edge/errors.h` + `check_error_ids.py` (dup / range / zero-segment) + `docs/error-model.md` |
 | D20 | Injected clock port | ✅ | `edge/clock.h`, sink timestamps |
 | D21 | Zero runtime allocation | ✅ | Only caller-owned storage; no `malloc` |
 | D22/D23/D24 | Small, capability-narrow ports | ✅ | `edge/ports.h` (`reader`/`writer`/`kv`) |
-| D30 | `edge_util` header-only library | ❌ | No `edge/util/`; no generic util needed yet |
+| D30 | `edge_util` header-only library | 🚫 wontfix | Deliberately not built: no shared util is needed yet; revisit only if duplication appears (D30 closed as wontfix) |
 | D31 | Single `edge/events.h` + compile-time uniqueness | ✅ | `_Static_assert` guards + `check_event_ids.py` |
 | D32 | Explicit `sys_subscribe` in `main()` | ✅ | Products subscribe before `start` |
 | D33 | Sink-side monotonic timestamp | ✅ | `edge_event_sink_push_isr()` |
@@ -85,5 +86,5 @@ Legend: ✅ implemented · 🟡 partial · ❌ not implemented · ⛔ contradict
 ## Maintenance
 
 When a decision is implemented or a new conflict is found, update the matching
-row here and the status lists in `todo.md` / `docs/todo-status.md`. This file is
-the single tracking entry point for ADR-vs-code drift.
+row here. `todo.md` is archived and is not updated; this file is the single
+tracking entry point for ADR-vs-code drift.

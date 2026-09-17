@@ -7,7 +7,7 @@ How the engineering skills should consume this repo's domain documentation when 
 - **`CONTEXT.md`** at the repo root (single-context). Created lazily; if absent, proceed silently.
 - **`docs/adr.md`** — the extended architecture decision record (D1-D85).
 - **`docs/adr-conformance.md`** — how far the code matches the ADR, plus the open conflicts.
-- **`todo.md`** — the frozen D1-D45 decision set the README points at.
+- **`todo.md`** — archived early D1-D45 subset (superseded by `docs/adr.md`).
 - **`docs/architecture.md`** — the implemented runtime and boundary summary.
 
 If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The `/domain-modeling` skill creates `CONTEXT.md` lazily when terms or decisions actually get resolved.
@@ -19,7 +19,7 @@ Single-context repo:
 ```
 /
 ├── CONTEXT.md                     ← lazily created
-├── todo.md                        frozen D1-D45 decisions
+├── todo.md                        archived D1-D45 (superseded by docs/adr.md)
 ├── docs/
 │   ├── adr.md                     extended decision record (D1-D85)
 │   ├── adr-conformance.md         ADR vs implementation status
