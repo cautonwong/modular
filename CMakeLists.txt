@@ -16,13 +16,15 @@ option(EDGE_MODULE_BUILD_ARM_CORTEX_M4 "Build Cortex-M4 cross target" OFF)
 option(EDGE_MODULE_BUILD_ARM_CORTEX_M4_QEMU "Build Cortex-M4 MPS2 AN386 target" OFF)
 option(EDGE_MODULE_ARM_QEMU_SEMIHOSTING "Enable ARM semihosting exit for QEMU smoke tests" OFF)
 option(EDGE_MODULE_BUILD_RISCV32_QEMU "Build RISC-V 32 QEMU (virt) target" OFF)
+option(EDGE_MODULE_BUILD_FREERTOS_QEMU "Build FreeRTOS-hosted Cortex-M4 QEMU target" OFF)
+set(EDGE_MODULE_FREERTOS_KERNEL_TAG "V11.1.0" CACHE STRING "FreeRTOS-Kernel git tag")
 
 # When targeting bare-metal ARM, every compiled object (including static
 # libraries) must use the same core and Thumb mode. Selecting it globally avoids
 # linking ARM-mode library objects into a Thumb firmware image.
 if(EDGE_MODULE_BUILD_ARM_CORTEX_M0)
     set(EDGE_ARM_CPU cortex-m0)
-elseif(EDGE_MODULE_BUILD_ARM_CORTEX_M4 OR EDGE_MODULE_BUILD_ARM_CORTEX_M4_QEMU)
+elseif(EDGE_MODULE_BUILD_ARM_CORTEX_M4 OR EDGE_MODULE_BUILD_ARM_CORTEX_M4_QEMU OR EDGE_MODULE_BUILD_FREERTOS_QEMU)
     set(EDGE_ARM_CPU cortex-m4)
 endif()
 if(DEFINED EDGE_ARM_CPU)
@@ -124,6 +126,40 @@ target_include_directories(pal_host PUBLIC
 target_link_libraries(pal_host PUBLIC edge_module pal_os)
 edge_enable_quality(pal_host)
 
+if(EDGE_MODULE_BUILD_FREERTOS_QEMU)
+    include(FetchContent)
+    FetchContent_Declare(freertos_kernel
+        GIT_REPOSITORY https://github.com/FreeRTOS/FreeRTOS-Kernel.git
+        GIT_TAG ${EDGE_MODULE_FREERTOS_KERNEL_TAG}
+        GIT_SHALLOW TRUE
+    )
+    FetchContent_GetProperties(freertos_kernel)
+    if(NOT freertos_kernel_POPULATED)
+        FetchContent_Populate(freertos_kernel)
+    endif()
+
+    add_library(freertos_kernel STATIC
+        ${freertos_kernel_SOURCE_DIR}/tasks.c
+        ${freertos_kernel_SOURCE_DIR}/list.c
+        ${freertos_kernel_SOURCE_DIR}/queue.c
+        ${freertos_kernel_SOURCE_DIR}/portable/GCC/ARM_CM3/port.c
+        ${freertos_kernel_SOURCE_DIR}/portable/MemMang/heap_4.c
+    )
+    target_include_directories(freertos_kernel PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/pal/rtos/freertos/include
+        ${freertos_kernel_SOURCE_DIR}/include
+        ${freertos_kernel_SOURCE_DIR}/portable/GCC/ARM_CM3
+    )
+
+    add_library(pal_rtos_freertos STATIC pal/rtos/freertos/src/freertos_rtos.c)
+    target_include_directories(pal_rtos_freertos PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/pal/rtos/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/pal/os/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include
+    )
+    target_link_libraries(pal_rtos_freertos PUBLIC edge_module pal_os freertos_kernel)
+endif()
+
 add_library(board_example STATIC board/example/src/board.c)
 target_include_directories(board_example PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/board/example/include
@@ -141,6 +177,9 @@ target_include_directories(board_mps2 PUBLIC
 target_link_libraries(board_mps2 PUBLIC edge_module)
 edge_enable_quality(board_mps2)
 set(EDGE_BOARD_TARGET_mps2 board_mps2)
+if(EDGE_MODULE_ARM_QEMU_SEMIHOSTING OR EDGE_MODULE_BUILD_FREERTOS_QEMU)
+    target_compile_definitions(board_mps2 PUBLIC EDGE_QEMU_SEMIHOSTING=1)
+endif()
 
 if(EDGE_MODULE_BUILD_RISCV32_QEMU)
     add_library(board_riscv_virt STATIC board/riscv_virt/src/board.c)
@@ -217,6 +256,9 @@ edge_add_product(meter_host family meter board example infra flash gpio apps dlt
 edge_add_product(meter_mps2 family meter board mps2 infra flash gpio apps dlt645 relay)
 if(EDGE_MODULE_BUILD_RISCV32_QEMU)
     edge_add_product(riscv_meter family meter board riscv_virt infra flash apps dlt645)
+endif()
+if(EDGE_MODULE_BUILD_FREERTOS_QEMU)
+    edge_add_product(meter_mps2_freertos family meter board mps2 infra flash apps dlt645)
 endif()
 
 # Negative validation for the combinator: configuring with
@@ -316,6 +358,52 @@ endfunction()
 
 if(EDGE_MODULE_BUILD_RISCV32_QEMU)
     edge_add_riscv_firmware(riscv_meter riscv_meter .github/riscv/riscv-virt.ld)
+endif()
+
+function(edge_add_arm_freertos_firmware name product)
+    if(NOT CMAKE_C_COMPILER MATCHES "arm-none-eabi-gcc$")
+        message(FATAL_ERROR "${name} requires arm-none-eabi-gcc toolchain")
+    endif()
+    if(NOT DEFINED EDGE_PRODUCT_${product}_TARGETS)
+        message(FATAL_ERROR "${name}: unknown product '${product}'")
+    endif()
+
+    add_executable(${name}
+        product/${product}/main.c
+        product/${product}/glue.c
+        .github/arm/startup.c
+    )
+    target_link_libraries(${name} PRIVATE
+        edge_module ${EDGE_PRODUCT_${product}_TARGETS} pal_rtos_freertos freertos_kernel
+    )
+    target_compile_definitions(${name} PRIVATE
+        EDGE_TARGET_ARM32=1
+        EDGE_QEMU_SEMIHOSTING=1
+        EDGE_SVC_HANDLER=vPortSVCHandler
+        EDGE_PENDSV_HANDLER=xPortPendSVHandler
+        EDGE_SYSTICK_HANDLER=xPortSysTickHandler
+    )
+    target_compile_options(${name} PRIVATE
+        -mcpu=cortex-m4 -mthumb -mno-unaligned-access -mfloat-abi=soft
+        -ffreestanding -fdata-sections -ffunction-sections -fno-common -Os
+    )
+    target_link_options(${name} PRIVATE
+        -mcpu=cortex-m4 -mthumb -mfloat-abi=soft
+        -T${CMAKE_CURRENT_SOURCE_DIR}/.github/arm/cortex-m4-qemu.ld
+        -nostartfiles --specs=nosys.specs
+        -Wl,--gc-sections
+        -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/${name}.map
+    )
+    set_target_properties(${name} PROPERTIES OUTPUT_NAME ${name})
+    add_custom_command(TARGET ${name} POST_BUILD
+        COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:${name}> ${CMAKE_CURRENT_BINARY_DIR}/${name}.bin
+        COMMAND ${CMAKE_SIZE} $<TARGET_FILE:${name}>
+        VERBATIM
+    )
+endfunction()
+
+if(EDGE_MODULE_BUILD_FREERTOS_QEMU)
+    edge_add_arm_freertos_firmware(meter_mps2_freertos_fw meter_mps2_freertos)
 endif()
 
 if(EDGE_MODULE_BUILD_TESTS)

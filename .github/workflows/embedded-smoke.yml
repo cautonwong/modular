@@ -134,3 +134,64 @@ jobs:
             build-rv/size-report.json
             build-rv/readelf.txt
           if-no-files-found: error
+
+  freertos-qemu:
+    name: FreeRTOS host + QEMU smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install ARM GNU toolchain and QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build git gcc-arm-none-eabi binutils-arm-none-eabi \
+            libnewlib-arm-none-eabi qemu-system-arm
+      - name: Verify tools
+        run: |
+          arm-none-eabi-gcc --version
+          qemu-system-arm --version
+      - name: Set reproducible-build timestamp
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
+      - name: Configure FreeRTOS-hosted firmware
+        run: |
+          cmake -S . -B build-freertos -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=.github/arm/arm-none-eabi.cmake \
+            -DEDGE_MODULE_BUILD_FREERTOS_QEMU=ON \
+            -DEDGE_MODULE_BUILD_TESTS=OFF \
+            -DEDGE_MODULE_BUILD_EXAMPLE=OFF \
+            -DEDGE_MODULE_ENABLE_WERROR=ON
+      - name: Build FreeRTOS firmware
+        run: cmake --build build-freertos --parallel
+      - name: Verify and budget FreeRTOS image
+        env:
+          SIZE_TOOL: arm-none-eabi-size
+        run: |
+          arm-none-eabi-readelf -h build-freertos/meter_mps2_freertos_fw | tee build-freertos/readelf.txt
+          grep -E 'Class:.*ELF32' build-freertos/readelf.txt
+          grep -E 'Machine:.*ARM' build-freertos/readelf.txt
+          arm-none-eabi-size build-freertos/meter_mps2_freertos_fw
+          python3 .github/scripts/check_size.py build-freertos/meter_mps2_freertos_fw 65536 16384
+          python3 .github/scripts/check_map_budget.py build-freertos/meter_mps2_freertos_fw.map \
+            --report build-freertos/size-report.json
+      - name: QEMU FreeRTOS capsule smoke
+        run: |
+          timeout --signal=KILL 15s \
+            qemu-system-arm \
+              -M mps2-an386 \
+              -nographic \
+              -semihosting-config enable=on,target=native \
+              -kernel build-freertos/meter_mps2_freertos_fw
+      - name: Upload FreeRTOS image
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: freertos-qemu-firmware
+          path: |
+            build-freertos/meter_mps2_freertos_fw
+            build-freertos/meter_mps2_freertos_fw.bin
+            build-freertos/meter_mps2_freertos_fw.map
+            build-freertos/size-report.json
+            build-freertos/readelf.txt
+          if-no-files-found: error

@@ -13,6 +13,7 @@ void board_mps2_init(edge_event_sink_t *sink);
 void board_mps2_irq_uart0_rx(uint32_t byte_count);
 void board_mps2_timer_init(void);
 void board_mps2_irq_timer0(void);
+__attribute__((noreturn)) void board_mps2_exit(int code);
 
 #ifdef __cplusplus
 }

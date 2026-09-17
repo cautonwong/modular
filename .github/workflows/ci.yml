@@ -325,6 +325,7 @@ jobs:
             -I board/mps2/include \
             -I pal/host/include \
             -I pal/os/include \
+            -I pal/rtos/include \
             edge_module sys app board infra pal product tests
 
   architecture:

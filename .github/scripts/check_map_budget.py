@@ -40,6 +40,8 @@ def layer_of(artifact):
         return "app"
     if "libinfra_" in artifact:
         return "infra"
+    if "libfreertos_kernel.a" in artifact or "libpal_rtos" in artifact:
+        return "rtos"
     if "product/" in artifact:
         return "product"
     if "startup.c" in artifact:

@@ -52,3 +52,16 @@ void board_mps2_irq_uart0_rx(uint32_t byte_count) {
     };
     (void)edge_event_sink_push_isr(g_event_sink, &event);
 }
+
+__attribute__((noreturn)) void board_mps2_exit(int code) {
+#ifdef EDGE_QEMU_SEMIHOSTING
+    const int reason = (code == 0) ? 0x20026 : 0x20023;
+    register int r0 __asm("r0") = 0x18; /* SYS_EXIT */
+    register int r1 __asm("r1") = reason;
+    __asm volatile("bkpt 0xAB" : : "r"(r0), "r"(r1) : "memory");
+#else
+    (void)code;
+#endif
+    for (;;) {
+    }
+}

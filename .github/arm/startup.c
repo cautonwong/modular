@@ -39,6 +39,27 @@ extern void EDGE_BOARD_TIMER_ISR(void);
 #define EDGE_TIMER_HANDLER default_handler
 #endif
 
+#if defined(EDGE_SVC_HANDLER)
+extern void EDGE_SVC_HANDLER(void);
+#define EDGE_VECT_SVC EDGE_SVC_HANDLER
+#else
+#define EDGE_VECT_SVC default_handler
+#endif
+
+#if defined(EDGE_PENDSV_HANDLER)
+extern void EDGE_PENDSV_HANDLER(void);
+#define EDGE_VECT_PENDSV EDGE_PENDSV_HANDLER
+#else
+#define EDGE_VECT_PENDSV default_handler
+#endif
+
+#if defined(EDGE_SYSTICK_HANDLER)
+extern void EDGE_SYSTICK_HANDLER(void);
+#define EDGE_VECT_SYSTICK EDGE_SYSTICK_HANDLER
+#else
+#define EDGE_VECT_SYSTICK default_handler
+#endif
+
 // clang-format off
 __attribute__((used, section(".isr_vector"))) const edge_vector_table_t edge_vector_table = {
     .initial_sp = (uint32_t)&_estack,
@@ -53,11 +74,11 @@ __attribute__((used, section(".isr_vector"))) const edge_vector_table_t edge_vec
         [6] = default_handler,
         [7] = default_handler,
         [8] = default_handler,
-        [9] = default_handler,
+        [9] = EDGE_VECT_SVC,
         [10] = default_handler,
         [11] = default_handler,
-        [12] = default_handler,
-        [13] = default_handler,
+        [12] = EDGE_VECT_PENDSV,
+        [13] = EDGE_VECT_SYSTICK,
         [14] = default_handler,
         [15] = default_handler,
         [16] = default_handler,

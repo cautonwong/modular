@@ -18,6 +18,10 @@ All notable changes to this project are documented here. The format follows
   It reuses the same `app/dlt645` source with zero app changes.
 - `pal/os` contract (`edge_os_port_t` yield/sleep) and `edge_os_idle_hook`, which
   bridges it to the sys idle hook, with a tested host implementation.
+- FreeRTOS host: a neutral `pal/rtos` contract (`edge_rtos_task_create`/`edge_rtos_start`)
+  with a FreeRTOS implementation, and `product/meter_mps2_freertos` running the
+  sys capsule as a single task on QEMU Cortex-M4 (sibling task injects events
+  through the same sink). RTOS headers stay confined to `pal/rtos`.
 - Central module ID table (`edge/modules.h`) and error allocation table
   (`edge/errors.h`) with `EDGE_ERR(segment, code)` composition and static asserts.
 - Canonical narrow port shapes (`edge/ports.h`).
