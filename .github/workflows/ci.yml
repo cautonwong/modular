@@ -234,6 +234,10 @@ jobs:
         run: |
           python3 .github/scripts/check_map_budget.py build-arm/example_cortex_m0.map \
             --report build-arm/size-report.json
+      - name: Zero dynamic memory check
+        env:
+          NM_TOOL: arm-none-eabi-nm
+        run: python3 .github/scripts/check_no_dynamic_memory.py build-arm/example_cortex_m0
       - name: Reproducible firmware check
         run: |
           cmake -S . -B build-arm-repro -G Ninja \
@@ -345,6 +349,10 @@ jobs:
         run: python3 .github/scripts/check_module_ids.py
       - name: Central error ID uniqueness
         run: python3 .github/scripts/check_error_ids.py
+      - name: Event payload scalar check
+        run: python3 .github/scripts/check_event_payload.py
+      - name: ADR gate coverage
+        run: python3 .github/scripts/check_adr_gates.py
       - name: CMake/main product consistency
         run: python3 .github/scripts/check_cmake_apps.py
       - name: Guard self-test (negative fixtures)

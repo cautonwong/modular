@@ -88,3 +88,7 @@ Legend: ✅ implemented · 🟡 partial · ❌ not implemented · ⛔ contradict
 When a decision is implemented or a new conflict is found, update the matching
 row here. `todo.md` is archived and is not updated; this file is the single
 tracking entry point for ADR-vs-code drift.
+
+Automatable decisions are also mapped to a gate in `ci/adr-gates.json` and
+checked by `.github/scripts/check_adr_gates.py`; see [`governance.md`](governance.md)
+for the matrix and the paper-only ratchet.

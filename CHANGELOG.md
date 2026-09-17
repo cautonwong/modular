@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- ADR -> gate governance: `ci/adr-gates.json` + `check_adr_gates.py` (27 gated,
+  58 paper-only tracked), `check_event_payload.py` (D18 scalar payload) and
+  `check_no_dynamic_memory.py` (D21, wired into all four firmware jobs). See
+  `docs/governance.md`.
 - `check_error_ids.py` (D68) rejecting duplicate framework values, values outside
   `-99 .. 0`, zero-segment `EDGE_ERR` allocations and module-error collisions;
   positive/negative fixtures wired into CI and the guard self-test. Per-layer
