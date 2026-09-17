@@ -305,7 +305,8 @@ jobs:
             infra/gpio/src/gpio.c \
             board/example/src/board.c \
             board/mps2/src/board.c \
-            pal/host/src/host.c
+            pal/host/src/host.c \
+            pal/os/src/idle.c
       - name: cppcheck
         run: |
           cppcheck \
@@ -323,6 +324,7 @@ jobs:
             -I board/example/include \
             -I board/mps2/include \
             -I pal/host/include \
+            -I pal/os/include \
             edge_module sys app board infra pal product tests
 
   architecture:

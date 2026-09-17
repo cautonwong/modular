@@ -5,6 +5,8 @@
 static uint64_t g_ticks;
 static uint32_t g_critical_depth;
 static bool g_in_isr;
+static uint32_t g_yields;
+static uint64_t g_slept_ms;
 
 static void critical_enter(void *self) {
     (void)self;
@@ -65,4 +67,31 @@ uint32_t pal_host_critical_depth(void) {
 
 void pal_host_set_in_isr(bool in_isr) {
     g_in_isr = in_isr;
+}
+
+static void os_yield(void *self) {
+    (void)self;
+    ++g_yields;
+}
+
+static void os_sleep_ms(void *self, uint32_t ms) {
+    (void)self;
+    g_slept_ms += ms;
+}
+
+edge_os_port_t pal_host_os_port(void) {
+    const edge_os_port_t port = {
+        .yield = os_yield,
+        .sleep_ms = os_sleep_ms,
+        .self = NULL,
+    };
+    return port;
+}
+
+uint32_t pal_host_yields(void) {
+    return g_yields;
+}
+
+uint64_t pal_host_slept_ms(void) {
+    return g_slept_ms;
 }

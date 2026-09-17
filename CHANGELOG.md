@@ -16,6 +16,8 @@ All notable changes to this project are documented here. The format follows
   `board/riscv_virt` (CLINT machine timer + QEMU test finisher), `product/riscv_meter`
   and a `riscv32-qemu` CI job that builds and runs it under `qemu-system-riscv32 -M virt`.
   It reuses the same `app/dlt645` source with zero app changes.
+- `pal/os` contract (`edge_os_port_t` yield/sleep) and `edge_os_idle_hook`, which
+  bridges it to the sys idle hook, with a tested host implementation.
 - Central module ID table (`edge/modules.h`) and error allocation table
   (`edge/errors.h`) with `EDGE_ERR(segment, code)` composition and static asserts.
 - Canonical narrow port shapes (`edge/ports.h`).

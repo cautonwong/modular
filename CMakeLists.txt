@@ -108,12 +108,20 @@ target_link_libraries(infra_gpio PUBLIC edge_module)
 edge_enable_quality(infra_gpio)
 set(EDGE_INFRA_TARGET_gpio infra_gpio)
 
+add_library(pal_os STATIC pal/os/src/idle.c)
+target_include_directories(pal_os PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/pal/os/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include
+)
+target_link_libraries(pal_os PUBLIC edge_module)
+edge_enable_quality(pal_os)
+
 add_library(pal_host STATIC pal/host/src/host.c)
 target_include_directories(pal_host PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/pal/host/include
     ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include
 )
-target_link_libraries(pal_host PUBLIC edge_module)
+target_link_libraries(pal_host PUBLIC edge_module pal_os)
 edge_enable_quality(pal_host)
 
 add_library(board_example STATIC board/example/src/board.c)
@@ -327,10 +335,11 @@ if(EDGE_MODULE_BUILD_TESTS)
             ${CMAKE_CURRENT_SOURCE_DIR}/infra/gpio/include
             ${CMAKE_CURRENT_SOURCE_DIR}/board/example/include
             ${CMAKE_CURRENT_SOURCE_DIR}/pal/host/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/pal/os/include
         )
         target_link_libraries(${name} PRIVATE
             edge_module sys_example sys_meter app_dlt645 app_relay
-            infra_flash infra_gpio board_example pal_host
+            infra_flash infra_gpio board_example pal_host pal_os
             PkgConfig::CMOCKA
         )
         edge_enable_quality(${name})
@@ -345,5 +354,6 @@ if(EDGE_MODULE_BUILD_TESTS)
     edge_add_host_test(test_app_relay tests/test_app_relay.c)
     edge_add_host_test(test_infra_gpio tests/test_infra_gpio.c)
     edge_add_host_test(test_pal_host tests/test_pal_host.c)
+    edge_add_host_test(test_pal_os tests/test_pal_os.c)
     edge_add_host_test(test_flash_glue tests/test_flash_glue.c product/example/glue.c)
 endif()
