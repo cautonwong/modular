@@ -66,10 +66,10 @@ static edge_status_t handle_read_coils(modbus_slave_t *self, const uint8_t *fram
 
     uint8_t pdu[2u + (MODBUS_SLAVE_MAX_QTY + 7u) / 8u];
     const uint8_t byte_count = (uint8_t)((qty + 7u) / 8u);
+    for (size_t k = 0u; k < sizeof(pdu); ++k)
+        pdu[k] = 0u;
     pdu[0] = MODBUS_FC_READ_COILS;
     pdu[1] = byte_count;
-    for (uint8_t i = 0u; i < byte_count; ++i)
-        pdu[2u + i] = 0u;
 
     for (uint16_t i = 0u; i < qty; ++i) {
         bool value = false;
