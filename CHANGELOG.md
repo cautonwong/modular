@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Neutrality acceptance (D57 / section 17.21): `check_app_transitive_includes.py`
+  (T7a), a parameterised `test/minimal_product/` with baremetal + thread host
+  runners (T7b), a host thread-model test (T7c), and a CI `neutrality` job that
+  builds the board x runner matrix and asserts `git diff --exit-code -- app/`.
+  New real `soc/mps2` SoC package selected by `board/mps2`. See `docs/neutrality.md`.
 - Second domain app `app/modbus_slave` (Modbus RTU slave: coils/holding registers,
   function codes 0x01/0x03/0x05/0x06/0x10, exception responses, CRC16) on
   consumer-defined store/transport ports, plus the dual-protocol
