@@ -48,5 +48,5 @@
 
 - [x] **#44 RISC-V 32 QEMU 目标**：`cmake/toolchains/riscv-elf.cmake` + `board/riscv_virt`（CLINT 机器定时器 + QEMU test finisher）+ `product/riscv_meter`，CI 在 `qemu-system-riscv32 -M virt` 跑通“定时器 IRQ → 事件 → superloop → 退出”，复用同一 `app/dlt645`、app 零改动。
 - [x] **#43 `pal/os` + FreeRTOS 单任务宿主**：`pal/os`（yield/sleep）+ `edge_os_idle_hook`；`pal/rtos/freertos` 提供中性 `edge_rtos_*` 宿主契约（RTOS 头不出 `pal/rtos`）；`product/meter_mps2_freertos` 把同一 superloop 作为单个 FreeRTOS Task 跑在 QEMU Cortex-M4，兄弟 Task 经同一 sink 注入事件；CI 新增 `freertos-qemu` job。
-- [ ] #47 `app/modbus_slave`
+- [x] **#47 `app/modbus_slave`**：Modbus RTU 从机（0x01/0x03/0x05/0x06/0x10 + 异常响应 + CRC16），消费者定义 store/transport 端口；`product/meter_gateway_host` 在同一 runner 上同时跑 `dlt645` + `modbus_slave`（双协议共存冒烟）。
 - [ ] #48 UART/GPIO 端口契约

@@ -92,6 +92,15 @@ target_link_libraries(app_relay PUBLIC edge_module)
 edge_enable_quality(app_relay)
 set(EDGE_APP_TARGET_relay app_relay)
 
+add_library(app_modbus_slave STATIC app/modbus_slave/src/modbus_slave.c)
+target_include_directories(app_modbus_slave PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/app/modbus_slave/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include
+)
+target_link_libraries(app_modbus_slave PUBLIC edge_module)
+edge_enable_quality(app_modbus_slave)
+set(EDGE_APP_TARGET_modbus_slave app_modbus_slave)
+
 add_library(infra_flash STATIC infra/flash/src/flash.c)
 target_include_directories(infra_flash PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/infra/flash/include
@@ -263,6 +272,7 @@ endfunction()
 edge_add_product(example family example board example infra flash apps dlt645)
 edge_add_product(meter_host family meter board example infra flash gpio apps dlt645 relay)
 edge_add_product(meter_mps2 family meter board mps2 infra flash gpio apps dlt645 relay)
+edge_add_product(meter_gateway_host family meter board example infra flash uart apps dlt645 modbus_slave)
 if(EDGE_MODULE_BUILD_RISCV32_QEMU)
     edge_add_product(riscv_meter family meter board riscv_virt infra flash apps dlt645)
 endif()
@@ -428,6 +438,7 @@ if(EDGE_MODULE_BUILD_TESTS)
             ${CMAKE_CURRENT_SOURCE_DIR}/sys/meter/include
             ${CMAKE_CURRENT_SOURCE_DIR}/app/dlt645/include
             ${CMAKE_CURRENT_SOURCE_DIR}/app/relay/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/app/modbus_slave/include
             ${CMAKE_CURRENT_SOURCE_DIR}/infra/flash/include
             ${CMAKE_CURRENT_SOURCE_DIR}/infra/gpio/include
             ${CMAKE_CURRENT_SOURCE_DIR}/infra/uart/include
@@ -436,7 +447,7 @@ if(EDGE_MODULE_BUILD_TESTS)
             ${CMAKE_CURRENT_SOURCE_DIR}/pal/os/include
         )
         target_link_libraries(${name} PRIVATE
-            edge_module sys_example sys_meter app_dlt645 app_relay
+            edge_module sys_example sys_meter app_dlt645 app_relay app_modbus_slave
             infra_flash infra_gpio infra_uart board_example pal_host pal_os
             PkgConfig::CMOCKA
         )
@@ -451,6 +462,7 @@ if(EDGE_MODULE_BUILD_TESTS)
     edge_add_host_test(test_app_dlt645 tests/test_app_dlt645.c)
     edge_add_host_test(test_app_relay tests/test_app_relay.c)
     edge_add_host_test(test_infra_gpio tests/test_infra_gpio.c)
+    edge_add_host_test(test_modbus_slave tests/test_modbus_slave.c)
     edge_add_host_test(test_ports tests/test_ports.c)
     edge_add_host_test(test_pal_host tests/test_pal_host.c)
     edge_add_host_test(test_pal_os tests/test_pal_os.c)

@@ -167,7 +167,7 @@ jobs:
           cmake --build build --parallel
       - name: Run host products
         run: |
-          for product in example meter_host meter_mps2; do
+          for product in example meter_host meter_mps2 meter_gateway_host; do
             echo "running $product"
             ./build/$product
           done
@@ -305,6 +305,7 @@ jobs:
             sys/meter/sys_meter.c \
             app/dlt645/src/dlt645.c \
             app/relay/src/relay.c \
+            app/modbus_slave/src/modbus_slave.c \
             infra/flash/src/flash.c \
             infra/gpio/src/gpio.c \
             infra/uart/src/uart.c \
@@ -324,6 +325,7 @@ jobs:
             -I sys/meter/include \
             -I app/dlt645/include \
             -I app/relay/include \
+            -I app/modbus_slave/include \
             -I infra/flash/include \
             -I infra/gpio/include \
             -I infra/uart/include \
