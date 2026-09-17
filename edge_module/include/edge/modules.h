@@ -17,6 +17,7 @@ extern "C" {
  */
 #define EDGE_MOD_DLT645 0x1000u
 #define EDGE_MOD_DLMS 0x1100u
+#define EDGE_MOD_MODBUS 0x1300u
 #define EDGE_MOD_RELAY 0x2000u
 
 /* High byte of a module/event segment, used by EDGE_ERR() in edge/errors.h. */
@@ -26,11 +27,16 @@ _Static_assert(EDGE_MODULE_SEGMENT(EDGE_MOD_DLT645) == EDGE_MOD_DLT645,
                "module ID must sit on a 0xNN00 segment boundary");
 _Static_assert(EDGE_MODULE_SEGMENT(EDGE_MOD_DLMS) == EDGE_MOD_DLMS,
                "module ID must sit on a 0xNN00 segment boundary");
+_Static_assert(EDGE_MODULE_SEGMENT(EDGE_MOD_MODBUS) == EDGE_MOD_MODBUS,
+               "module ID must sit on a 0xNN00 segment boundary");
 _Static_assert(EDGE_MODULE_SEGMENT(EDGE_MOD_RELAY) == EDGE_MOD_RELAY,
                "module ID must sit on a 0xNN00 segment boundary");
 _Static_assert(EDGE_MOD_DLT645 != EDGE_MOD_DLMS, "duplicate module ID");
+_Static_assert(EDGE_MOD_DLT645 != EDGE_MOD_MODBUS, "duplicate module ID");
 _Static_assert(EDGE_MOD_DLT645 != EDGE_MOD_RELAY, "duplicate module ID");
+_Static_assert(EDGE_MOD_DLMS != EDGE_MOD_MODBUS, "duplicate module ID");
 _Static_assert(EDGE_MOD_DLMS != EDGE_MOD_RELAY, "duplicate module ID");
+_Static_assert(EDGE_MOD_MODBUS != EDGE_MOD_RELAY, "duplicate module ID");
 
 #ifdef __cplusplus
 }

@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Second domain app `app/modbus_slave` (Modbus RTU slave: coils/holding registers,
+  function codes 0x01/0x03/0x05/0x06/0x10, exception responses, CRC16) on
+  consumer-defined store/transport ports, plus the dual-protocol
+  `product/meter_gateway_host` running `dlt645` + `modbus_slave` on one runner.
+  New central `EDGE_MOD_MODBUS` and `EDGE_EVT_MODBUS_RX` IDs.
 - ADR -> gate governance: `ci/adr-gates.json` + `check_adr_gates.py` (27 gated,
   58 paper-only tracked), `check_event_payload.py` (D18 scalar payload) and
   `check_no_dynamic_memory.py` (D21, wired into all four firmware jobs). See
