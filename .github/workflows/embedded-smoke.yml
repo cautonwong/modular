@@ -57,6 +57,10 @@ jobs:
           python3 .github/scripts/check_size.py build-m4/meter_mps2_fw 65536 16384
           python3 .github/scripts/check_map_budget.py build-m4/meter_mps2_fw.map \
             --report build-m4/size-report.json
+      - name: Zero dynamic memory check
+        env:
+          NM_TOOL: arm-none-eabi-nm
+        run: python3 .github/scripts/check_no_dynamic_memory.py build-m4/meter_mps2_fw
       - name: QEMU MPS2 AN386 peripheral IRQ smoke
         run: |
           timeout --signal=KILL 10s \
@@ -119,6 +123,10 @@ jobs:
           python3 .github/scripts/check_size.py build-rv/riscv_meter 65536 16384
           python3 .github/scripts/check_map_budget.py build-rv/riscv_meter.map \
             --report build-rv/size-report.json
+      - name: Zero dynamic memory check
+        env:
+          NM_TOOL: riscv64-unknown-elf-nm
+        run: python3 .github/scripts/check_no_dynamic_memory.py build-rv/riscv_meter
       - name: QEMU virt RISC-V timer IRQ smoke
         run: |
           timeout --signal=KILL 10s \
@@ -176,6 +184,10 @@ jobs:
           python3 .github/scripts/check_size.py build-freertos/meter_mps2_freertos_fw 65536 16384
           python3 .github/scripts/check_map_budget.py build-freertos/meter_mps2_freertos_fw.map \
             --report build-freertos/size-report.json
+      - name: Zero dynamic memory check
+        env:
+          NM_TOOL: arm-none-eabi-nm
+        run: python3 .github/scripts/check_no_dynamic_memory.py build-freertos/meter_mps2_freertos_fw
       - name: QEMU FreeRTOS capsule smoke
         run: |
           timeout --signal=KILL 15s \

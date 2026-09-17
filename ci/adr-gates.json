@@ -1,0 +1,32 @@
+{
+  "must_gate": ["D7", "D14", "D18", "D21", "D26", "D31", "D37", "D44", "D55", "D68"],
+  "gates": {
+    "D5": { "file": "CMakeLists.txt", "marker": "function(edge_add_product" },
+    "D7": { "file": ".github/scripts/check_cmake_apps.py" },
+    "D11": { "file": "sys/runtime/src/sys.c", "marker": "sort_apps" },
+    "D14": { "file": ".github/scripts/check_app_isolation.py" },
+    "D18": { "file": ".github/scripts/check_event_payload.py" },
+    "D19": { "file": ".github/scripts/check_error_ids.py" },
+    "D21": { "file": ".github/scripts/check_no_dynamic_memory.py" },
+    "D26": { "file": "CMakeLists.txt", "marker": "function(edge_add_product" },
+    "D27": { "file": ".github/scripts/check_app_isolation.py" },
+    "D28": { "file": "tests/guards/run_guard_selftest.py" },
+    "D31": { "file": ".github/scripts/check_event_ids.py" },
+    "D32": { "file": "product/example/main.c", "marker": "edge_sys_subscribe" },
+    "D37": { "file": ".github/scripts/check_map_budget.py" },
+    "D40": { "file": "edge_module/include/edge/module.h", "marker": "_Static_assert" },
+    "D41": { "file": "edge_module/include/edge/log.h" },
+    "D44": { "file": ".github/scripts/check_app_isolation.py" },
+    "D47": { "file": "sys/runtime/include/runtime/sys.h", "marker": "edge_sys_run" },
+    "D52": { "file": "sys/runtime/src/sys.c", "marker": "edge_sys_idle" },
+    "D53": { "file": "sys/runtime/src/sys.c", "marker": "app->fatal" },
+    "D55": { "file": ".github/scripts/check_module_ids.py" },
+    "D57": { "file": "CMakeLists.txt", "marker": "edge_add_host_test" },
+    "D59": { "file": "CMakeLists.txt", "marker": "PkgConfig::CMOCKA" },
+    "D68": { "file": ".github/scripts/check_error_ids.py" },
+    "D69": { "file": "sys/runtime/src/sys.c", "marker": "max_events_per_run" },
+    "D70": { "file": "sys/runtime/src/sys.c", "marker": "edge_sys_publish" },
+    "D72": { "file": "sys/runtime/src/sys.c", "marker": "(int64_t)(now - due)" },
+    "D74": { "file": "sys/runtime/include/runtime/sys.h", "marker": "edge_sys_stats_t" }
+  }
+}
