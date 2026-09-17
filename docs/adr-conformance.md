@@ -21,7 +21,7 @@ Legend: ✅ implemented · 🟡 partial · ❌ not implemented · ⛔ contradict
 | D19/D68 | Unified `edge_status_t` + central error allocation | ✅ | `edge/errors.h` + `check_error_ids.py` (dup / range / zero-segment) + `docs/error-model.md` |
 | D20 | Injected clock port | ✅ | `edge/clock.h`, sink timestamps |
 | D21 | Zero runtime allocation | ✅ | Only caller-owned storage; no `malloc` |
-| D22/D23/D24 | Small, capability-narrow ports | ✅ | `edge/ports.h` (`reader`/`writer`/`kv`) |
+| D22/D23/D24 | Small, capability-narrow ports | ✅ | `edge/ports.h` (`byte_reader`/`byte_writer`/`storage_kv` + `uart`/`gpio`), with `infra/uart` and `infra/gpio` fakes adapted in tests |
 | D30 | `edge_util` header-only library | 🚫 wontfix | Deliberately not built: no shared util is needed yet; revisit only if duplication appears (D30 closed as wontfix) |
 | D31 | Single `edge/events.h` + compile-time uniqueness | ✅ | `_Static_assert` guards + `check_event_ids.py` |
 | D32 | Explicit `sys_subscribe` in `main()` | ✅ | Products subscribe before `start` |

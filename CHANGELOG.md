@@ -24,7 +24,9 @@ All notable changes to this project are documented here. The format follows
   through the same sink). RTOS headers stay confined to `pal/rtos`.
 - Central module ID table (`edge/modules.h`) and error allocation table
   (`edge/errors.h`) with `EDGE_ERR(segment, code)` composition and static asserts.
-- Canonical narrow port shapes (`edge/ports.h`).
+- Canonical narrow port shapes (`edge/ports.h`): byte reader/writer and storage KV,
+  and now `edge_uart_port_t`/`edge_gpio_port_t` with an `infra/uart` host fake and
+  `gpio_read`, exercised by `tests/test_ports.c`.
 - Runtime API completion for the ADR catalogue: `edge_sys_step`/`edge_sys_run`,
   `edge_sys_idle` plus an injectable idle hook, `edge_sys_publish` with a
   runner-owned deferred queue (`edge_sys_bind_pending_queue`),
