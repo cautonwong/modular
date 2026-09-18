@@ -10,22 +10,23 @@
 面向**前后台（foreground/background）**嵌入式环境，不依赖 RTOS、线程或运行期动态分配。
 
 ```text
-sys/<family>          board/<board>
-       \                 /
-        \               /
-          product/<name>
-       Composition Root
-          /         \
-         /           \
-   app/<name>     infra/<name>
-         \           /
-          \         /
-           edge_module
+board/<board> ──selects──▶ soc/<soc> + pal/<arch × RTOS>
+      │
+      │        sys/<family>
+      └────┬────────┘
+           ▼
+    product/<name>   Composition Root
+          /       \
+    app/<name>   infra/<name>
+          \       /
+         edge_module
 ```
 
 - `edge_module`：极薄框架契约；生命周期、事件队列、公共小工具。
 - `sys`：每个产品族一个；负责排序、启动/回滚、事件路由、foreground 调度和关停策略。
 - `board`：每块板一个；IRQ 清理/最小采集/事件转发及安全硬件动作，不认识业务 app。
+- `soc`：SoC 支持包（厂商内存映射/IRQ 号）；由 board/infra 选择，不反向依赖框架或板。
+- `pal`：平台抽象（架构原语、RTOS 宿主）；由 board/product 选择。
 - `app`：可复用业务模块；只依赖 `edge_module` 与自己定义的消费者接口。
 - `infra`：具体基础设施实现；不依赖 app 业务类型。
 - `product`：唯一组合根；选择 family/board/infra，构造 app，连接 adapter，启动产品。
@@ -68,23 +69,33 @@ sys/<family>/
 board/<board>/
     include/<board>/*.h
     src/*.c
+soc/<soc>/
+    include/<soc>/*.h        SoC support package (memory map, IRQ numbers)
+pal/<arch×os>/
+    include/.../*.h          platform abstraction (arch primitives / RTOS host)
 infra/<name>/
     include/<name>/*.h
     src/*.c
 product/<name>/
     glue.c / glue/*.c
     main.c
+tests/integration/minimal_product/   neutrality fixture (board × runner)
 ```
 
 依赖方向：
 
 ```text
-app     -> edge_module
-sys     -> edge_module
-board   -> edge_module
-infra   -> edge_module
+edge_module -> 仅标准/工具链头
+app     -> app/<self> + edge_module
+sys     -> sys + edge_module
+board   -> board + soc + pal + edge_module
+infra   -> infra + soc + edge_module
+soc     -> soc                （不反向依赖框架/板）
+pal     -> pal + edge_module
 product -> 全部
 ```
+
+该矩阵由 `.github/scripts/check_layer_dependencies.py` 在 CI 中强制执行（解析 include 到实际归属层，反例自测见 `tests/guards/layer_*`）。
 
 ## 生命周期与 super-loop
 

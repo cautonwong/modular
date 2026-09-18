@@ -1058,7 +1058,7 @@ set -e
 APP=app/dlt645
 for board in rn8615 gd32; do
   for model in baremetal rtos; do
-    cmake -S test/minimal_product -B build/$board-$model \
+    cmake -S tests/integration/minimal_product -B build/$board-$model \
           -DBOARD=$board -DRUNNER=$model -DAPP=$APP
     cmake --build build/$board-$model
   done
@@ -1077,7 +1077,7 @@ git diff --exit-code $APP      # app 源码不得改动
 
 T7b 需要一个极小的 product，作为可复用夹具（不是真产品）：
 ```
-test/minimal_product/
+tests/integration/minimal_product/
     CMakeLists.txt    参数化 BOARD / RUNNER / APP
     main.c            baremetal: while(1) sys_step()
     runner_rtos.c     rtos 模型：任务调 sys_step()
