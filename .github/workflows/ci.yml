@@ -403,6 +403,10 @@ jobs:
         run: python3 .github/scripts/check_cmake_apps.py
       - name: Guard self-test (negative fixtures)
         run: python3 tests/guards/run_guard_selftest.py
+      - name: Pre-commit hook is present and valid
+        run: |
+          test -x .githooks/pre-commit
+          sh -n .githooks/pre-commit
       - name: Forbidden RTOS/framework dependencies
         run: |
           if grep -RInE '#include[[:space:]]*["<](FreeRTOS|zephyr|cmsis_os|rtthread)' \

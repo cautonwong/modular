@@ -18,6 +18,20 @@ explicit ADR update.
 
 ## Local workflow
 
+Enable the local pre-commit gate once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+That runs, before every commit: `clang-format` on the staged C sources, the
+source-level architecture guards, and the guard self-test. Artifact-dependent
+gates (map budget, ELF size, static stack usage, dynamic-allocation symbols) need
+a firmware build and stay in CI. Missing tools are skipped with a warning rather
+than silently passing, and it works offline — no `gh`, no network. It is a
+pre-filter, not a replacement: CI still runs every gate over the whole tree.
+Bypass a single commit with `git commit --no-verify`.
+
 ```bash
 # Configure with the strict quality gates
 cmake -S . -B build -G Ninja \
@@ -30,12 +44,13 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-Run the same guard scripts the CI runs:
+Run the guard scripts the CI runs (the pre-commit hook runs these for you):
 
 ```bash
 python3 .github/scripts/check_app_isolation.py
 python3 .github/scripts/check_event_ids.py
 python3 .github/scripts/check_cmake_apps.py
+python3 tests/guards/run_guard_selftest.py
 ```
 
 Formatting and static analysis:
