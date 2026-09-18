@@ -47,6 +47,7 @@ check_adr_gates.py
 check_app_isolation.py
 check_app_transitive_includes.py
 check_cmake_apps.py
+check_docs.py
 check_error_ids.py
 check_event_ids.py
 check_event_payload.py

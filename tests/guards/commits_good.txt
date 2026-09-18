@@ -1,0 +1,15 @@
+feat(app): add a bounded DLT645 consumer
+===
+fix(rtos): keep the assert hook observable
+===
+docs: record the decision in the ADR
+===
+refactor(arch)!: drop the escape hatch
+
+BREAKING CHANGE: infra may no longer include soc/.
+===
+Merge branch 'main' into feature
+===
+Bump actions/checkout from 4.4.0 to 7.0.1
+===
+Revert "feat(app): add a bounded DLT645 consumer"

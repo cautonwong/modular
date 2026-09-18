@@ -25,12 +25,14 @@ git config core.hooksPath .githooks
 ```
 
 That runs, before every commit: `clang-format` on the staged C sources, the
-source-level architecture guards, and the guard self-test. Artifact-dependent
-gates (map budget, ELF size, static stack usage, dynamic-allocation symbols) need
-a firmware build and stay in CI. Missing tools are skipped with a warning rather
-than silently passing, and it works offline — no `gh`, no network. It is a
-pre-filter, not a replacement: CI still runs every gate over the whole tree.
-Bypass a single commit with `git commit --no-verify`.
+source-level architecture guards, the guard self-test, and the documentation
+format/link check; a `commit-msg` hook additionally enforces the Conventional
+Commits rule below. Artifact-dependent gates (map budget, ELF size, static stack
+usage, dynamic-allocation symbols) need a firmware build and stay in CI. Missing
+tools are skipped with a warning rather than silently passing, and it works
+offline — no `gh`, no network. It is a pre-filter, not a replacement: CI still
+runs every gate over the whole tree. Bypass a single commit with
+`git commit --no-verify`.
 
 ```bash
 # Configure with the strict quality gates
@@ -68,6 +70,10 @@ cppcheck --enable=warning,style,performance,portability --error-exitcode=1 \
 
 Use Conventional Commits: `type(scope): subject`, where `type` is one of
 `feat`, `fix`, `build`, `ci`, `docs`, `test`, `refactor`, `perf`, `chore`.
+The subject is limited to 100 characters. Merge commits, GitHub-generated
+reverts and dependabot commits are exempt. This is enforced by the `commit-msg`
+hook (`.githooks/commit-msg`) and by CI
+(`.github/scripts/check_commit_messages.py`).
 
 ## Pull requests
 
