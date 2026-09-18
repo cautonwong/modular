@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Stack usage gate (D75): `-fstack-usage` on ARM/RISC-V, `check_stack_usage.py`
+  (per-function budget + JSON report, wired into all four firmware jobs), plus
+  FreeRTOS `configCHECK_FOR_STACK_OVERFLOW 2` and a task high-water assertion.
+  See `docs/stack-usage.md`.
 - App-to-app interaction example (D78): `app/meter_core` (provider, concrete API)
   consumed by `app/modbus_slave` (consumer-defined `modbus_store_if`) through a
   composition-root adapter in `product/meter_gateway_host`; a unit test and an

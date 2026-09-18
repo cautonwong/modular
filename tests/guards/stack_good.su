@@ -1,0 +1,2 @@
+/src/a.c:10:1:small_fn	16	static
+/src/a.c:20:1:medium_fn	128	static

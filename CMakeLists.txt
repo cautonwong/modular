@@ -28,7 +28,7 @@ elseif(EDGE_MODULE_BUILD_ARM_CORTEX_M4 OR EDGE_MODULE_BUILD_ARM_CORTEX_M4_QEMU O
     set(EDGE_ARM_CPU cortex-m4)
 endif()
 if(DEFINED EDGE_ARM_CPU)
-    add_compile_options(-mcpu=${EDGE_ARM_CPU} -mthumb -mno-unaligned-access)
+    add_compile_options(-mcpu=${EDGE_ARM_CPU} -mthumb -mno-unaligned-access -fstack-usage)
     add_link_options(-mcpu=${EDGE_ARM_CPU} -mthumb)
 endif()
 

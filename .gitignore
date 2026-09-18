@@ -38,3 +38,7 @@ Thumbs.db
 *~
 .idea/
 .vscode/
+
+# Stack usage reports (keep the guard fixtures)
+*.su
+!tests/guards/*.su

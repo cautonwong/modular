@@ -61,6 +61,11 @@ jobs:
         env:
           NM_TOOL: arm-none-eabi-nm
         run: python3 .github/scripts/check_no_dynamic_memory.py build-m4/meter_mps2_fw
+      - name: Static stack usage gate
+        run: |
+          python3 .github/scripts/check_stack_usage.py build-m4 \
+            --max-bytes 512 --exclude-substr /product/ \
+            --report build-m4/stack-report.json
       - name: QEMU MPS2 AN386 peripheral IRQ smoke
         run: |
           timeout --signal=KILL 10s \
@@ -78,6 +83,7 @@ jobs:
             build-m4/meter_mps2_fw.bin
             build-m4/meter_mps2_fw.map
             build-m4/size-report.json
+            build-m4/stack-report.json
             build-m4/readelf.txt
           if-no-files-found: error
 
@@ -127,6 +133,11 @@ jobs:
         env:
           NM_TOOL: riscv64-unknown-elf-nm
         run: python3 .github/scripts/check_no_dynamic_memory.py build-rv/riscv_meter
+      - name: Static stack usage gate
+        run: |
+          python3 .github/scripts/check_stack_usage.py build-rv \
+            --max-bytes 512 --exclude-substr /product/ \
+            --report build-rv/stack-report.json
       - name: QEMU virt RISC-V timer IRQ smoke
         run: |
           timeout --signal=KILL 10s \
@@ -140,6 +151,7 @@ jobs:
             build-rv/riscv_meter.bin
             build-rv/riscv_meter.map
             build-rv/size-report.json
+            build-rv/stack-report.json
             build-rv/readelf.txt
           if-no-files-found: error
 
@@ -188,6 +200,11 @@ jobs:
         env:
           NM_TOOL: arm-none-eabi-nm
         run: python3 .github/scripts/check_no_dynamic_memory.py build-freertos/meter_mps2_freertos_fw
+      - name: Static stack usage gate
+        run: |
+          python3 .github/scripts/check_stack_usage.py build-freertos \
+            --max-bytes 512 --exclude-substr /product/ --exclude-substr /_deps/ \
+            --report build-freertos/stack-report.json
       - name: QEMU FreeRTOS capsule smoke
         run: |
           timeout --signal=KILL 15s \
@@ -205,5 +222,6 @@ jobs:
             build-freertos/meter_mps2_freertos_fw.bin
             build-freertos/meter_mps2_freertos_fw.map
             build-freertos/size-report.json
+            build-freertos/stack-report.json
             build-freertos/readelf.txt
           if-no-files-found: error

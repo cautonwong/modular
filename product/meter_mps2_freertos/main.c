@@ -68,6 +68,8 @@ static void capsule_task(void *arg) {
     }
     (void)edge_sys_power_off(&g_sys);
     (void)edge_sys_deinit(&g_sys);
+    if (edge_rtos_task_stack_high_water() < 64u)
+        board_mps2_exit(12); /* capsule stack nearly exhausted */
     board_mps2_exit(0);
 }
 

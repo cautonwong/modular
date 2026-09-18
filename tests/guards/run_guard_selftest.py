@@ -36,6 +36,8 @@ CASES = [
     ("check_no_dynamic_memory.py", "tests/guards/nm_bad.txt", False),
     ("check_adr_gates.py", "tests/guards/adr_good", True),
     ("check_adr_gates.py", "tests/guards/adr_bad", False),
+    ("check_stack_usage.py", "tests/guards/stack_good.su", True),
+    ("check_stack_usage.py", "tests/guards/stack_bad.su", False),
     ("check_module_ids.py", "tests/guards/modules_good", True),
     ("check_module_ids.py", "tests/guards/modules_bad", False),
     ("check_error_ids.py", "tests/guards/errors_good", True),

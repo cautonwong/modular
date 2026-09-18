@@ -35,3 +35,16 @@ edge_status_t edge_rtos_task_create(const char *name, edge_rtos_task_fn fn, void
 void edge_rtos_start(void) {
     vTaskStartScheduler();
 }
+
+/* Overrun guard (configCHECK_FOR_STACK_OVERFLOW == 2): halt so a stack overflow
+ * is an unmistakable CI failure rather than silent corruption. */
+void vApplicationStackOverflowHook(TaskHandle_t task, char *name) {
+    (void)task;
+    (void)name;
+    for (;;) {
+    }
+}
+
+uint32_t edge_rtos_task_stack_high_water(void) {
+    return (uint32_t)uxTaskGetStackHighWaterMark(NULL) * (uint32_t)sizeof(StackType_t);
+}

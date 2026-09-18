@@ -14,7 +14,7 @@ set(CMAKE_OBJCOPY riscv64-unknown-elf-objcopy CACHE FILEPATH "RISC-V objcopy")
 set(CMAKE_SIZE riscv64-unknown-elf-size CACHE FILEPATH "RISC-V size")
 
 # RV32IMC / ilp32 applies to every object, including static libraries.
-set(CMAKE_C_FLAGS_INIT "-march=rv32imc_zicsr -mabi=ilp32 -mcmodel=medany")
+set(CMAKE_C_FLAGS_INIT "-march=rv32imc_zicsr -mabi=ilp32 -mcmodel=medany -fstack-usage")
 set(CMAKE_ASM_FLAGS_INIT "-march=rv32imc_zicsr -mabi=ilp32 -mcmodel=medany")
 set(CMAKE_EXE_LINKER_FLAGS_INIT "-march=rv32imc_zicsr -mabi=ilp32 -mcmodel=medany")
 

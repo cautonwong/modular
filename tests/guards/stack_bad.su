@@ -1,0 +1,2 @@
+/src/a.c:10:1:small_fn	16	static
+/src/a.c:30:1:big_fn	900	static
