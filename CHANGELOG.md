@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- App-to-app interaction example (D78): `app/meter_core` (provider, concrete API)
+  consumed by `app/modbus_slave` (consumer-defined `modbus_store_if`) through a
+  composition-root adapter in `product/meter_gateway_host`; a unit test and an
+  interaction test prove neither app includes the other. New central
+  `EDGE_MOD_METER`. See `docs/app-interaction.md`.
 - Closed the `infra -> soc` backdoor: the layer matrix now denies it by default
   (`infra -> infra + pal + edge_module`); a register-level, SoC-named implementation
   must be explicitly listed in `INFRA_SOC_BOUND`. This registers the `soc/` + `pal/`
