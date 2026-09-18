@@ -268,6 +268,11 @@ jobs:
         env:
           NM_TOOL: arm-none-eabi-nm
         run: python3 .github/scripts/check_no_dynamic_memory.py build-arm/example_cortex_m0
+      - name: Static stack usage gate
+        run: |
+          python3 .github/scripts/check_stack_usage.py build-arm \
+            --max-bytes 512 --exclude-substr /product/ \
+            --report build-arm/stack-report.json
       - name: Reproducible firmware check
         run: |
           cmake -S . -B build-arm-repro -G Ninja \

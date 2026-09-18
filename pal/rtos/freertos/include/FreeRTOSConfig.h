@@ -18,8 +18,9 @@
 #define configUSE_TIMERS 0
 #define configSUPPORT_STATIC_ALLOCATION 0
 #define configSUPPORT_DYNAMIC_ALLOCATION 1
-#define configCHECK_FOR_STACK_OVERFLOW 0
+#define configCHECK_FOR_STACK_OVERFLOW 2
 #define configUSE_MALLOC_FAILED_HOOK 0
+#define INCLUDE_uxTaskGetStackHighWaterMark 1
 #define configUSE_TRACE_FACILITY 0
 #define configUSE_PORT_OPTIMISED_TASK_SELECTION 1
 #define configPRIO_BITS 4

@@ -28,6 +28,9 @@ void edge_rtos_start(void);
 /* yield/sleep backed by the RTOS, for the sys idle hook. */
 edge_os_port_t edge_rtos_os_port(void);
 
+/* Bytes of stack still unused by the calling task (high-water mark). */
+uint32_t edge_rtos_task_stack_high_water(void);
+
 #ifdef __cplusplus
 }
 #endif
