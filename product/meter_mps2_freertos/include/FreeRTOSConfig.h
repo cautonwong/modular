@@ -21,7 +21,9 @@
 #include "mps2/freertos_config.h"
 #include "soc_mps2/freertos_config.h"
 
-#include "pal_rtos/rtos.h"
+/* Assert contract only: this header is included by every FreeRTOS kernel
+ * translation unit, so it must not pull in the framework or the OS port. */
+#include "pal_rtos/assert.h"
 
 /* Product resource decisions. */
 #define configMAX_PRIORITIES (5)
