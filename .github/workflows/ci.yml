@@ -173,7 +173,7 @@ jobs:
           done
       - name: Reject illegal family/board/app/infra combinations
         run: |
-          for negative in family board app infra combo; do
+          for negative in family board app infra combo rebind duplicate; do
             echo "--- negative case: $negative ---"
             if cmake -S . -B "/tmp/neg-$negative" -G Ninja \
                  -DEDGE_MODULE_NEGATIVE_CASE=$negative \
@@ -182,11 +182,11 @@ jobs:
               echo "expected configure to fail for $negative"
               exit 1
             fi
-            if [ "$negative" = "combo" ]; then
-              grep -q "illegal family/board" "/tmp/neg-$negative.log"
-            else
-              grep -q "unknown $negative" "/tmp/neg-$negative.log"
-            fi
+            case "$negative" in
+              combo) grep -q "illegal family/board" "/tmp/neg-$negative.log" ;;
+              rebind|duplicate) grep -q "already registered" "/tmp/neg-$negative.log" ;;
+              *) grep -q "unknown $negative" "/tmp/neg-$negative.log" ;;
+            esac
           done
 
   neutrality:
@@ -391,6 +391,8 @@ jobs:
         run: python3 .github/scripts/check_event_ids.py
       - name: Central module ID uniqueness
         run: python3 .github/scripts/check_module_ids.py
+      - name: Product-to-board binding (D86)
+        run: python3 .github/scripts/check_product_board_binding.py
       - name: Central error ID uniqueness
         run: python3 .github/scripts/check_error_ids.py
       - name: Event payload scalar check

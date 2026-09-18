@@ -6,6 +6,10 @@ owns the target file, then checked against the matrix. This makes the topology
 executable instead of prose: e.g. `soc -> board`, `app -> infra` and
 `sys -> board` are rejected.
 
+`infra -> soc` is denied with **no exception**: a reusable infra module only ever
+depends on narrow ports. SoC-bound (register-level) code belongs in `soc/<soc>/`,
+OS/RTOS-bound code in `pal/<os>/`, and the binding happens in `product/<name>/glue`.
+
 Usage: check_layer_dependencies.py [root]
 """
 from pathlib import Path
@@ -28,12 +32,6 @@ ALLOWED = {
     "pal": {"pal", "edge_module"},
     "product": set(LAYER_DIRS),
 }
-
-# Infra implementations that are explicitly SoC-bound (register-level drivers named
-# after the SoC). Empty by default: a generic, reusable infra module must NOT
-# include `soc/`. Adding an entry is a deliberate, reviewable architecture decision
-# (ADR D48 allows register-level infra, but only as an explicit exception).
-INFRA_SOC_BOUND = set()
 
 
 def include_roots(root):
@@ -97,13 +95,7 @@ def check(root):
                 if target is None:
                     continue
                 if target not in ALLOWED[layer]:
-                    soc_exception = (
-                        layer == "infra"
-                        and target == "soc"
-                        and owner_of(path, root, "infra") in INFRA_SOC_BOUND
-                    )
-                    if not soc_exception:
-                        problems.append(f"{rel}: {layer} -> {target} via '{include}'")
+                    problems.append(f"{rel}: {layer} -> {target} via '{include}'")
                 elif layer == "app" and target == "app":
                     owner = owner_of(path, root, "app")
                     reached = owner_of(resolved, root, "app")

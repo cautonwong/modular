@@ -45,6 +45,8 @@ board/<board> ──selects──▶ soc/<soc> + pal/<arch × RTOS>
 10. 时间通过 `edge_clock_port_t` 注入；sink 入队时写 monotonic timestamp。
 11. 运行期零 malloc/free；对象和 buffer 由组合根提供。
 12. 产品事实来源只有 CMake + `main()`，不引入平行 manifest。
+13. 每个 product 显式绑定**唯一** board，且绑定不可被构建参数覆盖；`board` 绑定唯一 `soc`（D86）。
+14. `infra` 只依赖窄端口：**绝不**依赖 `soc`。寄存器/HAL 驱动归 `soc/<soc>`，OS 设备模型归 `pal/<os>`，绑定归 product glue（D48）。
 
 ## 目录
 
@@ -180,7 +182,7 @@ edge_add_product(
 - CMocka 单元测试（事件、调度、app 契约、集成、PAL、GPIO），产出 JUnit 报告
 - 覆盖率门禁（gcovr `--fail-under-line 95`，当前 ~99.8%）+ XML/HTML 产物
 - clang-format 格式门禁、clang-tidy（`.clang-tidy`，warnings-as-errors）、cppcheck
-- **产品线组合矩阵**：`edge_add_product(name family board infra apps)` 从注册表解析并校验**合法 family×board 白名单**，构建 `example` / `meter_host` / `meter_mps2` 三个合法产品并运行；未知 family/board/app/infra 与非法族×板组合均由 CMake 拒绝（CI 反例）
+- **产品线组合矩阵**：`edge_add_product(name family board infra apps)` 从注册表解析并校验**合法 family×board 白名单**，构建 `example` / `meter_host` / `meter_mps2` 等合法产品并运行；未知 family/board/app/infra、非法族×板组合，以及**重复注册 / 跨板重绑同一 product** 均由 CMake 拒绝（CI 反例）
 - 架构守卫：app 依赖边界（app→app / 具体层 / RTOS / **SoC 头 / 裸寄存器 N3 / 重 libc N5**）、中央事件号唯一性、**中央模块号唯一性**、CMake↔main app 清单一致性，并带**反例自测**
 - Cortex-M0 / Cortex-M4 交叉编译 + Cortex-M4 MPS2 QEMU 外设中断冒烟 + ELF 架构校验
 - **map 文件级分层预算**（`edge_module/sys/board/infra/app/product/startup/other`）+ ELF Flash/RAM 总量门

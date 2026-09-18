@@ -77,7 +77,7 @@
 | D45 | 认证边界 | **核心 = `edge_module`+`sys`+`board`+`infra`；app 在核心外** | 核心一次认证；app 可独立演进/分发 |
 | D46 | 平台抽象层 | **PAL：框架只依赖极小原语** | 临界区/屏障/单调时间/上下文/ISR 桥接；由 board 实现 |
 | D47 | 并发模型 | **单 runner 上下文** | 模块回调只在 runner 执行；裸机=main loop，RTOS=专用任务；`sys_step()` 可分解 |
-| D48 | 驱动模型中立 | **infra 可为任意驱动模型** | 寄存器/HAL/Zephyr/Linux 差异止于 infra + glue |
+| D48 | 驱动模型中立 | **infra 只依赖窄端口；驱动模型差异止于 soc / pal / glue** | 寄存器→`soc/<soc>`；OS/RTOS 模型→`pal/<os>`；绑定→product glue。`infra -> soc` **无例外**（由 `check_layer_dependencies.py` 强制） |
 | D49 | SoC/板级中立 | **框架与 sys 零 SoC 知识** | SoC/引脚/时钟/复用/向量表全在 board；新 SoC = 新 board |
 | D50 | RTOS 中立 | **框架不调任何 RTOS API** | RTOS 只出现在 product/main 与 PAL |
 | D51 | 生命周期回调 | **`poll` + `on_event`（+可选 suspend/resume）** | init/deinit 由 main 显式调用；关停逆序 |
@@ -115,6 +115,7 @@
 | D83 | 缺失依赖 | **组合根 glue 提供替代实现（产品变体）** | 编译期发现 |
 | D84 | 共享中断 | **board_irq_attach 支持同一 IRQ 多 handler，按注册序分发** | 每个 handler 有自己队列（D65） |
 | D85 | PAL 分层 | **`pal/` 独立成层（架构 × RTOS）；board 只选择** | 修正 D46：同一板换 RTOS 不重复实现 PAL |
+| D86 | product↔board 绑定 | **product 显式绑定唯一 board，且不可被构建参数覆盖** | 绑定在 `edge_add_product()` 时记录；product 名只可注册一次；`board -> exactly one soc`；中立性夹具 `edge_add_minimal_variant` 是测试夹具、豁免本约束 |
 
 ### D5 反转后：装配显式，顺序仍由 sys module 决定
 
@@ -1496,9 +1497,11 @@ edge-module-sdk/
 │   ├── riscv32-bare/
 │   └── host/                          host 假 PAL（临界区=空，pal_now=假时钟）
 │
-├── soc/                     ← 吃「各种 SoC」   SoC 支持包（厂商 HAL / 寄存器定义）
+├── soc/                     ← 吃「各种 SoC」   SoC 支持包（寄存器定义 / 厂商 HAL / SoC 级驱动）
 │   ├── rn8xxx/
+│   │   └── uart_reg_rn8615.c          寄存器级驱动（SoC 绑定 → 住这里）
 │   ├── gd32f4/
+│   │   └── uart_hal_gd32.c            厂商 HAL（SoC 绑定 → 住这里）
 │   ├── stm32h7/
 │   └── t536/
 │
@@ -1511,16 +1514,15 @@ edge-module-sdk/
 │   ├── gd32f470_evb/
 │   └── t536_relay/
 │
-├── infra/                   ← 吃「各种设备驱动模型」  同一设备多种实现，链接期选
+├── infra/                   ← 吃「各种设备」  只放可移植核心 + 窄端口，不认 SoC / 不认 OS
 │   ├── uart/
-│   │   ├── uart_reg_rn8615.c          寄存器级
-│   │   ├── uart_hal_gd32.c            厂商 HAL
-│   │   ├── uart_zephyr.c              Zephyr 设备模型
+│   │   ├── uart_core.c                协议 / 缓冲 / 策略，只依赖窄端口
 │   │   └── uart_mock.c                host 假实现
 │   ├── flash_kv/
 │   ├── clock/
 │   ├── log/
 │   └── relay/
+（寄存器级驱动→`soc/<soc>`；OS 设备模型如 Zephyr→`pal/<os>`；绑定→`product/<name>/glue`）
 │
 ├── sys/                             产品族运行时（每族一份实现）
 │   ├── sys.h                        统一接口：sys_run/step/subscribe/publish/idle/stats
@@ -1566,7 +1568,7 @@ edge-module-sdk/
 | `pal/`（按 **架构×RTOS** 组合） | 各种 RTOS（裸机/FreeRTOS/Zephyr/RISC-V） |
 | `soc/`（厂商支持包） | 各种 SoC |
 | `board/` 拆出 `vectors.c` / `pins.c` | 各种板子 × 各种外设引脚 |
-| `infra/<设备>/<impl>.c` 多实现 | **各种设备驱动模型**（寄存器/HAL/Zephyr/Linux） |
+| `soc/<soc>/` 承载寄存器与 HAL 驱动，`pal/<os>/` 承载 OS 设备模型，`infra/` 只留可移植核心 | **各种设备驱动模型**（寄存器/HAL/Zephyr/Linux），且 infra 绝不反向认识 SoC |
 | `product/<名>/glue/` + `runner_rtos.c` | 每个产品的装配与运行模型 |
 
 ## 24.2 对 D46 的修正（D85）
@@ -1590,8 +1592,9 @@ product/meter_overseas
    ├── board    = board/rn8615_meter
    │      ├── soc = soc/rn8xxx
    │      └── pal = pal/cortex-m-bare
-   ├── infra    = uart_reg_rn8615 + flash_kv + clock + log
-   │              ↑ 换驱动模型只改这一行
+   ├── infra    = uart_core + flash_kv + clock + log
+   │              ↑ infra 只提供可移植核心；换驱动模型只改下面的 soc/pal 与 glue
+   ├── soc      = soc/rn8xxx（uart_reg_rn8615）
    ├── app      = app/dlt645 + app/dlms + app/lcd
    └── runner   = baremetal（main.c）/ rtos（runner_rtos.c）
 ```

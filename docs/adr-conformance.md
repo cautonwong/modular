@@ -64,7 +64,7 @@ Legend: ✅ implemented · 🟡 partial · ❌ not implemented · ⛔ contradict
 | D39 | Full legal family x board matrix build | 🟡 | Whitelist + 3 products + negative cases; not enumerated |
 | D45 | Certification boundary (core vs app) | 🟡 | Documented boundary; no enforcement artefact |
 | D46/D85 | `pal/` per (architecture x RTOS); board selects | 🟡 | `edge/pal.h`, `pal/os`, `pal/host`, `pal/rtos/freertos`; dependency enforced by `check_layer_dependencies.py` |
-| D48 | Driver model neutral; infra may be register/HAL/RTOS based | 🟡 | `infra/<device>` with a host fake each; `infra -> soc` is denied by default and requires an explicit `INFRA_SOC_BOUND` entry; a second implementation is tracked in #57 |
+| D48 | Driver model neutral; infra depends on narrow ports only | ✅ | `infra -> soc` is denied with **no exception** (`check_layer_dependencies.py`); SoC-bound (register/HAL) code lives in `soc/<soc>/`, OS device models in `pal/<os>/`, binding in product glue. A second portable implementation is tracked in #57 |
 | D49 | Framework and `sys` have zero SoC knowledge; `soc/` is a support package selected by the board | ✅ | `soc/mps2` selected by `board/mps2`; `soc -> soc` only, enforced by `check_layer_dependencies.py` |
 | D57-D61 | Host unit tests, cmocka, fakes, fake clock/PAL | 🟡 | cmocka + host PAL; no central `test/fakes/` |
 | D62/D63 | Renode for board/infra; HIL for the rest | ❌ | QEMU MPS2 smoke only |
@@ -73,6 +73,7 @@ Legend: ✅ implemented · 🟡 partial · ❌ not implemented · ⛔ contradict
 | D78 | App-to-app interaction only via a consumer-defined interface or an event | ✅ | `app/meter_core` (provider) + `app/modbus_slave` (consumer `modbus_store_if`) adapted in `product/meter_gateway_host`; enforced by `check_app_isolation.py` / `check_layer_dependencies.py` |
 | D75 | Bounded ISR (clear + push only) | ✅ | Board ISRs only clear and push; stack usage is gated by `check_stack_usage.py` + FreeRTOS overrun detection (`docs/stack-usage.md`) |
 | D84 | Shared IRQ multi-handler via `board_irq_attach` | 🟡 | `edge_irq_guard_t` exists; no `board_irq_attach` API |
+| D86 | `product/<name>` binds exactly one board; the binding cannot be overridden by build parameters | ✅ | `edge_add_product()` records `EDGE_PRODUCT_<name>_BOARD` and rejects duplicate registration or re-binding; enforced by `check_product_board_binding.py` with negative fixtures. The neutrality fixture `edge_add_minimal_variant` is a test fixture and exempt |
 | D34/D35/D76 | Distribution, compliance, OTA | ❌ | Separate workstreams, out of scope by decision |
 
 ## Open conflicts
