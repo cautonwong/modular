@@ -22,7 +22,7 @@ the consumer" is a design intent, not a predicate. So the target is **not**
 - rejects gates that reference an ADR absent from `adr-conformance.md`;
 - prints the paper-only set (currently 58 of 85) as a ratchet backlog.
 
-`must_gate` = D7, D14, D18, D21, D26, D31, D37, D44, D48, D55, D68, D86.
+`must_gate` = D7, D14, D18, D21, D26, D31, D37, D44, D48, D55, D68, D86, D87.
 
 ## Layer dependency matrix
 
@@ -54,6 +54,19 @@ name only, so they cannot override the binding. `check_product_board_binding.py`
 re-checks the same rules from the parsed `CMakeLists.txt`, with fixtures in
 `tests/guards/binding_*`. The T7b neutrality fixture (`edge_add_minimal_variant`)
 is a test artifact and is exempt.
+
+## RTOS configuration ownership (D87)
+
+`pal/` ships **no** `FreeRTOSConfig.h`: `pal -> product`/`board`/`soc` is forbidden by
+the layer rule. Instead the product owns `product/<name>/include/FreeRTOSConfig.h`,
+which composes the layers it owns (`soc/<soc>` priorities, `board/<board>` clock,
+product resources) and then includes the PAL-owned `edge_rtos_config.h`. That PAL
+header applies the defaults and fails the build (`#error`) if the product disabled
+stack-overflow detection, the stack high-water API, `configASSERT`, or left dynamic
+allocation unstated. The composition root puts the product include dir on the
+include path of `freertos_kernel`, `pal_rtos_freertos` and the firmware, so all
+three share one configuration instance; a second RTOS product needs its own kernel
+target (`edge_add_arm_freertos_firmware` rejects a second owner).
 
 ## Gates added for previously paper-only invariants
 

@@ -1,5 +1,5 @@
 {
-  "must_gate": ["D7", "D14", "D18", "D21", "D26", "D31", "D37", "D44", "D48", "D55", "D68", "D86"],
+  "must_gate": ["D7", "D14", "D18", "D21", "D26", "D31", "D37", "D44", "D48", "D55", "D68", "D86", "D87"],
   "gates": {
     "D5": { "file": "CMakeLists.txt", "marker": "function(edge_add_product" },
     "D7": { "file": ".github/scripts/check_cmake_apps.py" },
@@ -29,6 +29,7 @@
     "D70": { "file": "sys/runtime/src/sys.c", "marker": "edge_sys_publish" },
     "D72": { "file": "sys/runtime/src/sys.c", "marker": "(int64_t)(now - due)" },
     "D74": { "file": "sys/runtime/include/runtime/sys.h", "marker": "edge_sys_stats_t" },
-    "D86": { "file": ".github/scripts/check_product_board_binding.py" }
+    "D86": { "file": ".github/scripts/check_product_board_binding.py" },
+    "D87": { "file": "product/meter_mps2_freertos/include/FreeRTOSConfig.h", "marker": "edge_rtos_config.h" }
   }
 }

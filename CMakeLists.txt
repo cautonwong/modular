@@ -462,6 +462,36 @@ function(edge_add_arm_freertos_firmware name product)
         message(FATAL_ERROR "${name}: product '${product}' has no registered board binding (D86)")
     endif()
 
+    # D87: one compiled kernel serves exactly one product configuration. Letting
+    # two products share a kernel compiled against different configs would be an
+    # ODR/ABI hazard; per-product kernel targets are deferred until a second RTOS
+    # product actually exists.
+    if(DEFINED EDGE_FREERTOS_CONFIG_PRODUCT AND NOT EDGE_FREERTOS_CONFIG_PRODUCT STREQUAL "${product}")
+        message(FATAL_ERROR
+            "${name}: the FreeRTOS kernel is already configured for '${EDGE_FREERTOS_CONFIG_PRODUCT}'; "
+            "a second FreeRTOS product needs its own kernel target (deferred, see D87)")
+    endif()
+    set(EDGE_FREERTOS_CONFIG_PRODUCT "${product}" CACHE INTERNAL "Product owning the FreeRTOS config")
+
+    # The product owns include/FreeRTOSConfig.h and its board supplies the
+    # board/soc include roots, so the kernel and the PAL are compiled against the
+    # same configuration instance. pal/ ships no FreeRTOSConfig.h (pal -> product
+    # is forbidden by the layer rule).
+    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/product/${product}/include/FreeRTOSConfig.h")
+        message(FATAL_ERROR
+            "${name}: product '${product}' must provide include/FreeRTOSConfig.h (D87)")
+    endif()
+    set(_fw_board ${EDGE_PRODUCT_${product}_BOARD})
+    get_target_property(_fw_board_includes ${EDGE_BOARD_TARGET_${_fw_board}}
+                        INTERFACE_INCLUDE_DIRECTORIES)
+    foreach(_tgt freertos_kernel pal_rtos_freertos)
+        target_include_directories(${_tgt} PUBLIC
+            ${CMAKE_CURRENT_SOURCE_DIR}/product/${product}/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/pal/rtos/include
+            ${_fw_board_includes}
+        )
+    endforeach()
+
     add_executable(${name}
         product/${product}/main.c
         product/${product}/glue.c

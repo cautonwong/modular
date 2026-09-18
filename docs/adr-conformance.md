@@ -74,6 +74,7 @@ Legend: ✅ implemented · 🟡 partial · ❌ not implemented · ⛔ contradict
 | D75 | Bounded ISR (clear + push only) | ✅ | Board ISRs only clear and push; stack usage is gated by `check_stack_usage.py` + FreeRTOS overrun detection (`docs/stack-usage.md`) |
 | D84 | Shared IRQ multi-handler via `board_irq_attach` | 🟡 | `edge_irq_guard_t` exists; no `board_irq_attach` API |
 | D86 | `product/<name>` binds exactly one board; the binding cannot be overridden by build parameters | ✅ | `edge_add_product()` records `EDGE_PRODUCT_<name>_BOARD` and rejects duplicate registration or re-binding; enforced by `check_product_board_binding.py` with negative fixtures. The neutrality fixture `edge_add_minimal_variant` is a test fixture and exempt |
+| D87 | FreeRTOS config is composed by the product (soc/board/product); the PAL only declares the contract and the required invariants | ✅ | `FreeRTOSConfig.h` is a composer carrying `#error` invariants; `soc/mps2` + `board/mps2` + `product/meter_mps2_freertos/edge_freertos_config.h` supply the values; `configASSERT` routes to `edge_rtos_assert_failed()` + an observable product hook |
 | D34/D35/D76 | Distribution, compliance, OTA | ❌ | Separate workstreams, out of scope by decision |
 
 ## Open conflicts

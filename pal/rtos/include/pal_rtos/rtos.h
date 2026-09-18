@@ -3,6 +3,7 @@
 
 #include "edge/module.h"
 #include "pal_os/os.h"
+#include "pal_rtos/assert.h"
 
 #include <stdint.h>
 
@@ -30,6 +31,9 @@ edge_os_port_t edge_rtos_os_port(void);
 
 /* Bytes of stack still unused by the calling task (high-water mark). */
 uint32_t edge_rtos_task_stack_high_water(void);
+
+/* Assert contract (D87) lives in pal_rtos/assert.h so the product-owned
+ * FreeRTOSConfig.h can use it without pulling in this header. */
 
 #ifdef __cplusplus
 }
