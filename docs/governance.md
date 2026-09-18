@@ -34,13 +34,16 @@ edge_module -> edge_module only
 app     -> app/<self> + edge_module
 sys     -> sys + edge_module
 board   -> board + soc + pal + edge_module
-infra   -> infra + soc + edge_module
+infra   -> infra + pal + edge_module
 soc     -> soc
 pal     -> pal + edge_module
 product -> all
 ```
 
-Negative fixtures live in `tests/guards/layer_*` (e.g. `soc -> board`, `app -> infra`).
+`infra -> soc` is denied by default (a generic, reusable implementation must not
+bind to a specific SoC); a register-level, SoC-named implementation must be
+explicitly listed in `INFRA_SOC_BOUND` (empty by default). Negative fixtures live
+in `tests/guards/layer_*` (e.g. `soc -> board`, `app -> infra`, `infra -> soc`).
 
 ## Gates added for previously paper-only invariants
 

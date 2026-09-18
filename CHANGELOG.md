@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Closed the `infra -> soc` backdoor: the layer matrix now denies it by default
+  (`infra -> infra + pal + edge_module`); a register-level, SoC-named implementation
+  must be explicitly listed in `INFRA_SOC_BOUND`. This registers the `soc/` + `pal/`
+  regularisation and the `tests/integration/minimal_product/` fixture in the log.
 - Layer dependency guard `check_layer_dependencies.py` enforcing the topology
   matrix (`soc -> soc`, `board -> soc/pal`, `infra -> soc`, `app -> self + edge_module`, ...)
   with positive/negative fixtures; README topology and `adr-conformance.md` now

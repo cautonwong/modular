@@ -64,7 +64,7 @@ Legend: ✅ implemented · 🟡 partial · ❌ not implemented · ⛔ contradict
 | D39 | Full legal family x board matrix build | 🟡 | Whitelist + 3 products + negative cases; not enumerated |
 | D45 | Certification boundary (core vs app) | 🟡 | Documented boundary; no enforcement artefact |
 | D46/D85 | `pal/` per (architecture x RTOS); board selects | 🟡 | `edge/pal.h`, `pal/os`, `pal/host`, `pal/rtos/freertos`; dependency enforced by `check_layer_dependencies.py` |
-| D48 | Driver model neutral; infra may be register/HAL/RTOS based | 🟡 | `infra/<device>` with a host fake each; a second implementation is tracked in #57 |
+| D48 | Driver model neutral; infra may be register/HAL/RTOS based | 🟡 | `infra/<device>` with a host fake each; `infra -> soc` is denied by default and requires an explicit `INFRA_SOC_BOUND` entry; a second implementation is tracked in #57 |
 | D49 | Framework and `sys` have zero SoC knowledge; `soc/` is a support package selected by the board | ✅ | `soc/mps2` selected by `board/mps2`; `soc -> soc` only, enforced by `check_layer_dependencies.py` |
 | D57-D61 | Host unit tests, cmocka, fakes, fake clock/PAL | 🟡 | cmocka + host PAL; no central `test/fakes/` |
 | D62/D63 | Renode for board/infra; HIL for the rest | ❌ | QEMU MPS2 smoke only |
