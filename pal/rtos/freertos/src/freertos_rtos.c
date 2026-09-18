@@ -48,3 +48,27 @@ void vApplicationStackOverflowHook(TaskHandle_t task, char *name) {
 uint32_t edge_rtos_task_stack_high_water(void) {
     return (uint32_t)uxTaskGetStackHighWaterMark(NULL) * (uint32_t)sizeof(StackType_t);
 }
+
+static edge_rtos_assert_fn g_assert_fn;
+static void *g_assert_ctx;
+static uint32_t g_assert_count;
+
+void edge_rtos_set_assert_hook(edge_rtos_assert_fn fn, void *ctx) {
+    g_assert_fn = fn;
+    g_assert_ctx = ctx;
+}
+
+uint32_t edge_rtos_assert_count(void) {
+    return g_assert_count;
+}
+
+void edge_rtos_assert_failed(const char *file, int line) {
+    (void)file;
+    (void)line;
+    ++g_assert_count;
+    if (g_assert_fn != NULL)
+        g_assert_fn(g_assert_ctx, file, line);
+    /* No hook (or a hook that returned): halt rather than continue silently. */
+    for (;;) {
+    }
+}
