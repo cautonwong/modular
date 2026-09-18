@@ -381,6 +381,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - name: Application dependency boundary
         run: python3 .github/scripts/check_app_isolation.py
       - name: App transitive include boundary
@@ -407,6 +409,23 @@ jobs:
         run: |
           test -x .githooks/pre-commit
           sh -n .githooks/pre-commit
+          test -x .githooks/commit-msg
+          sh -n .githooks/commit-msg
+      - name: Documentation format and links
+        run: python3 .github/scripts/check_docs.py
+      - name: Commit messages (Conventional Commits)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            RANGE="${{ github.event.pull_request.base.sha }}..${{ github.sha }}"
+          else
+            BEFORE="${{ github.event.before }}"
+            case "$BEFORE" in
+              ""|0000000000000000000000000000000000000000) RANGE="HEAD~1..HEAD" ;;
+              *) RANGE="$BEFORE..${{ github.sha }}" ;;
+            esac
+          fi
+          echo "commit range: $RANGE"
+          python3 .github/scripts/check_commit_messages.py --range "$RANGE"
       - name: Forbidden RTOS/framework dependencies
         run: |
           if grep -RInE '#include[[:space:]]*["<](FreeRTOS|zephyr|cmsis_os|rtthread)' \

@@ -47,6 +47,10 @@ CASES = [
     ("check_product_board_binding.py", "tests/guards/binding_bad_duplicate", False),
     ("check_product_board_binding.py", "tests/guards/binding_bad_illegal_pair", False),
     ("check_product_board_binding.py", "tests/guards/binding_bad_orphan_fw", False),
+    ("check_commit_messages.py", "tests/guards/commits_good.txt", True),
+    ("check_commit_messages.py", "tests/guards/commits_bad.txt", False),
+    ("check_docs.py", "tests/guards/docs_good", True),
+    ("check_docs.py", "tests/guards/docs_bad", False),
 ]
 
 
