@@ -31,6 +31,19 @@ edge_os_port_t edge_rtos_os_port(void);
 /* Bytes of stack still unused by the calling task (high-water mark). */
 uint32_t edge_rtos_task_stack_high_water(void);
 
+/*
+ * Assert policy (D87). The PAL never knows the board: the composition root
+ * installs the observable reaction (e.g. a semihosting exit with a distinct
+ * code). Without a hook, a failed assert still counts and halts -- never a
+ * silent no-op.
+ */
+typedef void (*edge_rtos_assert_fn)(void *ctx, const char *file, int line);
+
+/* Called by a product-provided `configASSERT`. */
+void edge_rtos_assert_failed(const char *file, int line);
+void edge_rtos_set_assert_hook(edge_rtos_assert_fn fn, void *ctx);
+uint32_t edge_rtos_assert_count(void);
+
 #ifdef __cplusplus
 }
 #endif

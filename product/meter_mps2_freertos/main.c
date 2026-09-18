@@ -73,8 +73,19 @@ static void capsule_task(void *arg) {
     board_mps2_exit(0);
 }
 
+/* Observable RTOS assert reaction (D87): a failed assert becomes a distinct
+ * run-time-error exit instead of a silent no-op. */
+static void on_rtos_assert(void *ctx, const char *file, int line) {
+    (void)ctx;
+    (void)file;
+    (void)line;
+    board_mps2_exit(9);
+}
+
 int main(void) {
     const uint32_t required[] = {EDGE_MOD_DLT645};
+
+    edge_rtos_set_assert_hook(on_rtos_assert, NULL);
 
     g_clock = (edge_clock_port_t){
         .monotonic_ticks = monotonic_ticks, .wall_time = NULL, .self = &g_clock_tick};
