@@ -23,11 +23,17 @@ ALLOWED = {
     "app": {"app", "edge_module"},
     "sys": {"sys", "edge_module"},
     "board": {"board", "soc", "pal", "edge_module"},
-    "infra": {"infra", "soc", "edge_module"},
+    "infra": {"infra", "edge_module", "pal"},
     "soc": {"soc"},
     "pal": {"pal", "edge_module"},
     "product": set(LAYER_DIRS),
 }
+
+# Infra implementations that are explicitly SoC-bound (register-level drivers named
+# after the SoC). Empty by default: a generic, reusable infra module must NOT
+# include `soc/`. Adding an entry is a deliberate, reviewable architecture decision
+# (ADR D48 allows register-level infra, but only as an explicit exception).
+INFRA_SOC_BOUND = set()
 
 
 def include_roots(root):
@@ -91,7 +97,13 @@ def check(root):
                 if target is None:
                     continue
                 if target not in ALLOWED[layer]:
-                    problems.append(f"{rel}: {layer} -> {target} via '{include}'")
+                    soc_exception = (
+                        layer == "infra"
+                        and target == "soc"
+                        and owner_of(path, root, "infra") in INFRA_SOC_BOUND
+                    )
+                    if not soc_exception:
+                        problems.append(f"{rel}: {layer} -> {target} via '{include}'")
                 elif layer == "app" and target == "app":
                     owner = owner_of(path, root, "app")
                     reached = owner_of(resolved, root, "app")
