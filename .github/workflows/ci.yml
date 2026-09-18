@@ -336,6 +336,7 @@ jobs:
             app/dlt645/src/dlt645.c \
             app/relay/src/relay.c \
             app/modbus_slave/src/modbus_slave.c \
+            app/meter_core/src/meter_core.c \
             infra/flash/src/flash.c \
             infra/gpio/src/gpio.c \
             infra/uart/src/uart.c \
@@ -356,6 +357,7 @@ jobs:
             -I app/dlt645/include \
             -I app/relay/include \
             -I app/modbus_slave/include \
+            -I app/meter_core/include \
             -I infra/flash/include \
             -I infra/gpio/include \
             -I infra/uart/include \

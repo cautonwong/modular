@@ -70,6 +70,7 @@ Legend: ✅ implemented · 🟡 partial · ❌ not implemented · ⛔ contradict
 | D62/D63 | Renode for board/infra; HIL for the rest | ❌ | QEMU MPS2 smoke only |
 | D64 | 4-stage CI (host -> target -> Renode -> HIL) | 🟡 | Stages 1-2 done, 3-4 missing |
 | D73 | 1 app may expose 1..n modules | 🟡 | Model supports it; no multi-module example |
+| D78 | App-to-app interaction only via a consumer-defined interface or an event | ✅ | `app/meter_core` (provider) + `app/modbus_slave` (consumer `modbus_store_if`) adapted in `product/meter_gateway_host`; enforced by `check_app_isolation.py` / `check_layer_dependencies.py` |
 | D75 | Bounded ISR (clear + push only) | ✅ | Board ISRs only clear and push |
 | D84 | Shared IRQ multi-handler via `board_irq_attach` | 🟡 | `edge_irq_guard_t` exists; no `board_irq_attach` API |
 | D34/D35/D76 | Distribution, compliance, OTA | ❌ | Separate workstreams, out of scope by decision |
