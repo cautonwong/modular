@@ -1,0 +1,81 @@
+#!/bin/sh
+#
+# Pre-commit gate (ticket #37): run the cheap CI gates locally, before the commit
+# exists, so a formatting or architecture slip does not burn a CI round.
+#
+#   * clang-format on the staged C sources (the same check CI runs)
+#   * the source-level architecture guards
+#   * the guard self-test (proves the guards still work)
+#
+# Artifact-dependent gates (map budgets, ELF size, static stack usage, dynamic
+# allocation symbols) need a firmware build, so they stay in CI.
+#
+# Enable once per clone:   git config core.hooksPath .githooks
+# Bypass a single commit:  git commit --no-verify
+#
+# This is a pre-filter, not a replacement: CI still runs every gate over the
+# whole tree, including the ones skipped here.
+
+set -u
+
+ROOT=$(git rev-parse --show-toplevel) || exit 0
+cd "$ROOT" || exit 0
+
+status=0
+SCRIPTS=.github/scripts
+
+say() {
+    echo "pre-commit: $*" >&2
+}
+
+# --------------------------------------------------------------- formatting
+staged_c=$(git diff --cached --name-only --diff-filter=ACM -- '*.c' '*.h')
+if [ -n "$staged_c" ]; then
+    if command -v clang-format >/dev/null 2>&1; then
+        if ! echo "$staged_c" | xargs clang-format --dry-run --Werror 2>&1; then
+            say "formatting violations above -- fix with: clang-format -i <file>"
+            status=1
+        fi
+    else
+        say "clang-format not found; format gate skipped here (CI still enforces it)"
+    fi
+fi
+
+# ------------------------------------------------------------------- guards
+SOURCE_GUARDS="
+check_adr_gates.py
+check_app_isolation.py
+check_app_transitive_includes.py
+check_cmake_apps.py
+check_error_ids.py
+check_event_ids.py
+check_event_payload.py
+check_layer_dependencies.py
+check_module_ids.py
+check_product_board_binding.py
+"
+
+run_python() {
+    # $1 = label, remaining = command
+    label=$1
+    shift
+    if ! out=$(python3 "$@" 2>&1); then
+        say "$label failed:"
+        echo "$out" >&2
+        status=1
+    fi
+}
+
+if command -v python3 >/dev/null 2>&1; then
+    for guard in $SOURCE_GUARDS; do
+        run_python "$guard" "$SCRIPTS/$guard"
+    done
+    run_python "guard self-test" tests/guards/run_guard_selftest.py
+else
+    say "python3 not found; architecture guards skipped here (CI still enforces them)"
+fi
+
+if [ "$status" -ne 0 ]; then
+    say "commit rejected -- fix the above, or bypass with: git commit --no-verify"
+fi
+exit "$status"
