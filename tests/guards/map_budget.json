@@ -1,0 +1,8 @@
+{
+  "flash_total": 4096,
+  "ram_total": 2048,
+  "layers": {
+    "app": { "flash": 1024, "ram": 1024 },
+    "sys": { "flash": 1024, "ram": 1024 }
+  }
+}

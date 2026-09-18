@@ -51,6 +51,7 @@ check_docs.py
 check_error_ids.py
 check_event_ids.py
 check_event_payload.py
+check_guard_coverage.py
 check_layer_dependencies.py
 check_module_ids.py
 check_product_board_binding.py
@@ -72,6 +73,7 @@ if command -v python3 >/dev/null 2>&1; then
         run_python "$guard" "$SCRIPTS/$guard"
     done
     run_python "guard self-test" tests/guards/run_guard_selftest.py
+    run_python "generator self-test" tests/guards/run_generator_selftest.py
 else
     say "python3 not found; architecture guards skipped here (CI still enforces them)"
 fi

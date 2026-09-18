@@ -84,3 +84,7 @@ target (`edge_add_arm_freertos_firmware` rejects a second owner).
 2. Add a gate to `ci/adr-gates.json`; if it is a core invariant, add it to
    `must_gate`.
 3. Add positive/negative fixtures and a `run_guard_selftest.py` case.
+   `check_guard_coverage.py` rejects any `check_*.py` that is missing either a
+   positive or a negative case (or whose fixture does not exist), so this step is
+   enforced rather than remembered. Generators are not gates and get a smoke test
+   instead (`run_generator_selftest.py`).
