@@ -5,6 +5,7 @@ This proves the guard scripts actually fail when a violation is introduced,
 satisfying the architecture requirement that refutation tests exist.
 """
 from pathlib import Path
+import os
 import subprocess
 import sys
 
@@ -51,23 +52,59 @@ CASES = [
     ("check_commit_messages.py", "tests/guards/commits_bad.txt", False),
     ("check_docs.py", "tests/guards/docs_good", True),
     ("check_docs.py", "tests/guards/docs_bad", False),
+    # Gate fixtures that need arguments or a tool shim: (script, fixture, expect, args, env)
+    (
+        "check_size.py",
+        "tests/guards/fake_size.sh",
+        True,
+        ["1024", "512"],
+        {"SIZE_TOOL": "{root}/tests/guards/fake_size.sh"},
+    ),
+    (
+        "check_size.py",
+        "tests/guards/fake_size.sh",
+        False,
+        ["100", "50"],
+        {"SIZE_TOOL": "{root}/tests/guards/fake_size.sh"},
+    ),
+    (
+        "check_map_budget.py",
+        "tests/guards/map_budget_good.txt",
+        True,
+        ["--config", "{root}/tests/guards/map_budget.json"],
+    ),
+    (
+        "check_map_budget.py",
+        "tests/guards/map_budget_bad.txt",
+        False,
+        ["--config", "{root}/tests/guards/map_budget.json"],
+    ),
+    ("check_guard_coverage.py", ".", True),
+    ("check_guard_coverage.py", "tests/guards/coverage_bad", False),
 ]
 
 
 def main() -> int:
     failed = 0
-    for script, fixture, expect_pass in CASES:
+    for case in CASES:
+        script, fixture, expect_pass = case[0], case[1], case[2]
+        extra = [str(a) for a in case[3]] if len(case) > 3 else []
+        env_extra = dict(case[4]) if len(case) > 4 else {}
+        args = [a.replace("{root}", str(ROOT)) for a in extra]
+        env = {**os.environ, **{k: str(v).replace("{root}", str(ROOT)) for k, v in env_extra.items()}}
         result = subprocess.run(
-            [sys.executable, str(SCRIPTS / script), str(ROOT / fixture)],
+            [sys.executable, str(SCRIPTS / script), str(ROOT / fixture), *args],
             capture_output=True,
             text=True,
+            env=env,
         )
         passed = result.returncode == 0
         ok = passed == expect_pass
         status = "ok" if ok else "UNEXPECTED"
         if not ok:
             failed += 1
-        print(f"[{status:10}] {script} {fixture} (expected {'pass' if expect_pass else 'fail'})")
+        label = f"{script} {fixture}" + (f" {' '.join(extra)}" if extra else "")
+        print(f"[{status:10}] {label} (expected {'pass' if expect_pass else 'fail'})")
         if not ok:
             print(result.stdout)
             print(result.stderr)

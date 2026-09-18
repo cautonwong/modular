@@ -25,14 +25,14 @@ git config core.hooksPath .githooks
 ```
 
 That runs, before every commit: `clang-format` on the staged C sources, the
-source-level architecture guards, the guard self-test, and the documentation
-format/link check; a `commit-msg` hook additionally enforces the Conventional
-Commits rule below. Artifact-dependent gates (map budget, ELF size, static stack
-usage, dynamic-allocation symbols) need a firmware build and stay in CI. Missing
-tools are skipped with a warning rather than silently passing, and it works
-offline — no `gh`, no network. It is a pre-filter, not a replacement: CI still
-runs every gate over the whole tree. Bypass a single commit with
-`git commit --no-verify`.
+source-level architecture guards, the guard self-test, the generator smoke test,
+and the documentation format/link check; a `commit-msg` hook additionally
+enforces the Conventional Commits rule below. Artifact-dependent gates (map
+budget, ELF size, static stack usage, dynamic-allocation symbols) need a firmware
+build and stay in CI. Missing tools are skipped with a warning rather than
+silently passing, and it works offline — no `gh`, no network. It is a pre-filter,
+not a replacement: CI still runs every gate over the whole tree. Bypass a single
+commit with `git commit --no-verify`.
 
 ```bash
 # Configure with the strict quality gates

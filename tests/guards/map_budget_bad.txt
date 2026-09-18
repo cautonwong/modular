@@ -1,0 +1,6 @@
+Linker script and memory map
+
+.text           0x08000000      0x800
+ .text          0x08000000      0x800 build/libapp_dlt645.a(dlt645.c.obj)
+.bss            0x20000000       0x40
+ .bss           0x20000000       0x40 build/libapp_dlt645.a(dlt645.c.obj)
