@@ -24,6 +24,24 @@ the consumer" is a design intent, not a predicate. So the target is **not**
 
 `must_gate` = D7, D14, D18, D21, D26, D31, D37, D44, D55, D68.
 
+## Layer dependency matrix
+
+The topology is executable, not prose. `check_layer_dependencies.py` resolves every
+quoted include in a layer to the layer that owns the target file and enforces:
+
+```text
+edge_module -> edge_module only
+app     -> app/<self> + edge_module
+sys     -> sys + edge_module
+board   -> board + soc + pal + edge_module
+infra   -> infra + soc + edge_module
+soc     -> soc
+pal     -> pal + edge_module
+product -> all
+```
+
+Negative fixtures live in `tests/guards/layer_*` (e.g. `soc -> board`, `app -> infra`).
+
 ## Gates added for previously paper-only invariants
 
 - **D18 (events are scalar facts, no bare pointers)** — `check_event_payload.py`

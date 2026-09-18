@@ -283,16 +283,16 @@ function(edge_add_minimal_variant name board runner app)
         message(FATAL_ERROR "edge_add_minimal_variant(${name}): unknown app '${app}'")
     endif()
     if(runner STREQUAL "baremetal")
-        set(main_src test/minimal_product/main_baremetal.c)
+        set(main_src tests/integration/minimal_product/main_baremetal.c)
     elseif(runner STREQUAL "thread")
-        set(main_src test/minimal_product/main_thread.c)
+        set(main_src tests/integration/minimal_product/main_thread.c)
     else()
         message(FATAL_ERROR "edge_add_minimal_variant(${name}): unknown runner '${runner}'")
     endif()
 
-    add_executable(${name} ${main_src} test/minimal_product/glue.c)
+    add_executable(${name} ${main_src} tests/integration/minimal_product/glue.c)
     target_include_directories(${name} PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/test/minimal_product
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/minimal_product
         ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include
         ${CMAKE_CURRENT_SOURCE_DIR}/sys/example/include
         ${CMAKE_CURRENT_SOURCE_DIR}/app/${app}/include

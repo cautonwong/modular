@@ -13,7 +13,7 @@ covering transitive leakage. Fixtures: `tests/guards/transitive_{good,bad}`.
 
 ## T7b — parameterised minimal product
 
-`test/minimal_product/` is one product built against different
+`tests/integration/minimal_product/` is one product built against different
 `BOARD`/`RUNNER`/`APP` combinations via `edge_add_minimal_variant`:
 
 | board | runner | target |

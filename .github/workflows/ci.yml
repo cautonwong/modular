@@ -378,6 +378,8 @@ jobs:
         run: python3 .github/scripts/check_app_isolation.py
       - name: App transitive include boundary
         run: python3 .github/scripts/check_app_transitive_includes.py
+      - name: Layer dependency direction
+        run: python3 .github/scripts/check_layer_dependencies.py
       - name: Central event ID uniqueness
         run: python3 .github/scripts/check_event_ids.py
       - name: Central module ID uniqueness

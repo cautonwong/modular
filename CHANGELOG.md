@@ -8,8 +8,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Layer dependency guard `check_layer_dependencies.py` enforcing the topology
+  matrix (`soc -> soc`, `board -> soc/pal`, `infra -> soc`, `app -> self + edge_module`, ...)
+  with positive/negative fixtures; README topology and `adr-conformance.md` now
+  include `soc/` and `pal/`. Unified test layout by moving `test/minimal_product/`
+  to `tests/integration/minimal_product/`.
 - Neutrality acceptance (D57 / section 17.21): `check_app_transitive_includes.py`
-  (T7a), a parameterised `test/minimal_product/` with baremetal + thread host
+  (T7a), a parameterised `tests/integration/minimal_product/` with baremetal + thread host
   runners (T7b), a host thread-model test (T7c), and a CI `neutrality` job that
   builds the board x runner matrix and asserts `git diff --exit-code -- app/`.
   New real `soc/mps2` SoC package selected by `board/mps2`. See `docs/neutrality.md`.
