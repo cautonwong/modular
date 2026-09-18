@@ -239,6 +239,17 @@ function(edge_add_product name)
         message(FATAL_ERROR "edge_add_product(${name}): illegal family/board combination '${P_family}' + '${P_board}'")
     endif()
 
+    # D86: a product is registered exactly once and is permanently bound to one
+    # board. The binding is recorded here so firmware targets can only reuse it --
+    # they take a product name, never a board, and cannot override this.
+    if(DEFINED EDGE_PRODUCT_${name}_BOARD)
+        message(FATAL_ERROR
+            "edge_add_product(${name}): product already registered (board "
+            "'${EDGE_PRODUCT_${name}_BOARD}'); a product name may only be registered once")
+    endif()
+    set(EDGE_PRODUCT_${name}_BOARD "${P_board}" CACHE INTERNAL "Product ${name} board binding")
+    set(EDGE_PRODUCT_${name}_FAMILY "${P_family}" CACHE INTERNAL "Product ${name} family binding")
+
     set(dep_targets ${EDGE_SYS_TARGET_${P_family}} ${EDGE_BOARD_TARGET_${P_board}})
     foreach(app IN LISTS P_apps)
         if(NOT DEFINED EDGE_APP_TARGET_${app})
@@ -350,6 +361,9 @@ function(edge_add_arm_firmware name product cpu linker_script)
     if(NOT DEFINED EDGE_PRODUCT_${product}_TARGETS)
         message(FATAL_ERROR "${name}: unknown product '${product}'")
     endif()
+    if(NOT DEFINED EDGE_PRODUCT_${product}_BOARD)
+        message(FATAL_ERROR "${name}: product '${product}' has no registered board binding (D86)")
+    endif()
 
     add_executable(${name}
         product/${product}/main.c
@@ -404,6 +418,9 @@ function(edge_add_riscv_firmware name product linker_script)
     if(NOT DEFINED EDGE_PRODUCT_${product}_TARGETS)
         message(FATAL_ERROR "${name}: unknown product '${product}'")
     endif()
+    if(NOT DEFINED EDGE_PRODUCT_${product}_BOARD)
+        message(FATAL_ERROR "${name}: product '${product}' has no registered board binding (D86)")
+    endif()
 
     add_executable(${name}
         product/${product}/main.c
@@ -440,6 +457,9 @@ function(edge_add_arm_freertos_firmware name product)
     endif()
     if(NOT DEFINED EDGE_PRODUCT_${product}_TARGETS)
         message(FATAL_ERROR "${name}: unknown product '${product}'")
+    endif()
+    if(NOT DEFINED EDGE_PRODUCT_${product}_BOARD)
+        message(FATAL_ERROR "${name}: product '${product}' has no registered board binding (D86)")
     endif()
 
     add_executable(${name}

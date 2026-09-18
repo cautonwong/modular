@@ -45,6 +45,10 @@ There are no RTOS tasks, worker threads, runtime allocation, linker-section auto
 
 `sys` sorts by `priority`, then by ascending `module_id`. `required` is a separate validation set. `poll()` is a bounded cooperative step. Startup rolls back already initialized modules on failure; shutdown is reverse order.
 
+## Product binding
+
+`product/<name>` is the composition root and is bound to **exactly one** `board/<board>`, recorded by `edge_add_product()` at configure time. Firmware targets take a product name, never a board, so the binding cannot be overridden by a build parameter; re-registering or re-binding a product fails at configure. Each `board/<board>` selects exactly one `soc/<soc>`. The T7b neutrality fixture (`edge_add_minimal_variant`) is a test artifact and is exempt.
+
 ## Events
 
 The event payload is fixed scalar data:

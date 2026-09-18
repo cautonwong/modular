@@ -22,7 +22,7 @@ the consumer" is a design intent, not a predicate. So the target is **not**
 - rejects gates that reference an ADR absent from `adr-conformance.md`;
 - prints the paper-only set (currently 58 of 85) as a ratchet backlog.
 
-`must_gate` = D7, D14, D18, D21, D26, D31, D37, D44, D55, D68.
+`must_gate` = D7, D14, D18, D21, D26, D31, D37, D44, D48, D55, D68, D86.
 
 ## Layer dependency matrix
 
@@ -40,10 +40,20 @@ pal     -> pal + edge_module
 product -> all
 ```
 
-`infra -> soc` is denied by default (a generic, reusable implementation must not
-bind to a specific SoC); a register-level, SoC-named implementation must be
-explicitly listed in `INFRA_SOC_BOUND` (empty by default). Negative fixtures live
-in `tests/guards/layer_*` (e.g. `soc -> board`, `app -> infra`, `infra -> soc`).
+`infra -> soc` is denied with **no exception**: a reusable infra module only ever
+depends on narrow ports. SoC-bound (register/HAL) code belongs in `soc/<soc>/`,
+OS/RTOS-bound code in `pal/<os>/`, and the binding happens in `product/<name>/glue`.
+Negative fixtures live in `tests/guards/layer_*` (e.g. `soc -> board`, `app -> infra`,
+`infra -> soc`).
+
+## Product-to-board binding (D86)
+
+`edge_add_product()` records `EDGE_PRODUCT_<name>_BOARD` and rejects a second
+registration or a re-bind of an existing product; firmware targets take a product
+name only, so they cannot override the binding. `check_product_board_binding.py`
+re-checks the same rules from the parsed `CMakeLists.txt`, with fixtures in
+`tests/guards/binding_*`. The T7b neutrality fixture (`edge_add_minimal_variant`)
+is a test artifact and is exempt.
 
 ## Gates added for previously paper-only invariants
 
