@@ -219,8 +219,7 @@ edge_status_t modbus_slave_feed(modbus_slave_t *self, const uint8_t *frame, size
     }
 }
 
-static edge_status_t modbus_slave_init(edge_module_t *module) {
-    modbus_slave_t *self = (modbus_slave_t *)edge_module_data(module);
+edge_status_t modbus_slave_init(modbus_slave_t *self) {
     if (self == NULL || self->store == NULL || self->transport == NULL ||
         self->transport->write == NULL || self->store->read_holding == NULL ||
         self->store->write_holding == NULL || self->store->read_coil == NULL ||
@@ -255,8 +254,7 @@ static edge_status_t modbus_slave_power_off(edge_module_t *module) {
     return EDGE_OK;
 }
 
-static edge_status_t modbus_slave_deinit(edge_module_t *module) {
-    modbus_slave_t *self = (modbus_slave_t *)edge_module_data(module);
+edge_status_t modbus_slave_deinit(modbus_slave_t *self) {
     if (self == NULL)
         return EDGE_EINVAL;
     self->store = NULL;
@@ -275,11 +273,9 @@ void modbus_slave_construct(modbus_slave_t *self, uint32_t module_id, uint32_t p
         .period = 1u,
         .budget = 0u,
         .next_due = 0u,
-        .init = modbus_slave_init,
         .poll = modbus_slave_poll,
         .on_event = modbus_slave_on_event,
         .power_off = modbus_slave_power_off,
-        .deinit = modbus_slave_deinit,
         .private_data = self,
     };
     self->store = store;
@@ -290,4 +286,8 @@ void modbus_slave_construct(modbus_slave_t *self, uint32_t module_id, uint32_t p
     self->errors = 0u;
     self->poll_count = 0u;
     self->last_event = 0u;
+}
+
+edge_module_t *modbus_slave_module(modbus_slave_t *self) {
+    return self != NULL ? &self->module : NULL;
 }

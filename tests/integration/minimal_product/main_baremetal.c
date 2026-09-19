@@ -35,7 +35,9 @@ int main(void) {
 
     minimal_product_make_storage(&storage, flash_state);
     dlt645_construct(&app, EDGE_MOD_DLT645, 100u, &storage);
-    apps[0] = &app.module;
+    if (dlt645_init(&app) < 0)
+        return 9; /* D51: the composition root initialises the module */
+    apps[0] = dlt645_module(&app);
 
     if (edge_event_queue_init(&event_queue, event_storage, 16u) < 0)
         return 1;
@@ -46,7 +48,7 @@ int main(void) {
         return 2;
     if (edge_sys_set_clock(&sys, &clock) < 0)
         return 3;
-    if (edge_sys_subscribe(&sys, EDGE_EVT_UART0_RX, &app.module) < 0)
+    if (edge_sys_subscribe(&sys, EDGE_EVT_UART0_RX, dlt645_module(&app)) < 0)
         return 4;
     if (edge_sys_start(&sys) < 0)
         return 5;
@@ -59,6 +61,7 @@ int main(void) {
     }
 
     (void)edge_sys_power_off(&sys);
+    (void)dlt645_deinit(&app);
     (void)edge_sys_deinit(&sys);
     return 0;
 }

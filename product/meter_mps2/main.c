@@ -38,8 +38,10 @@ int main(void) {
     product_meter_mps2_make_relay_out(&relay_out, gpio_state);
     dlt645_construct(&dlt645, EDGE_MOD_DLT645, 100u, &storage);
     relay_construct(&relay, EDGE_MOD_RELAY, 110u, &relay_out);
-    apps[0] = &dlt645.module;
-    apps[1] = &relay.module;
+    if (dlt645_init(&dlt645) < 0 || relay_init(&relay) < 0)
+        return 10; /* D51/D53: assembly-time init belongs to the composition root */
+    apps[0] = dlt645_module(&dlt645);
+    apps[1] = relay_module(&relay);
 
     if (edge_event_queue_init(&event_queue, event_storage, 16u) < 0)
         return 1;
@@ -50,12 +52,12 @@ int main(void) {
         return 2;
     if (edge_sys_set_clock(&sys, &clock) < 0)
         return 5;
-    if (edge_sys_subscribe(&sys, EDGE_EVT_UART0_RX, &dlt645.module) < 0)
+    if (edge_sys_subscribe(&sys, EDGE_EVT_UART0_RX, dlt645_module(&dlt645)) < 0)
         return 3;
-    if (edge_sys_subscribe(&sys, EDGE_EVT_RELAY_CHANGED, &relay.module) < 0)
+    if (edge_sys_subscribe(&sys, EDGE_EVT_RELAY_CHANGED, relay_module(&relay)) < 0)
         return 6;
 #ifdef EDGE_QEMU_SEMIHOSTING
-    if (edge_sys_subscribe(&sys, EDGE_EVT_BOARD_TIMER0, &dlt645.module) < 0)
+    if (edge_sys_subscribe(&sys, EDGE_EVT_BOARD_TIMER0, dlt645_module(&dlt645)) < 0)
         return 7;
 #endif
     if (edge_sys_start(&sys) < 0)
@@ -71,6 +73,8 @@ int main(void) {
 #ifdef EDGE_QEMU_SEMIHOSTING
         if (dlt645.last_event == EDGE_EVT_BOARD_TIMER0) {
             (void)edge_sys_power_off(&sys);
+            (void)relay_deinit(&relay);
+            (void)dlt645_deinit(&dlt645);
             (void)edge_sys_deinit(&sys);
             return 0;
         }
@@ -78,6 +82,8 @@ int main(void) {
     }
 
     (void)edge_sys_power_off(&sys);
+    (void)relay_deinit(&relay);
+    (void)dlt645_deinit(&dlt645);
     (void)edge_sys_deinit(&sys);
 #ifdef EDGE_QEMU_SEMIHOSTING
     return 8;

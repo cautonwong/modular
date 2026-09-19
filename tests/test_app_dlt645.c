@@ -38,11 +38,11 @@ static void test_construct_binds_contract(void **state) {
     assert_int_equal(app.module.module_id, 0x1001u);
     assert_int_equal(app.module.priority, 10u);
     assert_ptr_equal(app.module.private_data, &app);
-    assert_non_null(app.module.init);
+    assert_ptr_equal(dlt645_module(&app), &app.module);
     assert_non_null(app.module.poll);
     assert_non_null(app.module.on_event);
     assert_non_null(app.module.power_off);
-    assert_non_null(app.module.deinit);
+    assert_null(app.module.suspend);
     assert_ptr_equal(app.storage, &storage);
 }
 
@@ -56,15 +56,15 @@ static void test_init_requires_reader(void **state) {
     dlt645_t app;
 
     dlt645_construct(&app, 1u, 1u, NULL);
-    assert_int_equal(app.module.init(&app.module), EDGE_EINVAL);
+    assert_int_equal(dlt645_init(&app), EDGE_EINVAL);
 
     dlt645_storage_if_t no_reader = {0};
     dlt645_construct(&app, 1u, 1u, &no_reader);
-    assert_int_equal(app.module.init(&app.module), EDGE_EINVAL);
+    assert_int_equal(dlt645_init(&app), EDGE_EINVAL);
 
     dlt645_storage_if_t good = {.read = fake_read};
     dlt645_construct(&app, 1u, 1u, &good);
-    assert_int_equal(app.module.init(&app.module), EDGE_OK);
+    assert_int_equal(dlt645_init(&app), EDGE_OK);
 }
 
 static void test_poll_event_and_deinit(void **state) {
@@ -74,7 +74,7 @@ static void test_poll_event_and_deinit(void **state) {
     edge_event_t event = {.id = 0x1234u};
 
     dlt645_construct(&app, 1u, 1u, &storage);
-    assert_int_equal(app.module.init(&app.module), EDGE_OK);
+    assert_int_equal(dlt645_init(&app), EDGE_OK);
     assert_int_equal(app.poll_count, 0u);
     assert_int_equal(app.module.poll(&app.module), EDGE_OK);
     assert_int_equal(app.module.poll(&app.module), EDGE_OK);
@@ -85,7 +85,7 @@ static void test_poll_event_and_deinit(void **state) {
     assert_int_equal(app.module.on_event(&app.module, NULL), EDGE_EINVAL);
 
     assert_int_equal(app.module.power_off(&app.module), EDGE_OK);
-    assert_int_equal(app.module.deinit(&app.module), EDGE_OK);
+    assert_int_equal(dlt645_deinit(&app), EDGE_OK);
     assert_null(app.storage);
 }
 
@@ -96,9 +96,11 @@ static void test_null_private_data_is_rejected(void **state) {
 
     dlt645_construct(&app, 1u, 1u, &storage);
     app.module.private_data = NULL;
-    assert_int_equal(app.module.init(&app.module), EDGE_EINVAL);
     assert_int_equal(app.module.poll(&app.module), EDGE_EINVAL);
-    assert_int_equal(app.module.deinit(&app.module), EDGE_EINVAL);
+    /* D51: init/deinit take the app pointer directly, so the analogue of a null
+     * private_data is a null self. */
+    assert_int_equal(dlt645_init(NULL), EDGE_EINVAL);
+    assert_int_equal(dlt645_deinit(NULL), EDGE_EINVAL);
 }
 
 int main(void) {

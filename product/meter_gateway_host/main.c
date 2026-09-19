@@ -55,9 +55,12 @@ int main(void) {
     dlt645_construct(&g_dlt645, EDGE_MOD_DLT645, 100u, &storage);
     meter_core_construct(&g_state.meter, EDGE_MOD_METER, 90u);
     modbus_slave_construct(&g_modbus, EDGE_MOD_MODBUS, 110u, 1u, &store, &transport);
-    apps[0] = &g_dlt645.module;
-    apps[1] = &g_state.meter.module;
-    apps[2] = &g_modbus.module;
+    if (dlt645_init(&g_dlt645) < 0 || meter_core_init(&g_state.meter) < 0 ||
+        modbus_slave_init(&g_modbus) < 0)
+        return 20; /* D51/D53: assembly-time init belongs to the composition root */
+    apps[0] = dlt645_module(&g_dlt645);
+    apps[1] = meter_core_module(&g_state.meter);
+    apps[2] = modbus_slave_module(&g_modbus);
 
     if (edge_event_queue_init(&event_queue, event_storage, 16u) < 0)
         return 1;
@@ -68,9 +71,9 @@ int main(void) {
         return 2;
     if (edge_sys_set_clock(&sys, &clock) < 0)
         return 3;
-    if (edge_sys_subscribe(&sys, EDGE_EVT_DLT645_RX, &g_dlt645.module) < 0)
+    if (edge_sys_subscribe(&sys, EDGE_EVT_DLT645_RX, dlt645_module(&g_dlt645)) < 0)
         return 4;
-    if (edge_sys_subscribe(&sys, EDGE_EVT_MODBUS_RX, &g_modbus.module) < 0)
+    if (edge_sys_subscribe(&sys, EDGE_EVT_MODBUS_RX, modbus_slave_module(&g_modbus)) < 0)
         return 5;
     if (edge_sys_start(&sys) < 0)
         return 6;
@@ -92,6 +95,9 @@ int main(void) {
         return 11;
 
     (void)edge_sys_power_off(&sys);
+    (void)modbus_slave_deinit(&g_modbus);
+    (void)meter_core_deinit(&g_state.meter);
+    (void)dlt645_deinit(&g_dlt645);
     (void)edge_sys_deinit(&sys);
     return 0;
 }

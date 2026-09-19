@@ -51,6 +51,11 @@ void modbus_slave_construct(modbus_slave_t *self, uint32_t module_id, uint32_t p
                             uint8_t unit_id, const modbus_store_if_t *store,
                             const modbus_transport_if_t *transport);
 
+/* D51: init/deinit are called by the composition root, not by the scheduler. */
+edge_status_t modbus_slave_init(modbus_slave_t *self);
+edge_status_t modbus_slave_deinit(modbus_slave_t *self);
+edge_module_t *modbus_slave_module(modbus_slave_t *self);
+
 /*
  * Feed one complete RTU ADU (address + PDU + CRC).
  *

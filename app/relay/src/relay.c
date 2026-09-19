@@ -3,8 +3,7 @@
 #include "edge/event.h"
 #include "edge/events.h"
 
-static edge_status_t relay_init(edge_module_t *module) {
-    relay_t *self = (relay_t *)edge_module_data(module);
+edge_status_t relay_init(relay_t *self) {
     if (self == NULL || self->out == NULL || self->out->set == NULL)
         return EDGE_EINVAL;
     self->state = 0u;
@@ -42,8 +41,7 @@ static edge_status_t relay_power_off(edge_module_t *module) {
     return self->out->set(self->out->self, 0u, false);
 }
 
-static edge_status_t relay_deinit(edge_module_t *module) {
-    relay_t *self = (relay_t *)edge_module_data(module);
+edge_status_t relay_deinit(relay_t *self) {
     if (self == NULL)
         return EDGE_EINVAL;
     self->out = NULL;
@@ -60,15 +58,17 @@ void relay_construct(relay_t *self, uint32_t module_id, uint32_t priority,
         .period = 1u,
         .budget = 0u,
         .next_due = 0u,
-        .init = relay_init,
         .poll = relay_poll,
         .on_event = relay_on_event,
         .power_off = relay_power_off,
-        .deinit = relay_deinit,
         .private_data = self,
     };
     self->out = out;
     self->state = 0u;
     self->toggles = 0u;
     self->last_event = 0u;
+}
+
+edge_module_t *relay_module(relay_t *self) {
+    return self != NULL ? &self->module : NULL;
 }

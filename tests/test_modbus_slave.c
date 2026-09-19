@@ -119,10 +119,10 @@ static void test_construct_and_init(void **state) {
     assert_int_equal(slave.module.module_id, 0x1400u);
     assert_int_equal(slave.unit_id, 7u);
     assert_ptr_equal(slave.module.private_data, &slave);
-    assert_int_equal(slave.module.init(&slave.module), EDGE_OK);
+    assert_int_equal(modbus_slave_init(&slave), EDGE_OK);
     assert_int_equal(slave.module.poll(&slave.module), EDGE_OK);
     assert_int_equal(slave.poll_count, 1u);
-    assert_int_equal(slave.module.deinit(&slave.module), EDGE_OK);
+    assert_int_equal(modbus_slave_deinit(&slave), EDGE_OK);
 
     modbus_slave_construct(NULL, 1u, 1u, 1u, NULL, NULL);
 }
@@ -137,10 +137,10 @@ static void test_init_rejects_missing_ports(void **state) {
 
     make_slave(&slave, &store, &tx, &store_if, &tx_if);
     slave.transport = NULL;
-    assert_int_equal(slave.module.init(&slave.module), EDGE_EINVAL);
+    assert_int_equal(modbus_slave_init(&slave), EDGE_EINVAL);
 
     modbus_slave_construct(&slave, 1u, 1u, 1u, NULL, &tx_if);
-    assert_int_equal(slave.module.init(&slave.module), EDGE_EINVAL);
+    assert_int_equal(modbus_slave_init(&slave), EDGE_EINVAL);
 }
 
 static void test_read_holding_registers(void **state) {
@@ -154,7 +154,7 @@ static void test_read_holding_registers(void **state) {
     uint8_t frame[16];
 
     make_slave(&slave, &store, &tx, &store_if, &tx_if);
-    assert_int_equal(slave.module.init(&slave.module), EDGE_OK);
+    assert_int_equal(modbus_slave_init(&slave), EDGE_OK);
     store.holding[2] = 0x1234u;
     store.holding[3] = 0xABCDu;
 
@@ -185,7 +185,7 @@ static void test_read_holding_exceptions(void **state) {
     uint8_t frame[16];
 
     make_slave(&slave, &store, &tx, &store_if, &tx_if);
-    assert_int_equal(slave.module.init(&slave.module), EDGE_OK);
+    assert_int_equal(modbus_slave_init(&slave), EDGE_OK);
 
     /* quantity out of range -> illegal value */
     const uint8_t bad_qty[5] = {0x03u, 0x00u, 0x00u, 0x00u, 0x40u};
@@ -227,7 +227,7 @@ static void test_read_coils_bit_packing(void **state) {
     uint8_t frame[16];
 
     make_slave(&slave, &store, &tx, &store_if, &tx_if);
-    assert_int_equal(slave.module.init(&slave.module), EDGE_OK);
+    assert_int_equal(modbus_slave_init(&slave), EDGE_OK);
     store.coils[0] = true;
     store.coils[3] = true;
     store.coils[9] = true;
@@ -250,7 +250,7 @@ static void test_write_single_register(void **state) {
     uint8_t frame[16];
 
     make_slave(&slave, &store, &tx, &store_if, &tx_if);
-    assert_int_equal(slave.module.init(&slave.module), EDGE_OK);
+    assert_int_equal(modbus_slave_init(&slave), EDGE_OK);
     const size_t len = build(frame, 7u, pdu, sizeof(pdu));
     assert_int_equal(modbus_slave_feed(&slave, frame, len), EDGE_OK);
     assert_int_equal(store.holding[5], 0xBEEFu);
@@ -276,7 +276,7 @@ static void test_write_single_coil(void **state) {
     uint8_t frame[16];
 
     make_slave(&slave, &store, &tx, &store_if, &tx_if);
-    assert_int_equal(slave.module.init(&slave.module), EDGE_OK);
+    assert_int_equal(modbus_slave_init(&slave), EDGE_OK);
 
     size_t len = build(frame, 7u, on_pdu, sizeof(on_pdu));
     assert_int_equal(modbus_slave_feed(&slave, frame, len), EDGE_OK);
@@ -300,7 +300,7 @@ static void test_write_multiple_registers(void **state) {
     uint8_t frame[20];
 
     make_slave(&slave, &store, &tx, &store_if, &tx_if);
-    assert_int_equal(slave.module.init(&slave.module), EDGE_OK);
+    assert_int_equal(modbus_slave_init(&slave), EDGE_OK);
     const size_t len = build(frame, 7u, pdu, sizeof(pdu));
     assert_int_equal(modbus_slave_feed(&slave, frame, len), EDGE_OK);
     assert_int_equal(store.holding[1], 1u);
@@ -330,7 +330,7 @@ static void test_addressing_crc_and_unsupported(void **state) {
     uint8_t frame[16];
 
     make_slave(&slave, &store, &tx, &store_if, &tx_if);
-    assert_int_equal(slave.module.init(&slave.module), EDGE_OK);
+    assert_int_equal(modbus_slave_init(&slave), EDGE_OK);
 
     /* another unit -> no response */
     size_t len = build(frame, 3u, read_pdu, sizeof(read_pdu));
@@ -371,7 +371,7 @@ static void test_bad_arguments_and_events(void **state) {
     const uint8_t frame[8] = {7u, 0x03u, 0u, 0u, 0u, 1u, 0u, 0u};
 
     make_slave(&slave, &store, &tx, &store_if, &tx_if);
-    assert_int_equal(slave.module.init(&slave.module), EDGE_OK);
+    assert_int_equal(modbus_slave_init(&slave), EDGE_OK);
 
     assert_int_equal(modbus_slave_feed(NULL, frame, sizeof(frame)), EDGE_EINVAL);
     assert_int_equal(modbus_slave_feed(&slave, NULL, sizeof(frame)), EDGE_EINVAL);
@@ -398,7 +398,7 @@ static void test_branch_coverage(void **state) {
     uint8_t frame[24];
 
     make_slave(&slave, &store, &tx, &store_if, &tx_if);
-    assert_int_equal(slave.module.init(&slave.module), EDGE_OK);
+    assert_int_equal(modbus_slave_init(&slave), EDGE_OK);
 
     /* short PDUs hit the length guards */
     const uint8_t short2[2] = {0x01u, 0x00u};
@@ -464,7 +464,9 @@ static void test_branch_coverage(void **state) {
     module->private_data = NULL;
     assert_int_equal(module->poll(module), EDGE_EINVAL);
     assert_int_equal(module->on_event(module, &(edge_event_t){0}), EDGE_EINVAL);
-    assert_int_equal(module->deinit(module), EDGE_EINVAL);
+    /* D51: init/deinit take the app pointer directly. */
+    assert_int_equal(modbus_slave_init(NULL), EDGE_EINVAL);
+    assert_int_equal(modbus_slave_deinit(NULL), EDGE_EINVAL);
 }
 
 int main(void) {

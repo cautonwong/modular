@@ -2,8 +2,7 @@
 #include "edge/event.h"
 #include "edge/events.h"
 
-static edge_status_t dlt645_init(edge_module_t *module) {
-    dlt645_t *self = (dlt645_t *)edge_module_data(module);
+edge_status_t dlt645_init(dlt645_t *self) {
     if (self == NULL || self->storage == NULL || self->storage->read == NULL)
         return EDGE_EINVAL;
     self->poll_count = 0u;
@@ -32,8 +31,7 @@ static edge_status_t dlt645_power_off(edge_module_t *module) {
     return EDGE_OK;
 }
 
-static edge_status_t dlt645_deinit(edge_module_t *module) {
-    dlt645_t *self = (dlt645_t *)edge_module_data(module);
+edge_status_t dlt645_deinit(dlt645_t *self) {
     if (self == NULL)
         return EDGE_EINVAL;
     self->storage = NULL;
@@ -50,14 +48,16 @@ void dlt645_construct(dlt645_t *self, uint32_t module_id, uint32_t priority,
         .period = 1u,
         .budget = 0u,
         .next_due = 0u,
-        .init = dlt645_init,
         .poll = dlt645_poll,
         .on_event = dlt645_on_event,
         .power_off = dlt645_power_off,
-        .deinit = dlt645_deinit,
         .private_data = self,
     };
     self->storage = storage;
     self->poll_count = 0u;
     self->last_event = 0u;
+}
+
+edge_module_t *dlt645_module(dlt645_t *self) {
+    return self != NULL ? &self->module : NULL;
 }
