@@ -47,178 +47,37 @@ function(edge_enable_quality target)
     endif()
 endfunction()
 
-add_library(edge_module STATIC edge_module/src/event.c)
-target_include_directories(edge_module PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include)
-edge_enable_quality(edge_module)
+# How a module target is built lives in cmake/EdgeTargets.cmake (D88); which
+# modules exist lives in each area directory's own CMakeLists.txt.
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/EdgeTargets.cmake)
 
-add_library(sys_runtime STATIC sys/runtime/src/sys.c)
-target_include_directories(sys_runtime PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/sys/runtime/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include
-)
-target_link_libraries(sys_runtime PUBLIC edge_module)
-edge_enable_quality(sys_runtime)
+# Discover the modules of an area. Every directory under it must declare itself,
+# because silent discovery would allow "the target exists but is never built",
+# which is harder to notice than a merge conflict. Order inside an area is
+# sorted so the build is reproducible.
+function(edge_add_area area)
+    file(GLOB entries LIST_DIRECTORIES true RELATIVE
+        "${CMAKE_CURRENT_SOURCE_DIR}/${area}" "${CMAKE_CURRENT_SOURCE_DIR}/${area}/*")
+    list(SORT entries)
+    foreach(entry IN LISTS entries)
+        if(IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/${area}/${entry}")
+            if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${area}/${entry}/CMakeLists.txt")
+                message(FATAL_ERROR
+                    "${area}/${entry}/ has no CMakeLists.txt: every area directory declares its "
+                    "own target (D88); see docs/how-to/add-driver.md")
+            endif()
+            add_subdirectory("${area}/${entry}")
+        endif()
+    endforeach()
+endfunction()
 
-add_library(sys_example STATIC sys/example/sys_example.c)
-target_include_directories(sys_example PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/sys/example/include)
-target_link_libraries(sys_example PUBLIC sys_runtime)
-edge_enable_quality(sys_example)
-
-add_library(sys_meter STATIC sys/meter/sys_meter.c)
-target_include_directories(sys_meter PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/sys/meter/include)
-target_link_libraries(sys_meter PUBLIC sys_runtime)
-edge_enable_quality(sys_meter)
-
-# Product-line registries consumed by edge_add_product(). Keep each in sync with
-# the matching add_library() target below.
-set(EDGE_SYS_TARGET_example sys_example)
-set(EDGE_SYS_TARGET_meter sys_meter)
-
-add_library(app_dlt645 STATIC app/dlt645/src/dlt645.c)
-target_include_directories(app_dlt645 PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/app/dlt645/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include
-)
-target_link_libraries(app_dlt645 PUBLIC edge_module)
-edge_enable_quality(app_dlt645)
-set(EDGE_APP_TARGET_dlt645 app_dlt645)
-
-add_library(app_relay STATIC app/relay/src/relay.c)
-target_include_directories(app_relay PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/app/relay/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include
-)
-target_link_libraries(app_relay PUBLIC edge_module)
-edge_enable_quality(app_relay)
-set(EDGE_APP_TARGET_relay app_relay)
-
-add_library(app_modbus_slave STATIC app/modbus_slave/src/modbus_slave.c)
-target_include_directories(app_modbus_slave PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/app/modbus_slave/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include
-)
-target_link_libraries(app_modbus_slave PUBLIC edge_module)
-edge_enable_quality(app_modbus_slave)
-set(EDGE_APP_TARGET_modbus_slave app_modbus_slave)
-
-add_library(app_meter_core STATIC app/meter_core/src/meter_core.c)
-target_include_directories(app_meter_core PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/app/meter_core/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include
-)
-target_link_libraries(app_meter_core PUBLIC edge_module)
-edge_enable_quality(app_meter_core)
-set(EDGE_APP_TARGET_meter_core app_meter_core)
-
-add_library(infra_flash STATIC infra/flash/src/flash.c)
-target_include_directories(infra_flash PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/infra/flash/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include
-)
-target_link_libraries(infra_flash PUBLIC edge_module)
-edge_enable_quality(infra_flash)
-set(EDGE_INFRA_TARGET_flash infra_flash)
-
-add_library(infra_gpio STATIC infra/gpio/src/gpio.c)
-target_include_directories(infra_gpio PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/infra/gpio/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include
-)
-target_link_libraries(infra_gpio PUBLIC edge_module)
-edge_enable_quality(infra_gpio)
-set(EDGE_INFRA_TARGET_gpio infra_gpio)
-
-add_library(infra_uart STATIC infra/uart/src/uart.c)
-target_include_directories(infra_uart PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/infra/uart/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include
-)
-target_link_libraries(infra_uart PUBLIC edge_module)
-edge_enable_quality(infra_uart)
-set(EDGE_INFRA_TARGET_uart infra_uart)
-
-add_library(pal_os STATIC pal/os/src/idle.c)
-target_include_directories(pal_os PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/pal/os/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include
-)
-target_link_libraries(pal_os PUBLIC edge_module)
-edge_enable_quality(pal_os)
-
-add_library(pal_host STATIC pal/host/src/host.c)
-target_include_directories(pal_host PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/pal/host/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include
-)
-target_link_libraries(pal_host PUBLIC edge_module pal_os)
-edge_enable_quality(pal_host)
-
-if(EDGE_MODULE_BUILD_FREERTOS_QEMU)
-    include(FetchContent)
-    FetchContent_Declare(freertos_kernel
-        GIT_REPOSITORY https://github.com/FreeRTOS/FreeRTOS-Kernel.git
-        GIT_TAG ${EDGE_MODULE_FREERTOS_KERNEL_TAG}
-        GIT_SHALLOW TRUE
-    )
-    FetchContent_GetProperties(freertos_kernel)
-    if(NOT freertos_kernel_POPULATED)
-        FetchContent_Populate(freertos_kernel)
-    endif()
-
-    add_library(freertos_kernel STATIC
-        ${freertos_kernel_SOURCE_DIR}/tasks.c
-        ${freertos_kernel_SOURCE_DIR}/list.c
-        ${freertos_kernel_SOURCE_DIR}/queue.c
-        ${freertos_kernel_SOURCE_DIR}/portable/GCC/ARM_CM3/port.c
-        ${freertos_kernel_SOURCE_DIR}/portable/MemMang/heap_4.c
-    )
-    target_include_directories(freertos_kernel PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/pal/rtos/freertos/include
-        ${freertos_kernel_SOURCE_DIR}/include
-        ${freertos_kernel_SOURCE_DIR}/portable/GCC/ARM_CM3
-    )
-
-    add_library(pal_rtos_freertos STATIC pal/rtos/freertos/src/freertos_rtos.c)
-    target_include_directories(pal_rtos_freertos PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/pal/rtos/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/pal/os/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include
-    )
-    target_link_libraries(pal_rtos_freertos PUBLIC edge_module pal_os freertos_kernel)
-endif()
-
-add_library(board_example STATIC board/example/src/board.c)
-target_include_directories(board_example PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/board/example/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include
-)
-target_link_libraries(board_example PUBLIC edge_module)
-edge_enable_quality(board_example)
-set(EDGE_BOARD_TARGET_example board_example)
-
-add_library(board_mps2 STATIC board/mps2/src/board.c)
-target_include_directories(board_mps2 PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/board/mps2/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/soc/mps2/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include
-)
-target_link_libraries(board_mps2 PUBLIC edge_module)
-edge_enable_quality(board_mps2)
-set(EDGE_BOARD_TARGET_mps2 board_mps2)
-if(EDGE_MODULE_ARM_QEMU_SEMIHOSTING OR EDGE_MODULE_BUILD_FREERTOS_QEMU)
-    target_compile_definitions(board_mps2 PUBLIC EDGE_QEMU_SEMIHOSTING=1)
-endif()
-
-if(EDGE_MODULE_BUILD_RISCV32_QEMU)
-    add_library(board_riscv_virt STATIC board/riscv_virt/src/board.c)
-    target_include_directories(board_riscv_virt PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/board/riscv_virt/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include
-    )
-    target_link_libraries(board_riscv_virt PUBLIC edge_module)
-    edge_enable_quality(board_riscv_virt)
-    set(EDGE_BOARD_TARGET_riscv_virt board_riscv_virt)
-endif()
+add_subdirectory(edge_module)
+edge_add_area(sys)
+edge_add_area(soc)
+edge_add_area(infra)
+edge_add_area(pal)
+edge_add_area(board)
+edge_add_area(app)
 
 # Legal family x board combinations (D39). An unknown family/board fails above;
 # a known-but-unlisted pair is a product composition error and fails here.
@@ -313,13 +172,13 @@ function(edge_add_minimal_variant name board runner app)
     add_executable(${name} ${main_src} tests/integration/minimal_product/glue.c)
     target_include_directories(${name} PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/minimal_product
-        ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/sys/example/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/app/${app}/include
     )
     target_link_libraries(${name} PRIVATE
-        edge_module sys_example ${EDGE_BOARD_TARGET_${board}} ${EDGE_APP_TARGET_${app}}
-        infra_flash
+        edge_module
+        ${EDGE_SYS_TARGET_example}
+        ${EDGE_BOARD_TARGET_${board}}
+        ${EDGE_APP_TARGET_${app}}
+        ${EDGE_INFRA_TARGET_flash}
     )
     if(runner STREQUAL "thread")
         target_link_libraries(${name} PRIVATE Threads::Threads)
@@ -531,57 +390,7 @@ if(EDGE_MODULE_BUILD_FREERTOS_QEMU)
 endif()
 
 if(EDGE_MODULE_BUILD_TESTS)
-    find_package(PkgConfig REQUIRED)
-    pkg_check_modules(CMOCKA REQUIRED IMPORTED_TARGET cmocka)
-
-    function(edge_add_host_test name)
-        add_executable(${name} ${ARGN})
-        target_include_directories(${name} PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include
-            ${CMAKE_CURRENT_SOURCE_DIR}/sys/runtime/include
-            ${CMAKE_CURRENT_SOURCE_DIR}/sys/example/include
-            ${CMAKE_CURRENT_SOURCE_DIR}/sys/meter/include
-            ${CMAKE_CURRENT_SOURCE_DIR}/app/dlt645/include
-            ${CMAKE_CURRENT_SOURCE_DIR}/app/relay/include
-            ${CMAKE_CURRENT_SOURCE_DIR}/app/modbus_slave/include
-            ${CMAKE_CURRENT_SOURCE_DIR}/app/meter_core/include
-            ${CMAKE_CURRENT_SOURCE_DIR}/infra/flash/include
-            ${CMAKE_CURRENT_SOURCE_DIR}/infra/gpio/include
-            ${CMAKE_CURRENT_SOURCE_DIR}/infra/uart/include
-            ${CMAKE_CURRENT_SOURCE_DIR}/board/example/include
-            ${CMAKE_CURRENT_SOURCE_DIR}/pal/host/include
-            ${CMAKE_CURRENT_SOURCE_DIR}/pal/os/include
-        )
-        target_link_libraries(${name} PRIVATE
-            edge_module sys_example sys_meter app_dlt645 app_relay app_modbus_slave app_meter_core
-            infra_flash infra_gpio infra_uart board_example pal_host pal_os
-            PkgConfig::CMOCKA Threads::Threads
-        )
-        edge_enable_quality(${name})
-        add_test(NAME ${name} COMMAND ${name})
-        set_tests_properties(${name} PROPERTIES LABELS "host")
-    endfunction()
-
-    edge_add_host_test(test_event tests/test_event.c)
-    edge_add_host_test(test_sys tests/test_sys.c)
-    edge_add_host_test(test_architecture tests/test_architecture.c)
-    edge_add_host_test(test_app_dlt645 tests/test_app_dlt645.c)
-    edge_add_host_test(test_app_relay tests/test_app_relay.c)
-    edge_add_host_test(test_infra_gpio tests/test_infra_gpio.c)
-    edge_add_host_test(test_modbus_slave tests/test_modbus_slave.c)
-    edge_add_host_test(test_meter_core tests/test_meter_core.c)
-    edge_add_host_test(test_app_interaction tests/test_app_interaction.c)
-    edge_add_host_test(test_ports tests/test_ports.c)
-    edge_add_host_test(test_pal_host tests/test_pal_host.c)
-    edge_add_host_test(test_pal_os tests/test_pal_os.c)
-    edge_add_host_test(test_runner_threads tests/test_runner_threads.c)
-    edge_add_host_test(test_flash_glue tests/test_flash_glue.c product/example/glue.c)
-    # Every product's glue is in the coverage scope, so every trampoline is
-    # exercised here instead of living only inside a product executable.
-    edge_add_host_test(test_product_glue tests/test_product_glue.c
-        product/meter_host/glue.c
-        product/meter_mps2/glue.c
-        product/meter_gateway_host/glue.c)
-    target_include_directories(test_product_glue PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/product/meter_gateway_host)
+    # Every host test names the modules it exercises, so adding an app or a
+    # driver never edits a shared list (D88).
+    add_subdirectory(tests)
 endif()

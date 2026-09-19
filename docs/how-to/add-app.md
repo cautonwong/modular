@@ -21,29 +21,37 @@ or a register address.
 3. **Module id** — add `EDGE_MOD_<NAME>` to `edge_module/include/edge/modules.h`
    on a `0xNN00` segment. `check_module_ids.py` rejects a duplicate or a
    non-aligned value.
-4. **CMake** — in the top-level `CMakeLists.txt`, copy the shape of an existing
-   app:
+4. **CMake** — the module declares itself; nothing central lists it (D88). Create
+   `app/<name>/CMakeLists.txt`:
    ```cmake
-   add_library(app_<name> STATIC app/<name>/src/<name>.c)
-   target_include_directories(app_<name> PUBLIC
-       ${CMAKE_CURRENT_SOURCE_DIR}/app/<name>/include
-       ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include)
-   target_link_libraries(app_<name> PUBLIC edge_module)
-   edge_enable_quality(app_<name>)
-   set(EDGE_APP_TARGET_<name> app_<name>)
+   edge_add_app(<name> SOURCES src/<name>.c DEPS edge_module)
    ```
+   That is the whole file: the shape (static library, public `include/`,
+   `edge_module` on the include path, quality flags, `EDGE_APP_TARGET_<name>`) is
+   defined once in [`cmake/EdgeTargets.cmake`](../../cmake/EdgeTargets.cmake).
+   **Do not edit the top-level `CMakeLists.txt`.** List a port's PAL or infra
+   provider in `DEPS` rather than in a hand-written `target_include_directories()`.
+   The directory name and the helper argument must match: `check_area_registration.py`
+   fails otherwise, because `edge_add_product(... apps <name>)` resolves
+   `EDGE_APP_TARGET_<name>`.
 5. **Assemble it somewhere** — add `<name>` to the `apps` list of the products
    that use it (`edge_add_product(... apps ...)`), and in that product's
    `main.c` call `<name>_construct(...)` then `<name>_init(...)`.
 6. **Adapter** — if the app needs infrastructure, adapt it in
    `product/<product>/glue.c`. The app defines the interface; the product bridges
    it. See [`add-product.md`](add-product.md).
-7. **Test** — `tests/test_app_<name>.c` plus, in the test block of
-   `CMakeLists.txt`, `edge_add_host_test(test_app_<name> tests/test_app_<name>.c)`.
+7. **Test** — `tests/test_app_<name>.c` plus one line in `tests/CMakeLists.txt`
+   naming the modules it exercises:
+   ```cmake
+   edge_add_host_test(test_app_<name> SOURCES test_app_<name>.c DEPS app_<name>)
+   ```
+   The test declares its own dependencies, so adding an app never edits a shared
+   include or library list.
 
 ## Completion criterion
 
 ```bash
+python3 .github/scripts/check_area_registration.py      # the directory declares itself (D88)
 python3 .github/scripts/check_cmake_apps.py            # CMake apps list == main.c constructs
 python3 .github/scripts/check_app_isolation.py         # no concrete-layer includes
 python3 .github/scripts/check_app_transitive_includes.py

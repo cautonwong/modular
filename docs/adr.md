@@ -119,6 +119,7 @@
 | D85 | PAL 分层 | **`pal/` 独立成层（架构 × RTOS）；board 只选择** | 修正 D46：同一板换 RTOS 不重复实现 PAL |
 | D86 | product↔board 绑定 | **product 显式绑定唯一 board，且不可被构建参数覆盖** | 绑定在 `edge_add_product()` 时记录；product 名只可注册一次；`board -> exactly one soc`；中立性夹具 `edge_add_minimal_variant` 是测试夹具、豁免本约束 |
 | D87 | RTOS 配置归属 | **FreeRTOS 配置由 product 组合（soc/board/product 三层）；PAL 只声明契约与必需不变量** | PAL 以 `#error` 强制栈溢出检测、高水位 API 与非静默 assert；同一 kernel 只服务一份配置，多 kernel 待第二个 RTOS 产品出现再做 |
+| D88 | 构建组织 | **每个领域目录自带 `CMakeLists.txt`，根文件只做发现与组合** | 模块的“形状”（静态库/公开 `include/`/`edge_module` 在 include 路径上/质量旗标/注册表条目）只在 `cmake/EdgeTargets.cmake` 定义一次；根文件按领域 `add_subdirectory` 排序发现；host 测试自报依赖；`check_area_registration.py` 守卫“目录必自报、不得绕过 helper、注册键等于目录名” |
 
 ### D5 反转后：装配显式，顺序仍由 sys module 决定
 

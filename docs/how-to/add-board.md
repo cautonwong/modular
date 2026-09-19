@@ -11,7 +11,11 @@ Most boards need an SoC support package first; see
 
 1. **SoC support package** (if the SoC is new) — `soc/<soc>/include/soc_<soc>/`
    with the memory map, peripheral base addresses, IRQ numbers and SoC-level
-   init. `check_layer_dependencies.py` allows `soc -> soc` only.
+   init, plus `soc/<soc>/CMakeLists.txt` declaring the header package (D88):
+   ```cmake
+   edge_add_soc(<soc> HEADERS DEPS edge_module)
+   ```
+   A board links `soc_<soc>`; `check_layer_dependencies.py` allows `soc -> soc` only.
 2. **Board header** — `board/<board>/include/<board>/board.h`:
    `void board_<board>_init(edge_event_sink_t *sink);` plus one entry point per
    IRQ the board forwards.
@@ -19,17 +23,16 @@ Most boards need an SoC support package first; see
    SoC header. Each ISR may only: clear the flag, capture the minimum, and push
    an event to the injected sink (D75). No loops over data, no allocation, no
    logging, no call to an app.
-4. **CMake** — mirror an existing board:
+4. **CMake** — create `board/<board>/CMakeLists.txt` (D88); the top-level
+   `CMakeLists.txt` is not edited:
    ```cmake
-   add_library(board_<board> STATIC board/<board>/src/board.c)
-   target_include_directories(board_<board> PUBLIC
-       ${CMAKE_CURRENT_SOURCE_DIR}/board/<board>/include
-       ${CMAKE_CURRENT_SOURCE_DIR}/soc/<soc>/include
-       ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include)
-   target_link_libraries(board_<board> PUBLIC edge_module)
-   edge_enable_quality(board_<board>)
-   set(EDGE_BOARD_TARGET_<board> board_<board>)
+   edge_add_board(<board> SOURCES src/board.c DEPS edge_module soc_<soc>)
    ```
+   Listing `soc_<soc>` in `DEPS` is what puts the SoC headers on the include path.
+   If the board's configuration is read by the FreeRTOS kernel (D87), keep the SoC
+   include root on the board's own PUBLIC interface as well — see
+   [`board/mps2/CMakeLists.txt`](../../board/mps2/CMakeLists.txt) for the one case
+   that does this, and why.
 5. **Legal combinations** — add every `family:board` pair this board may be
    paired with to `EDGE_LEGAL_FAMILY_BOARD`. A known-but-unlisted pair fails at
    configure time, which is the point.
@@ -43,6 +46,7 @@ Most boards need an SoC support package first; see
 ## Completion criterion
 
 ```bash
+python3 .github/scripts/check_area_registration.py       # the directory declares itself (D88)
 python3 .github/scripts/check_layer_dependencies.py      # board -> board+soc+pal+edge_module
 python3 .github/scripts/check_product_board_binding.py   # binding recorded, no re-bind
 python3 .github/scripts/check_cmake_apps.py
