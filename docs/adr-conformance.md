@@ -16,7 +16,7 @@ Legend: ✅ implemented · 🟡 partial · ❌ not implemented · ⛔ contradict
 | D7 | No manifest; CMake + `main()` are the only product truth | ✅ | `check_cmake_apps.py` enforces the two lists match |
 | D11 | priority sort + `module_id` tie-break | ✅ | `sort_apps()` in `sys/runtime/src/sys.c` |
 | D14 | Consumer-defined interfaces, adapters in product glue | ✅ | `dlt645_storage_if_t` + `product/example/glue.c` |
-| D15 | Extremely thin `edge_module` | 🟡 | Lifecycle + event primitives + tables; `init`/`deinit` still live in `edge_module_t` (see conflicts) |
+| D15 | Extremely thin `edge_module` | ✅ | Lifecycle callbacks + event primitives + tables; `init`/`deinit` are no longer in the struct (D51), so only scheduling state remains beside the contract |
 | D16-D18 | Events are facts; scalar payload; no pointers | ✅ | `edge_event_t{id,source,arg0,arg1,timestamp}` with `_Static_assert` |
 | D19/D68 | Unified `edge_status_t` + central error allocation | ✅ | `edge/errors.h` + `check_error_ids.py` (dup / range / zero-segment) + `docs/error-model.md` |
 | D20 | Injected clock port | ✅ | `edge/clock.h`, sink timestamps |
@@ -37,7 +37,7 @@ Legend: ✅ implemented · 🟡 partial · ❌ not implemented · ⛔ contradict
 | ADR | Decision | Status | Evidence |
 |---|---|---|---|
 | D47 | Single runner context; `sys_step()` decomposable | ✅ | `edge_sys_step()` + `edge_sys_run()` |
-| D51 | `poll`/`on_event` (+ optional `suspend`/`resume`); `init`/`deinit` outside the struct | 🟡/⛔ | `suspend`/`resume` added; `init`/`deinit` still in `edge_module_t` |
+| D51 | `poll`/`on_event` (+ optional `suspend`/`resume`); `init`/`deinit` outside the struct | ✅ | `edge_module_t` carries `poll`/`on_event`/`power_off`/`suspend`/`resume` only; the composition root calls `<app>_init(self)` / `<app>_deinit(self)` (products do, reverse order at shutdown). Enforced by `check_module_contract.py`. `power_off` stays in the struct because *ordering* is a `sys` duty (D11) |
 | D52 | Event-driven + periodic mixed scheduling; idle -> board | 🟡 | `period`/`budget`/`edge_sys_idle` hook done; board low-power wiring missing |
 | D53 | Non-fatal init failure skipped and recorded | ✅ | `fatal` flag: default skip, `fatal` rolls back |
 | D54 | Drop-newest + counter; multi-subscriber; unsubscribe | 🟡 | All done, except multi-SPSC producer queues |
@@ -79,13 +79,9 @@ Legend: ✅ implemented · 🟡 partial · ❌ not implemented · ⛔ contradict
 
 ## Open conflicts
 
-1. **D51 vs `edge_module_t`**: the ADR puts `init`/`deinit` outside the module
-   struct (called by `main()`), the implementation keeps them in the struct and
-   lets `sys` call them. Append-only additions preserve offsets, but the
-   contract disagrees with the ADR text.
-2. **D65 (multi-SPSC)**: the implementation deliberately uses one queue plus an
+1. **D65 (multi-SPSC)**: the implementation deliberately uses one queue plus an
    injected IRQ guard, which is the scheme the ADR chose *against*.
-3. **API naming**: the ADR catalogue uses `sys_run/sys_step/sys_idle/...`; the
+2. **API naming**: the ADR catalogue uses `sys_run/sys_step/sys_idle/...`; the
    implementation uses the `edge_sys_*` prefix.
 
 ## Maintenance

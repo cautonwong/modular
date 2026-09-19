@@ -97,20 +97,20 @@ pal     -> pal + edge_module
 product -> 全部
 ```
 
-该矩阵由 `.github/scripts/check_layer_dependencies.py` 在 CI 中强制执行（解析 include 到实际归属层，反例自测见 `tests/guards/layer_*`）。**通用 infra 不得绑定具体 SoC**：寄存器级、以 SoC 命名的实现必须显式登记进 `INFRA_SOC_BOUND`（默认空）；通用 infra 需要总线能力时走 `pal` 端口或由 board 在组合根注入句柄。
+该矩阵由 `.github/scripts/check_layer_dependencies.py` 在 CI 中强制执行（解析 include 到实际归属层，反例自测见 `tests/guards/layer_*`）。**通用 infra 绝不绑定具体 SoC**：`infra -> soc` 无例外，寄存器/HAL 驱动住 `soc/<soc>`，OS 设备模型住 `pal/<os>`，绑定由组合根 glue 完成（D48）。
 
 ## 生命周期与 super-loop
 
 ```text
-construct
+construct                     （组合根：<app>_construct(self, deps)）
+   -> <app>_init(self)        （D51：组合根显式调用；失败策略归产品）
    -> sys_init
    -> validate required
-   -> app.init()          （失败自动回滚）
    -> running
    -> event dispatch
    -> app.poll()          （bounded / cooperative）
-   -> power_off           （逆序）
-   -> deinit              （逆序）
+   -> power_off           （sys 逆序调用，模块保存状态）
+   -> <app>_deinit(self)      （D51：组合根逆序调用）
 ```
 
 当前 sys 已实现：

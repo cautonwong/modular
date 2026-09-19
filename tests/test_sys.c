@@ -12,31 +12,25 @@
 
 typedef struct fake_app {
     edge_module_t module;
-    int init_count;
     int poll_count;
     int event_count;
     int off_count;
-    int deinit_count;
     int suspend_count;
     int resume_count;
-    edge_status_t init_rc;
     edge_status_t poll_rc;
     edge_status_t event_rc;
     edge_status_t off_rc;
-    edge_status_t deinit_rc;
     edge_status_t suspend_rc;
     edge_status_t resume_rc;
-    edge_sys_t *shutdown_sys;
-    int shutdown_after_polls;
     edge_sys_t *publish_sys;
     uint32_t publish_id;
 } fake_app_t;
 
 static uint64_t g_now;
 static uint64_t g_poll_advance;
-static int g_order[8];
-static size_t g_order_count;
 static int g_idle_calls;
+static edge_sys_t *g_shutdown_sys; /* runner-shutdown trigger, see test_step_and_run_shutdown */
+static int g_shutdown_after_polls;
 
 static void fake_idle(void *ctx) {
     (void)ctx;
@@ -52,20 +46,12 @@ static fake_app_t *as_fake(edge_module_t *m) {
     return (fake_app_t *)m->private_data;
 }
 
-static edge_status_t fake_init(edge_module_t *m) {
-    fake_app_t *a = as_fake(m);
-    ++a->init_count;
-    if (g_order_count < 8u)
-        g_order[g_order_count++] = (int)m->module_id;
-    return a->init_rc;
-}
-
 static edge_status_t fake_poll(edge_module_t *m) {
     fake_app_t *a = as_fake(m);
     ++a->poll_count;
     g_now += g_poll_advance;
-    if (a->shutdown_sys != NULL && a->shutdown_after_polls > 0 && --a->shutdown_after_polls == 0)
-        (void)edge_sys_power_off(a->shutdown_sys);
+    if (g_shutdown_sys != NULL && g_shutdown_after_polls > 0 && --g_shutdown_after_polls == 0)
+        (void)edge_sys_power_off(g_shutdown_sys);
     return a->poll_rc;
 }
 
@@ -97,18 +83,6 @@ static edge_status_t fake_off(edge_module_t *m) {
     return a->off_rc;
 }
 
-static edge_status_t fake_deinit(edge_module_t *m) {
-    fake_app_t *a = as_fake(m);
-    ++a->deinit_count;
-    return a->deinit_rc;
-}
-
-static edge_status_t fake_init_set_then_fail(edge_module_t *m) {
-    m->initialized = 1u;
-    ++as_fake(m)->init_count;
-    return EDGE_EIO;
-}
-
 static void make_app(fake_app_t *a, uint32_t id, uint32_t priority) {
     *a = (fake_app_t){0};
     a->module = (edge_module_t){
@@ -116,18 +90,18 @@ static void make_app(fake_app_t *a, uint32_t id, uint32_t priority) {
         .priority = priority,
         .period = 1u,
         .budget = 0u,
-        .init = fake_init,
         .poll = fake_poll,
         .on_event = fake_event,
         .power_off = fake_off,
-        .deinit = fake_deinit,
         .suspend = fake_suspend,
         .resume = fake_resume,
         .private_data = a,
     };
 }
 
-static void test_init_and_order(void **state) {
+/* D51: sys does not call module init/deinit, so ordering is observed on the
+ * scheduler's own module array (priority, then ascending module_id). */
+static void test_start_sorts_by_priority_then_id(void **state) {
     (void)state;
     fake_app_t a, b, c;
     make_app(&a, 30u, 10u);
@@ -135,13 +109,14 @@ static void test_init_and_order(void **state) {
     make_app(&c, 10u, 20u);
     edge_module_t *apps[] = {&a.module, &b.module, &c.module};
     edge_sys_t sys;
-    g_order_count = 0u;
 
     assert_int_equal(edge_sys_init(&sys, apps, 3u), EDGE_OK);
+    assert_int_equal(sys.apps[0]->module_id, 20u);
+    assert_int_equal(sys.apps[1]->module_id, 30u);
+    assert_int_equal(sys.apps[2]->module_id, 10u);
     assert_int_equal(edge_sys_start(&sys), EDGE_OK);
-    assert_int_equal(g_order[0], 20);
-    assert_int_equal(g_order[1], 30);
-    assert_int_equal(g_order[2], 10);
+    assert_int_equal(sys.apps[0]->running, 1u);
+    assert_int_equal(sys.apps[0]->next_due, 2u);
 }
 
 static void test_validation(void **state) {
@@ -175,7 +150,6 @@ static void test_required_and_lifecycle(void **state) {
     assert_int_equal(edge_sys_power_off(&sys), EDGE_OK);
     assert_int_equal(edge_sys_deinit(&sys), EDGE_OK);
     assert_int_equal(a.off_count, 1);
-    assert_int_equal(a.deinit_count, 1);
 }
 
 static void test_event_routing_and_bound(void **state) {
@@ -282,25 +256,14 @@ static void test_fault_isolation(void **state) {
     assert_int_equal(stats.errors, 1u);
 }
 
-static void test_init_rollback_and_power_failure(void **state) {
+static void test_power_off_failure(void **state) {
     (void)state;
-    fake_app_t a, b;
-    make_app(&a, 1u, 1u);
-    make_app(&b, 2u, 2u);
-    b.init_rc = EDGE_EIO;
-    b.module.fatal = 1u;
-    edge_module_t *apps[] = {&a.module, &b.module};
-    edge_sys_t sys;
-
-    assert_int_equal(edge_sys_init(&sys, apps, 2u), EDGE_OK);
-    assert_int_equal(edge_sys_start(&sys), EDGE_EIO);
-    assert_int_equal(a.deinit_count, 1);
-    assert_int_equal(a.module.initialized, 0u);
-    assert_int_equal(b.module.failed, 1u);
-
+    fake_app_t a;
     make_app(&a, 1u, 1u);
     a.off_rc = EDGE_EIO;
-    apps[0] = &a.module;
+    edge_module_t *apps[] = {&a.module};
+    edge_sys_t sys;
+
     assert_int_equal(edge_sys_init(&sys, apps, 1u), EDGE_OK);
     assert_int_equal(edge_sys_start(&sys), EDGE_OK);
     assert_int_equal(edge_sys_power_off(&sys), EDGE_EIO);
@@ -387,24 +350,7 @@ static void test_required_missing(void **state) {
     assert_int_equal(edge_sys_set_required(&sys, missing, 1u), EDGE_OK);
     assert_int_equal(edge_sys_validate_required(&sys), EDGE_EDEPEND);
     assert_int_equal(edge_sys_start(&sys), EDGE_EDEPEND);
-    assert_int_equal(a.init_count, 0);
-}
-
-static void test_init_failure_clears_partial(void **state) {
-    (void)state;
-    fake_app_t a, b;
-    make_app(&a, 1u, 1u);
-    make_app(&b, 2u, 2u);
-    b.module.init = fake_init_set_then_fail;
-    b.module.fatal = 1u;
-    edge_module_t *apps[] = {&a.module, &b.module};
-    edge_sys_t sys;
-
-    assert_int_equal(edge_sys_init(&sys, apps, 2u), EDGE_OK);
-    assert_int_equal(edge_sys_start(&sys), EDGE_EIO);
-    assert_int_equal(b.deinit_count, 1);
-    assert_int_equal(a.deinit_count, 1);
-    assert_int_equal(a.module.initialized, 0u);
+    assert_int_equal(sys.state, EDGE_SYS_CONSTRUCTED);
 }
 
 static void test_dispatch_event_failure_and_pop_error(void **state) {
@@ -459,18 +405,21 @@ static void test_execution_budget(void **state) {
     g_poll_advance = 0u;
 }
 
-static void test_deinit_error_propagation(void **state) {
+static void test_deinit_stops_scheduler_only(void **state) {
     (void)state;
     fake_app_t a;
     make_app(&a, 1u, 1u);
-    a.deinit_rc = EDGE_EIO;
     edge_module_t *apps[] = {&a.module};
     edge_sys_t sys;
 
     assert_int_equal(edge_sys_init(&sys, apps, 1u), EDGE_OK);
     assert_int_equal(edge_sys_start(&sys), EDGE_OK);
     assert_int_equal(edge_sys_power_off(&sys), EDGE_OK);
-    assert_int_equal(edge_sys_deinit(&sys), EDGE_EIO);
+    assert_int_equal(edge_sys_deinit(&sys), EDGE_OK);
+    /* D51: module teardown is the composition root's job, so deinit only stops
+     * scheduling and clears the scheduler-owned flags. */
+    assert_int_equal(a.module.running, 0u);
+    assert_int_equal(a.module.suspended, 0u);
 }
 
 static void test_meter_wrapper(void **state) {
@@ -492,30 +441,6 @@ static void test_meter_wrapper(void **state) {
     assert_int_equal(sys_meter_init(&sys, NULL, 1u, required, 1u, &queue, subs, 2u), EDGE_EINVAL);
     assert_int_equal(sys_meter_init(&sys, apps, 1u, required, 1u, NULL, subs, 2u), EDGE_EINVAL);
     assert_int_equal(sys_meter_init(&sys, apps, 1u, NULL, 1u, &queue, subs, 2u), EDGE_EINVAL);
-}
-
-static void test_init_skip_non_fatal(void **state) {
-    (void)state;
-    fake_app_t a, b;
-    make_app(&a, 1u, 1u);
-    make_app(&b, 2u, 2u);
-    b.init_rc = EDGE_EIO;
-    edge_module_t *apps[] = {&a.module, &b.module};
-    edge_sys_t sys;
-    edge_sys_stats_t stats;
-
-    assert_int_equal(edge_sys_init(&sys, apps, 2u), EDGE_OK);
-    assert_int_equal(edge_sys_start(&sys), EDGE_OK);
-    assert_int_equal(sys.state, EDGE_SYS_RUNNING);
-    assert_int_equal(b.module.failed, 1u);
-    assert_int_equal(b.module.running, 0u);
-    assert_int_equal(a.module.initialized, 1u);
-    assert_int_equal(edge_sys_run_once(&sys), EDGE_OK);
-    assert_int_equal(b.poll_count, 0);
-    assert_int_equal(a.poll_count, 1);
-    assert_int_equal(edge_sys_stats_get(&sys, &stats), EDGE_OK);
-    assert_int_equal(stats.isolated, 1u);
-    assert_int_equal(stats.errors, 1u);
 }
 
 static void test_publish_deferred_queue(void **state) {
@@ -646,11 +571,13 @@ static void test_step_and_run_shutdown(void **state) {
 
     assert_int_equal(edge_sys_init(&sys, apps, 1u), EDGE_OK);
     assert_int_equal(edge_sys_start(&sys), EDGE_OK);
-    a.shutdown_sys = &sys;
-    a.shutdown_after_polls = 3;
+    g_shutdown_sys = &sys;
+    g_shutdown_after_polls = 3;
     assert_int_equal(edge_sys_run(&sys), EDGE_OK);
     assert_int_equal(sys.state, EDGE_SYS_STOPPED);
     assert_int_equal(a.poll_count, 3);
+    g_shutdown_sys = NULL;
+    g_shutdown_after_polls = 0;
 
     assert_int_equal(edge_sys_step(NULL), EDGE_ESTATE);
 }
@@ -713,23 +640,21 @@ static void test_new_api_argument_guards(void **state) {
 
 int main(void) {
     const struct CMUnitTest tests[] = {
-        cmocka_unit_test(test_init_and_order),
+        cmocka_unit_test(test_start_sorts_by_priority_then_id),
         cmocka_unit_test(test_validation),
         cmocka_unit_test(test_required_and_lifecycle),
         cmocka_unit_test(test_event_routing_and_bound),
         cmocka_unit_test(test_periodic_scheduler),
         cmocka_unit_test(test_event_budget_and_stats),
         cmocka_unit_test(test_fault_isolation),
-        cmocka_unit_test(test_init_rollback_and_power_failure),
+        cmocka_unit_test(test_power_off_failure),
         cmocka_unit_test(test_wrapper_and_guards),
         cmocka_unit_test(test_argument_and_state_guards),
         cmocka_unit_test(test_required_missing),
-        cmocka_unit_test(test_init_failure_clears_partial),
         cmocka_unit_test(test_dispatch_event_failure_and_pop_error),
         cmocka_unit_test(test_execution_budget),
-        cmocka_unit_test(test_deinit_error_propagation),
+        cmocka_unit_test(test_deinit_stops_scheduler_only),
         cmocka_unit_test(test_meter_wrapper),
-        cmocka_unit_test(test_init_skip_non_fatal),
         cmocka_unit_test(test_publish_deferred_queue),
         cmocka_unit_test(test_publish_overflow_and_binding),
         cmocka_unit_test(test_unsubscribe),

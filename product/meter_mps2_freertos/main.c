@@ -67,6 +67,7 @@ static void capsule_task(void *arg) {
         os_yield_task();
     }
     (void)edge_sys_power_off(&g_sys);
+    (void)dlt645_deinit(&g_dlt645);
     (void)edge_sys_deinit(&g_sys);
     if (edge_rtos_task_stack_high_water() < 64u)
         board_mps2_exit(12); /* capsule stack nearly exhausted */
@@ -92,7 +93,9 @@ int main(void) {
     g_os = edge_rtos_os_port();
     product_meter_mps2_freertos_make_storage(&g_storage, g_flash_state);
     dlt645_construct(&g_dlt645, EDGE_MOD_DLT645, 100u, &g_storage);
-    g_apps[0] = &g_dlt645.module;
+    if (dlt645_init(&g_dlt645) < 0)
+        return 13; /* D51/D53: assembly-time init belongs to the composition root */
+    g_apps[0] = dlt645_module(&g_dlt645);
 
     if (edge_event_queue_init(&g_queue, g_ev_storage, 16u) < 0)
         return 1;
@@ -106,7 +109,7 @@ int main(void) {
     g_idle = (edge_os_idle_t){.os = &g_os, .sleep_ms = 1u};
     if (edge_sys_set_idle(&g_sys, edge_os_idle_hook, &g_idle) < 0)
         return 4;
-    if (edge_sys_subscribe(&g_sys, EDGE_EVT_BOARD_TIMER0, &g_dlt645.module) < 0)
+    if (edge_sys_subscribe(&g_sys, EDGE_EVT_BOARD_TIMER0, dlt645_module(&g_dlt645)) < 0)
         return 5;
     if (edge_sys_start(&g_sys) < 0)
         return 6;

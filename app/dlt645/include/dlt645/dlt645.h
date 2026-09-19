@@ -25,6 +25,15 @@ typedef struct dlt645 {
 void dlt645_construct(dlt645_t *self, uint32_t module_id, uint32_t priority,
                       const dlt645_storage_if_t *storage);
 
+/*
+ * D51: assembly-time init and shutdown-time deinit are called by the composition
+ * root, not by the scheduler. `dlt645_init` validates the injected port and must
+ * be called before the module is handed to sys.
+ */
+edge_status_t dlt645_init(dlt645_t *self);
+edge_status_t dlt645_deinit(dlt645_t *self);
+edge_module_t *dlt645_module(dlt645_t *self);
+
 #ifdef __cplusplus
 }
 #endif

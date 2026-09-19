@@ -2,8 +2,7 @@
 
 #include "edge/event.h"
 
-static edge_status_t meter_core_init(edge_module_t *module) {
-    meter_core_t *self = (meter_core_t *)edge_module_data(module);
+edge_status_t meter_core_init(meter_core_t *self) {
     if (self == NULL)
         return EDGE_EINVAL;
     self->polls = 0u;
@@ -35,8 +34,7 @@ static edge_status_t meter_core_power_off(edge_module_t *module) {
     return EDGE_OK;
 }
 
-static edge_status_t meter_core_deinit(edge_module_t *module) {
-    meter_core_t *self = (meter_core_t *)edge_module_data(module);
+edge_status_t meter_core_deinit(meter_core_t *self) {
     if (self == NULL)
         return EDGE_EINVAL;
     self->polls = 0u;
@@ -52,11 +50,9 @@ void meter_core_construct(meter_core_t *self, uint32_t module_id, uint32_t prior
         .period = 1u,
         .budget = 0u,
         .next_due = 0u,
-        .init = meter_core_init,
         .poll = meter_core_poll,
         .on_event = meter_core_on_event,
         .power_off = meter_core_power_off,
-        .deinit = meter_core_deinit,
         .private_data = self,
     };
     for (uint16_t i = 0u; i < METER_CORE_REGISTER_COUNT; ++i)
@@ -66,6 +62,10 @@ void meter_core_construct(meter_core_t *self, uint32_t module_id, uint32_t prior
     self->polls = 0u;
     self->pulses = 0u;
     self->last_event = 0u;
+}
+
+edge_module_t *meter_core_module(meter_core_t *self) {
+    return self != NULL ? &self->module : NULL;
 }
 
 edge_status_t meter_core_read_register(const meter_core_t *self, uint16_t addr, uint16_t *value) {

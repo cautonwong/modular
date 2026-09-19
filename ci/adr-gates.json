@@ -1,5 +1,5 @@
 {
-  "must_gate": ["D7", "D14", "D18", "D21", "D26", "D31", "D37", "D44", "D48", "D55", "D68", "D86", "D87"],
+  "must_gate": ["D7", "D14", "D18", "D21", "D26", "D31", "D37", "D44", "D48", "D51", "D55", "D68", "D86", "D87"],
   "gates": {
     "D5": { "file": "CMakeLists.txt", "marker": "function(edge_add_product" },
     "D7": { "file": ".github/scripts/check_cmake_apps.py" },
@@ -18,9 +18,10 @@
     "D41": { "file": "edge_module/include/edge/log.h" },
     "D44": { "file": ".github/scripts/check_app_isolation.py" },
     "D48": { "file": ".github/scripts/check_layer_dependencies.py" },
+    "D51": { "file": ".github/scripts/check_module_contract.py" },
     "D47": { "file": "sys/runtime/include/runtime/sys.h", "marker": "edge_sys_run" },
     "D52": { "file": "sys/runtime/src/sys.c", "marker": "edge_sys_idle" },
-    "D53": { "file": "sys/runtime/src/sys.c", "marker": "app->fatal" },
+    "D53": { "file": "sys/runtime/src/sys.c", "marker": "stats.isolated" },
     "D55": { "file": ".github/scripts/check_module_ids.py" },
     "D57": { "file": "CMakeLists.txt", "marker": "edge_add_host_test" },
     "D59": { "file": "CMakeLists.txt", "marker": "PkgConfig::CMOCKA" },

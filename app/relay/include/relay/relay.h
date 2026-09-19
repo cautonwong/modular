@@ -27,6 +27,11 @@ typedef struct relay {
 void relay_construct(relay_t *self, uint32_t module_id, uint32_t priority,
                      const relay_out_if_t *out);
 
+/* D51: init/deinit are called by the composition root, not by the scheduler. */
+edge_status_t relay_init(relay_t *self);
+edge_status_t relay_deinit(relay_t *self);
+edge_module_t *relay_module(relay_t *self);
+
 #ifdef __cplusplus
 }
 #endif

@@ -80,7 +80,6 @@ edge_status_t edge_sys_init(edge_sys_t *sys, edge_module_t **apps, size_t count)
     sys->idle_hook = NULL;
     sys->idle_ctx = NULL;
     for (size_t i = 0u; i < count; ++i) {
-        apps[i]->initialized = 0u;
         apps[i]->running = 0u;
         apps[i]->failed = 0u;
         apps[i]->suspended = 0u;
@@ -230,44 +229,18 @@ edge_status_t edge_sys_validate_required(const edge_sys_t *sys) {
 edge_status_t edge_sys_start(edge_sys_t *sys) {
     if (sys == NULL || sys->state != EDGE_SYS_CONSTRUCTED)
         return EDGE_ESTATE;
-    edge_status_t rc = edge_sys_validate_required(sys);
+    const edge_status_t rc = edge_sys_validate_required(sys);
     if (rc < 0)
         return rc;
 
-    size_t started = 0u;
-    for (; started < sys->app_count; ++started) {
-        edge_module_t *app = sys->apps[started];
-        if (app->init != NULL) {
-            rc = app->init(app);
-            if (rc < 0) {
-                app->failed = 1u;
-                ++sys->stats.errors;
-                ++sys->stats.isolated;
-                if (app->initialized && app->deinit != NULL)
-                    (void)app->deinit(app);
-                app->initialized = 0u;
-                app->running = 0u;
-                /* D53: a non-fatal init failure is skipped and recorded. */
-                if (!app->fatal)
-                    continue;
-                /* A fatal init failure rolls back what already started. */
-                while (started > 0u) {
-                    --started;
-                    app = sys->apps[started];
-                    if (app->initialized && app->deinit != NULL)
-                        (void)app->deinit(app);
-                    app->initialized = 0u;
-                    app->running = 0u;
-                }
-                sys->state = EDGE_SYS_FAILED;
-                return rc;
-            }
-        }
-        app->initialized = 1u;
-        app->next_due = now_ticks(sys) + app->period;
+    /* D51: module init is the composition root's job, so start only schedules.
+     * A required module that the product failed to assemble is caught above. */
+    const uint64_t now = now_ticks(sys);
+    for (size_t i = 0u; i < sys->app_count; ++i) {
+        edge_module_t *app = sys->apps[i];
+        app->next_due = now + app->period;
+        app->running = app->failed ? 0u : 1u;
     }
-    for (size_t i = 0u; i < sys->app_count; ++i)
-        sys->apps[i]->running = sys->apps[i]->failed ? 0u : 1u;
     sys->state = EDGE_SYS_RUNNING;
     return EDGE_OK;
 }
@@ -462,20 +435,14 @@ edge_status_t edge_sys_power_off(edge_sys_t *sys) {
 edge_status_t edge_sys_deinit(edge_sys_t *sys) {
     if (sys == NULL || sys->state == EDGE_SYS_RUNNING)
         return EDGE_ESTATE;
-    edge_status_t first_error = EDGE_OK;
-    for (size_t i = sys->app_count; i > 0u; --i) {
-        edge_module_t *app = sys->apps[i - 1u];
-        if (app->initialized && app->deinit != NULL) {
-            const edge_status_t rc = app->deinit(app);
-            if (rc < 0 && first_error == EDGE_OK)
-                first_error = rc;
-        }
-        app->initialized = 0u;
-        app->running = 0u;
-        app->suspended = 0u;
+    /* D51: tearing down module state is the composition root's job (reverse
+     * order); sys only stops scheduling. */
+    for (size_t i = 0u; i < sys->app_count; ++i) {
+        sys->apps[i]->running = 0u;
+        sys->apps[i]->suspended = 0u;
     }
     sys->state = EDGE_SYS_STOPPED;
-    return first_error;
+    return EDGE_OK;
 }
 
 edge_status_t edge_sys_stats_get(const edge_sys_t *sys, edge_sys_stats_t *out) {
