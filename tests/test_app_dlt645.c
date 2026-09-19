@@ -5,8 +5,10 @@
 
 #include <cmocka.h>
 
+#include "contract/app_contract.h"
 #include "dlt645/dlt645.h"
 #include "edge/event.h"
+#include "edge/modules.h"
 
 static int g_read_calls;
 static int g_write_calls;
@@ -103,6 +105,42 @@ static void test_null_private_data_is_rejected(void **state) {
     assert_int_equal(dlt645_deinit(NULL), EDGE_EINVAL);
 }
 
+/* --- App contract (D51), adopted in a few lines ---
+ * The suite is reusable: it checks identity, the callbacks sys relies on, that a
+ * foreign event is ignored, and that init/release report success. */
+static dlt645_t g_contract_app;
+static dlt645_storage_if_t g_contract_storage = {
+    .read = fake_read,
+    .write = fake_write,
+    .self = NULL,
+};
+
+static edge_status_t contract_prepare(void) {
+    dlt645_construct(&g_contract_app, EDGE_MOD_DLT645, 100u, &g_contract_storage);
+    return dlt645_init(&g_contract_app);
+}
+
+static edge_status_t contract_release(void) {
+    return dlt645_deinit(&g_contract_app);
+}
+
+static const edge_module_t *contract_module(void) {
+    return dlt645_module(&g_contract_app);
+}
+
+static void test_app_contract(void **state) {
+    (void)state;
+    const edge_app_contract_t contract = {
+        .name = "dlt645",
+        .prepare = contract_prepare,
+        .release = contract_release,
+        .module = contract_module,
+        .module_id = EDGE_MOD_DLT645,
+        .priority = 100u,
+    };
+    edge_contract_app_run(&contract);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_construct_binds_contract),
@@ -110,6 +148,7 @@ int main(void) {
         cmocka_unit_test(test_init_requires_reader),
         cmocka_unit_test(test_poll_event_and_deinit),
         cmocka_unit_test(test_null_private_data_is_rejected),
+        cmocka_unit_test(test_app_contract),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

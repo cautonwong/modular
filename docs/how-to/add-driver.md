@@ -51,6 +51,31 @@ python3 .github/scripts/check_stack_usage.py <build-dir> --max-bytes 512 --exclu
 python3 .github/scripts/check_map_budget.py <map-file>
 ```
 
+## Proving the port contract
+
+A port's shape says nothing about what a zero-length write means or whether a
+NULL buffer is rejected or dereferenced, so the behaviour is a reusable suite
+(D57). Run it against the adapter you wrote, wherever it lives (glue, driver or
+fake):
+
+```c
+const edge_storage_contract_t contract = {
+    .name = "my_product/storage",
+    .read = port.read, .write = port.write, .self = port.self,
+};
+edge_contract_storage_run(&contract);
+```
+
+`edge_contract_storage_run` checks: a value written reads back equal, a
+zero-length read/write is a no-op rather than an error, and a NULL buffer is
+rejected with `EDGE_EINVAL`. `edge_contract_byte_writer_run` does the same for
+the `write(buf, len)` shape (transport, UART). A new shape gets a new
+`edge_contract_*_run` in `tests/contract/`.
+
+Every product's storage trampoline and the gateway transport are run against
+these suites in `tests/test_contract.c`, and `tests/contract_violations/port.c`
+proves the suite rejects a port that accepts a NULL buffer.
+
 ## Common traps
 
 - **`infra -> soc` is denied with no exception.** There is no whitelist any more

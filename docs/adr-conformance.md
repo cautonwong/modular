@@ -66,7 +66,7 @@ Legend: ✅ implemented · 🟡 partial · ❌ not implemented · ⛔ contradict
 | D46/D85 | `pal/` per (architecture x RTOS); board selects | 🟡 | `edge/pal.h`, `pal/os`, `pal/host`, `pal/rtos/freertos`; dependency enforced by `check_layer_dependencies.py` |
 | D48 | Driver model neutral; infra depends on narrow ports only | ✅ | `infra -> soc` is denied with **no exception** (`check_layer_dependencies.py`); SoC-bound (register/HAL) code lives in `soc/<soc>/`, OS device models in `pal/<os>/`, binding in product glue. A second portable implementation is tracked in #57 |
 | D49 | Framework and `sys` have zero SoC knowledge; `soc/` is a support package selected by the board | ✅ | `soc/mps2` selected by `board/mps2`; `soc -> soc` only, enforced by `check_layer_dependencies.py` |
-| D57-D61 | Host unit tests, cmocka, fakes, fake clock/PAL | 🟡 | cmocka + host PAL; no central `test/fakes/` |
+| D57-D61 | Host unit tests, cmocka, fakes, fake clock/PAL | 🟡 | cmocka + host PAL, and D57's host half is executable now: reusable contract suites in `tests/contract/` (app lifecycle, port shapes, board IRQ) are run by every app test and by `tests/test_contract.c`, with `tests/contract_violations/` making CTest prove the suites reject a broken implementation. Still open: a central `test/fakes/` (D60), Renode/HIL (D62/D63, #22/#30) |
 | D62/D63 | Renode for board/infra; HIL for the rest | ❌ | QEMU MPS2 smoke only |
 | D64 | 4-stage CI (host -> target -> Renode -> HIL) | 🟡 | Stages 1-2 done, 3-4 missing |
 | D73 | 1 app may expose 1..n modules | 🟡 | Model supports it; no multi-module example |

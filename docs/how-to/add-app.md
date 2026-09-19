@@ -77,6 +77,44 @@ python3 .github/scripts/check_module_ids.py
 ctest --test-dir build                                  # the new test passes
 ```
 
+## Proving the contract
+
+The app contract is executable (D57). Add the reusable suite to your own test file
+— the fixtures stay yours, the rules do not:
+
+```c
+#include "contract/app_contract.h"
+
+static my_app_t g_app;
+static my_app_storage_if_t g_storage = {.read = fake_read, .write = fake_write};
+
+static edge_status_t prepare(void) {
+    my_app_construct(&g_app, EDGE_MOD_MY_APP, 100u, &g_storage);
+    return my_app_init(&g_app);
+}
+static edge_status_t release(void) { return my_app_deinit(&g_app); }
+static const edge_module_t *module(void) { return my_app_module(&g_app); }
+
+static void test_app_contract(void **state) {
+    (void)state;
+    const edge_app_contract_t contract = {
+        .name = "my_app", .prepare = prepare, .release = release,
+        .module = module, .module_id = EDGE_MOD_MY_APP, .priority = 100u,
+    };
+    edge_contract_app_run(&contract);
+}
+```
+
+It checks that `init` succeeds, that the identity and scheduling fields came from
+the construct arguments, that `poll`/`on_event`/`power_off` are all set (sys calls
+all three), that a **foreign** event is ignored rather than failed, that a NULL
+event is rejected instead of dereferenced, and that `deinit` succeeds. Each
+failure names the contract item it broke.
+
+`tests/contract_violations/app.c` runs the same suite against a module that omits
+`power_off`; CTest expects that binary to fail, so the suite cannot quietly become
+a rubber stamp.
+
 ## Common traps
 
 - **The apps list and `main.c` must agree.** `check_cmake_apps.py` compares the
