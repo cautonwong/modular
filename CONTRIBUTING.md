@@ -103,6 +103,16 @@ So the policy is: **keep branches short-lived and rebase before opening the PR**
 Revisit this decision when the project has more than one human contributor, or
 when more than one agent/PR is routinely in flight.
 
+### CI fast path
+
+A pull request that only touches `docs/**` or `*.md` skips the code-dependent
+jobs (compile matrix, coverage, product matrix, neutrality, cross-compile, static
+analysis) and runs only the change classifier and the architecture guards (docs
+lint, guards, hook checks). Pushes to `main`, and any change outside
+`docs/**`/`*.md`, always run the full set. The classifier is conservative by
+design, and `ci-success` accepts a skipped code-dependent job so the required
+check still reports.
+
 ### Emergency exit (a broken required check)
 
 `enforce_admins: true` means even the maintainer cannot bypass the required
