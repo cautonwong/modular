@@ -70,10 +70,18 @@ cppcheck --enable=warning,style,performance,portability --error-exitcode=1 \
 
 Use Conventional Commits: `type(scope): subject`, where `type` is one of
 `feat`, `fix`, `build`, `ci`, `docs`, `test`, `refactor`, `perf`, `chore`.
-The subject is limited to 100 characters. Merge commits, GitHub-generated
-reverts and dependabot commits are exempt. This is enforced by the `commit-msg`
-hook (`.githooks/commit-msg`) and by CI
-(`.github/scripts/check_commit_messages.py`).
+The subject is limited to 100 characters.
+
+**Every commit carries a ticket reference `(#NN)` in the subject**, so `git log`
+answers "which ticket is this?" without anyone writing a note by hand. The
+documented whitelist is by type: `chore`, `docs` and `style` may omit it, because
+a typo fix or a note does not need a ticket. Everything else must reference one.
+Merge commits, GitHub-generated reverts and dependabot commits are exempt
+entirely.
+
+This is enforced by the `commit-msg` hook (`.githooks/commit-msg`) and by CI
+(`.github/scripts/check_commit_messages.py`). The PR side is enforced by the
+template's required `Closes #NN` line.
 
 ## Pull requests
 

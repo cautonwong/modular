@@ -1,10 +1,12 @@
-feat(app): add a bounded DLT645 consumer
+feat(app): add a bounded DLT645 consumer (#12)
 ===
-fix(rtos): keep the assert hook observable
+fix(rtos): keep the assert hook observable (#34)
 ===
 docs: record the decision in the ADR
 ===
-refactor(arch)!: drop the escape hatch
+chore: refresh the toolchain manifest
+===
+refactor(arch)!: drop the escape hatch (#56)
 
 BREAKING CHANGE: infra may no longer include soc/.
 ===
@@ -12,4 +14,4 @@ Merge branch 'main' into feature
 ===
 Bump actions/checkout from 4.4.0 to 7.0.1
 ===
-Revert "feat(app): add a bounded DLT645 consumer"
+Revert "feat(app): add a bounded DLT645 consumer (#12)"

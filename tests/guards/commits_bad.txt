@@ -7,3 +7,7 @@ feat(app) missing the colon
 Feat(app): wrong case
 ===
 feat: 
+===
+feat(app): a new behaviour with no ticket reference
+===
+fix: another unreferenced fix

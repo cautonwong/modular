@@ -14,8 +14,8 @@ cd "$ROOT" || exit 0
 
 [ $# -ge 1 ] || exit 0
 
-if ! command -v python3 >/dev/null 2>&1; then
-    echo "commit-msg: python3 not found; message gate skipped here (CI still enforces it)" >&2
+if ! command -v python3 >/dev/null 2>&1 || ! python3 -c "" >/dev/null 2>&1; then
+    echo "commit-msg: python3 is missing or unusable; message gate skipped here (CI still enforces it)" >&2
     exit 0
 fi
 
