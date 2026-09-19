@@ -54,6 +54,8 @@ CASES = [
     ("check_docs.py", "tests/guards/docs_bad", False),
     ("check_module_contract.py", "tests/guards/module_contract_good", True),
     ("check_module_contract.py", "tests/guards/module_contract_bad", False),
+    ("check_toolchain.py", "tests/guards/toolchain_ok", True),
+    ("check_toolchain.py", "tests/guards/toolchain_bad", False),
     # Gate fixtures that need arguments or a tool shim: (script, fixture, expect, args, env)
     (
         "check_size.py",

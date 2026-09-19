@@ -1,0 +1,15 @@
+{
+  "name": "modular (matches CI)",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "postCreateCommand": "git config core.hooksPath .githooks",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cmake-tools",
+        "llvm-vs-code-extensions.vscode-clangd"
+      ]
+    }
+  }
+}

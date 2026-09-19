@@ -384,6 +384,8 @@ jobs:
             -DEDGE_MODULE_BUILD_EXAMPLE=ON
       - name: Build
         run: cmake --build build --parallel
+      - name: Toolchain manifest matches the installed tools
+        run: python3 .github/scripts/check_toolchain.py
       - name: Formatting check
         run: git ls-files '*.c' '*.h' | xargs clang-format --dry-run --Werror
       - name: clang-tidy

@@ -1,0 +1,7 @@
+{
+  "runs_on": "fixture",
+  "note": "Negative fixture: an impossible minimum for a tool that is always present (the check runs under python3).",
+  "tools": {
+    "python3": { "minimum": "99.0", "verified": "99.0", "gate": "fixture" }
+  }
+}

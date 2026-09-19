@@ -18,6 +18,17 @@ explicit ADR update.
 
 ## Local workflow
 
+For an environment that matches CI (same runner image and tool versions), use the
+devcontainer or read [`docs/toolchain.md`](docs/toolchain.md):
+
+```bash
+devcontainer up --workspace-folder .
+# or: docker build -t modular-local .devcontainer && docker run --rm -it -v "$PWD:/work" -w /work modular-local bash
+```
+
+`ci/toolchain.json` records the versions CI runs, and `check_toolchain.py` fails
+if an installed tool is older than its declared minimum.
+
 Enable the local pre-commit gate once per clone:
 
 ```bash
