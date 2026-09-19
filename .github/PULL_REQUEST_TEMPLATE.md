@@ -28,6 +28,8 @@ Keep one logical change per PR and make sure every required check is green.
 
 <!-- Commands you ran, e.g. ctest / clang-tidy / cross build + resulting size. -->
 
-## Related issues
+## Related ticket
 
-<!-- Fixes #... -->
+<!-- Required, e.g. "Closes #123". The commit subject carries the same `(#123)` reference; see CONTRIBUTING.md. -->
+
+Closes #

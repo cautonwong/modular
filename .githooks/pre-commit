@@ -68,14 +68,17 @@ run_python() {
     fi
 }
 
-if command -v python3 >/dev/null 2>&1; then
+if command -v python3 >/dev/null 2>&1 && python3 -c "" >/dev/null 2>&1; then
     for guard in $SOURCE_GUARDS; do
         run_python "$guard" "$SCRIPTS/$guard"
     done
     run_python "guard self-test" tests/guards/run_guard_selftest.py
     run_python "generator self-test" tests/guards/run_generator_selftest.py
 else
-    say "python3 not found; architecture guards skipped here (CI still enforces them)"
+    # `command -v` alone is not enough: some hosts ship a python3 shim that
+    # exists but cannot run (e.g. the Windows Store stub), which would make every
+    # guard look broken. Probe it before trusting it.
+    say "python3 is missing or unusable; architecture guards skipped here (CI still enforces them)"
 fi
 
 if [ "$status" -ne 0 ]; then

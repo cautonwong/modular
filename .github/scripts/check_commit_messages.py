@@ -13,6 +13,11 @@ Exemptions (never a failure):
 * dependabot commits (author or subject identifies dependabot);
 * GitHub-generated reverts (`Revert "..."`).
 
+Reference rule: every commit must carry a ticket reference `(#NN)` in the
+subject, so `git log` can be traced back to the tracker without hand-written
+notes. The documented whitelist is by type: `chore`, `docs` and `style` may omit
+it (a typo fix or a note does not need a ticket).
+
 The allowed types and the subject length limit match what CONTRIBUTING.md
 documents, so the checked rule is the written rule.
 
@@ -26,6 +31,9 @@ import sys
 TYPES = ("feat", "fix", "build", "ci", "docs", "test", "refactor", "perf", "chore", "style", "revert")
 SUBJECT_LIMIT = 100  # matches the repo's column limit; the longest existing subject is 95
 HEADER = re.compile(r"^(" + "|".join(TYPES) + r")(\([^()]+\))?!?: \S")
+REFERENCE = re.compile(r"\(#\d+\)")
+# Types that may omit the ticket reference (a typo fix or a note needs no ticket).
+REFERENCE_OPTIONAL = ("chore", "docs", "style")
 SEPARATOR = re.compile(r"^===\s*$", re.M)
 
 
@@ -44,10 +52,16 @@ def check_message(subject: str, author: str = "", parents: int = 0) -> list:
     if is_exempt(subject, author, parents):
         return []
     problems = []
-    if not HEADER.match(subject):
+    match = HEADER.match(subject)
+    if not match:
         problems.append(
             f"not a Conventional Commit: {subject!r} "
             f"(expected 'type(scope): subject' with type in {', '.join(TYPES)})"
+        )
+    elif match.group(1) not in REFERENCE_OPTIONAL and not REFERENCE.search(subject):
+        problems.append(
+            f"no ticket reference: {subject!r} "
+            f"(add '(#NN)'; only {'/'.join(REFERENCE_OPTIONAL)} may omit it)"
         )
     if len(subject) > SUBJECT_LIMIT:
         problems.append(f"subject is {len(subject)} chars, limit is {SUBJECT_LIMIT}: {subject!r}")
