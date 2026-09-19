@@ -1,0 +1,7 @@
+{
+  "runs_on": "fixture",
+  "note": "Positive fixture: minimums low enough that any installed python3 satisfies them.",
+  "tools": {
+    "python3": { "minimum": "0.1", "verified": "0.1", "gate": "fixture" }
+  }
+}
