@@ -125,3 +125,9 @@ closes, re-read the ticket and apply the label then.
 One logical change per ticket, sized to a single review, with its own test
 coverage. If a ticket cannot be verified on its own, it is either two tickets or
 it belongs as an acceptance criterion of another one.
+
+## How to add things
+
+The recurring structural changes have ordered checklists, including the registry
+and gate touchpoints that are easy to forget: a new **app**, **board**, **driver**,
+**product** or **layer**. See [`how-to/`](how-to/README.md).
