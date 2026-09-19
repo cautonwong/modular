@@ -20,7 +20,11 @@ FRAMEWORK_MAX = 0
 
 ENUM_BODY = re.compile(r"edge_status\s*\{([^}]*)\}", re.S)
 ENUM_MEMBER = re.compile(r"(EDGE_[A-Z0-9_]+)\s*=\s*(-?\d+)")
-MOD_MEMBER = re.compile(r"^#define\s+(EDGE_MOD_[A-Z0-9_]+)\s+(0[xX][0-9A-Fa-f]+|\d+)u?\s*$", re.M)
+# The module table is an X-macro list (D55); this mirrors check_module_ids.py.
+MOD_ENTRY = re.compile(
+    r"^\s*X\(\s*([A-Za-z0-9_]+)\s*,\s*(0[xX][0-9A-Fa-f]+|\d+)\s*,\s*([A-Za-z0-9_]+)\s*\)",
+    re.M,
+)
 ERR_USE = re.compile(r"EDGE_ERR\(\s*([A-Za-z0-9_]+)\s*,\s*([A-Za-z0-9_]+)\s*\)")
 
 
@@ -57,7 +61,8 @@ def check(root: Path) -> tuple:
     modules_path = root / "edge_module/include/edge/modules.h"
     modules = {}
     if modules_path.is_file():
-        modules = {n: int(v, 0) for n, v in MOD_MEMBER.findall(modules_path.read_text(encoding="utf-8"))}
+        for name, segment, _layer in MOD_ENTRY.findall(modules_path.read_text(encoding="utf-8")):
+            modules[f"EDGE_MOD_{name}"] = int(segment, 0)
 
     usages = {}
     for layer in ("edge_module", "app", "sys", "board", "infra", "product", "pal"):

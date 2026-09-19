@@ -86,7 +86,7 @@
 | D52 | 调度模型 | **事件驱动 + 周期轮询混合** | 模块声明 period；协作式预算告警；idle → board |
 | D53 | 故障策略 | **init 失败默认跳过+记录；运行期默认隔离** | 看门狗在 board，sys 给健康信号 |
 | D54 | 事件细节 | **丢最新+计数；`sys_publish` 仅 runner；可退订；可多订阅** | |
-| D55 | 模块 ID | **中央 `edge/modules.h`，`0xNN00` 段** | 与事件号同构 |
+| D55 | 模块 ID | **中央 `edge/modules.h`，`0xNN00` 段，按层分块** | 表驱动（`EDGE_MODULE_IDS`）：新增一行即可，断言由该行生成（修订记录见 `adr-amendments.md`） |
 | D56 | ABI 版本对象 | **`edge_module_t` 布局 + 事件号表 + 端口接口签名** | 编译期检查 |
 | D57 | 测试策略 | **app 用 mock 端口 host 单测；board/infra 用 Renode 或 HIL** | 双工具链 + 矩阵 |
 | D58 | 可测性约束 | **T-A..T-F 作为设计硬约束** | 无全局状态/依赖注入/时间注入/runner 可分解/零分配/PAL 可替换 |

@@ -41,7 +41,7 @@ Legend: ✅ implemented · 🟡 partial · ❌ not implemented · ⛔ contradict
 | D52 | Event-driven + periodic mixed scheduling; idle -> board | 🟡 | `period`/`budget`/`edge_sys_idle` hook done; board low-power wiring missing |
 | D53 | Non-fatal init failure skipped and recorded | ✅ | `fatal` flag: default skip, `fatal` rolls back |
 | D54 | Drop-newest + counter; multi-subscriber; unsubscribe | 🟡 | All done, except multi-SPSC producer queues |
-| D55 | Central `edge/modules.h`, `0xNN00` segment | ✅ | `edge/modules.h` + `check_module_ids.py` |
+| D55 | Central `edge/modules.h`, `0xNN00` segment, allocated in blocks per owning layer | ✅ | Table-driven `EDGE_MODULE_IDS` (one line per ID; assertions generated from it); `check_module_ids.py` rejects duplicates, misaligned values, out-of-block values and layer tokens without a block |
 | D56 | ABI version object | 🟡 | `_Static_assert` layout only |
 | D65 | One SPSC queue per producer | ❌ | Single caller-owned queue + injected `edge_irq_guard_t` |
 | D66 | Scalar event + token; payload read through a port | ❌ | No buffer/token path yet |
