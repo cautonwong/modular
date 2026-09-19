@@ -415,6 +415,8 @@ jobs:
           sh -n .githooks/pre-commit
           test -x .githooks/commit-msg
           sh -n .githooks/commit-msg
+          test -x .githooks/pre-push
+          sh -n .githooks/pre-push
       - name: Documentation format and links
         run: python3 .github/scripts/check_docs.py
       - name: Commit messages (Conventional Commits)
