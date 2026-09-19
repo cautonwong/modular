@@ -1,0 +1,68 @@
+name: Ticket
+description: One logical change, verifiable on its own.
+title: "[area] <what changes>"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Three sections are required. Priority and the `ready-for-agent` rule are
+        defined in `docs/governance.md` ("Ticket conventions").
+  - type: textarea
+    id: what
+    attributes:
+      label: What to build
+      description: |
+        The end-to-end behaviour this makes work, from the outside. Not a
+        layer-by-layer implementation list.
+      placeholder: |
+        A user/agent can ... without ... . Include the evidence that the gap is
+        real (file/line, CI output, command result).
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: One checkbox per verifiable outcome. Evidence, not opinion.
+      value: |
+        - [ ] 
+        - [ ] 
+    validations:
+      required: true
+  - type: input
+    id: blocked
+    attributes:
+      label: Blocked by
+      description: |
+        Issue numbers that must complete first, or "None (can start immediately)".
+        A blocked ticket must not carry the `ready-for-agent` label.
+      placeholder: None (can start immediately)
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: See `docs/governance.md` for the criteria.
+      options:
+        - P0 - blocks everything else or the repo is red
+        - P1 - high leverage, executable now
+        - P2 - supporting work
+        - P3 - not now (blocked on infra, or a separate workstream)
+      default: 2
+    validations:
+      required: true
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Grabbable by an agent?
+      description: |
+        Choose "yes" only when the blockers are empty and the two sections above
+        are complete; that is exactly when `ready-for-agent` may be applied.
+      options:
+        - "yes"
+        - "no - still blocked"
+        - "no - needs a human decision"
+      default: 0
+    validations:
+      required: true

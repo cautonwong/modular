@@ -1,0 +1,39 @@
+name: Epic
+description: A workstream that groups tickets and fixes their order.
+title: "[epic] <workstream>"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        An epic exists to fix **sequencing** and to hold the reasoning that does
+        not belong in any single ticket. It is not a place to list work that has
+        no home: each child still needs its own ticket.
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and the principle that orders it
+      description: |
+        What is in, what is explicitly out, and the rule that decides what comes
+        first. Keep the ordering rationale here so children can stay small.
+      placeholder: |
+        In: ...
+        Out: ...
+        Principle: close one closed loop before adding breadth.
+    validations:
+      required: true
+  - type: textarea
+    id: children
+    attributes:
+      label: Children (created tickets)
+      description: One line per ticket with its issue number once it exists.
+      value: |
+        - [ ] 
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: How the epic is finished
+      description: The observable end state, not "all children closed".
+    validations:
+      required: true

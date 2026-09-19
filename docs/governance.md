@@ -88,3 +88,40 @@ target (`edge_add_arm_freertos_firmware` rejects a second owner).
    positive or a negative case (or whose fixture does not exist), so this step is
    enforced rather than remembered. Generators are not gates and get a smoke test
    instead (`run_generator_selftest.py`).
+
+## Ticket conventions
+
+Tickets are the unit of work; the tracker is GitHub. `.github/ISSUE_TEMPLATE/`
+carries issue forms that require the same three sections the ADR work has used:
+**What to build**, **Acceptance criteria**, **Blocked by**. The forms exist so the
+structure survives being written by someone who has not read this file.
+
+### Priorities
+
+| Label | Means | Test |
+|---|---|---|
+| `P0` | The repo is red, or everything else is waiting on it | Would a second person be blocked today? |
+| `P1` | High leverage and executable now | Does finishing it unblock or de-risk another ticket? |
+| `P2` | Supporting work: proofs, examples, docs-level closure | None of the above |
+| `P3` | Not now: blocked on infrastructure, or a separately chartered workstream | Do not start without new information |
+
+Priority is **importance**, not readiness. Readiness is carried by `Blocked by`.
+
+### `ready-for-agent`
+
+Apply the label only when **all** of these hold:
+
+1. `Blocked by` is empty (or every blocker is closed).
+2. What to build and the acceptance criteria are complete enough to verify
+   without asking a question.
+3. The verification is expressible as a test, a guard, or a CI job.
+
+A blocked ticket must **not** carry the label: the label is a claim that the work
+can be started now, and a false claim is worse than a missing one. When a blocker
+closes, re-read the ticket and apply the label then.
+
+### Sizing
+
+One logical change per ticket, sized to a single review, with its own test
+coverage. If a ticket cannot be verified on its own, it is either two tickets or
+it belongs as an acceptance criterion of another one.
