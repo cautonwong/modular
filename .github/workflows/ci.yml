@@ -317,6 +317,11 @@ jobs:
         run: |
           python3 .github/scripts/check_map_budget.py build-arm/example_cortex_m0.map \
             --report build-arm/size-report.json
+      - name: Size trend against the recorded baseline
+        run: |
+          python3 .github/scripts/report_size_trend.py build-arm/size-report.json \
+            --target example_cortex_m0 \
+            --summary "$GITHUB_STEP_SUMMARY"
       - name: Zero dynamic memory check
         env:
           NM_TOOL: arm-none-eabi-nm

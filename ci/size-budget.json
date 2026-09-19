@@ -1,6 +1,11 @@
 {
   "flash_total": 65536,
   "ram_total": 16384,
+  "trend": {
+    "total_flash_bytes": 512,
+    "total_ram_bytes": 256,
+    "layer_percent": 20
+  },
   "layers": {
     "edge_module": { "flash": 1024, "ram": 1024 },
     "sys": { "flash": 8192, "ram": 1024 },
