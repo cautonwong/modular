@@ -6,7 +6,9 @@
 
 #include <cmocka.h>
 
+#include "contract/app_contract.h"
 #include "edge/event.h"
+#include "edge/modules.h"
 #include "meter_core/meter_core.h"
 
 static void test_construct_api_and_lifecycle(void **state) {
@@ -74,10 +76,40 @@ static void test_null_private_data_is_rejected(void **state) {
     assert_int_equal(meter_core_deinit(NULL), EDGE_EINVAL);
 }
 
+/* --- App contract (D51), adopted in a few lines --- */
+static meter_core_t g_contract_app;
+
+static edge_status_t contract_prepare(void) {
+    meter_core_construct(&g_contract_app, EDGE_MOD_METER, 90u);
+    return meter_core_init(&g_contract_app);
+}
+
+static edge_status_t contract_release(void) {
+    return meter_core_deinit(&g_contract_app);
+}
+
+static const edge_module_t *contract_module(void) {
+    return meter_core_module(&g_contract_app);
+}
+
+static void test_app_contract(void **state) {
+    (void)state;
+    const edge_app_contract_t contract = {
+        .name = "meter_core",
+        .prepare = contract_prepare,
+        .release = contract_release,
+        .module = contract_module,
+        .module_id = EDGE_MOD_METER,
+        .priority = 90u,
+    };
+    edge_contract_app_run(&contract);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_construct_api_and_lifecycle),
         cmocka_unit_test(test_null_private_data_is_rejected),
+        cmocka_unit_test(test_app_contract),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

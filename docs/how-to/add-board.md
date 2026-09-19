@@ -56,6 +56,28 @@ cmake --build build --target <firmware>                   # links, with a size r
 Plus: the size and stack budgets still pass for the firmware that now includes
 the board.
 
+## Proving the contract
+
+An interrupt entry point is the one place that cannot be debugged after the fact,
+so its behaviour is a reusable suite (D75/D84/D57):
+
+```c
+const edge_board_contract_t contract = {
+    .name = "board/my_board uart0_rx",
+    .init = board_my_board_init,
+    .irq = board_my_board_irq_uart0_rx,
+    .expected_event_id = EDGE_EVT_UART0_RX,
+};
+edge_contract_board_run(&contract);
+```
+
+It checks that one interrupt publishes **exactly one** event carrying the IRQ
+argument, and that a burst is bounded by the queue while anything that does not
+fit is counted as dropped instead of being lost silently. It does not assume the
+queue's capacity. `board/example` is covered in `tests/test_contract.c`;
+`tests/contract_violations/board.c` proves the suite rejects an IRQ that
+publishes nothing. A real board is covered by Renode/HIL (D62/D63).
+
 ## Common traps
 
 - **Device access in the board.** UART/ADC/relay work is `infra`, not `board`

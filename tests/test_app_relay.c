@@ -5,8 +5,10 @@
 
 #include <cmocka.h>
 
+#include "contract/app_contract.h"
 #include "edge/event.h"
 #include "edge/events.h"
+#include "edge/modules.h"
 #include "relay/relay.h"
 
 typedef struct fake_out {
@@ -137,6 +139,39 @@ static void test_null_private_data_is_rejected(void **state) {
     assert_int_equal(relay_deinit(NULL), EDGE_EINVAL);
 }
 
+/* --- App contract (D51), adopted in a few lines --- */
+static relay_t g_contract_app;
+static fake_out_t g_contract_out;
+static relay_out_if_t g_contract_out_if = {.set = fake_set, .self = NULL};
+
+static edge_status_t contract_prepare(void) {
+    g_contract_out = (fake_out_t){0};
+    g_contract_out_if.self = &g_contract_out;
+    relay_construct(&g_contract_app, EDGE_MOD_RELAY, 110u, &g_contract_out_if);
+    return relay_init(&g_contract_app);
+}
+
+static edge_status_t contract_release(void) {
+    return relay_deinit(&g_contract_app);
+}
+
+static const edge_module_t *contract_module(void) {
+    return relay_module(&g_contract_app);
+}
+
+static void test_app_contract(void **state) {
+    (void)state;
+    const edge_app_contract_t contract = {
+        .name = "relay",
+        .prepare = contract_prepare,
+        .release = contract_release,
+        .module = contract_module,
+        .module_id = EDGE_MOD_RELAY,
+        .priority = 110u,
+    };
+    edge_contract_app_run(&contract);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_construct_binds_contract),
@@ -146,6 +181,7 @@ int main(void) {
         cmocka_unit_test(test_event_error_propagates),
         cmocka_unit_test(test_power_off_and_deinit),
         cmocka_unit_test(test_null_private_data_is_rejected),
+        cmocka_unit_test(test_app_contract),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

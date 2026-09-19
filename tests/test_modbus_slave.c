@@ -6,8 +6,10 @@
 
 #include <cmocka.h>
 
+#include "contract/app_contract.h"
 #include "edge/event.h"
 #include "edge/events.h"
+#include "edge/modules.h"
 #include "modbus_slave/modbus_slave.h"
 
 typedef struct fake_store {
@@ -469,6 +471,44 @@ static void test_branch_coverage(void **state) {
     assert_int_equal(modbus_slave_deinit(NULL), EDGE_EINVAL);
 }
 
+/* --- App contract (D51), adopted in a few lines: reuse the file's fixtures --- */
+static modbus_slave_t g_contract_app;
+static fake_store_t g_contract_store;
+static fake_transport_t g_contract_tx;
+static modbus_store_if_t g_contract_store_if;
+static modbus_transport_if_t g_contract_tx_if;
+
+static edge_status_t contract_prepare(void) {
+    make_slave(&g_contract_app, &g_contract_store, &g_contract_tx, &g_contract_store_if,
+               &g_contract_tx_if);
+    /* make_slave fixes its own identity; the contract checks the identity it was
+     * constructed with. */
+    modbus_slave_construct(&g_contract_app, EDGE_MOD_MODBUS, 110u, 7u, &g_contract_store_if,
+                           &g_contract_tx_if);
+    return modbus_slave_init(&g_contract_app);
+}
+
+static edge_status_t contract_release(void) {
+    return modbus_slave_deinit(&g_contract_app);
+}
+
+static const edge_module_t *contract_module(void) {
+    return modbus_slave_module(&g_contract_app);
+}
+
+static void test_app_contract(void **state) {
+    (void)state;
+    const edge_app_contract_t contract = {
+        .name = "modbus_slave",
+        .prepare = contract_prepare,
+        .release = contract_release,
+        .module = contract_module,
+        .module_id = EDGE_MOD_MODBUS,
+        .priority = 110u,
+    };
+    edge_contract_app_run(&contract);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_construct_and_init),
@@ -482,6 +522,7 @@ int main(void) {
         cmocka_unit_test(test_addressing_crc_and_unsupported),
         cmocka_unit_test(test_bad_arguments_and_events),
         cmocka_unit_test(test_branch_coverage),
+        cmocka_unit_test(test_app_contract),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
