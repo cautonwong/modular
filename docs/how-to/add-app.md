@@ -18,9 +18,26 @@ or a register address.
 2. **Implementation** — `app/<name>/src/<name>.c`. `construct` fills the module
    struct with `poll`, `on_event`, `power_off` (and optionally `suspend`/`resume`)
    and sets `private_data = self`. Do **not** put `init`/`deinit` in the struct.
-3. **Module id** — add `EDGE_MOD_<NAME>` to `edge_module/include/edge/modules.h`
-   on a `0xNN00` segment. `check_module_ids.py` rejects a duplicate or a
-   non-aligned value.
+3. **Module id** — add **one line** to `EDGE_MODULE_IDS()` in
+   `edge_module/include/edge/modules.h`, inside the block of the layer that owns
+   the module (segments are allocated in blocks per layer, so parallel authors do
+   not compete for one number):
+
+   | segment block | owning layer |
+   |---|---|
+   | `0x10xx` – `0x2Fxx` | app (protocol, domain, actuation) |
+   | `0x30xx` – `0x3Fxx` | infra driver |
+   | `0x40xx` – `0x4Fxx` | sys / runner |
+   | `0x50xx` – `0x5Fxx` | board, soc |
+
+   ```c
+   X(MY_APP, 0x1500, app)
+   ```
+
+   `EDGE_MOD_MY_APP`, its `0xNN00` assertion and its block assertion are all
+   generated from that line — there is no list of pairwise assertions to update.
+   `check_module_ids.py` rejects a duplicate, a misaligned value, a value outside
+   its layer's block, and a layer that has no block.
 4. **CMake** — the module declares itself; nothing central lists it (D88). Create
    `app/<name>/CMakeLists.txt`:
    ```cmake

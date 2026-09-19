@@ -41,6 +41,7 @@ CASES = [
     ("check_stack_usage.py", "tests/guards/stack_bad.su", False),
     ("check_module_ids.py", "tests/guards/modules_good", True),
     ("check_module_ids.py", "tests/guards/modules_bad", False),
+    ("check_module_ids.py", "tests/guards/modules_bad_block", False),
     ("check_error_ids.py", "tests/guards/errors_good", True),
     ("check_error_ids.py", "tests/guards/errors_bad", False),
     ("check_error_ids.py", "tests/guards/errors_bad_segment", False),
