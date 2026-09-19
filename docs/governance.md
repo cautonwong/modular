@@ -80,6 +80,17 @@ target (`edge_add_arm_freertos_firmware` rejects a second owner).
 
 ## Adding a decision
 
+Decide first whether this is a **new decision** or an **amendment**:
+
+- New decision: the existing rows stay truthful as written. Add a `D<n>` and the
+  full set below.
+- Amendment: an existing decision changes meaning, is tightened, or is narrowed.
+  Do **not** silently rewrite the row: record it in
+  [`adr-amendments.md`](adr-amendments.md) with the date and the triggering
+  issue/PR, and change the row only to the extent it must stay truthful.
+
+Implementation progress is neither: it belongs in `adr-conformance.md`.
+
 1. Add the ADR to `docs/adr.md` and its status row to `adr-conformance.md`.
 2. Add a gate to `ci/adr-gates.json`; if it is a core invariant, add it to
    `must_gate`.
