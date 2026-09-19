@@ -576,4 +576,12 @@ if(EDGE_MODULE_BUILD_TESTS)
     edge_add_host_test(test_pal_os tests/test_pal_os.c)
     edge_add_host_test(test_runner_threads tests/test_runner_threads.c)
     edge_add_host_test(test_flash_glue tests/test_flash_glue.c product/example/glue.c)
+    # Every product's glue is in the coverage scope, so every trampoline is
+    # exercised here instead of living only inside a product executable.
+    edge_add_host_test(test_product_glue tests/test_product_glue.c
+        product/meter_host/glue.c
+        product/meter_mps2/glue.c
+        product/meter_gateway_host/glue.c)
+    target_include_directories(test_product_glue PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/product/meter_gateway_host)
 endif()
