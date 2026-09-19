@@ -1,0 +1,32 @@
+#!/bin/sh
+#
+# Keep branches close to `main` (ticket #96).
+#
+# Why this exists: branch protection keeps `strict: true`, so a stale branch has
+# to be updated and fully re-verified before it can merge. Worse, a branch based
+# on an old `main` can contain commits that were already squash-merged, which
+# makes the pull request "dirty" -- and GitHub then cannot build the merge
+# commit, so `pull_request` workflows never start at all. That failure looks like
+# "CI is not running" rather than "your branch is stale".
+#
+# This hook warns; it does not block. Pushing an intentionally old branch, or
+# working offline with a missing `origin/main`, are both legitimate.
+#
+# Enable once per clone:  git config core.hooksPath .githooks
+
+set -u
+
+ROOT=$(git rev-parse --show-toplevel) || exit 0
+cd "$ROOT" || exit 0
+
+git rev-parse --verify --quiet refs/remotes/origin/main >/dev/null || exit 0
+
+behind=$(git rev-list --count HEAD..origin/main 2>/dev/null) || exit 0
+[ "${behind:-0}" -gt 0 ] 2>/dev/null || exit 0
+
+printf 'pre-push: this branch is %s commit(s) behind origin/main.\n' "$behind" >&2
+printf 'pre-push: strict protection re-verifies the whole required set after every merge,\n' >&2
+printf 'pre-push: and a stale base can make the PR "dirty" so pull_request runs never start.\n' >&2
+printf 'pre-push: rebase before opening the PR:\n' >&2
+printf 'pre-push:   git fetch origin main && git rebase origin/main\n' >&2
+exit 0

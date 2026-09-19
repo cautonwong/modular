@@ -81,3 +81,41 @@ hook (`.githooks/commit-msg`) and by CI
 - Update `CHANGELOG.md` for user-visible changes.
 - Add or update tests; new behaviour must be covered by CI.
 - All required checks must pass before merge.
+
+## Branch and merge policy (single maintainer)
+
+`main` is protected with `strict: true`: the required checks must be re-verified
+on top of the current `main` before a PR can merge, and history is linear
+(squash/rebase only). There is **no merge queue**, and none is planned while the
+project has a single maintainer:
+
+- A merge queue coordinates *several* queued PRs. With one person there is
+  normally one open PR, so the queue would add machinery without removing wait.
+- The real cost of `strict` for one maintainer is that a **stale branch** forces
+  a full re-verification, and a branch based on an old `main` can contain commits
+  that were already squash-merged. Such a PR shows as `dirty`, GitHub cannot build
+the merge commit, and **`pull_request` workflows never start** (it looks like "CI
+is not running").
+
+So the policy is: **keep branches short-lived and rebase before opening the PR**.
+`.githooks/pre-push` warns when a branch is behind `origin/main`.
+
+Revisit this decision when the project has more than one human contributor, or
+when more than one agent/PR is routinely in flight.
+
+### Emergency exit (a broken required check)
+
+`enforce_admins: true` means even the maintainer cannot bypass the required
+checks, so a broken or flaky required check blocks *all* merges. The documented
+escape is a **temporary protection change**, never a force push:
+
+1. Record the reason in the PR that is blocked (or in a new issue if none).
+2. Temporarily remove the specific required check via repository settings (or the
+   branch-protection API) while keeping the others required.
+3. Merge the fix that unblocks the check.
+4. **Re-add the check immediately** and confirm the required set matches the list
+   in `CONTRIBUTING.md`.
+5. File a follow-up issue if the escape was caused by a real defect rather than
+   an upstream outage.
+
+This is a **human decision**, not something automation does on its own.
