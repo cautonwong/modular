@@ -1,0 +1,48 @@
+name: Bug
+description: Something is broken, wrong, or contradicts a decision.
+title: "[bug] <what is broken>"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A bug is still a ticket: it needs reproducible evidence and a verifiable
+        fix. If the fix contradicts an ADR, say which one.
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: |
+        The exact command/job and its output, or the file and line. "It seems
+        wrong" is not evidence.
+      placeholder: |
+        $ <command>
+        <output>
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour, and where it is written down
+      description: |
+        Point at the ADR id, the doc, or the test that encodes the expectation.
+      placeholder: "D72 says tick comparison must use (int32_t)(now - due) >= 0"
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: |
+        What must be true afterwards, and which check proves it (a test, a guard,
+        or a CI job).
+      value: |
+        - [ ] 
+    validations:
+      required: true
+  - type: input
+    id: blocked
+    attributes:
+      label: Blocked by
+      placeholder: None (can start immediately)
+    validations:
+      required: true
