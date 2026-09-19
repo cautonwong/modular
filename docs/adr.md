@@ -28,6 +28,8 @@
 
 ## 决策记录（D1–D24，全部已冻结）
 
+> 决策行的**修订史**见 [`adr-amendments.md`](adr-amendments.md)：已冻结的行不改语义，修订以追加条目记录（含日期与触发它的 issue/PR）。实现进度不算修订，属于 [`adr-conformance.md`](adr-conformance.md)。
+
 | # | 问题 | 决策 | 直接约束 |
 |---|---|---|---|
 | D1 | 零依赖边界 | app 可以依赖 `edge_module` | 零依赖 = 不依赖其它**具体实现**，但可依赖框架契约 |
