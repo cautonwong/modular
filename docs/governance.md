@@ -80,17 +80,6 @@ target (`edge_add_arm_freertos_firmware` rejects a second owner).
 
 ## Adding a decision
 
-Decide first whether this is a **new decision** or an **amendment**:
-
-- New decision: the existing rows stay truthful as written. Add a `D<n>` and the
-  full set below.
-- Amendment: an existing decision changes meaning, is tightened, or is narrowed.
-  Do **not** silently rewrite the row: record it in
-  [`adr-amendments.md`](adr-amendments.md) with the date and the triggering
-  issue/PR, and change the row only to the extent it must stay truthful.
-
-Implementation progress is neither: it belongs in `adr-conformance.md`.
-
 1. Add the ADR to `docs/adr.md` and its status row to `adr-conformance.md`.
 2. Add a gate to `ci/adr-gates.json`; if it is a core invariant, add it to
    `must_gate`.
@@ -136,6 +125,13 @@ closes, re-read the ticket and apply the label then.
 One logical change per ticket, sized to a single review, with its own test
 coverage. If a ticket cannot be verified on its own, it is either two tickets or
 it belongs as an acceptance criterion of another one.
+
+## Flakes
+
+A non-deterministic failure is recorded in [`flake-ledger.md`](flake-ledger.md)
+**even when a re-run makes it pass**. The definition of a flake, the retry policy
+(no automatic retries; a passing re-run still gets an entry) and the quarantine
+rules live there.
 
 ## How to add things
 

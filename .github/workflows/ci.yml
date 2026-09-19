@@ -166,7 +166,7 @@ jobs:
             --filter 'app/' \
             --filter 'infra/' \
             --filter 'pal/' \
-            --filter 'product/example/glue.c' \
+            --filter 'product/.*/glue\.c$' \
             --exclude 'tests/' \
             --fail-under-line 95 \
             --txt --xml-pretty --xml coverage.xml \
