@@ -9,17 +9,24 @@ because an unguarded layer is a layer that will be crossed.
 1. **Directory** — `edge_module/`, `app/`, `sys/`, `board/`, `infra/`, `soc/`,
    `pal/`, `product/` are the current layers. A new one is a structural decision,
    so start from an ADR entry, not from the directory.
-2. **Guard** — in `.github/scripts/check_layer_dependencies.py`:
+2. **Build shape** — `cmake/EdgeTargets.cmake` defines the module shape per
+   layer (`edge_add_app`, `edge_add_infra`, `edge_add_board`, `edge_add_soc`,
+   `edge_add_sys`, `edge_add_pal`). A new layer needs its own wrapper there, an
+   entry in the top-level `edge_add_area(...)` discovery order in
+   `CMakeLists.txt`, and an entry in `AREAS` in
+   `.github/scripts/check_area_registration.py` — the root file no longer names
+   individual modules (D88).
+3. **Guard** — in `.github/scripts/check_layer_dependencies.py`:
    - add the name to `LAYER_DIRS`
    - add its allowed targets to `ALLOWED` (what may it include?)
    - add it to `SUBDIR_LAYERS` if it has per-owner subdirectories
-3. **Documented matrix** — update the matrix in
+4. **Documented matrix** — update the matrix in
    [`../governance.md`](../governance.md) so the prose and the code agree.
-4. **Decision record** — add the decision to `docs/adr.md` (a new `D<n>`, or an
+5. **Decision record** — add the decision to `docs/adr.md` (a new `D<n>`, or an
    amendment to an existing row following
    [`../adr.md`](../adr.md) conventions), a row to `docs/adr-conformance.md`, and
    a gate to `ci/adr-gates.json`. Core invariants also go into `must_gate`.
-5. **Fixtures, both polarities** — extend `tests/guards/layer_good*` and
+6. **Fixtures, both polarities** — extend `tests/guards/layer_good*` and
    `layer_bad*` and add the cases to `tests/guards/run_guard_selftest.py`.
    `check_guard_coverage.py` rejects a checker that is missing either a positive
    or a negative case, so this is enforced rather than remembered.
@@ -27,6 +34,7 @@ because an unguarded layer is a layer that will be crossed.
 ## Completion criterion
 
 ```bash
+python3 .github/scripts/check_area_registration.py
 python3 .github/scripts/check_layer_dependencies.py
 python3 .github/scripts/check_adr_gates.py
 python3 .github/scripts/check_guard_coverage.py

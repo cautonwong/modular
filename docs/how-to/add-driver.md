@@ -23,26 +23,28 @@ binding + adaptation                  -> product/<name>/glue.c
 3. **Register-level part** (if the device needs one) — put it in `soc/<soc>/`
    or, when it is OS-bound, in `pal/<os>/`. The product glue binds it to the
    narrow port the portable core consumes.
-4. **CMake** — mirror an existing driver:
+4. **CMake** — create `infra/<device>/CMakeLists.txt` (D88). Nothing central
+   lists the driver, and the top-level `CMakeLists.txt` is not edited:
    ```cmake
-   add_library(infra_<device> STATIC infra/<device>/src/<device>.c)
-   target_include_directories(infra_<device> PUBLIC
-       ${CMAKE_CURRENT_SOURCE_DIR}/infra/<device>/include
-       ${CMAKE_CURRENT_SOURCE_DIR}/edge_module/include)
-   target_link_libraries(infra_<device> PUBLIC edge_module)
-   edge_enable_quality(infra_<device>)
-   set(EDGE_INFRA_TARGET_<device> infra_<device>)
+   edge_add_infra(<device> SOURCES src/<device>.c DEPS edge_module)
    ```
-   Add `pal/<os>/include` only if it genuinely needs a PAL primitive.
+   Add `pal_<os>` to `DEPS` only if it genuinely needs a PAL primitive; that is
+   what puts the PAL headers on the include path, so a hardcoded include list is
+   never needed. The module shape lives in
+   [`cmake/EdgeTargets.cmake`](../../cmake/EdgeTargets.cmake), and
+   `check_area_registration.py` requires the helper argument to equal the
+   directory name.
 5. **Adapter** — in `product/<product>/glue.c`, adapt the concrete API to the
    consumer-defined port of the app that needs it. See
    [`add-product.md`](add-product.md).
 6. **Host fake and test** — a deterministic fake in the driver's own test (or in
-   `tests/`), registered with `edge_add_host_test`.
+   `tests/`), registered with `edge_add_host_test(... SOURCES ... DEPS infra_<device>)`
+   in `tests/CMakeLists.txt`.
 
 ## Completion criterion
 
 ```bash
+python3 .github/scripts/check_area_registration.py       # the directory declares itself (D88)
 python3 .github/scripts/check_layer_dependencies.py      # infra -> infra+pal+edge_module
 python3 .github/scripts/check_no_dynamic_memory.py <firmware>   # if it lands in firmware
 python3 .github/scripts/check_stack_usage.py <build-dir> --max-bytes 512 --exclude-substr /product/

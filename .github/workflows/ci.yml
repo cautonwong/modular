@@ -465,6 +465,8 @@ jobs:
         run: python3 .github/scripts/check_adr_gates.py
       - name: CMake/main product consistency
         run: python3 .github/scripts/check_cmake_apps.py
+      - name: Area registration (D88)
+        run: python3 .github/scripts/check_area_registration.py
       - name: Guard self-test (negative fixtures)
         run: python3 tests/guards/run_guard_selftest.py
       - name: Guard coverage (every checker has a refutation fixture)

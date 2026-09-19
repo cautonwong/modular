@@ -5,9 +5,11 @@ For every ``edge_add_product(name ... apps ...)`` in the top-level
 ``CMakeLists.txt`` this checks that:
 
 * the referenced ``app/<name>/`` directory exists,
-* a matching ``add_library(app_<name> ...)`` target exists,
 * the apps declared in CMake match the apps actually constructed in
   ``product/<name>/main.c`` (via ``<app>_construct(`` calls).
+
+That an app directory declares its own target is checked by
+``check_area_registration.py`` (D88), which owns the build layout.
 
 Usage: check_cmake_apps.py [root]
 """
@@ -49,8 +51,6 @@ def check(root: Path) -> list:
         for app in apps:
             if not (root / "app" / app).is_dir():
                 problems.append(f"edge_add_product({name}): app/{app}/ is missing")
-            if f"add_library(app_{app}" not in cmake:
-                problems.append(f"edge_add_product({name}): no add_library(app_{app}) target")
 
         constructed = set(CONSTRUCT.findall(main_path.read_text(encoding="utf-8")))
         constructed_apps = {c for c in constructed if (root / "app" / c).is_dir()}

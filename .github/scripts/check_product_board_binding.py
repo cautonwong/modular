@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Enforce D86: each product is registered once and bound to exactly one board.
 
-Parses the top-level ``CMakeLists.txt`` and checks that:
+Parses the top-level ``CMakeLists.txt`` (product calls, the legal family/board
+list) and the area ``CMakeLists.txt`` files (which boards and families exist) and
+checks that:
 
 * every ``edge_add_product(<name> ... family <F> board <B> ...)`` is registered
   exactly once (a product name may not be re-registered or re-bound);
@@ -28,7 +30,23 @@ FIRMWARE_CALL = re.compile(r"^\s*edge_add_(\w+)_firmware\(\s*([^\s)]+)\s+([^\s)]
 FAMILY_KW = re.compile(r"\bfamily\s+(\S+)")
 BOARD_KW = re.compile(r"\bboard\s+(\S+)")
 LEGAL_LIST = re.compile(r"set\(\s*EDGE_LEGAL_FAMILY_BOARD\s+\"([^\"]*)\"")
-REGISTRY = re.compile(r"set\(\s*EDGE_(BOARD|SYS)_TARGET_([A-Za-z0-9_]+)\b")
+
+
+def declared_modules(root: Path, area: str, helper: str, keyword: str = "") -> set:
+    """Modules of an area that declare themselves through ``helper`` (D88).
+
+    The registry lives in the area directory now, so a new board is picked up by
+    creating ``board/<name>/CMakeLists.txt``; nothing central lists it.
+    """
+    names = set()
+    area_dir = root / area
+    if not area_dir.is_dir():
+        return names
+    for cmake in sorted(area_dir.glob("*/CMakeLists.txt")):
+        text = cmake.read_text(encoding="utf-8", errors="replace")
+        if f"{helper}(" in text and (not keyword or keyword in text):
+            names.add(cmake.parent.name)
+    return names
 
 
 def check(root: Path) -> list:
@@ -42,8 +60,8 @@ def check(root: Path) -> list:
     if not legal_pairs:
         return ["CMakeLists.txt: EDGE_LEGAL_FAMILY_BOARD is missing or empty"]
 
-    boards = {name for kind, name in REGISTRY.findall(cmake) if kind == "BOARD"}
-    families = {name for kind, name in REGISTRY.findall(cmake) if kind == "SYS"}
+    boards = declared_modules(root, "board", "edge_add_board")
+    families = declared_modules(root, "sys", "edge_add_sys", keyword="FAMILY")
 
     problems = []
     registered = {}

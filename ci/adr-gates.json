@@ -1,5 +1,5 @@
 {
-  "must_gate": ["D7", "D14", "D18", "D21", "D26", "D31", "D37", "D44", "D48", "D51", "D55", "D68", "D86", "D87"],
+  "must_gate": ["D7", "D14", "D18", "D21", "D26", "D31", "D37", "D44", "D48", "D51", "D55", "D68", "D86", "D87", "D88"],
   "gates": {
     "D5": { "file": "CMakeLists.txt", "marker": "function(edge_add_product" },
     "D7": { "file": ".github/scripts/check_cmake_apps.py" },
@@ -23,14 +23,15 @@
     "D52": { "file": "sys/runtime/src/sys.c", "marker": "edge_sys_idle" },
     "D53": { "file": "sys/runtime/src/sys.c", "marker": "stats.isolated" },
     "D55": { "file": ".github/scripts/check_module_ids.py" },
-    "D57": { "file": "CMakeLists.txt", "marker": "edge_add_host_test" },
-    "D59": { "file": "CMakeLists.txt", "marker": "PkgConfig::CMOCKA" },
+    "D57": { "file": "tests/CMakeLists.txt", "marker": "edge_add_host_test" },
+    "D59": { "file": "tests/CMakeLists.txt", "marker": "pkg_check_modules(CMOCKA REQUIRED" },
     "D68": { "file": ".github/scripts/check_error_ids.py" },
     "D69": { "file": "sys/runtime/src/sys.c", "marker": "max_events_per_run" },
     "D70": { "file": "sys/runtime/src/sys.c", "marker": "edge_sys_publish" },
     "D72": { "file": "sys/runtime/src/sys.c", "marker": "(int64_t)(now - due)" },
     "D74": { "file": "sys/runtime/include/runtime/sys.h", "marker": "edge_sys_stats_t" },
     "D86": { "file": ".github/scripts/check_product_board_binding.py" },
-    "D87": { "file": "product/meter_mps2_freertos/include/FreeRTOSConfig.h", "marker": "edge_rtos_config.h" }
+    "D87": { "file": "product/meter_mps2_freertos/include/FreeRTOSConfig.h", "marker": "edge_rtos_config.h" },
+    "D88": { "file": ".github/scripts/check_area_registration.py" }
   }
 }
