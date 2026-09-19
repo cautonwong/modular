@@ -19,8 +19,43 @@ env:
   CCACHE_DIR: ${{ github.workspace }}/.ccache
 
 jobs:
+  # Classify the change set so a pure documentation change does not pay for the
+  # whole compile/QEMU matrix. Conservative by design: anything that is not
+  # docs/** or *.md counts as code, and pushes to main always verify everything.
+  changes:
+    name: changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.classify.outputs.code }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Classify the change set
+        id: classify
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "not a pull request: verifying everything"
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files=$(git diff --name-only \
+            "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}")
+          echo "changed files:"
+          echo "$files"
+          if [ -n "$files" ] && ! echo "$files" | grep -qvE '^(docs/|.*\.md$)'; then
+            echo "documentation-only change: taking the fast path"
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          fi
+
   build-test:
     name: build-test (${{ matrix.name }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
@@ -97,6 +132,8 @@ jobs:
 
   coverage:
     name: coverage
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -147,6 +184,8 @@ jobs:
 
   product-matrix:
     name: product-matrix
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -191,6 +230,8 @@ jobs:
 
   neutrality:
     name: neutrality
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -221,17 +262,26 @@ jobs:
 
   cross-compile-arm:
     name: cross-compile (Cortex-M0)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Restore compiler cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ${{ runner.os }}-arm-ccache-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-arm-ccache-
       - name: Install ARM GNU toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build gcc-arm-none-eabi binutils-arm-none-eabi \
-            libnewlib-arm-none-eabi
+            libnewlib-arm-none-eabi ccache
       - name: Verify target toolchain
         run: |
           arm-none-eabi-gcc --version
@@ -239,10 +289,13 @@ jobs:
       - name: Set reproducible-build timestamp
         run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
       - name: Configure Cortex-M0 target
+        env:
+          CCACHE_DIR: ${{ github.workspace }}/.ccache
         run: |
           cmake -S . -B build-arm -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE=.github/arm/arm-none-eabi.cmake \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DEDGE_MODULE_BUILD_ARM_CORTEX_M0=ON \
             -DEDGE_MODULE_BUILD_TESTS=OFF \
             -DEDGE_MODULE_BUILD_EXAMPLE=OFF \
@@ -306,6 +359,8 @@ jobs:
 
   static-analysis:
     name: static-analysis
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -452,6 +507,7 @@ jobs:
     name: ci-success
     if: always()
     needs:
+      - changes
       - build-test
       - coverage
       - product-matrix
@@ -461,12 +517,25 @@ jobs:
       - architecture
     runs-on: ubuntu-24.04
     steps:
+      # A documentation-only change legitimately skips the code-dependent jobs,
+      # so `skipped` is acceptable for them. The architecture guards and the
+      # change classifier itself must always succeed.
       - name: Require all quality gates
         run: |
-          test "${{ needs.build-test.result }}" = success
-          test "${{ needs.coverage.result }}" = success
-          test "${{ needs.product-matrix.result }}" = success
-          test "${{ needs.neutrality.result }}" = success
-          test "${{ needs.cross-compile-arm.result }}" = success
-          test "${{ needs.static-analysis.result }}" = success
+          set -e
+          test "${{ needs.changes.result }}" = success
           test "${{ needs.architecture.result }}" = success
+          for gate in \
+            "build-test:${{ needs.build-test.result }}" \
+            "coverage:${{ needs.coverage.result }}" \
+            "product-matrix:${{ needs.product-matrix.result }}" \
+            "neutrality:${{ needs.neutrality.result }}" \
+            "cross-compile-arm:${{ needs.cross-compile-arm.result }}" \
+            "static-analysis:${{ needs.static-analysis.result }}"; do
+            name="${gate%%:*}"
+            result="${gate#*:}"
+            case "$result" in
+              success|skipped) ;;
+              *) echo "::error::$name was $result"; exit 1 ;;
+            esac
+          done

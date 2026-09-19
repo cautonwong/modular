@@ -21,12 +21,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Restore compiler cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ${{ runner.os }}-m4-ccache-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-m4-ccache-
       - name: Install ARM GNU toolchain and QEMU
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build gcc-arm-none-eabi binutils-arm-none-eabi \
-            libnewlib-arm-none-eabi qemu-system-arm
+            libnewlib-arm-none-eabi qemu-system-arm ccache
       - name: Verify tools
         run: |
           arm-none-eabi-gcc --version
@@ -35,10 +42,13 @@ jobs:
       - name: Set reproducible-build timestamp
         run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
       - name: Configure Cortex-M4 QEMU firmware
+        env:
+          CCACHE_DIR: ${{ github.workspace }}/.ccache
         run: |
           cmake -S . -B build-m4 -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE=.github/arm/arm-none-eabi.cmake \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DEDGE_MODULE_BUILD_ARM_CORTEX_M4_QEMU=ON \
             -DEDGE_MODULE_ARM_QEMU_SEMIHOSTING=ON \
             -DEDGE_MODULE_BUILD_TESTS=OFF \
@@ -94,12 +104,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Restore compiler cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ${{ runner.os }}-rv-ccache-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-rv-ccache-
       - name: Install RISC-V toolchain and QEMU
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build gcc-riscv64-unknown-elf binutils-riscv64-unknown-elf \
-            qemu-system-misc
+            qemu-system-misc ccache
       - name: Verify tools
         run: |
           riscv64-unknown-elf-gcc --version
@@ -108,10 +125,13 @@ jobs:
       - name: Set reproducible-build timestamp
         run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
       - name: Configure RISC-V firmware
+        env:
+          CCACHE_DIR: ${{ github.workspace }}/.ccache
         run: |
           cmake -S . -B build-rv -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/riscv-elf.cmake \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DEDGE_MODULE_BUILD_RISCV32_QEMU=ON \
             -DEDGE_MODULE_BUILD_TESTS=OFF \
             -DEDGE_MODULE_BUILD_EXAMPLE=OFF \
@@ -162,12 +182,21 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Restore compiler and FreeRTOS kernel caches
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ github.workspace }}/.ccache
+            ${{ github.workspace }}/.fetchcontent
+          key: ${{ runner.os }}-freertos-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-freertos-
       - name: Install ARM GNU toolchain and QEMU
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build git gcc-arm-none-eabi binutils-arm-none-eabi \
-            libnewlib-arm-none-eabi qemu-system-arm
+            libnewlib-arm-none-eabi qemu-system-arm ccache
       - name: Verify tools
         run: |
           arm-none-eabi-gcc --version
@@ -175,10 +204,14 @@ jobs:
       - name: Set reproducible-build timestamp
         run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
       - name: Configure FreeRTOS-hosted firmware
+        env:
+          CCACHE_DIR: ${{ github.workspace }}/.ccache
         run: |
           cmake -S . -B build-freertos -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE=.github/arm/arm-none-eabi.cmake \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DFETCHCONTENT_BASE_DIR=${{ github.workspace }}/.fetchcontent \
             -DEDGE_MODULE_BUILD_FREERTOS_QEMU=ON \
             -DEDGE_MODULE_BUILD_TESTS=OFF \
             -DEDGE_MODULE_BUILD_EXAMPLE=OFF \
