@@ -28,6 +28,7 @@
     "D55": { "file": ".github/scripts/check_module_ids.py" },
     "D57": { "file": "tests/CMakeLists.txt", "marker": "edge_add_host_test" },
     "D59": { "file": "tests/CMakeLists.txt", "marker": "pkg_check_modules(CMOCKA REQUIRED" },
+    "D61": { "file": ".github/scripts/check_pal_arch_binding.py" },
     "D68": { "file": ".github/scripts/check_error_ids.py" },
     "D69": { "file": "sys/runtime/src/sys.c", "marker": "max_events_per_run" },
     "D70": { "file": "sys/runtime/src/sys.c", "marker": "edge_sys_publish" },

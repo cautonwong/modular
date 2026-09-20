@@ -4,77 +4,16 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#if defined(__arm__)
+/* Free-running SysTick period, counted in processor clocks. */
+#define SYSTICK_LOAD_DEFAULT 0x00FFFFFFu
 
-#define SYSTICK_CTRL (*(volatile uint32_t *)0xe000e010u)
-#define SYSTICK_LOAD (*(volatile uint32_t *)0xe000e014u)
-#define SYSTICK_VAL (*(volatile uint32_t *)0xe000e018u)
-#define SYSTICK_COUNTFLAG (1u << 16)
+#if defined(EDGE_PAL_CORTEX_M_HOST_TEST) && !defined(__arm__)
 
-static uint32_t primask_read(void) {
-    uint32_t primask = 0u;
-    __asm volatile("mrs %0, primask" : "=r"(primask));
-    return primask;
-}
-
-static void critical_enter(void *self) {
-    edge_pal_cortex_m_state_t *state = (edge_pal_cortex_m_state_t *)self;
-    if (state == NULL)
-        return;
-    if (state->depth == 0u)
-        state->primask = primask_read();
-    __asm volatile("cpsid i" ::: "memory");
-    ++state->depth;
-}
-
-static void critical_exit(void *self) {
-    edge_pal_cortex_m_state_t *state = (edge_pal_cortex_m_state_t *)self;
-    if (state == NULL)
-        return;
-    if (state->depth > 0u)
-        --state->depth;
-    if (state->depth == 0u)
-        __asm volatile("msr primask, %0" ::"r"(state->primask) : "memory");
-}
-
-static void memory_barrier(void *self) {
-    (void)self;
-    __asm volatile("dsb 0xF" ::: "memory");
-}
-
-static uint64_t monotonic_ticks(void *self) {
-    edge_pal_cortex_m_state_t *state = (edge_pal_cortex_m_state_t *)self;
-    if (state == NULL)
-        return 0u;
-    if ((SYSTICK_CTRL & SYSTICK_COUNTFLAG) != 0u)
-        ++state->wrap;
-    const uint32_t load = SYSTICK_LOAD;
-    const uint32_t elapsed = load - SYSTICK_VAL;
-    return (state->wrap * ((uint64_t)load + 1u)) + elapsed;
-}
-
-static bool in_isr(void *self) {
-    (void)self;
-    uint32_t ipsr = 0u;
-    __asm volatile("mrs %0, ipsr" : "=r"(ipsr));
-    // cppcheck-suppress knownConditionTrueFalse ; `ipsr` is written by the asm above
-    return ipsr != 0u;
-}
-
-static void isr_enter(void *self) {
-    (void)self;
-}
-
-static void isr_exit(void *self) {
-    (void)self;
-}
-
-static void idle(void *self) {
-    (void)self;
-    __asm volatile("wfi" ::: "memory");
-}
-
-#else /* host fallback: keep the target analyzable and host-testable */
+/*
+ * Host test build: deterministic fallbacks so the contract can be exercised off
+ * target. This branch is opt-in by macro on purpose - see the header's
+ * architecture binding.
+ */
 
 static void critical_enter(void *self) {
     edge_pal_cortex_m_state_t *state = (edge_pal_cortex_m_state_t *)self;
@@ -116,7 +55,99 @@ static void idle(void *self) {
     (void)self;
 }
 
+#elif defined(__arm__)
+
+#define SYSTICK_CTRL (*(volatile uint32_t *)0xe000e010u)
+#define SYSTICK_LOAD (*(volatile uint32_t *)0xe000e014u)
+#define SYSTICK_VAL (*(volatile uint32_t *)0xe000e018u)
+
+static uint32_t primask_read(void) {
+    uint32_t primask = 0u;
+    __asm volatile("mrs %0, primask" : "=r"(primask));
+    return primask;
+}
+
+static void critical_enter(void *self) {
+    edge_pal_cortex_m_state_t *state = (edge_pal_cortex_m_state_t *)self;
+    if (state == NULL)
+        return;
+    if (state->depth == 0u)
+        state->primask = primask_read();
+    __asm volatile("cpsid i" ::: "memory");
+    ++state->depth;
+}
+
+static void critical_exit(void *self) {
+    edge_pal_cortex_m_state_t *state = (edge_pal_cortex_m_state_t *)self;
+    if (state == NULL)
+        return;
+    if (state->depth > 0u)
+        --state->depth;
+    if (state->depth == 0u)
+        __asm volatile("msr primask, %0" ::"r"(state->primask) : "memory");
+}
+
+static void memory_barrier(void *self) {
+    (void)self;
+    __asm volatile("dsb 0xF" ::: "memory");
+}
+
+/*
+ * One VAL read, then the pure extension decides what it means. COUNTFLAG is
+ * deliberately not consulted: reading CTRL clears it, so a wrap landing between
+ * the VAL and CTRL reads is precisely the case where it is missed - and the
+ * MPS2 model under QEMU does not report it as documented, which made the clock
+ * step backwards by a whole period. See the header.
+ */
+static uint64_t monotonic_ticks(void *self) {
+    edge_pal_cortex_m_state_t *state = (edge_pal_cortex_m_state_t *)self;
+    if (state == NULL)
+        return 0u;
+    return edge_pal_cortex_m_extend(state, SYSTICK_VAL);
+}
+
+static bool in_isr(void *self) {
+    (void)self;
+    uint32_t ipsr = 0u;
+    __asm volatile("mrs %0, ipsr" : "=r"(ipsr));
+    // cppcheck-suppress knownConditionTrueFalse ; `ipsr` is written by the asm above
+    return ipsr != 0u;
+}
+
+static void isr_enter(void *self) {
+    (void)self;
+}
+
+static void isr_exit(void *self) {
+    (void)self;
+}
+
+static void idle(void *self) {
+    (void)self;
+    __asm volatile("wfi" ::: "memory");
+}
+
+#else
+#error                                                                                             \
+    "pal/cortex-m-bare is a Cortex-M port: build for __arm__, or define EDGE_PAL_CORTEX_M_HOST_TEST for host unit tests only"
 #endif
+
+uint64_t edge_pal_cortex_m_extend(edge_pal_cortex_m_state_t *state, uint32_t val) {
+    if (state == NULL)
+        return 0u;
+    if (val > state->load) {
+        /* VAL above the cached period means SYSTICK_LOAD changed after init (see
+         * the header). The sample cannot be interpreted, so freeze at the last
+         * accepted value and report it: a contract violation must never be
+         * absorbed, and it must never make the clock run backwards either. */
+        ++state->anomalies;
+        return (state->wrap * ((uint64_t)state->load + 1u)) + (state->load - state->last);
+    }
+    if (val > state->last)
+        ++state->wrap; /* the down-counter reloaded: a wrap was crossed */
+    state->last = val;
+    return (state->wrap * ((uint64_t)state->load + 1u)) + (state->load - val);
+}
 
 void edge_pal_cortex_m_bare_init(edge_pal_cortex_m_state_t *state) {
     if (state == NULL)
@@ -125,8 +156,11 @@ void edge_pal_cortex_m_bare_init(edge_pal_cortex_m_state_t *state) {
     state->depth = 0u;
     state->wrap = 0u;
     state->host_ticks = 0u;
+    state->anomalies = 0u;
+    state->load = SYSTICK_LOAD_DEFAULT;
+    state->last = SYSTICK_LOAD_DEFAULT; /* the first sample cannot look like a wrap */
 #if defined(__arm__)
-    SYSTICK_LOAD = 0x00FFFFFFu;
+    SYSTICK_LOAD = SYSTICK_LOAD_DEFAULT;
     SYSTICK_VAL = 0u;
     SYSTICK_CTRL = 0x5u; /* processor clock, no tick interrupt, enable */
 #endif
