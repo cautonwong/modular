@@ -22,6 +22,12 @@
 #ifndef configUSE_IDLE_HOOK
 #define configUSE_IDLE_HOOK 0
 #endif
+#ifndef configUSE_TASK_NOTIFICATIONS
+#define configUSE_TASK_NOTIFICATIONS 1
+#endif
+#ifndef INCLUDE_xTaskGetCurrentTaskHandle
+#define INCLUDE_xTaskGetCurrentTaskHandle 1
+#endif
 #ifndef configUSE_TICK_HOOK
 #define configUSE_TICK_HOOK 0
 #endif
@@ -75,6 +81,24 @@
 
 #ifndef configSUPPORT_DYNAMIC_ALLOCATION
 #error "PAL requires configSUPPORT_DYNAMIC_ALLOCATION to be stated explicitly"
+#endif
+
+/*
+ * The wake/block primitive (edge_rtos_wait_for_work) is the difference between a
+ * battery product and a spinning demo, so its kernel features are required, not
+ * optional: task notifications are what the ISR uses to wake the runner, and
+ * xTaskGetCurrentTaskHandle is how the runner publishes itself as the target.
+ */
+#ifndef configUSE_TASK_NOTIFICATIONS
+#error "PAL requires configUSE_TASK_NOTIFICATIONS for edge_rtos_wait_for_work"
+#elif configUSE_TASK_NOTIFICATIONS == 0
+#error "PAL requires configUSE_TASK_NOTIFICATIONS != 0"
+#endif
+
+#ifndef INCLUDE_xTaskGetCurrentTaskHandle
+#error "PAL requires INCLUDE_xTaskGetCurrentTaskHandle for edge_rtos_wake_target_set_self"
+#elif INCLUDE_xTaskGetCurrentTaskHandle == 0
+#error "PAL requires INCLUDE_xTaskGetCurrentTaskHandle != 0"
 #endif
 
 #endif

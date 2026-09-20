@@ -72,3 +72,26 @@ void edge_rtos_assert_failed(const char *file, int line) {
     for (;;) {
     }
 }
+
+/* ---- wake/block (D47/D71) ---------------------------------------------- */
+
+static TaskHandle_t g_wake_target;
+
+void edge_rtos_wake_target_set_self(void) {
+    g_wake_target = xTaskGetCurrentTaskHandle();
+}
+
+void edge_rtos_wake_from_isr(void) {
+    if (g_wake_target == NULL)
+        return;
+    BaseType_t woken = pdFALSE;
+    vTaskNotifyGiveFromISR(g_wake_target, &woken);
+    /* Yield only when a task was actually made ready: an unconditional yield here
+     * would put a PendSV on every interrupt, which is the silent wake cost
+     * docs/low-power.md section 1 rules out. */
+    portYIELD_FROM_ISR(woken);
+}
+
+bool edge_rtos_wait_for_work(uint32_t timeout_ticks) {
+    return ulTaskNotifyTake(pdTRUE, (TickType_t)timeout_ticks) > 0u;
+}
