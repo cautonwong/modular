@@ -8,6 +8,18 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `pal/eos`: the first-party runtime, a static zero-allocation fixed-rate priority
+  executive (D46/D85). It is a module inside the `pal` layer, sibling to
+  `pal/rtos/freertos`, and implements the same neutral contract - which is what
+  makes that contract a contract rather than a description of one kernel. Slice 1
+  has no preemption (no PendSV context switch, so no context-switch latency to
+  report), no MPU, and is not yet linked into any product.
+- `docs/eos.md`: what EOS is, what it guarantees, the measured metrics with the
+  command that produces each, a published-claim benchmark against a commercial
+  safety RTOS, and a non-claims block that can be copied into a README.
+
+### Added
+
 - `edge_rtos_wait_for_work()` / `edge_rtos_wake_from_isr()` /
   `edge_rtos_wake_target_set_self()`: the runner can park until work arrives, and
   the ISR path can wake it, yielding only when a task was actually made ready
