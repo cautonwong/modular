@@ -366,6 +366,12 @@ function(edge_add_arm_freertos_firmware name product)
         EDGE_PENDSV_HANDLER=xPortPendSVHandler
         EDGE_SYSTICK_HANDLER=xPortSysTickHandler
     )
+    # The board IRQ handler (same contract as edge_add_arm_firmware): without it
+    # the timer vector falls back to default_handler and the first interrupt
+    # parks the CPU in a WFI loop.
+    if(ARGC GREATER 2)
+        target_compile_definitions(${name} PRIVATE EDGE_BOARD_TIMER_ISR=${ARGV2})
+    endif()
     target_compile_options(${name} PRIVATE
         -mcpu=cortex-m4 -mthumb -mno-unaligned-access -mfloat-abi=soft
         -ffreestanding -fdata-sections -ffunction-sections -fno-common -Os
@@ -386,7 +392,7 @@ function(edge_add_arm_freertos_firmware name product)
 endfunction()
 
 if(EDGE_MODULE_BUILD_FREERTOS_QEMU)
-    edge_add_arm_freertos_firmware(meter_mps2_freertos_fw meter_mps2_freertos)
+    edge_add_arm_freertos_firmware(meter_mps2_freertos_fw meter_mps2_freertos board_mps2_irq_timer0)
 endif()
 
 if(EDGE_MODULE_BUILD_TESTS)

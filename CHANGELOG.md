@@ -8,6 +8,23 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- FreeRTOS architecture PAL (D46/D50/D85): `pal/rtos/freertos` implements the
+  full `edge_pal_port_t` - task-context `taskENTER_CRITICAL`/`EXIT` critical
+  sections (mask-based, nesting), a hardware `DSB` barrier, the kernel tick
+  extended to 64 bit, `xPortIsInsideInterrupt` context detection, and a `WFI`
+  idle - plus `edge_rtos_irq_guard()` as the ISR-side half (BASEPRI save/restore
+  around the event push). No FreeRTOS header escapes the port.
+- `pal/os`: `edge_tick64_extend()`, the neutral 32-bit to 64-bit tick extension
+  used by the kernel-tick clock (D72). Host-tested, including three consecutive
+  wraps.
+- `docs/low-power.md`: the requirement analysis for battery targets (water
+  meters, watches) - the per-wake energy budget that rules out polling, the
+  32-bit tick wrap horizon per `configTICK_RATE_HZ`, the three idle layers and
+  their owners, posting atomicity, and watchdog policy during sleep.
+- `board/mps2` gains `board_mps2_timer_set_priority()`, and the SoC gains the
+  NVIC priority encoder: an RTOS ISR handler must sit at or below
+  `configMAX_SYSCALL_INTERRUPT_PRIORITY` before the IRQ is enabled.
+
 - Low-power closure (D9/D52/D71): PAL gains an `idle` primitive (Cortex-M `WFI`),
   `pal/os` provides the atomic `edge_os_idle_wait` (critical enter -> re-check ->
   wait -> release), boards gain enter-low-power / feed-watchdog / reset actions,
@@ -81,6 +98,15 @@ All notable changes to this project are documented here. The format follows
   (N5), with negative fixtures.
 
 ### Changed
+
+- The FreeRTOS product now takes its time from the kernel tick (the fake
+  `++tick` clock is gone), installs the ISR guard on its event sink, and is fed
+  by the real TIMER0 interrupt instead of a sibling injecting task. The FreeRTOS
+  firmware wires `EDGE_BOARD_TIMER_ISR`, which it previously left unset - the
+  first interrupt landed in `default_handler`'s `WFI` loop.
+- `board_mps2_exit()` uses `SYS_EXIT_EXTENDED`, so a target run reports its real
+  exit status (an assert at 9 no longer arrives as a generic 1). The FreeRTOS
+  QEMU smoke step asserts status 0.
 
 - `init` failures are now skipped and recorded by default; only modules marked
   `fatal` roll back the already started modules and fail the product (D53).

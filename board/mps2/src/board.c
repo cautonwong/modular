@@ -17,6 +17,10 @@ void board_mps2_timer_init(void) {
     SOC_MPS2_NVIC_ISER0 = (1u << SOC_MPS2_TIMER0_IRQ);
 }
 
+void board_mps2_timer_set_priority(uint8_t library_priority) {
+    soc_mps2_nvic_set_priority(SOC_MPS2_TIMER0_IRQ, library_priority);
+}
+
 void board_mps2_irq_timer0(void) {
     *(volatile uint32_t *)(SOC_MPS2_TIMER0_BASE + SOC_MPS2_TIMER_INTSTATUS) = 1u;
     if (g_event_sink == NULL)
@@ -46,9 +50,15 @@ void board_mps2_irq_uart0_rx(uint32_t byte_count) {
 
 __attribute__((noreturn)) void board_mps2_exit(int code) {
 #ifdef EDGE_QEMU_SEMIHOSTING
-    const int reason = (code == 0) ? 0x20026 : 0x20023;
-    register int r0 __asm("r0") = 0x18; /* SYS_EXIT */
-    register int r1 __asm("r1") = reason;
+    /*
+     * SYS_EXIT_EXTENDED (0x20), not SYS_EXIT: r1 points at
+     * { ADP_Stopped_ApplicationExit, code }, so the harness sees the real exit
+     * status. Plain SYS_EXIT collapses every failure to 1, which is exactly the
+     * information a smoke test needs to tell "asserted at 9" from "returned 5".
+     */
+    const uint32_t args[2] = {0x20026u, (uint32_t)code};
+    register int r0 __asm("r0") = 0x20; /* SYS_EXIT_EXTENDED */
+    register const uint32_t *r1 __asm("r1") = args;
     __asm volatile("bkpt 0xAB" : : "r"(r0), "r"(r1) : "memory");
 #else
     (void)code;

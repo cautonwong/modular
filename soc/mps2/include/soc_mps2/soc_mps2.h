@@ -20,4 +20,21 @@
 
 #define SOC_MPS2_NVIC_ISER0 (*(volatile uint32_t *)(uintptr_t)0xe000e100u)
 
+/*
+ * NVIC interrupt priorities. The MPS2 Cortex-M4 implements 4 priority bits, so a
+ * library priority (0 = highest .. 15) is encoded in the upper 4 bits of the
+ * byte at 0xE000E400 + irq - the same encoding BASEPRI uses, which is why an IRQ
+ * that calls an RTOS *FromISR API must be set at or numerically below
+ * configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY. The reset value is 0 (highest),
+ * i.e. an RTOS ISR API called from a default-priority IRQ is a priority
+ * violation the kernel asserts on.
+ */
+#define SOC_MPS2_NVIC_IPR ((volatile uint8_t *)(uintptr_t)0xe000e400u)
+#define SOC_MPS2_NVIC_PRIO_BITS 4u
+
+static inline void soc_mps2_nvic_set_priority(uint32_t irq, uint8_t library_priority) {
+    SOC_MPS2_NVIC_IPR[irq] =
+        (uint8_t)((uint32_t)library_priority << (8u - SOC_MPS2_NVIC_PRIO_BITS));
+}
+
 #endif

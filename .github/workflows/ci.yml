@@ -411,6 +411,7 @@ jobs:
             board/mps2/src/board.c \
             pal/host/src/host.c \
             pal/os/src/idle.c \
+            pal/os/src/tick64.c \
             pal/cortex-m-bare/src/pal_cortex_m.c
       - name: cppcheck
         run: |
