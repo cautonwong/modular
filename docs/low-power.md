@@ -87,14 +87,14 @@ not tick frequency - at 1 Hz it becomes 68 years, still fine.
 | layer | who | what it saves |
 |---|---|---|
 | `WFI` | `pal/*` (`edge_pal_port_t.idle`) | core clocks while still powered |
-| tickless sleep | scheduler idle task (`configUSE_TICKLESS_IDLE`, `vPortSuppressTicksAndSleep`) | the SysTick wakeup itself, plus system clock during suppression |
+| tickless sleep | scheduler idle task (`configUSE_TICKLESS_IDLE`, `vPortSuppressTicksAndSleep`) - **on since #90** | the SysTick wakeup itself, plus system clock during suppression |
 | STOP / deep sleep + peripheral gating | `board/*` + `soc/*` | RAM retention mode, regulator, peripheral clocks |
 
-The framework reaches layer 1 today (`edge_os_idle_wait()` + `pal->idle`).
-Layer 2 is a decision with a real cost - suppressed ticks lose scheduling
-resolution, and time must be reclaimed from a hardware counter on wake - tracked
-in #90. Layer 3 is board/SoC work and lands with the first real platform (#78,
-#75).
+Layers 1 and 2 are wired: `edge_os_idle_wait()` + `pal->idle` for the atomic wait,
+and tickless sleep turned on because the runner now parks on a notification instead
+of polling (docs/rtos-runner.md sections 1 and 5). Layer 3 is board/SoC work and
+lands with the first real platform (#78, #75); until then "tickless is on" means
+the framework no longer prevents sleep, not that a product is low power.
 
 **Explicit non-goals**: the framework does not choose STOP vs SLEEP, does not
 touch the clock tree, and does not gate peripherals. The board owns those; the
@@ -155,10 +155,15 @@ assumption explicitly instead of inheriting it (#78).
 
 - Have: `WFI` primitive, atomic wait, health signal, board power/watchdog/reset
   actions (#28); FreeRTOS PAL with 64-bit kernel-tick time and the ISR guard,
-  verified on a real IRQ in the QEMU smoke (#84).
-- Missing: the tickless decision and `vPortSuppressTicksAndSleep` wiring, plus
-  the blocking consumer that replaces polling (#90); real STOP-mode and
-  peripheral gating (#78, #75); retained-memory verification (#78).
-- Most expensive open item: the capsule polls, so a 1 ms idle delay means up to
-  1000 wakes/s. Section 1 puts that ~1800x over a 10-year budget. Nothing else
-  on this page matters as much as removing it.
+  verified on a real IRQ in the QEMU smoke (#84); a runner that parks on a
+  notification and wakes from the ISR, with tickless sleep on and a lower-priority
+  task proven not to starve (#90).
+- Missing: real STOP-mode and peripheral gating (#78, #75); retained-memory
+  verification (#78); an `edge_sys_next_due()` so the runner sleeps exactly until
+  the next deadline instead of for the smallest app period, which costs one
+  periodic wake per period even when nothing is due (docs/rtos-runner.md section
+  7).
+- The largest term is gone: section 1 put the old 1 ms polling runner ~1800x over
+  a ten-year budget on the fixed cost per wake alone. The runner no longer polls;
+  what remains is the residual periodic wake above and anything a board fails to
+  gate.

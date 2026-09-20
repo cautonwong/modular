@@ -27,6 +27,24 @@ void product_meter_mps2_freertos_make_storage(dlt645_storage_if_t *out, void *fl
 static edge_rtos_pal_state_t g_pal_state;
 static edge_pal_port_t g_pal;
 static edge_irq_guard_t g_irq_guard;
+static edge_irq_guard_t g_sink_guard;
+
+/*
+ * The sink's guard is the composition root's adapter (D14): the PAL's ISR-side
+ * mask save/restore, plus the RTOS wake so the runner stops polling. The wake is
+ * issued here because this is the only place that knows an event was delivered;
+ * the board's ISR stays RTOS-free (D85).
+ */
+static void sink_guard_enter(void *self) {
+    (void)self;
+    g_irq_guard.enter(g_irq_guard.self);
+}
+
+static void sink_guard_exit(void *self) {
+    (void)self;
+    g_irq_guard.exit(g_irq_guard.self);
+    edge_rtos_wake_from_isr();
+}
 static uint8_t g_flash_state[64];
 static edge_event_t g_ev_storage[16];
 static edge_event_queue_t g_queue;
@@ -50,15 +68,58 @@ static void os_sleep_task(uint32_t ms) {
         g_os.sleep_ms(g_os.self, ms);
 }
 
+/* The capsule's own period, in ticks: the runner must wake at least this often so
+ * periodic work still runs. Fixed here because the composition root owns the
+ * app's period (the same value is passed to dlt645_construct below). */
+#define CAPSULE_PERIOD_TICKS 100u
+
+/*
+ * Lowest-priority witness (D47 yield policy). It only ever runs while the capsule
+ * parks, so its progress is what proves the runner does not starve a
+ * lower-priority task - an always-ready runner of higher priority would.
+ */
+static volatile uint32_t g_witness_ticks;
+
+static void witness_task(void *arg) {
+    (void)arg;
+    for (;;) {
+        ++g_witness_ticks;
+        os_sleep_task(1u);
+    }
+}
+
 static void capsule_task(void *arg) {
     (void)arg;
+    edge_rtos_wake_target_set_self(); /* the ISR wakes this task from now on */
     for (;;) {
         if (edge_sys_run_once(&g_sys) < 0)
             break;
         if (g_dlt645.last_event == EDGE_EVT_BOARD_TIMER0)
             break;
-        os_yield_task();
+        /*
+         * Park until an event arrives or the current period elapses. This is the
+         * power path: no spinning, and the CPU is the lower-priority task's while
+         * we wait. The timeout is the app period, not a fixed tick, because every
+         * wake has a fixed energy cost (docs/low-power.md section 1).
+         */
+        (void)edge_rtos_wait_for_work(CAPSULE_PERIOD_TICKS);
     }
+    /*
+     * Yield-policy probe (D47): over five ticks, the runner must yield by
+     * *blocking*, never by a bare taskYIELD. Blocking hands the CPU to a
+     * lower-priority task and stops burning current; a taskYIELD loop keeps the
+     * CPU at the same priority and starves everything below. The witness is what
+     * makes that difference observable, and swapping this call for os_yield_task()
+     * is exactly the refutation (measured: rc=16).
+     */
+    const uint32_t witness_before = g_witness_ticks;
+    const uint64_t start_ticks = g_clock.monotonic_ticks(g_clock.self);
+    while ((g_clock.monotonic_ticks(g_clock.self) - start_ticks) < 5u)
+        os_sleep_task(1u);
+    /* Differential: progress *inside* the window, not accumulated earlier, or a
+     * witness that ran once at startup would mask a starving loop. */
+    if (g_witness_ticks == witness_before)
+        board_mps2_exit(16); /* a lower-priority task was starved */
     (void)edge_sys_power_off(&g_sys);
     (void)dlt645_deinit(&g_dlt645);
     (void)edge_sys_deinit(&g_sys);
@@ -90,6 +151,8 @@ int main(void) {
     g_clock = (edge_clock_port_t){
         .monotonic_ticks = g_pal.monotonic_ticks, .wall_time = NULL, .self = g_pal.self};
     g_irq_guard = edge_rtos_irq_guard();
+    g_sink_guard =
+        (edge_irq_guard_t){.enter = sink_guard_enter, .exit = sink_guard_exit, .self = NULL};
     g_os = edge_rtos_os_port();
     product_meter_mps2_freertos_make_storage(&g_storage, g_flash_state);
     dlt645_construct(&g_dlt645, EDGE_MOD_DLT645, 100u, &g_storage);
@@ -99,7 +162,7 @@ int main(void) {
 
     if (edge_event_queue_init(&g_queue, g_ev_storage, 16u) < 0)
         return 1;
-    g_sink = (edge_event_sink_t){.queue = &g_queue, .clock = &g_clock, .guard = &g_irq_guard};
+    g_sink = (edge_event_sink_t){.queue = &g_queue, .clock = &g_clock, .guard = &g_sink_guard};
     board_mps2_init(&g_sink);
 
     if (sys_meter_init(&g_sys, g_apps, 1u, required, 1u, &g_queue, g_subs, 4u) < 0)
@@ -114,6 +177,8 @@ int main(void) {
     if (edge_sys_start(&g_sys) < 0)
         return 6;
 
+    if (edge_rtos_task_create("witness", witness_task, NULL, 256u, 1u) < 0)
+        return 8;
     if (edge_rtos_task_create("capsule", capsule_task, NULL, 512u, 2u) < 0)
         return 7;
 

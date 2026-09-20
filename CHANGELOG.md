@@ -6,6 +6,32 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `edge_rtos_wait_for_work()` / `edge_rtos_wake_from_isr()` /
+  `edge_rtos_wake_target_set_self()`: the runner can park until work arrives, and
+  the ISR path can wake it, yielding only when a task was actually made ready
+  (D47/D71). Without this the runner could only poll, which `docs/low-power.md`
+  puts ~1800x over a ten-year battery budget on the fixed cost per wake alone.
+- `docs/rtos-runner.md`: the idle/tickless decision, the wake path end to end, the
+  module-suspend versus task-suspend boundary, the module-to-kernel priority rule,
+  the bounded yield policy, and how the on-target exit status aligns with the
+  in-process stats.
+
+### Changed
+
+- The FreeRTOS product's capsule parks on a notification instead of polling, and
+  tickless sleep is on (`configUSE_TICKLESS_IDLE`), which is only reachable now
+  that the runner blocks. The sink guard is composed in the composition root as
+  mask + wake (D14), so the board ISR stays RTOS-free (D85).
+- A lowest-priority witness task plus a five-tick yield probe make the yield policy
+  a refutation test: blocking passes, and the same probe with a bare `taskYIELD()`
+  fails with `rc=16` (a lower-priority task was starved). The probe measures
+  progress inside its window, because measuring the accumulated counter let the
+  starving variant pass.
+- The PAL config contract now requires `configUSE_TASK_NOTIFICATIONS` and
+  `INCLUDE_xTaskGetCurrentTaskHandle`, the two kernel features the wake path needs.
+
 ### Fixed
 
 - `pal/cortex-m-bare` SysTick read race: `monotonic_ticks` read `SYSTICK_CTRL`
