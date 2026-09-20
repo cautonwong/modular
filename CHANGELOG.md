@@ -8,6 +8,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- The FreeRTOS runner's starvation probe was flaky: it measured its window as a
+  kernel-tick difference after the same change enabled tickless sleep, so a
+  suppressed-tick jump could satisfy the window before the lower-priority witness
+  was scheduled (measured: `rc=16` about once in seven runs of an unmodified
+  build). The probe now counts *blocking sleeps* instead of ticks: 10/10 clean
+  with the blocking policy, and 5/5 `rc=16` with a bare `taskYIELD()`, so the
+  refutation it exists for still holds. Recorded in `docs/flake-ledger.md`.
 - `pal/cortex-m-bare`: the critical-section design now states the invariant it
   rests on instead of implying it. `critical_enter`/`critical_exit` are a
   void -> void pair, so the saved PRIMASK lives in the caller's state - one slot,

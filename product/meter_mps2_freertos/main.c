@@ -113,11 +113,18 @@ static void capsule_task(void *arg) {
      * is exactly the refutation (measured: rc=16).
      */
     const uint32_t witness_before = g_witness_ticks;
-    const uint64_t start_ticks = g_clock.monotonic_ticks(g_clock.self);
-    while ((g_clock.monotonic_ticks(g_clock.self) - start_ticks) < 5u)
-        os_sleep_task(1u);
     /* Differential: progress *inside* the window, not accumulated earlier, or a
-     * witness that ran once at startup would mask a starving loop. */
+     * witness that ran once at startup would mask a starving loop.
+     *
+     * The window counts *blocking sleeps*, not kernel ticks, and that is the fix
+     * for a real flake: this product has tickless sleep enabled (#90), so the
+     * kernel tick advances in jumps once ticks were suppressed, and a
+     * tick-difference window can be satisfied by one such jump during which the
+     * lower-priority witness was never scheduled. Measured on an otherwise
+     * unmodified build: rc=16 in about one run out of seven. The probe was
+     * measuring the clock instead of the scheduling policy. */
+    for (uint32_t i = 0u; i < 20u; ++i)
+        os_sleep_task(1u); /* blocks, so the CPU is the witness's while we wait */
     if (g_witness_ticks == witness_before)
         board_mps2_exit(16); /* a lower-priority task was starved */
     (void)edge_sys_power_off(&g_sys);
