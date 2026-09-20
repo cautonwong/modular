@@ -48,6 +48,35 @@ static void test_pal_contract(void **state) {
  * reachable from the host at all: the register read sits inside `#if __arm__`,
  * so before the extraction the arithmetic had no test on any platform.
  */
+/*
+ * The saved mask is a single slot written only on the outermost enter, which is
+ * sufficient because a critical section masks every maskable interrupt: no masking
+ * context can interleave inside one. What the host build can pin is the counter
+ * discipline that the invariant depends on, including the shape of a context that
+ * enters and leaves while the outer section is held (the ISR shape). The mask
+ * save/restore itself is ARM-only; the QEMU smoke covers it indirectly.
+ */
+static void test_critical_interleaving(void **state) {
+    (void)state;
+    edge_pal_cortex_m_state_t pal_state;
+    edge_pal_cortex_m_bare_init(&pal_state);
+    const edge_pal_port_t pal = edge_pal_cortex_m_bare_port(&pal_state);
+
+    pal.critical_enter(pal.self); /* thread side */
+    assert_int_equal(pal_state.depth, 1u);
+
+    /* A nested context enters and leaves while the outer section is held. It must
+     * return to the outer depth, not to zero: a counter that reset here would make
+     * the outer exit restore a stale mask. */
+    pal.critical_enter(pal.self);
+    assert_int_equal(pal_state.depth, 2u);
+    pal.critical_exit(pal.self);
+    assert_int_equal(pal_state.depth, 1u);
+
+    pal.critical_exit(pal.self);
+    assert_int_equal(pal_state.depth, 0u);
+}
+
 static void test_extend_boundaries(void **state) {
     (void)state;
     edge_pal_cortex_m_state_t pal_state;
@@ -162,6 +191,7 @@ static void test_null_state_is_safe(void **state) {
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_pal_contract),
+        cmocka_unit_test(test_critical_interleaving),
         cmocka_unit_test(test_extend_boundaries),
         cmocka_unit_test(test_wrap_is_detected_from_the_counter),
         cmocka_unit_test(test_three_wraps_stay_monotonic),

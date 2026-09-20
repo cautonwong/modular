@@ -23,6 +23,43 @@ extern "C" {
  * - `monotonic_ticks` extends a free-running SysTick to 64 bits;
  * - `in_isr` reads IPSR.
  *
+ * ## Critical sections: the invariant this port relies on
+ *
+ * `critical_enter`/`critical_exit` are a void -> void pair, so the saved PRIMASK
+ * has nowhere to live except the caller's state: there is one saved slot plus a
+ * nesting counter, and the slot is written only on the outermost enter. The
+ * consequence, which the whole design rests on:
+ *
+ *   **a critical section masks every maskable interrupt, so no masking context can
+ *   run inside one.** An interrupt that cannot interleave cannot corrupt the saved
+ *   slot or the counter, which is exactly why one slot is sufficient.
+ *
+ * NMI and HardFault are *not* masked by PRIMASK. They must not call these two
+ * functions: an enter/exit pair inside a held critical section overwrites the
+ * saved slot and, on its exit, restores a mask that was current for the fault -
+ * leaving the interrupted critical section with interrupts enabled. That is a
+ * silent failure, so it is excluded here rather than supported.
+ *
+ * `depth` and `primask` are shared state. Nothing outside this port may write
+ * them; they are asserted by the host tests, which is also why `depth` exists.
+ *
+ * ## SysTick ownership
+ *
+ * `edge_pal_cortex_m_bare_init()` takes over SysTick (LOAD/VAL/CTRL) to provide
+ * monotonic time, and this port is therefore **mutually exclusive with any RTOS
+ * that owns the tick**. A product either uses this PAL for time or uses a kernel
+ * tick (`pal/rtos/freertos`'s `edge_rtos_pal_port`), never both: initialising this
+ * PAL under a running kernel would reprogram the tick out from under the
+ * scheduler. Nothing in the tree calls it from an RTOS product today, and this
+ * paragraph is the statement that keeps it that way.
+ *
+ * ## `idle` is a primitive, not the sequence
+ *
+ * `idle` is the raw wait (WFI). The D71 atomic sequence - mask, re-check pending
+ * work, wait, unmask - lives in `edge_os_idle_wait()` (`pal/os`), which calls
+ * `pal->idle` *inside* the mask. Putting the sequence here as well would
+ * double-mask and, worse, move the re-check outside the mask that protects it.
+ *
  * `monotonic_ticks` contract - both halves are load-bearing:
  *
  *   1. It must be sampled at least once per SysTick period (`load + 1` counts).
@@ -37,8 +74,8 @@ extern "C" {
  *      observable in `anomalies` instead of being absorbed.
  */
 typedef struct edge_pal_cortex_m_state {
-    uint32_t primask;
-    uint32_t depth;
+    volatile uint32_t primask; /* saved on the outermost enter; see above */
+    volatile uint32_t depth;   /* nesting count; also what the host tests assert */
     uint64_t wrap;
     uint64_t host_ticks;
     /* Appended (D40 append-only). */

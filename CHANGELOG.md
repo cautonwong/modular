@@ -6,6 +6,24 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `pal/cortex-m-bare`: the critical-section design now states the invariant it
+  rests on instead of implying it. `critical_enter`/`critical_exit` are a
+  void -> void pair, so the saved PRIMASK lives in the caller's state - one slot,
+  written on the outermost enter - and that is only sufficient because a critical
+  section masks every maskable interrupt, so no masking context can interleave
+  inside one. NMI and HardFault are not masked by PRIMASK and are therefore
+  excluded: an enter/exit pair inside a held section would overwrite the saved
+  slot and leave the interrupted section running with interrupts enabled. The two
+  shared fields are volatile, and a host test pins the counter discipline,
+  including a nested context that enters and leaves while the outer section is
+  held. `idle` is documented as the raw wait primitive whose atomic wrapper is
+  `edge_os_idle_wait()` (D71) - putting the sequence in `idle` as well would
+  double-mask and move the re-check outside its own protection. The port also
+  declares that it takes over SysTick and is therefore mutually exclusive with an
+  RTOS that owns the tick.
+
 ### Added
 
 - `pal/eos`: the first-party runtime, a static zero-allocation fixed-rate priority
