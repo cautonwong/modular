@@ -15,6 +15,11 @@ void board_mps2_timer_init(void);
 void board_mps2_irq_timer0(void);
 __attribute__((noreturn)) void board_mps2_exit(int code);
 
+/* Hardware actions (D9/D71). */
+void board_mps2_enter_low_power(void);
+void board_mps2_feed_watchdog(void);
+void board_mps2_system_reset(void);
+
 #ifdef __cplusplus
 }
 #endif

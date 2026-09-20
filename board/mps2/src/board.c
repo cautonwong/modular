@@ -56,3 +56,21 @@ __attribute__((noreturn)) void board_mps2_exit(int code) {
     for (;;) {
     }
 }
+
+void board_mps2_enter_low_power(void) {
+    /* Board-specific clock/power gating would go here; the atomic wait itself is
+     * the PAL's (edge_os_idle_wait). */
+}
+
+void board_mps2_feed_watchdog(void) {
+    /* MPS2 has no watchdog model in QEMU; the call site is what matters. */
+}
+
+void board_mps2_system_reset(void) {
+#if defined(__arm__)
+    __asm volatile("dsb 0xF" ::: "memory");
+    *(volatile uint32_t *)0xe000ed0cu = 0x05FA0004u; /* AIRCR: SYSRESETREQ */
+#endif
+    for (;;) {
+    }
+}

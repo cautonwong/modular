@@ -1,8 +1,10 @@
 #ifndef PAL_OS_IDLE_H
 #define PAL_OS_IDLE_H
 
+#include "edge/pal.h"
 #include "pal_os/os.h"
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -20,6 +22,15 @@ typedef struct edge_os_idle {
 
 /* Signature-compatible with `edge_sys_idle_fn`. */
 void edge_os_idle_hook(void *ctx);
+
+typedef bool (*edge_os_pending_fn)(void *ctx);
+
+/*
+ * Atomic low-power wait (D71): disable interrupts, re-check `pending`, only then
+ * wait for the next interrupt, and re-enable. A fact posted between the check and
+ * the sleep therefore cannot be lost. `pending` may be NULL to always wait.
+ */
+void edge_os_idle_wait(const edge_pal_port_t *pal, edge_os_pending_fn pending, void *ctx);
 
 #ifdef __cplusplus
 }

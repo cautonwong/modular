@@ -1,6 +1,34 @@
 #include "example/board.h"
 #include "edge/events.h"
 
+static uint32_t g_low_power_entries;
+static uint32_t g_watchdog_feeds;
+static uint32_t g_reset_count;
+
+void board_example_enter_low_power(void) {
+    ++g_low_power_entries;
+}
+
+void board_example_feed_watchdog(void) {
+    ++g_watchdog_feeds;
+}
+
+void board_example_system_reset(void) {
+    ++g_reset_count;
+}
+
+uint32_t board_example_low_power_entries(void) {
+    return g_low_power_entries;
+}
+
+uint32_t board_example_watchdog_feeds(void) {
+    return g_watchdog_feeds;
+}
+
+uint32_t board_example_reset_count(void) {
+    return g_reset_count;
+}
+
 static edge_event_sink_t *g_event_sink;
 
 void board_example_init(edge_event_sink_t *sink) {

@@ -38,6 +38,13 @@ static uint64_t now_ticks(edge_sys_t *sys) {
     return ++sys->tick;
 }
 
+/* Const-safe current tick: never advances the fallback counter. */
+static uint64_t peek_ticks(const edge_sys_t *sys) {
+    if (sys->clock != NULL && sys->clock->monotonic_ticks != NULL)
+        return sys->clock->monotonic_ticks(sys->clock->self);
+    return sys->tick;
+}
+
 static bool tick_due(uint64_t now, uint64_t due) {
     return (int64_t)(now - due) >= 0;
 }
@@ -459,4 +466,32 @@ edge_status_t edge_sys_stats_reset(edge_sys_t *sys) {
         return EDGE_EINVAL;
     sys->stats = (edge_sys_stats_t){0};
     return EDGE_OK;
+}
+
+bool edge_sys_healthy(const edge_sys_t *sys) {
+    if (sys == NULL)
+        return false;
+    for (size_t i = 0u; i < sys->app_count; ++i) {
+        if (sys->apps[i]->failed != 0u)
+            return false;
+    }
+    return sys->state == EDGE_SYS_RUNNING;
+}
+
+bool edge_sys_pending(const edge_sys_t *sys) {
+    if (sys == NULL)
+        return false;
+    if (sys->events != NULL && edge_event_count(sys->events) > 0u)
+        return true;
+    if (sys->pending_count > 0u)
+        return true;
+    const uint64_t now = peek_ticks(sys);
+    for (size_t i = 0u; i < sys->app_count; ++i) {
+        const edge_module_t *app = sys->apps[i];
+        if (app->failed != 0u || app->suspended != 0u || app->poll == NULL || app->period == 0u)
+            continue;
+        if (tick_due(now, app->next_due))
+            return true;
+    }
+    return false;
 }

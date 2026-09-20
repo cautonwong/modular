@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Low-power closure (D9/D52/D71): PAL gains an `idle` primitive (Cortex-M `WFI`),
+  `pal/os` provides the atomic `edge_os_idle_wait` (critical enter -> re-check ->
+  wait -> release), boards gain enter-low-power / feed-watchdog / reset actions,
+  `sys` exposes `edge_sys_healthy` (watchdog input) and `edge_sys_pending` (the
+  re-check), and the MPS2 product wires the idle hook to them.
 - Bare-metal Cortex-M PAL (`pal/cortex-m-bare`, D46/D85): PRIMASK critical
   sections (nesting counted), DSB memory barrier, free-running SysTick extended to
   64-bit monotonic time, and IPSR ISR detection, with a host fallback so the port

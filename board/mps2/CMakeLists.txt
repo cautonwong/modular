@@ -1,5 +1,5 @@
 # ARM MPS2 (AN385/AN386) board: timer tick, IRQ routing, SoC bring-up.
-edge_add_board(mps2 SOURCES src/board.c DEPS edge_module soc_mps2 pal_cortex_m_bare)
+edge_add_board(mps2 SOURCES src/board.c DEPS edge_module soc_mps2 pal_cortex_m_bare pal_os)
 
 # D87: the FreeRTOS kernel and the PAL are compiled against this board's
 # configuration, which reads the SoC config header through the product's
