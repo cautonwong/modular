@@ -12,6 +12,11 @@ extern "C" {
 void board_mps2_init(edge_event_sink_t *sink);
 void board_mps2_irq_uart0_rx(uint32_t byte_count);
 void board_mps2_timer_init(void);
+
+/* NVIC priority for the TIMER0 IRQ, in library units (0 = highest). An RTOS
+ * product must call this before board_mps2_timer_init() if its handler uses any
+ * *FromISR API, otherwise the IRQ sits above the syscall ceiling. */
+void board_mps2_timer_set_priority(uint8_t library_priority);
 void board_mps2_irq_timer0(void);
 __attribute__((noreturn)) void board_mps2_exit(int code);
 

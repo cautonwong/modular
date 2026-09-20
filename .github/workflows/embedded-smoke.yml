@@ -78,12 +78,18 @@ jobs:
             --report build-m4/stack-report.json
       - name: QEMU MPS2 AN386 peripheral IRQ smoke
         run: |
+          # The firmware exits 0 only when the TIMER0 interrupt delivered the
+          # event; 8 means the loop finished without it. Assert, so a hang and a
+          # silent "no IRQ" cannot both count as success.
+          rc=0
           timeout --signal=KILL 10s \
             qemu-system-arm \
               -M mps2-an386 \
               -nographic \
               -semihosting-config enable=on,target=native \
-              -kernel build-m4/meter_mps2_fw
+              -kernel build-m4/meter_mps2_fw || rc=$?
+          echo "firmware exit status: $rc"
+          test "$rc" -eq 0
       - name: Upload Cortex-M4 QEMU image
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -240,12 +246,18 @@ jobs:
             --report build-freertos/stack-report.json
       - name: QEMU FreeRTOS capsule smoke
         run: |
+          # The firmware now exits with a real status (SYS_EXIT_EXTENDED): 0 means
+          # the TIMER0 interrupt delivered the event through the guarded sink, and
+          # 9 means the kernel asserted (e.g. an IRQ above the syscall ceiling).
+          rc=0
           timeout --signal=KILL 15s \
             qemu-system-arm \
               -M mps2-an386 \
               -nographic \
               -semihosting-config enable=on,target=native \
-              -kernel build-freertos/meter_mps2_freertos_fw
+              -kernel build-freertos/meter_mps2_freertos_fw || rc=$?
+          echo "firmware exit status: $rc"
+          test "$rc" -eq 0
       - name: Upload FreeRTOS image
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

@@ -58,6 +58,7 @@ edge_add_host_test(test_pal_os SOURCES test_pal_os.c DEPS sys_example pal_host p
 edge_add_host_test(test_pal_cortex_m SOURCES test_pal_cortex_m.c DEPS pal_cortex_m_bare)
 edge_add_host_test(test_low_power SOURCES test_low_power.c
     DEPS sys_example board_example pal_host pal_os)
+edge_add_host_test(test_tick64 SOURCES test_tick64.c DEPS pal_os)
 edge_add_host_test(test_runner_threads SOURCES test_runner_threads.c DEPS sys_example)
 edge_add_host_test(test_flash_glue SOURCES test_flash_glue.c ../product/example/glue.c
     DEPS app_dlt645 infra_flash)

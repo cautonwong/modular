@@ -32,5 +32,5 @@ target_include_directories(freertos_kernel PUBLIC
 # RAW: this port has never been compiled with the warning gate. Turning it on is
 # part of the RTOS hardening work (#84, #85), not of this refactor, so the flag
 # set of every existing target stays exactly as it was.
-edge_add_pal(rtos_freertos RAW SOURCES src/freertos_rtos.c
+edge_add_pal(rtos_freertos RAW SOURCES src/freertos_rtos.c src/freertos_pal.c
     DEPS edge_module pal_os pal_rtos freertos_kernel)
