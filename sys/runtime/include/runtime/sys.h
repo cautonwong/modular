@@ -4,6 +4,7 @@
 #include "edge/clock.h"
 #include "edge/event.h"
 #include "edge/module.h"
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -85,5 +86,10 @@ edge_status_t edge_sys_power_off(edge_sys_t *sys);
 edge_status_t edge_sys_deinit(edge_sys_t *sys);
 edge_status_t edge_sys_stats_get(const edge_sys_t *sys, edge_sys_stats_t *out);
 edge_status_t edge_sys_stats_reset(edge_sys_t *sys);
+
+/* Watchdog policy input (D9/D71): false once any module has failed. */
+bool edge_sys_healthy(const edge_sys_t *sys);
+/* True when an event or a due poll is waiting; the atomic idle re-check (D71). */
+bool edge_sys_pending(const edge_sys_t *sys);
 
 #endif

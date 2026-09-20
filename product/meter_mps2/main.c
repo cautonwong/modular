@@ -6,6 +6,7 @@
 #include "meter/sys.h"
 #include "mps2/board.h"
 #include "pal_cortex_m/pal_cortex_m.h"
+#include "pal_os/idle.h"
 #include "relay/relay.h"
 
 #include <stdint.h>
@@ -14,6 +15,27 @@ void product_meter_mps2_make_storage(dlt645_storage_if_t *out, void *flash_state
 void product_meter_mps2_make_relay_out(relay_out_if_t *out, void *gpio_state);
 
 static edge_pal_cortex_m_state_t g_pal_state;
+
+/*
+ * Low-power idle path (D9/D52/D71): feed the watchdog only while healthy, do the
+ * board's low-power action, then the atomic critical/re-check/WFI/release wait.
+ */
+typedef struct low_power_ctx {
+    const edge_pal_port_t *pal;
+    edge_sys_t *sys;
+} low_power_ctx_t;
+
+static bool capsule_pending(void *ctx) {
+    return edge_sys_pending(((low_power_ctx_t *)ctx)->sys);
+}
+
+static void capsule_idle(void *ctx) {
+    low_power_ctx_t *low_power = (low_power_ctx_t *)ctx;
+    if (edge_sys_healthy(low_power->sys))
+        board_mps2_feed_watchdog();
+    board_mps2_enter_low_power();
+    edge_os_idle_wait(low_power->pal, capsule_pending, low_power->sys);
+}
 
 int main(void) {
     uint8_t flash_state[64] = {0};
@@ -56,6 +78,9 @@ int main(void) {
         return 2;
     if (edge_sys_set_clock(&sys, &clock) < 0)
         return 5;
+    low_power_ctx_t low_power = {.pal = &pal, .sys = &sys};
+    if (edge_sys_set_idle(&sys, capsule_idle, &low_power) < 0)
+        return 13;
     if (edge_sys_subscribe(&sys, EDGE_EVT_UART0_RX, dlt645_module(&dlt645)) < 0)
         return 3;
     if (edge_sys_subscribe(&sys, EDGE_EVT_RELAY_CHANGED, relay_module(&relay)) < 0)

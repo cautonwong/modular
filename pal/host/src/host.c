@@ -7,6 +7,7 @@ static uint32_t g_critical_depth;
 static bool g_in_isr;
 static uint32_t g_yields;
 static uint64_t g_slept_ms;
+static uint32_t g_idle_waits;
 
 static void critical_enter(void *self) {
     (void)self;
@@ -43,6 +44,11 @@ static void isr_exit(void *self) {
     g_in_isr = false;
 }
 
+static void idle(void *self) {
+    (void)self;
+    ++g_idle_waits;
+}
+
 edge_pal_port_t pal_host_port(void) {
     const edge_pal_port_t port = {
         .critical_enter = critical_enter,
@@ -52,6 +58,7 @@ edge_pal_port_t pal_host_port(void) {
         .in_isr = in_isr,
         .isr_enter = isr_enter,
         .isr_exit = isr_exit,
+        .idle = idle,
         .self = NULL,
     };
     return port;
@@ -94,4 +101,8 @@ uint32_t pal_host_yields(void) {
 
 uint64_t pal_host_slept_ms(void) {
     return g_slept_ms;
+}
+
+uint32_t pal_host_idle_waits(void) {
+    return g_idle_waits;
 }

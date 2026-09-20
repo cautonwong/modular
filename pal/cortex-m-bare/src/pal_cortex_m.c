@@ -69,6 +69,11 @@ static void isr_exit(void *self) {
     (void)self;
 }
 
+static void idle(void *self) {
+    (void)self;
+    __asm volatile("wfi" ::: "memory");
+}
+
 #else /* host fallback: keep the target analyzable and host-testable */
 
 static void critical_enter(void *self) {
@@ -107,6 +112,10 @@ static void isr_exit(void *self) {
     (void)self;
 }
 
+static void idle(void *self) {
+    (void)self;
+}
+
 #endif
 
 void edge_pal_cortex_m_bare_init(edge_pal_cortex_m_state_t *state) {
@@ -132,6 +141,7 @@ edge_pal_port_t edge_pal_cortex_m_bare_port(edge_pal_cortex_m_state_t *state) {
         .in_isr = in_isr,
         .isr_enter = isr_enter,
         .isr_exit = isr_exit,
+        .idle = idle,
         .self = state,
     };
     return port;

@@ -24,6 +24,7 @@ uint32_t pal_host_critical_depth(void);
 void pal_host_set_in_isr(bool in_isr);
 uint32_t pal_host_yields(void);
 uint64_t pal_host_slept_ms(void);
+uint32_t pal_host_idle_waits(void);
 
 #ifdef __cplusplus
 }

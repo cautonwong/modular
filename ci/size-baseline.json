@@ -1,18 +1,45 @@
 {
-  "note": "Recorded from a real Cortex-M0 build of example_cortex_m0 in CI (ubuntu-24.04, arm-none-eabi-gcc, Release, build-arm). report_size_trend.py compares every ARM build against this. Update it deliberately, in the same change that intends the size change, otherwise the trend gate fires and says which layer grew.",
+  "note": "Recorded from a real Cortex-M0 build of example_cortex_m0 in CI (ubuntu-24.04, arm-none-eabi-gcc, Release, build-arm). report_size_trend.py compares every ARM build against this. Update it deliberately, in the same change that intends the size change, otherwise the trend gate fires and says which layer grew. Rationale for the current numbers: the low-power closure (#28) added the idle primitive, the board power actions and the sys health/pending predicates; board_example and sys/runtime link as one section each, so the smallest target pays for the new entry points even when it does not call them (+276 flash / +12 ram, 0.4% of the 64 KiB part).",
   "targets": {
     "example_cortex_m0": {
       "recorded_from": "size-report.json",
-      "totals": { "flash": 5006, "ram": 4 },
+      "totals": {
+        "flash": 5282,
+        "ram": 16
+      },
       "layers": {
-        "app": { "flash": 184, "ram": 0 },
-        "board": { "flash": 72, "ram": 4 },
-        "edge_module": { "flash": 464, "ram": 0 },
-        "infra": { "flash": 208, "ram": 0 },
-        "other": { "flash": 764, "ram": 0 },
-        "product": { "flash": 310, "ram": 0 },
-        "startup": { "flash": 264, "ram": 0 },
-        "sys": { "flash": 2740, "ram": 0 }
+        "app": {
+          "flash": 184,
+          "ram": 0
+        },
+        "board": {
+          "flash": 156,
+          "ram": 16
+        },
+        "edge_module": {
+          "flash": 464,
+          "ram": 0
+        },
+        "infra": {
+          "flash": 208,
+          "ram": 0
+        },
+        "other": {
+          "flash": 764,
+          "ram": 0
+        },
+        "product": {
+          "flash": 310,
+          "ram": 0
+        },
+        "startup": {
+          "flash": 264,
+          "ram": 0
+        },
+        "sys": {
+          "flash": 2932,
+          "ram": 0
+        }
       }
     }
   }
