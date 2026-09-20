@@ -86,6 +86,8 @@ CASES = [
     ),
     ("check_guard_coverage.py", ".", True),
     ("check_guard_coverage.py", "tests/guards/coverage_bad", False),
+    ("check_pal_arch_binding.py", ".", True),
+    ("check_pal_arch_binding.py", "tests/guards/pal_binding_bad", False),
     ("check_area_registration.py", "tests/guards/area_registration_good", True),
     ("check_area_registration.py", "tests/guards/area_registration_bad", False),
 ]

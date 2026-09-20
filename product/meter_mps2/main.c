@@ -67,6 +67,46 @@ int main(void) {
         return 1;
     edge_pal_cortex_m_bare_init(&g_pal_state);
     const edge_pal_port_t pal = edge_pal_cortex_m_bare_port(&g_pal_state);
+    /*
+     * The SysTick register read is the one part the host tests cannot reach (it
+     * lives inside `#if __arm__`), so assert its core property here, on target.
+     *
+     * The property is monotonic *non-decreasing* plus eventual advance, not
+     * "strictly increasing between two adjacent reads": two reads can legitimately
+     * report the same count (a coarse virtual clock under QEMU, or a read faster
+     * than the counter's resolution), and demanding strictness there would test
+     * the harness rather than the port. What must never happen is the backwards
+     * jump the wrap race produced - a full period (~0.67 s at 25 MHz) - which
+     * stalls every periodic app and reports a fake budget overrun.
+     */
+#ifdef EDGE_QEMU_SEMIHOSTING
+    /*
+     * Smoke-only self-check (the real register read lives inside `#if __arm__`, so
+     * the host tests cannot reach it): sample for a long window and require that
+     * the reported clock never goes backwards and does advance. The window is long
+     * because the defect - a wrap crossed between two samples but not accounted for
+     * - makes the clock fall back by nearly a whole period (~0.67 s at 25 MHz), and
+     * a wrap has to actually happen inside the window for it to be caught.
+     *
+     * Real work between samples, not just more SysTick reads: under QEMU the
+     * virtual clock advances with executed instructions, so a tight MMIO loop can
+     * sample the same counter value every time, which would test the harness
+     * rather than the port. Deliberately not a proof - the deterministic
+     * wrap-crossing refutation is tests/test_pal_cortex_m.c.
+     */
+    const uint64_t first = pal.monotonic_ticks(pal.self);
+    uint64_t previous = first;
+    for (uint32_t i = 0u; i < 400000u; ++i) {
+        for (volatile uint32_t spin = 0u; spin < 64u; ++spin) {
+        }
+        const uint64_t next = pal.monotonic_ticks(pal.self);
+        if (next < previous)
+            return 14; /* monotonic clock went backwards */
+        previous = next;
+    }
+    if (previous == first)
+        return 15; /* the clock never advanced: the time source is dead or frozen */
+#endif
     clock = (edge_clock_port_t){
         .monotonic_ticks = pal.monotonic_ticks, .wall_time = NULL, .self = pal.self};
     guard = (edge_irq_guard_t){

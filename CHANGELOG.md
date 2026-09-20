@@ -6,7 +6,38 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `pal/cortex-m-bare` SysTick read race: `monotonic_ticks` read `SYSTICK_CTRL`
+  (which clears COUNTFLAG) and then `SYSTICK_VAL`, so a wrap landing between the
+  two reads was never counted and the clock jumped *backwards* by a whole period
+  (~0.67 s at 25 MHz). The wrap is now detected from the counter itself - SysTick
+  counts down, so a sample above the previous one means it reloaded - which does
+  not depend on `COUNTFLAG` read semantics (the MPS2 model under QEMU does not
+  report the flag as documented, so the flag-based detector silently lost the
+  wrap). The MPS2 smoke build samples a long window and requires the clock never
+  to go backwards and to advance; the deterministic wrap-crossing refutation is
+  the host test.
+- `pal/cortex-m-bare` wrap accounting had two undocumented preconditions that
+  could silently corrupt the 64-bit timeline: the sample interval (COUNTFLAG is
+  one bit, so two wraps between samples look like one) and a variable
+  `SYSTICK_LOAD`. The period is now read once in
+  `edge_pal_cortex_m_bare_init` and cached in the state, and both preconditions
+  are stated in the header.
+- `pal/cortex-m-bare` could be selected by a non-ARM target, where it silently
+  fell back to a call-counting fake clock that compiled, linked and passed.
+  The port now refuses to compile without `__arm__` or the explicit host-test
+  macro `EDGE_PAL_CORTEX_M_HOST_TEST`, and the CMake target is not created for a
+  non-Cortex-M toolchain. Enforced by `check_pal_arch_binding.py`, which compiles
+  the port both ways and requires the refusal to keep working.
+
 ### Added
+
+- `edge_pal_cortex_m_extend()`: the 64-bit SysTick extension arithmetic is now a
+  pure function, so the part of the port that cannot run on the host is still
+  covered by host tests - wrap boundary, VAL == LOAD, the wrap race in both
+  directions, and an observable `anomalies` counter when `SYSTICK_LOAD` changes
+  after init (a contract violation is reported, never absorbed).
 
 - FreeRTOS architecture PAL (D46/D50/D85): `pal/rtos/freertos` implements the
   full `edge_pal_port_t` - task-context `taskENTER_CRITICAL`/`EXIT` critical

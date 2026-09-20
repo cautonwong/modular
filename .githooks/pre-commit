@@ -54,6 +54,7 @@ check_event_payload.py
 check_guard_coverage.py
 check_layer_dependencies.py
 check_module_ids.py
+check_pal_arch_binding.py
 check_product_board_binding.py
 "
 

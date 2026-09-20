@@ -25,8 +25,16 @@ __attribute__((noreturn)) static void default_handler(void) {
 
 #ifdef EDGE_QEMU_SEMIHOSTING
 __attribute__((noreturn)) static void qemu_exit(int status) {
-    register int r0 __asm("r0") = 0x18; /* SYS_EXIT */
-    register int r1 __asm("r1") = status == 0 ? 0x20026 : 0x20023;
+    /*
+     * SYS_EXIT_EXTENDED (0x20), not SYS_EXIT: r1 points at
+     * { ADP_Stopped_ApplicationExit, status }, so `main()`'s return value reaches
+     * the harness. Plain SYS_EXIT collapses every non-zero status to 1, which is
+     * exactly the distinction a smoke test needs (see board_mps2_exit, which took
+     * the same fix).
+     */
+    const uint32_t args[2] = {0x20026u, (uint32_t)status};
+    register int r0 __asm("r0") = 0x20; /* SYS_EXIT_EXTENDED */
+    register const uint32_t *r1 __asm("r1") = args;
     __asm volatile("bkpt 0xAB" : : "r"(r0), "r"(r1) : "memory");
     default_handler();
 }

@@ -12,25 +12,63 @@ extern "C" {
 /*
  * Bare-metal Cortex-M PAL (D46/D85).
  *
+ * Architecture binding (D49/D85): this port compiles for an ARM Cortex-M target
+ * (`__arm__`) or, for host unit tests only, with EDGE_PAL_CORTEX_M_HOST_TEST.
+ * Anything else fails to compile. A silent host fallback on a non-ARM target
+ * would compile, link and "pass" while the clock reported call counts instead of
+ * time, so it is refused rather than substituted.
+ *
  * - critical sections save/restore PRIMASK (nesting counted in `depth`);
  * - `memory_barrier` is a DSB;
  * - `monotonic_ticks` extends a free-running SysTick to 64 bits;
  * - `in_isr` reads IPSR.
  *
- * On a non-ARM host build the same symbols exist with deterministic fallbacks so
- * the target still compiles and the contract can be exercised on the host.
+ * `monotonic_ticks` contract - both halves are load-bearing:
+ *
+ *   1. It must be sampled at least once per SysTick period (`load + 1` counts).
+ *      The wrap is detected by comparing a sample with the previous one, so two
+ *      wraps between two samples are indistinguishable from one and the time
+ *      between them is lost silently.
+ *   2. `load` is read once, in `edge_pal_cortex_m_bare_init`, and cached in the
+ *      state. Changing SYSTICK_LOAD afterwards (an RTOS tick, a debugger, a later
+ *      1 ms schedule) violates the contract: the cached period is what keeps the
+ *      already-elapsed timeline continuous, and rescaling it mid-flight would
+ *      silently move every previously reported timestamp. Such a change is
+ *      observable in `anomalies` instead of being absorbed.
  */
 typedef struct edge_pal_cortex_m_state {
     uint32_t primask;
     uint32_t depth;
     uint64_t wrap;
     uint64_t host_ticks;
+    /* Appended (D40 append-only). */
+    uint32_t load;      /* period - 1, cached at init; never re-read later */
+    uint32_t last;      /* previous accepted VAL sample, for wrap detection */
+    uint32_t anomalies; /* observed contract violations (VAL above the cached load) */
 } edge_pal_cortex_m_state_t;
 
-/* Configure SysTick as a free-running monotonic source and zero the state. */
+/* Configure SysTick as a free-running monotonic source, cache its period, and
+ * zero the state. */
 void edge_pal_cortex_m_bare_init(edge_pal_cortex_m_state_t *state);
 
 edge_pal_port_t edge_pal_cortex_m_bare_port(edge_pal_cortex_m_state_t *state);
+
+/*
+ * Extend one SysTick sample into the 64-bit timeline. Pure: no registers, no
+ * globals, so the arithmetic is host-testable while the register read is not.
+ *
+ * `val` is the SYSTICK_VAL sample. The wrap is detected from the counter itself:
+ * SysTick counts *down*, so a sample above the previous one means it reloaded,
+ * i.e. a wrap was crossed between the two samples.
+ *
+ * That comparison is deliberately preferred over COUNTFLAG. Reading CTRL clears
+ * the flag, so a wrap landing between the VAL and CTRL reads is exactly the case
+ * where the flag and the counter disagree - and the MPS2 model under QEMU does
+ * not report the flag the way the documentation describes, so a flag-based
+ * detector silently loses the wrap and the clock runs backwards by a whole
+ * period. The counter's own value cannot lie about that.
+ */
+uint64_t edge_pal_cortex_m_extend(edge_pal_cortex_m_state_t *state, uint32_t val);
 
 #ifdef __cplusplus
 }
