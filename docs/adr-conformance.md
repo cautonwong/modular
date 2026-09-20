@@ -63,7 +63,7 @@ Legend: ✅ implemented · 🟡 partial · ❌ not implemented · ⛔ contradict
 | D38 | Reproducible build + metadata | ✅ | `SOURCE_DATE_EPOCH`, byte-compare, provenance, SBOM |
 | D39 | Full legal family x board matrix build | 🟡 | Whitelist + 3 products + negative cases; not enumerated |
 | D45 | Certification boundary (core vs app) | 🟡 | Documented boundary; no enforcement artefact |
-| D46/D85 | `pal/` per (architecture x RTOS); board selects | 🟡 | `edge/pal.h`, `pal/os`, `pal/host`, `pal/rtos/freertos`; dependency enforced by `check_layer_dependencies.py` |
+| D46/D85 | `pal/` per (architecture x RTOS); board selects | 🟡 | `edge/pal.h`, `pal/os`, `pal/host`, `pal/rtos/freertos`, `pal/cortex-m-bare`; dependency enforced by `check_layer_dependencies.py` |
 | D48 | Driver model neutral; infra depends on narrow ports only | ✅ | `infra -> soc` is denied with **no exception** (`check_layer_dependencies.py`); SoC-bound (register/HAL) code lives in `soc/<soc>/`, OS device models in `pal/<os>/`, binding in product glue. A second portable implementation is tracked in #57 |
 | D49 | Framework and `sys` have zero SoC knowledge; `soc/` is a support package selected by the board | ✅ | `soc/mps2` selected by `board/mps2`; `soc -> soc` only, enforced by `check_layer_dependencies.py` |
 | D57-D61 | Host unit tests, cmocka, fakes, fake clock/PAL | 🟡 | cmocka + host PAL, and D57's host half is executable now: reusable contract suites in `tests/contract/` (app lifecycle, port shapes, board IRQ) are run by every app test and by `tests/test_contract.c`, with `tests/contract_violations/` making CTest prove the suites reject a broken implementation. Still open: a central `test/fakes/` (D60), Renode/HIL (D62/D63, #22/#30) |

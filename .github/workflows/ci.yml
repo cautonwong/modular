@@ -410,7 +410,8 @@ jobs:
             board/example/src/board.c \
             board/mps2/src/board.c \
             pal/host/src/host.c \
-            pal/os/src/idle.c
+            pal/os/src/idle.c \
+            pal/cortex-m-bare/src/pal_cortex_m.c
       - name: cppcheck
         run: |
           cppcheck \
@@ -433,6 +434,7 @@ jobs:
             -I soc/mps2/include \
             -I pal/host/include \
             -I pal/os/include \
+            -I pal/cortex-m-bare/include \
             -I pal/rtos/include \
             edge_module sys app board infra pal product tests
 
