@@ -51,6 +51,8 @@ static void isr_exit(void *self) {
     (void)self;
 }
 
+/* Raw wait primitive; see the ARM branch for the D71 ownership note. The host
+ * fallback has nothing to wait for. */
 static void idle(void *self) {
     (void)self;
 }
@@ -67,6 +69,13 @@ static uint32_t primask_read(void) {
     return primask;
 }
 
+/*
+ * The saved slot is written only on the outermost enter, which is safe because a
+ * critical section masks every maskable interrupt: no masking context can run
+ * inside one, so nothing can interleave between the read and the mask (or inside
+ * the section) and corrupt it. NMI/HardFault are not masked and are excluded by
+ * the header - see it for why one slot is sufficient and what breaks otherwise.
+ */
 static void critical_enter(void *self) {
     edge_pal_cortex_m_state_t *state = (edge_pal_cortex_m_state_t *)self;
     if (state == NULL)
@@ -122,6 +131,9 @@ static void isr_exit(void *self) {
     (void)self;
 }
 
+/* Raw wait primitive. The D71 atomic sequence (mask -> re-check -> wait -> unmask)
+ * is edge_os_idle_wait() in pal/os, which calls this inside its mask; do not move
+ * the sequence here or it double-masks and re-checks outside its own protection. */
 static void idle(void *self) {
     (void)self;
     __asm volatile("wfi" ::: "memory");
@@ -160,6 +172,8 @@ void edge_pal_cortex_m_bare_init(edge_pal_cortex_m_state_t *state) {
     state->load = SYSTICK_LOAD_DEFAULT;
     state->last = SYSTICK_LOAD_DEFAULT; /* the first sample cannot look like a wrap */
 #if defined(__arm__)
+    /* Takes over SysTick. Excluded with any RTOS that owns the tick - see the
+     * header's ownership note. */
     SYSTICK_LOAD = SYSTICK_LOAD_DEFAULT;
     SYSTICK_VAL = 0u;
     SYSTICK_CTRL = 0x5u; /* processor clock, no tick interrupt, enable */
