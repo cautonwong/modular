@@ -412,6 +412,7 @@ jobs:
             pal/host/src/host.c \
             pal/os/src/idle.c \
             pal/os/src/tick64.c \
+            pal/eos/src/eos.c \
             pal/cortex-m-bare/src/pal_cortex_m.c
       - name: cppcheck
         run: |
@@ -435,6 +436,7 @@ jobs:
             -I soc/mps2/include \
             -I pal/host/include \
             -I pal/os/include \
+            -I pal/eos/include \
             -I pal/cortex-m-bare/include \
             -I pal/rtos/include \
             edge_module sys app board infra pal product tests
