@@ -5,6 +5,7 @@
 #include "edge/modules.h"
 #include "meter/sys.h"
 #include "mps2/board.h"
+#include "pal_cortex_m/pal_cortex_m.h"
 #include "relay/relay.h"
 
 #include <stdint.h>
@@ -12,12 +13,9 @@
 void product_meter_mps2_make_storage(dlt645_storage_if_t *out, void *flash_state);
 void product_meter_mps2_make_relay_out(relay_out_if_t *out, void *gpio_state);
 
-static uint64_t monotonic_ticks(void *self) {
-    return ++(*(uint64_t *)self);
-}
+static edge_pal_cortex_m_state_t g_pal_state;
 
 int main(void) {
-    uint64_t clock_tick = 0u;
     uint8_t flash_state[64] = {0};
     uint8_t gpio_state[8] = {0};
     dlt645_storage_if_t storage;
@@ -27,8 +25,8 @@ int main(void) {
     edge_module_t *apps[2];
     edge_event_t event_storage[16];
     edge_event_queue_t event_queue;
-    edge_clock_port_t clock = {
-        .monotonic_ticks = monotonic_ticks, .wall_time = NULL, .self = &clock_tick};
+    edge_clock_port_t clock;
+    edge_irq_guard_t guard;
     edge_event_sink_t event_sink;
     edge_sys_subscription_t subscriptions[4];
     edge_sys_t sys;
@@ -45,7 +43,13 @@ int main(void) {
 
     if (edge_event_queue_init(&event_queue, event_storage, 16u) < 0)
         return 1;
-    event_sink = (edge_event_sink_t){.queue = &event_queue, .clock = &clock, .guard = NULL};
+    edge_pal_cortex_m_bare_init(&g_pal_state);
+    const edge_pal_port_t pal = edge_pal_cortex_m_bare_port(&g_pal_state);
+    clock = (edge_clock_port_t){
+        .monotonic_ticks = pal.monotonic_ticks, .wall_time = NULL, .self = pal.self};
+    guard = (edge_irq_guard_t){
+        .enter = pal.critical_enter, .exit = pal.critical_exit, .self = pal.self};
+    event_sink = (edge_event_sink_t){.queue = &event_queue, .clock = &clock, .guard = &guard};
     board_mps2_init(&event_sink);
 
     if (sys_meter_init(&sys, apps, 2u, required, 2u, &event_queue, subscriptions, 4u) < 0)

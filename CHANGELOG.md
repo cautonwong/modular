@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Bare-metal Cortex-M PAL (`pal/cortex-m-bare`, D46/D85): PRIMASK critical
+  sections (nesting counted), DSB memory barrier, free-running SysTick extended to
+  64-bit monotonic time, and IPSR ISR detection, with a host fallback so the port
+  is analyzable and contract-tested off target. The MPS2 product uses it as the
+  event-sink guard and clock.
 - Stack usage gate (D75): `-fstack-usage` on ARM/RISC-V, `check_stack_usage.py`
   (per-function budget + JSON report, wired into all four firmware jobs), plus
   FreeRTOS `configCHECK_FOR_STACK_OVERFLOW 2` and a task high-water assertion.
