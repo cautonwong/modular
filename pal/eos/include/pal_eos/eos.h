@@ -78,6 +78,13 @@ edge_status_t edge_eos_task_add(edge_eos_t *eos, const char *name, edge_rtos_tas
  * 0 means the round was idle. */
 uint32_t edge_eos_run_once(edge_eos_t *eos);
 
+/*
+ * Bind this executive to the neutral RTOS port (`pal_rtos/rtos.h`): after this, the
+ * `edge_rtos_*` functions drive this executive, which is what lets the RTOS contract
+ * be tested on the host. The composition root calls it before creating tasks.
+ */
+edge_status_t edge_eos_bind_rtos(edge_eos_t *eos);
+
 /* The edge_rtos_start() analogue. Does not return until edge_eos_stop(). */
 void edge_eos_run(edge_eos_t *eos);
 void edge_eos_stop(edge_eos_t *eos);
