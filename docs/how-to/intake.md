@@ -96,8 +96,11 @@
   自己定义的端口读 —— 规则与"可检查形式"（token 用 generation，端口拒绝过期 token）见
   [`../payload-token.md`](../payload-token.md)。**边界**：若既有代码把指针**留到调用之后**
   （缓冲区队列、延迟解析），两侧生命周期不同，那是要重新设计的地方，不是能机械翻译的地方。
-- **时间基准没有统一 policy**：`HAL_GetTick()`/`millis()`/`delay_ms` 如何映射到 PAL
-  tick、RTOS tick、以及 tickless 之后的时间线，尚未成文。
+- **时间基准已写成 policy**：三个时间域（PAL 单调计数 / 内核 tick / RTC 墙钟）、每种配置下
+  "一个单位是多少"、以及 legacy 的 `HAL_GetTick()`/`millis()`/`delay_ms` 各自变成什么，见
+  [`../time-model.md`](../time-model.md)。**特别注意**：`period`/`budget` 的单位来自被注入的
+  时钟 —— 同一个 `period = 100` 在裸机镜像里是约 4 µs（处理器周期），在 RTOS 镜像里是 100 ms。
+  迁移时必须**换算**，照抄会静默改变四个数量级的行为。
 - **三处既有规则互相矛盾**（厂商 HAL 落点 / 向量表归属 / `board_irq_attach`）：
   [#150](https://github.com/cautonwong/modular/issues/150)。
 
