@@ -1,0 +1,5 @@
+{
+  "runs_on": "fixture",
+  "toolchain_dirs": ["cmake/toolchains"],
+  "tools": { "python3": { "minimum": "0.1", "verified": "0.1", "gate": "fixture" } }
+}

@@ -60,7 +60,7 @@ def measure(tool: str):
     return parse(output), output.strip().splitlines()[0] if output.strip() else ""
 
 
-def check(manifest_path: Path) -> tuple:
+def check(root: Path, manifest_path: Path) -> tuple:
     if not manifest_path.is_file():
         return (1, [f"missing toolchain manifest: {manifest_path}"])
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -81,13 +81,44 @@ def check(manifest_path: Path) -> tuple:
                 f"{tool}: {'.'.join(map(str, found))} < required {spec['minimum']}"
             )
 
+    # Toolchain *files*, not tools: a vendor toolchain that appears in the tree
+    # without the manifest noticing is how a build gains a dependency nobody
+    # declared. The reverse (a declared file that is gone) is decoration.
+    toolchains = manifest.get("toolchains", {})
+    declared = {spec.get("file") for spec in toolchains.values() if spec.get("file")}
+    present = []
+    for directory in manifest.get("toolchain_dirs", []):
+        directory_path = root / directory
+        if directory_path.is_dir():
+            present.extend(
+                p.relative_to(root).as_posix() for p in sorted(directory_path.glob("*.cmake"))
+            )
+    for relative in present:
+        if relative not in declared:
+            problems.append(
+                f"{relative}: a toolchain file the manifest does not declare "
+                f"(add it under 'toolchains', or it is an undeclared build dependency)"
+            )
+    for name, spec in sorted(toolchains.items()):
+        relative = spec.get("file", "")
+        if not relative or not (root / relative).is_file():
+            problems.append(f"toolchain '{name}': file '{relative}' does not exist")
+
     print(f"toolchain manifest: {manifest_path}")
     print(f"declared runner: {manifest.get('runs_on', 'unknown')}")
     print("\n".join(rows))
+    for name, spec in sorted(toolchains.items()):
+        print(f"  file    {name:<20} {spec.get('file')}")
 
     if problems:
         return (1, problems)
-    return (0, [f"toolchain check: PASS ({len(manifest.get('tools', {}))} tools declared)"])
+    return (
+        0,
+        [
+            f"toolchain check: PASS ({len(manifest.get('tools', {}))} tools, "
+            f"{len(toolchains)} toolchain files declared)"
+        ],
+    )
 
 
 def main(argv) -> int:
@@ -101,7 +132,7 @@ def main(argv) -> int:
     if not manifest.is_absolute():
         manifest = root / manifest
 
-    code, messages = check(manifest)
+    code, messages = check(root, manifest)
     if code != 0:
         print("Toolchain drift:")
         for message in messages:

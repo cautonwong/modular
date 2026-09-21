@@ -3,15 +3,75 @@
   "note": "The versions CI actually runs. `minimum` is what the project still supports; `verified` is what the ubuntu-24.04 runner ships and what .devcontainer/Dockerfile installs. check_toolchain.py fails when a tool that is present on the host is older than its minimum, and skips tools that are absent (a host job has no ARM toolchain).",
   "why_clang_format_is_special": "clang-format changes its output between major versions. Formatting a tree with 14 and checking it with 18 produces failures that are not real. Keep the local major version equal to CI's.",
   "tools": {
-    "gcc": { "minimum": "13.0", "verified": "13.2", "gate": "host build, sanitizers, coverage" },
-    "cmake": { "minimum": "3.20", "verified": "3.28", "gate": "configure (CMakeLists requires 3.20)" },
-    "ninja": { "minimum": "1.10", "verified": "1.11", "gate": "build" },
-    "clang": { "minimum": "18.0", "verified": "18.1", "gate": "host build, sanitizers, CodeQL" },
-    "clang-format": { "minimum": "18.0", "verified": "18.1", "gate": "formatting" },
-    "clang-tidy": { "minimum": "18.0", "verified": "18.1", "gate": "static analysis" },
-    "cppcheck": { "minimum": "2.13", "verified": "2.13", "gate": "static analysis" },
-    "python3": { "minimum": "3.10", "verified": "3.12", "gate": "guards, generators, docs lint, tooling" },
-    "arm-none-eabi-gcc": { "minimum": "10.3", "verified": "13.2", "gate": "Cortex-M0/M4 cross build" },
-    "qemu-system-arm": { "minimum": "6.2", "verified": "8.2", "gate": "MPS2 QEMU smoke" }
-  }
+    "gcc": {
+      "minimum": "13.0",
+      "verified": "13.2",
+      "gate": "host build, sanitizers, coverage"
+    },
+    "cmake": {
+      "minimum": "3.20",
+      "verified": "3.28",
+      "gate": "configure (CMakeLists requires 3.20)"
+    },
+    "ninja": {
+      "minimum": "1.10",
+      "verified": "1.11",
+      "gate": "build"
+    },
+    "clang": {
+      "minimum": "18.0",
+      "verified": "18.1",
+      "gate": "host build, sanitizers, CodeQL"
+    },
+    "clang-format": {
+      "minimum": "18.0",
+      "verified": "18.1",
+      "gate": "formatting"
+    },
+    "clang-tidy": {
+      "minimum": "18.0",
+      "verified": "18.1",
+      "gate": "static analysis"
+    },
+    "cppcheck": {
+      "minimum": "2.13",
+      "verified": "2.13",
+      "gate": "static analysis"
+    },
+    "python3": {
+      "minimum": "3.10",
+      "verified": "3.12",
+      "gate": "guards, generators, docs lint, tooling"
+    },
+    "arm-none-eabi-gcc": {
+      "minimum": "10.3",
+      "verified": "13.2",
+      "gate": "Cortex-M0/M4 cross build"
+    },
+    "qemu-system-arm": {
+      "minimum": "6.2",
+      "verified": "8.2",
+      "gate": "MPS2 QEMU smoke"
+    }
+  },
+  "toolchain_dirs": [
+    "cmake/toolchains",
+    ".github/arm",
+    ".github/riscv"
+  ],
+  "toolchains": {
+    "arm-none-eabi": {
+      "file": ".github/arm/arm-none-eabi.cmake",
+      "gate": "Cortex-M0/M4 cross build (the tools themselves are declared above); the file still lives under .github/ until #125 moves startup/link/toolchain into the SoC packages"
+    },
+    "riscv-elf": {
+      "file": "cmake/toolchains/riscv-elf.cmake",
+      "gate": "RISC-V 32 QEMU firmware"
+    },
+    "iar-arm": {
+      "file": "cmake/toolchains/iar-arm.cmake",
+      "gate": "IAR Cortex-M firmware (D25); needs iccarm plus a licence, so it is not installed in CI and is never required to be present"
+    }
+  },
+  "toolchain_note": "Vendor toolchains are declared here so a product can name one and so a new toolchain file cannot be added without the manifest noticing: check_toolchain.py fails when a *.cmake under `toolchain_dirs` is not declared, or when a declared file does not exist. They are never *required* to be installed - absence is skipped, exactly like the ARM toolchain on a host job."
 }
