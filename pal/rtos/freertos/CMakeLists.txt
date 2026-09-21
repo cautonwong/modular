@@ -15,6 +15,28 @@ if(NOT freertos_kernel_POPULATED)
     FetchContent_Populate(freertos_kernel)
 endif()
 
+# The pin is verified where it is used, not only in ci/dependencies.json: fetching by
+# tag keeps the clone shallow and fast, and this catches the case the whole exercise
+# is about - a tag that moved, or a pin that was edited in one place only.
+if(NOT DEFINED EDGE_MODULE_FREERTOS_KERNEL_COMMIT)
+    message(FATAL_ERROR
+        "EDGE_MODULE_FREERTOS_KERNEL_COMMIT is not set; the kernel pin is mandatory "
+        "(ci/dependencies.json, docs/dependencies.md)")
+endif()
+execute_process(
+    COMMAND git -C ${freertos_kernel_SOURCE_DIR} rev-parse HEAD
+    OUTPUT_VARIABLE EDGE_FREERTOS_HEAD
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if(NOT EDGE_FREERTOS_HEAD STREQUAL "${EDGE_MODULE_FREERTOS_KERNEL_COMMIT}")
+    message(FATAL_ERROR
+        "FreeRTOS-Kernel revision drift: the checkout is ${EDGE_FREERTOS_HEAD} but the pin is "
+        "${EDGE_MODULE_FREERTOS_KERNEL_COMMIT} (tag ${EDGE_MODULE_FREERTOS_KERNEL_TAG}). Either the "
+        "tag moved or the pin was changed in one place only; see docs/dependencies.md")
+endif()
+message(STATUS "FreeRTOS-Kernel pinned at ${EDGE_FREERTOS_HEAD} (${EDGE_MODULE_FREERTOS_KERNEL_TAG})")
+
 # Third-party sources, so deliberately outside edge_enable_quality().
 add_library(freertos_kernel STATIC
     ${freertos_kernel_SOURCE_DIR}/tasks.c

@@ -1,0 +1,18 @@
+{
+  "note": "Every third-party component the build fetches. `commit` is the truth (a git tag can be moved); `version` is the tag, kept for humans. check_dependencies.py verifies this record in both directions - the shape, and that the CMake pin each entry names actually carries that commit - and the SBOM/provenance generators read this file instead of hard-coding components. The upgrade policy is docs/dependencies.md.",
+  "dependencies": [
+    {
+      "name": "FreeRTOS-Kernel",
+      "version": "V11.1.0",
+      "commit": "dbf70559b27d39c1fdb68dfb9a32140b6a6777a0",
+      "tag_object": "f388a5c8078e152913e4eb3c5d75bf89561392df",
+      "url": "https://github.com/FreeRTOS/FreeRTOS-Kernel.git",
+      "licence": "MIT",
+      "used_by": "pal/rtos/freertos",
+      "pin_variable": "EDGE_MODULE_FREERTOS_KERNEL_COMMIT",
+      "pin_file": "CMakeLists.txt",
+      "owner": "platform",
+      "note": "V11.1.0 is an annotated tag; the tag object is recorded because it is what `git ls-remote` returns, but the commit is what the build verifies. Fetched by tag and shallow for speed, then the resolved revision is checked against this commit at configure time."
+    }
+  ]
+}

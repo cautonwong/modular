@@ -1,0 +1,15 @@
+{
+  "note": "fixture: the CMakeLists in this tree pins a different commit, so the checker must fail",
+  "dependencies": [
+    {
+      "name": "demo",
+      "version": "v1",
+      "commit": "0123456789abcdef0123456789abcdef01234567",
+      "url": "https://example.invalid/demo.git",
+      "licence": "MIT",
+      "used_by": "pal/demo",
+      "pin_variable": "EDGE_MODULE_FIXTURE_COMMIT",
+      "pin_file": "CMakeLists.txt"
+    }
+  ]
+}

@@ -8,6 +8,32 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `ci/dependencies.json` plus `check_dependencies.py`: every fetched third-party
+  component is pinned to an immutable revision, and the record is enforced in two
+  places. The checker validates the shape (a 40-hex commit, a tag, a url, a licence,
+  an existing `used_by`), rejects duplicates and an empty record, and **requires the
+  CMake pin to carry exactly the commit the manifest names** - two records that
+  disagree are worse than one. The fetching port additionally compares the resolved
+  checkout against that commit at configure time, which is what catches the case the
+  whole exercise is about: a tag that moved. The fetch stays shallow and by tag, so
+  no CI run pays for a full clone.
+- `docs/dependencies.md`: the bump procedure, what a bump has to pass (including the
+  starvation probe in both directions for a kernel, because that is what a scheduling
+  change breaks), the rollback path and why the commit is what makes it reliable, and
+  the named gaps (no upstream watch, no content hashes).
+- The SBOM and the provenance metadata now **read that manifest** instead of listing
+  hard-coded components, so FreeRTOS appears as a `library` component with its
+  `pin:commit`, and `build-metadata.json` carries a `dependencies` array. A second and
+  third kernel therefore become one manifest entry each - which is why this landed
+  before ThreadX and Zephyr (#134, #82) rather than after them.
+
+### Changed
+
+- `EDGE_MODULE_FREERTOS_KERNEL_COMMIT` is now the pin next to the existing
+  `..._TAG`, which stays as the human-readable label. The configure fails with
+  `FreeRTOS-Kernel revision drift` if the two disagree with reality.
+### Added
+
 - `docs/rtos-ports.md`: the preparation for a second and third kernel. It records
   what `pal_rtos/rtos.h` now **pins** rather than inherits, and lays ThreadX and
   Zephyr beside FreeRTOS as a capability table (task storage, start semantics,
