@@ -51,6 +51,23 @@ CASES = [
     ("check_product_board_binding.py", "tests/guards/binding_bad_orphan_fw", False),
     ("check_commit_messages.py", "tests/guards/commits_good.txt", True),
     ("check_commit_messages.py", "tests/guards/commits_bad.txt", False),
+    (
+        "check_commit_messages.py",
+        ".",
+        True,
+        ["--pr-title", "fix(board): register the shared-IRQ handler", "--pr-number", "999"],
+    ),
+    (
+        "check_commit_messages.py",
+        ".",
+        False,
+        [
+            "--pr-title",
+            "feat(board): shared-IRQ dispatch and board_irq_attach, and resolve three conflicting rules (#150)",
+            "--pr-number",
+            "152",
+        ],
+    ),
     ("check_docs.py", "tests/guards/docs_good", True),
     ("check_docs.py", "tests/guards/docs_bad", False),
     ("check_module_contract.py", "tests/guards/module_contract_good", True),

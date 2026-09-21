@@ -7,6 +7,15 @@ Three modes:
     check_commit_messages.py --file <path>        # one message file (commit-msg hook)
     check_commit_messages.py <messages-file>      # fixture file, records split by '==='
 
+The `--range` mode sees what the branch is *now*. On a pull request it cannot see
+what `main` will get: a squash merge rewrites the branch commits into one subject
+built from the **pull request title plus ` (#<number>)`**. A 97-character title
+passes every check on the branch and fails on `main` with 104, which is exactly
+how this repository went red once. So a fourth mode checks the prospective squash
+subject instead:
+
+    check_commit_messages.py --pr-title <title> --pr-number <number>
+
 Exemptions (never a failure):
 
 * merge commits (more than one parent, or a `Merge ` subject);
@@ -100,6 +109,17 @@ def from_file(path: Path) -> list:
     return problems
 
 
+def squash_subject(title: str, number: str) -> str:
+    """What GitHub writes on `main`: the pull request title plus ' (#<number>)'."""
+    return f"{title} (#{number})"
+
+
+def from_pr_title(title: str, number: str) -> list:
+    """Validate the subject the *squash merge* will create, not the branch's own."""
+    subject = squash_subject(title, number)
+    return [f"the squash subject would be {subject!r}: {p}" for p in check_message(subject)]
+
+
 def check(target: Path) -> tuple:
     problems = from_file(target)
     if problems:
@@ -108,15 +128,22 @@ def check(target: Path) -> tuple:
 
 
 def main(argv) -> int:
-    if len(argv) > 2 and argv[1] == "--range":
-        problems = from_range(argv[2])
-    elif len(argv) > 2 and argv[1] == "--file":
-        problems = from_file(Path(argv[2]))
-    elif len(argv) > 1:
-        problems = from_file(Path(argv[1]))
+    # Options are scanned rather than positional: the guard self-test passes the
+    # fixture root first, then the extra arguments, so a fixed position would not
+    # survive both callers.
+    args = argv[1:]
+    if "--pr-title" in args and "--pr-number" in args:
+        problems = from_pr_title(args[args.index("--pr-title") + 1], args[args.index("--pr-number") + 1])
+    elif "--range" in args:
+        problems = from_range(args[args.index("--range") + 1])
+    elif "--file" in args:
+        problems = from_file(Path(args[args.index("--file") + 1]))
     else:
-        print(__doc__)
-        return 2
+        positional = [a for a in args if not a.startswith("--")]
+        if not positional:
+            print(__doc__)
+            return 2
+        problems = from_file(Path(positional[0]))
     for problem in problems:
         print(f"  {problem}" if not problem.startswith("git log") else problem)
     if problems:

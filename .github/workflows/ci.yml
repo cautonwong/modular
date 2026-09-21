@@ -505,6 +505,14 @@ jobs:
           fi
           echo "commit range: $RANGE"
           python3 .github/scripts/check_commit_messages.py --range "$RANGE"
+          # The range check sees the branch; the squash merge writes a *different*
+          # subject on main - the PR title plus " (#<number>)". Checking that here is
+          # what keeps a too-long title from going green on the PR and red on main.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python3 .github/scripts/check_commit_messages.py \
+              --pr-title "${{ github.event.pull_request.title }}" \
+              --pr-number "${{ github.event.pull_request.number }}"
+          fi
       - name: Forbidden RTOS/framework dependencies
         run: |
           if grep -RInE '#include[[:space:]]*["<](FreeRTOS|zephyr|cmsis_os|rtthread)' \
