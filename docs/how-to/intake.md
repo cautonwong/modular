@@ -92,9 +92,10 @@
 搬真实代码之前，下面这些**必须知道它们还没解决**：
 
 - **预编译库（`.a`/`.lib`）没有落点与溯源规定**（[#149](https://github.com/cautonwong/modular/issues/149)）。
-- **指针载荷没有通路**：事件是纯标量，而 D66（token + 经端口读载荷）在
-  [`../adr-conformance.md`](../adr-conformance.md) 里仍是 ❌。传指针的既有接口**无法**
-  变成事件 —— 这是 legacy 接入的结构性阻塞（[#147](https://github.com/cautonwong/modular/issues/147)）。
+- **指针载荷有路了**（D66 已落地）：事件带标量 token，数据留在生产者的缓冲区，app 经
+  自己定义的端口读 —— 规则与"可检查形式"（token 用 generation，端口拒绝过期 token）见
+  [`../payload-token.md`](../payload-token.md)。**边界**：若既有代码把指针**留到调用之后**
+  （缓冲区队列、延迟解析），两侧生命周期不同，那是要重新设计的地方，不是能机械翻译的地方。
 - **时间基准没有统一 policy**：`HAL_GetTick()`/`millis()`/`delay_ms` 如何映射到 PAL
   tick、RTOS tick、以及 tickless 之后的时间线，尚未成文。
 - **三处既有规则互相矛盾**（厂商 HAL 落点 / 向量表归属 / `board_irq_attach`）：

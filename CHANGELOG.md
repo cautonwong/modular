@@ -8,6 +8,20 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `docs/payload-token.md` and the rule in `edge/event.h`: how a payload travels
+  without a pointer (D66). The event carries scalars only, the payload stays in the
+  producer's buffer, and the consumer reads it through a port it defines itself
+  (D14). The document also gives the **checkable form**: make the token a
+  generation and the consumer's port can refuse a stale one, which turns "read
+  before the next event with the same id" from a discipline into a precondition.
+  `tests/test_payload_token.c` pins the round trip, the refusal of a stale token,
+  and why the consumer copies - the three parts a legacy `on_frame(const uint8_t *,
+  size_t)` callback has to become. This closes the structural blocker #147 named
+  for legacy interfaces that pass buffers, and the intake guide no longer lists it
+  as not ready.
+
+### Added
+
 - The SoC package carries **code**, not only headers: `soc/mps2` declares
   `SOURCES src/soc_mps2.c` and the NVIC priority encoder moved there from a header
   inline. The target layout (`docs/adr.md` section 24) puts register drivers and

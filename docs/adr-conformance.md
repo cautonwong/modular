@@ -44,7 +44,7 @@ Legend: ✅ implemented · 🟡 partial · ❌ not implemented · ⛔ contradict
 | D55 | Central `edge/modules.h`, `0xNN00` segment, allocated in blocks per owning layer | ✅ | Table-driven `EDGE_MODULE_IDS` (one line per ID; assertions generated from it); `check_module_ids.py` rejects duplicates, misaligned values, out-of-block values and layer tokens without a block |
 | D56 | ABI version object | 🟡 | `_Static_assert` layout only |
 | D65 | One SPSC queue per producer | ❌ | Single caller-owned queue + injected `edge_irq_guard_t` |
-| D66 | Scalar event + token; payload read through a port | ❌ | No buffer/token path yet |
+| D66 | Scalar event + token; payload read through a port | ✅ | The rule is written where implementers look (`edge/event.h` next to `edge_event_t`, plus `docs/payload-token.md`): the payload stays in the producer's buffer, the consumer reads it through a port it defines (D14; `edge_byte_reader_t` is the canonical byte shape), and a frame is invalidated by the next event with the same id. `tests/test_payload_token.c` pins both halves, including the *checkable* form: when the token is a generation the consumer's port can refuse a stale one, so the lifecycle rule stops being a discipline. Not enforced by a gate, and cannot be: `check_event_payload.py` sees scalar fields and cannot tell a length from an address, which is why the anti-pattern is documented rather than detected |
 | D67 | API catalogue (framework/runtime/platform/ports) | 🟡 | `errors.h`/`modules.h`/`ports.h` present; naming is `edge_sys_*`, not `sys_*` |
 | D69 | Bounded runner step | ✅ | `max_events_per_run` (default 8), one due poll per module per step |
 | D70 | Reentrant `sys_publish` deferred into a runner queue | ✅ | `edge_sys_publish()` + `pending_high_water` |
