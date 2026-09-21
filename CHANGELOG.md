@@ -8,6 +8,39 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `tests/contract/rtos_contract.{c,h}`: the RTOS port contract as an executable
+  suite, with its refutation in `tests/contract_violations/rtos.c` - a port that
+  accepts a NULL entry point (a mistake that becomes a jump to address zero the
+  first time the scheduler runs a task) must be rejected, and CTest is told to expect
+  that failure so the suite cannot quietly stop rejecting it. The suite runs on the
+  host against `pal/eos`, which now implements the neutral contract with the same
+  function names a kernel port uses. That is the point of the change: without a
+  host-side port, every assertion in the contract would need a target and a kernel to
+  mean anything, and the three ports would be "conforming" only in prose.
+
+### Changed
+
+- The assert contract (`edge_rtos_assert_failed`, its hook and its counter) moved out
+  of the FreeRTOS port into `pal/rtos/src/assert.c`, so every port shares one
+  implementation and the suite tests it once. It was never kernel-specific: a product
+  maps its kernel's assert onto it, and what follows - count it, tell the composition
+  root, halt rather than continue - is the same everywhere.
+- `pal/eos` gained `edge_eos_bind_rtos()` and the port implementation. Its
+  differences from a kernel are documented where they are decided, because they are
+  the contract's edge cases rather than gaps: no per-task stack, so `stack_words` is
+  accepted and ignored and the high-water mark is 0, which the contract defines as
+  *unavailable* rather than *plenty*; and no blocking, so the wake pair is a no-op and
+  `wait_for_work()` reports work instead of waiting - honest for a fixed-rate
+  executive, and not to be mistaken for power management.
+- The suite also records what it deliberately cannot check and why: anything needing
+  the scheduler to run. `edge_rtos_start()` does not return by contract, and adding a
+  test-only "step" entry point would put a test primitive into the product contract.
+  Priority direction is therefore evidenced by construction - EOS's own test asserts
+  that priority 0 runs first, and a kernel port proves it through its product's
+  behaviour test.
+
+### Added
+
 - `ci/dependencies.json` plus `check_dependencies.py`: every fetched third-party
   component is pinned to an immutable revision, and the record is enforced in two
   places. The checker validates the shape (a 40-hex commit, a tag, a url, a licence,

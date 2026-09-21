@@ -10,12 +10,13 @@ add_library(edge_test_contract STATIC
     contract/app_contract.c
     contract/port_contract.c
     contract/board_contract.c
+    contract/rtos_contract.c
 )
 target_include_directories(edge_test_contract PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${EDGE_ROOT}/edge_module/include
 )
-target_link_libraries(edge_test_contract PUBLIC edge_module PkgConfig::CMOCKA)
+target_link_libraries(edge_test_contract PUBLIC edge_module pal_os pal_rtos PkgConfig::CMOCKA)
 edge_enable_quality(edge_test_contract)
 
 edge_add_host_test(test_contract SOURCES test_contract.c
@@ -41,6 +42,7 @@ endfunction()
 edge_add_contract_violation_test(test_contract_violation_app contract_violations/app.c)
 edge_add_contract_violation_test(test_contract_violation_port contract_violations/port.c)
 edge_add_contract_violation_test(test_contract_violation_board contract_violations/board.c)
+edge_add_contract_violation_test(test_contract_violation_rtos contract_violations/rtos.c)
 
 edge_add_host_test(test_event SOURCES test_event.c DEPS edge_module)
 edge_add_host_test(test_sys SOURCES test_sys.c DEPS edge_module sys_example sys_meter)
@@ -63,6 +65,8 @@ edge_add_host_test(test_eos SOURCES test_eos.c DEPS pal_eos pal_rtos)
 edge_add_host_test(test_board_irq_attach SOURCES test_board_irq_attach.c
     DEPS board_mps2 edge_module)
 edge_add_host_test(test_payload_token SOURCES test_payload_token.c DEPS edge_module)
+edge_add_host_test(test_rtos_contract SOURCES test_rtos_contract.c
+    DEPS edge_test_contract pal_eos)
 edge_add_host_test(test_runner_threads SOURCES test_runner_threads.c DEPS sys_example)
 edge_add_host_test(test_flash_glue SOURCES test_flash_glue.c ../product/example/glue.c
     DEPS app_dlt645 infra_flash)

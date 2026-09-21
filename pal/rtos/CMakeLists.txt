@@ -1,5 +1,6 @@
-# The neutral RTOS interface (edge_pal_port_t, task entry, assert hook). Header
-# package only -- an implementation such as freertos/ provides the code.
-edge_add_pal(rtos HEADERS DEPS edge_module pal_os)
+# The neutral RTOS interface: the host contract (`pal_rtos/rtos.h`), the assert
+# contract (`pal_rtos/assert.h`), and the one its implementation needs to be shared
+# by every port rather than copied into each.
+edge_add_pal(rtos SOURCES src/assert.c DEPS edge_module pal_os)
 
 add_subdirectory(freertos)
