@@ -6,6 +6,40 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The Cortex-M4 smoke's on-target clock self-check was too expensive to keep: 400k
+  samples with 64 spins each (~25M iterations) took ~1 s locally and exceeded the
+  CI step's 10 s budget, so the firmware was killed (`rc=137`) and a correctness
+  check became a timeout on shared runners. It is replaced by two cheap
+  deterministic checks - a 256-sample non-decreasing burst over real reads, plus a
+  synthetic wrap driven through the extension arithmetic that pins the exact delta
+  and the wrap count. ~70 ms locally, and the wrap defect is now caught 3/3
+  instead of 2/3. Recorded in `docs/flake-ledger.md`, with the rule this is the
+  third instance of: an assertion must not measure elapsed time on an emulated
+  target to decide whether the time source works.
+
+### Added
+
+- `board_mps2_irq_attach()` + `board_mps2_irq_dispatch()` (D84): one interrupt line
+  can carry several handlers, dispatched in registration order from a fixed static
+  table (no allocation, D21) with a bounded walk (D75). A line's vector entry is
+  now the dispatcher rather than a single handler, so a second consumer of the
+  same line needs no new vector - and the board's own timer consumer registers
+  through the same public entry point, so the built-in path exercises the
+  mechanism instead of reaching around it. Host-tested in
+  `tests/test_board_irq_attach.c`.
+
+### Changed
+
+- Resolved three contradictions between frozen documents that would have blocked
+  the first real board (recorded in `docs/adr-amendments.md`): vendor HAL lives in
+  `soc/<soc>/` and glue only adapts (`docs/phase1.md` reworded to match §24); the
+  vector table belongs to the board, with startup/link templates in the SoC
+  package; and D84's `board_irq_attach` is implemented. `docs/how-to/add-board.md`
+  gained the vector-ownership and multi-IRQ steps, and the D84 conformance row
+  moved to implemented.
+
 ### Added
 
 - `ci/exemptions.json` + `check_exemptions.py`: every quality-gate exemption

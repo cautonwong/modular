@@ -67,46 +67,59 @@ int main(void) {
         return 1;
     edge_pal_cortex_m_bare_init(&g_pal_state);
     const edge_pal_port_t pal = edge_pal_cortex_m_bare_port(&g_pal_state);
-    /*
-     * The SysTick register read is the one part the host tests cannot reach (it
-     * lives inside `#if __arm__`), so assert its core property here, on target.
-     *
-     * The property is monotonic *non-decreasing* plus eventual advance, not
-     * "strictly increasing between two adjacent reads": two reads can legitimately
-     * report the same count (a coarse virtual clock under QEMU, or a read faster
-     * than the counter's resolution), and demanding strictness there would test
-     * the harness rather than the port. What must never happen is the backwards
-     * jump the wrap race produced - a full period (~0.67 s at 25 MHz) - which
-     * stalls every periodic app and reports a fake budget overrun.
-     */
+
 #ifdef EDGE_QEMU_SEMIHOSTING
     /*
-     * Smoke-only self-check (the real register read lives inside `#if __arm__`, so
-     * the host tests cannot reach it): sample for a long window and require that
-     * the reported clock never goes backwards and does advance. The window is long
-     * because the defect - a wrap crossed between two samples but not accounted for
-     * - makes the clock fall back by nearly a whole period (~0.67 s at 25 MHz), and
-     * a wrap has to actually happen inside the window for it to be caught.
+     * Two cheap checks, and deliberately not a third.
      *
-     * Real work between samples, not just more SysTick reads: under QEMU the
-     * virtual clock advances with executed instructions, so a tight MMIO loop can
-     * sample the same counter value every time, which would test the harness
-     * rather than the port. Deliberately not a proof - the deterministic
-     * wrap-crossing refutation is tests/test_pal_cortex_m.c.
+     * (1) A short burst of real reads must never go backwards. Real work happens
+     *     between samples because under QEMU the virtual clock advances with
+     *     executed instructions, so a tight loop of MMIO reads can sample one value
+     *     repeatedly and would test the harness instead of the port.
+     *
+     * (2) The 64-bit extension arithmetic across a wrap, driven synthetically. This
+     *     is deterministic - it does not hope that a wrap falls inside a sampling
+     *     window - and it runs the *target* build of the arithmetic instead of the
+     *     host one. The state is public, so no hardware is touched and the live
+     *     clock is left alone.
+     *
+     * What is deliberately NOT checked here: that the counter is running. An
+     * earlier version tried, with a 400k-sample window: locally it took ~1 s, on a
+     * shared CI runner it exceeded the smoke's 10 s budget and the firmware was
+     * killed (rc=137), so a correctness check became a timeout; and a shorter
+     * window merely reported "never advanced", because QEMU's virtual clock does
+     * not reliably advance over a small burst at all. "Is the time source alive" is
+     * a hardware question with a hardware answer (HIL, D63), not something a 10 s
+     * emulated budget can settle. The deterministic coverage for this arithmetic
+     * lives in tests/test_pal_cortex_m.c.
      */
-    const uint64_t first = pal.monotonic_ticks(pal.self);
-    uint64_t previous = first;
-    for (uint32_t i = 0u; i < 400000u; ++i) {
-        for (volatile uint32_t spin = 0u; spin < 64u; ++spin) {
+    uint64_t previous = pal.monotonic_ticks(pal.self);
+    for (uint32_t i = 0u; i < 256u; ++i) {
+        for (volatile uint32_t spin = 0u; spin < 32u; ++spin) {
         }
         const uint64_t next = pal.monotonic_ticks(pal.self);
         if (next < previous)
-            return 14; /* monotonic clock went backwards */
+            return 14; /* the clock went backwards */
         previous = next;
     }
-    if (previous == first)
-        return 15; /* the clock never advanced: the time source is dead or frozen */
+
+    {
+        edge_pal_cortex_m_state_t probe = {0};
+        probe.load = g_pal_state.load; /* the period the live PAL cached */
+        probe.last = g_pal_state.load;
+        /* From `load - 5` the counter runs 5 counts to zero, wraps (+1) and reloads,
+         * so the timeline must advance by exactly load - 4 counts and must never
+         * fall back. Asserting the exact delta is stronger than asserting progress:
+         * it pins that the wrap was counted once, which is the defect this guards. */
+        const uint64_t before = edge_pal_cortex_m_extend(&probe, probe.load - 5u);
+        const uint64_t after = edge_pal_cortex_m_extend(&probe, probe.load);
+        if (before != 5u || after <= before || (after - before) != (uint64_t)probe.load - 4u)
+            return 16; /* a crossed wrap did not advance the timeline exactly once */
+        if (probe.wrap != 1u)
+            return 16;
+    }
 #endif
+
     clock = (edge_clock_port_t){
         .monotonic_ticks = pal.monotonic_ticks, .wall_time = NULL, .self = pal.self};
     guard = (edge_irq_guard_t){

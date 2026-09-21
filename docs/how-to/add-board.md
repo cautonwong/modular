@@ -23,7 +23,26 @@ Most boards need an SoC support package first; see
    SoC header. Each ISR may only: clear the flag, capture the minimum, and push
    an event to the injected sink (D75). No loops over data, no allocation, no
    logging, no call to an app.
-4. **CMake** — create `board/<board>/CMakeLists.txt` (D88); the top-level
+4. **Vector table and more than one IRQ** — the board owns the vector table (one
+   per board; `soc/<soc>/` supplies reusable startup/link templates). Each IRQ
+   *line* gets one vector entry that calls the board's dispatcher
+   (`board_<board>_irq_dispatch(irq)`), not one function per handler, so a second
+   consumer of the same line needs no new vector (D84):
+   ```c
+   edge_status_t board_<board>_irq_attach(uint32_t irq, board_<board>_irq_fn cb, void *ctx);
+   void board_<board>_irq_dispatch(uint32_t irq);   /* registration order */
+   ```
+   Handlers run in **registration order**, the table is fixed and static (D21),
+   and the walk is bounded by its capacity (D75). The board's own consumers
+   register through the same entry point, so the built-in path exercises the
+   dispatcher rather than reaching around it. `board/mps2` is the reference.
+   Interrupt-priority policy is split: the SoC package owns the encoding and the
+   legal range, the board owns the per-board assignment.
+   *Transitional:* until #125 moves startup out of `.github/`, the CMake firmware
+   helper wires a single timer vector through `EDGE_BOARD_TIMER_ISR`; the
+   per-board `vectors.c` from §24 is the target shape.
+
+5. **CMake** — create `board/<board>/CMakeLists.txt` (D88); the top-level
    `CMakeLists.txt` is not edited:
    ```cmake
    edge_add_board(<board> SOURCES src/board.c DEPS edge_module soc_<soc>)
