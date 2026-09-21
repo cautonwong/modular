@@ -10,6 +10,17 @@
 extern "C" {
 #endif
 
+/*
+ * An event is a scalar fact: these four numbers and a timestamp, never a pointer.
+ * A payload (a received frame, a measurement block) stays in the *producer's*
+ * buffer and the consumer reads it through a port it defines itself (D66); the
+ * number handed over here is a token - a length, or better a generation, which
+ * lets the consumer's port refuse a frame that is already gone.
+ *
+ * A pointer in `arg0` would be just an integer to every check in this repository
+ * and an address to a frame that no longer exists by the time the runner reads the
+ * event. See docs/payload-token.md.
+ */
 typedef struct edge_event {
     uint32_t id;
     uint32_t source;
