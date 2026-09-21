@@ -1,0 +1,13 @@
+{
+  "note": "fixture",
+  "exemptions": [
+    {
+      "target": "pal_demo",
+      "where": "pal/demo",
+      "owner": "platform",
+      "reason": "fixture: registered on purpose",
+      "exit": "never; this tree only exists for the guard self-test",
+      "issue": "#148"
+    }
+  ]
+}
