@@ -26,7 +26,7 @@
 
 ## 负向清单（Anti-Goals）
 
-- 不手写芯片外设驱动库：一律 product glue 包装厂商 SDK。
+- 不手写芯片外设驱动库：厂商 HAL / 寄存器级代码由 `soc/<soc>/` 承载，`product/<name>/glue/` 只做接口适配（D14），不承载 HAL（本行按 §24 重述，见 `adr-amendments.md` 2026-09-20）。
 - 不引入多线程数据竞争：内部永远单 runner 无锁 superloop，即使在 FreeRTOS 中也只占一个 Task。
 - 不把重量级网络栈/图形库放进核心。
 - 不放宽现有质量门：行覆盖率 ≥ 95%、无动态分配、map 分层预算、反例自测全绿。

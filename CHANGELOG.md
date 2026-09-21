@@ -8,6 +8,27 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `board_mps2_irq_attach()` + `board_mps2_irq_dispatch()` (D84): one interrupt line
+  can carry several handlers, dispatched in registration order from a fixed static
+  table (no allocation, D21) with a bounded walk (D75). A line's vector entry is
+  now the dispatcher rather than a single handler, so a second consumer of the
+  same line needs no new vector - and the board's own timer consumer registers
+  through the same public entry point, so the built-in path exercises the
+  mechanism instead of reaching around it. Host-tested in
+  `tests/test_board_irq_attach.c`.
+
+### Changed
+
+- Resolved three contradictions between frozen documents that would have blocked
+  the first real board (recorded in `docs/adr-amendments.md`): vendor HAL lives in
+  `soc/<soc>/` and glue only adapts (`docs/phase1.md` reworded to match §24); the
+  vector table belongs to the board, with startup/link templates in the SoC
+  package; and D84's `board_irq_attach` is implemented. `docs/how-to/add-board.md`
+  gained the vector-ownership and multi-IRQ steps, and the D84 conformance row
+  moved to implemented.
+
+### Added
+
 - `ci/exemptions.json` + `check_exemptions.py`: every quality-gate exemption
   (`RAW`, which keeps a target out of the warning and static-analysis gate) must
   be registered with an owner, a reason, an exit condition and a ticket. The
