@@ -8,6 +8,19 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `docs/time-model.md`: the three time domains (the PAL's monotonic counter, the
+  RTOS kernel tick, and the board's wall clock), who owns each, and **what one unit
+  is** in every configuration this tree builds. The finding worth the page: `period`
+  and `budget` are in the units of the *injected* clock, so the same `period = 100`
+  is about 4 us on the bare-metal MPS2 product (processor cycles) and 100 ms on the
+  FreeRTOS one (kernel ticks) - a migrated literal that is not translated keeps
+  compiling and silently changes behaviour by four orders of magnitude. The page
+  also maps `HAL_GetTick()`/`millis()`/`delay_ms` and the two time-related
+  prohibitions this repository learned the hard way. `docs/how-to/intake.md` no
+  longer lists the time base as not ready.
+
+### Added
+
 - `docs/payload-token.md` and the rule in `edge/event.h`: how a payload travels
   without a pointer (D66). The event carries scalars only, the payload stays in the
   producer's buffer, and the consumer reads it through a port it defines itself
