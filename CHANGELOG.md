@@ -8,6 +8,21 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- The commit-message gate checked the branch but not the pull request title, and a
+  squash merge does not write the branch's subject onto `main`: it writes the PR
+  title plus ` (#<number>)`. A 97-character title therefore passed every check on
+  the pull request and failed on `main` with 104 characters, which is how `main`
+  went red on `8b0a332`. `check_commit_messages.py` gained
+  `--pr-title <title> --pr-number <number>`, which validates the *prospective*
+  squash subject with the same rules and reports the composed string instead of an
+  abstract length limit; the pull request job runs it next to the range check, so
+  the gate now checks the object it actually claims to check. Two guard cases
+  reproduce the incident (57 cases total). The offending subject on `main` cannot
+  be rewritten on a protected branch; this prevents recurrence, and the next merge
+  puts a green HEAD on `main`.
+
+### Fixed
+
 - The Cortex-M4 smoke's on-target clock self-check was too expensive to keep: 400k
   samples with 64 spins each (~25M iterations) took ~1 s locally and exceeded the
   CI step's 10 s budget, so the firmware was killed (`rc=137`) and a correctness
