@@ -87,11 +87,14 @@ awake.
   kernel priority - that would turn one module's tick rate into another module's
   latency.
 - Kernel priorities are a **product** decision, chosen per task *role*. The rule:
-  a task that must make progress while the runner is parked has to be at a lower
-  priority, because a lower-priority task only runs while the runner is blocked.
-- Concrete in `product/meter_mps2_freertos`: `witness` = 1, `capsule` = 2. The
-  witness is deliberately the lowest-priority task precisely so that it can only
-  run when the runner behaves.
+  a task that must make progress while the runner is parked has to be *below* the
+  runner, because only a lower-priority task runs while the runner is blocked. In
+  the pinned contract convention (`0` is highest, see
+  [`rtos-ports.md`](rtos-ports.md)) "below" means a **numerically larger** value.
+- Concrete in `product/meter_mps2_freertos`: `witness` = 2, `capsule` = 1. The
+  witness is deliberately the lower-priority task precisely so that it can only run
+  when the runner behaves; the port inverts both numbers for FreeRTOS, which counts
+  the other way.
 - There is no automatic mapping, on purpose. A future product with several tasks
   writes its own mapping down; this section is the rule it has to respect.
 

@@ -184,9 +184,12 @@ int main(void) {
     if (edge_sys_start(&g_sys) < 0)
         return 6;
 
-    if (edge_rtos_task_create("witness", witness_task, NULL, 256u, 1u) < 0)
+    /* Priorities follow the contract: 0 is highest, so the capsule's 1 beats the
+     * witness's 2. (The port inverts them for FreeRTOS, whose convention is the
+     * opposite.) */
+    if (edge_rtos_task_create("witness", witness_task, NULL, 256u, 2u) < 0)
         return 8;
-    if (edge_rtos_task_create("capsule", capsule_task, NULL, 512u, 2u) < 0)
+    if (edge_rtos_task_create("capsule", capsule_task, NULL, 512u, 1u) < 0)
         return 7;
 
     /*
