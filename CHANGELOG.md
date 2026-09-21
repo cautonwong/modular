@@ -6,6 +6,26 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The SoC package carries **code**, not only headers: `soc/mps2` declares
+  `SOURCES src/soc_mps2.c` and the NVIC priority encoder moved there from a header
+  inline. The target layout (`docs/adr.md` section 24) puts register drivers and
+  vendor HALs in the SoC package, so a header-only package would have left that
+  shape untested until the first real SoC arrived - the first real SoC package is
+  exactly the case that has to be cheap (#147).
+
+### Changed
+
+- `ci/toolchain.json` declares the **toolchain files**, not just the installed
+  tools, and `check_toolchain.py` now fails when a `*.cmake` under the declared
+  directories is missing from the manifest, or when a declared file does not
+  exist. A vendor toolchain (IAR today; armclang or a vendor GCC tomorrow) can
+  therefore be named by a product without becoming an undeclared build dependency,
+  and neither direction can drift silently. Vendor toolchains are never *required*
+  to be present: absence is skipped, like the ARM toolchain on a host job. A
+  negative fixture adds the undeclared-file case (guard self-test 57 -> 58 cases).
+
 ### Fixed
 
 - The commit-message gate checked the branch but not the pull request title, and a

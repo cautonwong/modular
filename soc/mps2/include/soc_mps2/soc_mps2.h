@@ -32,9 +32,8 @@
 #define SOC_MPS2_NVIC_IPR ((volatile uint8_t *)(uintptr_t)0xe000e400u)
 #define SOC_MPS2_NVIC_PRIO_BITS 4u
 
-static inline void soc_mps2_nvic_set_priority(uint32_t irq, uint8_t library_priority) {
-    SOC_MPS2_NVIC_IPR[irq] =
-        (uint8_t)((uint32_t)library_priority << (8u - SOC_MPS2_NVIC_PRIO_BITS));
-}
+/* Defined in `src/soc_mps2.c`: the SoC package carries code, not only headers
+ * (D49), so a real register driver or vendor HAL has a home here. */
+void soc_mps2_nvic_set_priority(uint32_t irq, uint8_t library_priority);
 
 #endif
