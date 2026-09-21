@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The Cortex-M4 smoke's on-target clock self-check was too expensive to keep: 400k
+  samples with 64 spins each (~25M iterations) took ~1 s locally and exceeded the
+  CI step's 10 s budget, so the firmware was killed (`rc=137`) and a correctness
+  check became a timeout on shared runners. It is replaced by two cheap
+  deterministic checks - a 256-sample non-decreasing burst over real reads, plus a
+  synthetic wrap driven through the extension arithmetic that pins the exact delta
+  and the wrap count. ~70 ms locally, and the wrap defect is now caught 3/3
+  instead of 2/3. Recorded in `docs/flake-ledger.md`, with the rule this is the
+  third instance of: an assertion must not measure elapsed time on an emulated
+  target to decide whether the time source works.
+
 ### Added
 
 - `board_mps2_irq_attach()` + `board_mps2_irq_dispatch()` (D84): one interrupt line
