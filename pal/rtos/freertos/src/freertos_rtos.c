@@ -22,12 +22,24 @@ edge_os_port_t edge_rtos_os_port(void) {
     return port;
 }
 
+/*
+ * Priority translation. The contract pins 0 = highest (see pal_rtos/rtos.h);
+ * FreeRTOS is the other way round and reserves 0 for the idle task. Forwarding the
+ * number would silently invert every task's priority, so the port inverts it, and
+ * contract priority 0 lands on the highest real priority rather than on idle.
+ */
+static UBaseType_t to_freertos_priority(uint32_t priority) {
+    if (priority >= (uint32_t)configMAX_PRIORITIES)
+        priority = (uint32_t)configMAX_PRIORITIES - 1u;
+    return (UBaseType_t)((uint32_t)configMAX_PRIORITIES - 1u - priority);
+}
+
 edge_status_t edge_rtos_task_create(const char *name, edge_rtos_task_fn fn, void *arg,
                                     uint32_t stack_words, uint32_t priority) {
     if (fn == NULL)
         return EDGE_EINVAL;
     if (xTaskCreate((TaskFunction_t)fn, name, (configSTACK_DEPTH_TYPE)stack_words, arg,
-                    (UBaseType_t)priority, NULL) != pdPASS)
+                    to_freertos_priority(priority), NULL) != pdPASS)
         return EDGE_ENOSPC;
     return EDGE_OK;
 }

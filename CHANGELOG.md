@@ -8,6 +8,29 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `docs/rtos-ports.md`: the preparation for a second and third kernel. It records
+  what `pal_rtos/rtos.h` now **pins** rather than inherits, and lays ThreadX and
+  Zephyr beside FreeRTOS as a capability table (task storage, start semantics,
+  priority direction, stack high-water, assert contract, configuration, build
+  integration, tickless) with the two hard parts named: ThreadX is a
+  kernel-shaped port with four translations, Zephyr is a build-system integration
+  where the *board* is described by devicetree rather than `board.c`.
+
+### Changed
+
+- The neutral RTOS contract no longer inherits FreeRTOS's conventions. It now pins
+  four semantics explicitly - **priority direction (0 is highest)**, task storage
+  owned by the implementation, creation before `start`, and "an absent capability
+  reports 0, which means unavailable and never plenty" - because the three kernels
+  disagree about all four, and a contract that silently follows one is that
+  kernel's shape wearing a neutral name. The FreeRTOS port translates instead of
+  forwarding: its priority is inverted, since FreeRTOS counts the other way *and*
+  reserves 0 for the idle task. The product's priorities follow the pinned
+  convention (capsule 1, witness 2), and the runner documentation and the
+  starvation probe still hold in both directions.
+
+### Added
+
 - `docs/time-model.md`: the three time domains (the PAL's monotonic counter, the
   RTOS kernel tick, and the board's wall clock), who owns each, and **what one unit
   is** in every configuration this tree builds. The finding worth the page: `period`

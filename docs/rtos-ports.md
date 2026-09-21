@@ -1,0 +1,84 @@
+# RTOS ports: one contract, three kernels
+
+This repository runs a product on FreeRTOS today, wants ThreadX, and has Zephyr on
+the list (#82). This page is the preparation for that: what the shared contract
+pins, what each kernel provides, and what its port therefore has to build.
+
+The rule it exists to enforce: **a contract that silently inherits one kernel's
+convention is not neutral, it is that kernel's shape wearing a neutral name.**
+
+## What the contract pins
+
+`pal/rtos/include/pal_rtos/rtos.h` pins four semantics, each because the kernels
+disagree about it:
+
+| pinned | why it has to be pinned |
+|---|---|
+| **priority direction: 0 is highest** | FreeRTOS is the opposite *and* reserves 0 for the idle task; Zephyr's cooperative priorities are negative. Forwarding the number instead of translating silently inverts every task's priority - the port inverts |
+| **task storage: the implementation owns it** | FreeRTOS allocates; ThreadX and static Zephyr require caller-owned control blocks and stacks. A port without a heap supplies a static pool sized by its own config macro and returns `EDGE_ENOSPC` when full |
+| **creation before `start` works** | that is what a composition root does. A kernel whose entry call never returns buffers the requests and creates them from its entry callback; the port may not require the caller to move assembly there |
+| **absent capabilities report 0** | `edge_rtos_task_stack_high_water()` returns 0 when the kernel cannot report it. 0 means *unavailable*, never *plenty* - a product must not read it as a safety margin |
+
+## The kernels, side by side
+
+FreeRTOS rows are facts from this tree. ThreadX and Zephyr rows come from the vendor
+documentation reviewed in #134 and #82 and are **not verified here** - they are the
+reason the preparation exists, not a substitute for trying it.
+
+| concern | FreeRTOS (in tree) | ThreadX (#134) | Zephyr (#82) |
+|---|---|---|---|
+| task creation | `xTaskCreate`, kernel-allocated stack | `tx_thread_create` with a **caller-owned** `TX_THREAD` + stack; no heap | `k_thread_create` with a caller-owned stack (or a dynamic slab if enabled) |
+| start | `vTaskStartScheduler` after creation | `tx_kernel_enter` **never returns**; objects are created in `tx_application_define` | no entry call: the kernel is started at boot, threads are started individually |
+| priority | **higher number = higher priority**, 0 = idle | 0 = highest | lower number = higher; negative = cooperative |
+| stack high-water | `uxTaskGetStackHighWaterMark` (real) | `tx_thread_stack_highest_ptr`, only with `TX_ENABLE_STACK_CHECKING`, documented as approximate | `k_thread_stack_space_get` (real) |
+| assert contract | `configASSERT` routed to `edge_rtos_assert_failed()` | **no assert macro at all**; needs fault handlers plus stack-error notification | `__ASSERT` / `k_panic`, hookable |
+| configuration | product-owned `FreeRTOSConfig.h` (D87) | product-owned `tx_user.h` - and it is included from **assembly**, so it must stay pure preprocessor | **Kconfig + devicetree**, not a C header |
+| build integration | `FetchContent` of the kernel sources | same shape as FreeRTOS | **west + `module.yml` + DTS**: a different kind of work |
+| tickless | `configUSE_TICKLESS_IDLE` (on in our product) | `TX_LOW_POWER` plus the low-power utility | `CONFIG_PM` / tickless idle |
+
+## The two hard parts, named
+
+1. **ThreadX is a kernel-shaped port** - the same shape as the FreeRTOS one, with
+   four translations instead of none: a static task pool, buffered creation because
+   entry never returns, the assert contract rebuilt from faults, and a
+   preprocessor-only config file. That is mechanical work, which is why #134
+   recommends it as the second kernel.
+2. **Zephyr is a build-system integration, not a header swap.** Kconfig and
+   devicetree describe the *board* as data, which touches D3/D9 ("the board owns
+   the hardware facts") in a way the other two do not: a Zephyr board is a DTS
+   overlay, not a `board.c`. Budget it as a different workstream, not "one more
+   `pal/rtos/<os>` directory".
+
+## Prerequisites, in order
+
+1. **This page and the pinned contract.** Done.
+2. **#89: pin the kernel to an immutable revision and list it in the SBOM.** Today
+   FreeRTOS is pinned by a *movable tag* and `generate_sbom.py` lists **no kernel at
+   all**, so adding a second and third kernel would widen an existing gap twice
+   over. This is a prerequisite for every kernel after the first, and it is the
+   reason #134 says not to start until it lands.
+3. **A reusable port conformance suite.** `tests/contract/` already holds suites
+   that several tests reuse and `tests/contract_violations/` makes CTest prove they
+   reject a broken implementation. The RTOS port contract is the next candidate: a
+   port that satisfies `pal_rtos/rtos.h` should be provable, not asserted in prose.
+4. **Then one kernel at a time**, ThreadX first (kernel-shaped), Zephyr last
+   (build-shaped).
+
+## Where `pal/eos` fits
+
+`pal/eos` is the first-party runtime and the fourth column of this table: it is the
+port that has to satisfy the same contract with **no third-party kernel at all**,
+and it is the only one that runs under host tests. That makes it the reference for
+the contract rather than a competitor to the kernels - and it is why the priority
+direction is already pinned there (`0` = highest) before being pinned in the
+contract itself.
+
+## Not in this preparation
+
+- No third kernel is being added here; this is the contract and the map.
+- No per-kernel priority *mapping policy*: kernel priorities are the product's
+  business. The rule that a task which must progress while the runner is parked has
+  to be numerically lower in the pinned convention stays in
+  [`rtos-runner.md`](rtos-runner.md) section 4.
+- No claim that ThreadX or Zephyr will be easy. The table above is where they are
+  not.
