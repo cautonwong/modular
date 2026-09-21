@@ -1,0 +1,4 @@
+{
+  "note": "fixture: the RAW target below is deliberately unregistered, so the checker must fail",
+  "exemptions": []
+}

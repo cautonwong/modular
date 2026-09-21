@@ -474,6 +474,8 @@ jobs:
         run: python3 .github/scripts/check_area_registration.py
       - name: Cortex-M PAL architecture binding (D49/D85)
         run: python3 .github/scripts/check_pal_arch_binding.py
+      - name: Quality-gate exemptions are registered (D45)
+        run: python3 .github/scripts/check_exemptions.py
       - name: Guard self-test (negative fixtures)
         run: python3 tests/guards/run_guard_selftest.py
       - name: Guard coverage (every checker has a refutation fixture)

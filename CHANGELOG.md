@@ -6,6 +6,23 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `ci/exemptions.json` + `check_exemptions.py`: every quality-gate exemption
+  (`RAW`, which keeps a target out of the warning and static-analysis gate) must
+  be registered with an owner, a reason, an exit condition and a ticket. The
+  checker enforces it in both directions - an unregistered `RAW` target fails, and
+  so does an entry whose directory no longer declares one, because a decoration
+  hides the next hole. The one existing exemption (`pal_rtos_freertos`) is now
+  registered, and D45 gains its first enforcement artefact (ADR gate matrix
+  36 -> 37; guards 21 checkers / 53 cases -> 22 / 55).
+- `docs/how-to/intake.md`: the procedure for bringing in code that was **not**
+  written to these rules - destination chosen by what the code knows rather than
+  where it came from, three compliance paths in priority order (rewrite, wrap
+  behind a consumer-defined port, quarantine as `RAW`), the gate-by-gate remedy
+  table, and the blocking/time-model policy (two allowed containers, one
+  prohibition, because the runner is a single cooperative task by D47).
+
 ### Fixed
 
 - The FreeRTOS runner's starvation probe was flaky: it measured its window as a

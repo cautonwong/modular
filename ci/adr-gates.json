@@ -17,6 +17,7 @@
     "D40": { "file": "edge_module/include/edge/module.h", "marker": "_Static_assert" },
     "D41": { "file": "edge_module/include/edge/log.h" },
     "D44": { "file": ".github/scripts/check_app_isolation.py" },
+    "D45": { "file": ".github/scripts/check_exemptions.py" },
     "D46": { "file": "pal/rtos/freertos/src/freertos_pal.c", "marker": "taskENTER_CRITICAL" },
     "D48": { "file": ".github/scripts/check_layer_dependencies.py" },
     "D50": { "file": ".github/scripts/check_app_isolation.py", "marker": "FreeRTOS" },

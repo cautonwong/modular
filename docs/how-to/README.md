@@ -14,6 +14,7 @@ the ADR-to-gate rule, and the ticket conventions these checklists assume.
 | Add an infrastructure driver | [`add-driver.md`](add-driver.md) |
 | Add a product (composition root) | [`add-product.md`](add-product.md) |
 | Add or change a layer | [`add-layer.md`](add-layer.md) |
+| Bring in code that was not written to these rules (legacy, vendor SDK, precompiled library) | [`intake.md`](intake.md) |
 
 ## The gate that applies to all of them
 

@@ -1,0 +1,13 @@
+{
+  "note": "Every target declared RAW (outside the warning and static-analysis gate) is registered here with an owner, a reason, an exit condition and a ticket. check_exemptions.py fails when a RAW target is missing from this file, when an entry points at a directory that no longer declares RAW (decoration), or when an entry is missing any field. Keep the list short; the point is that it is owned, not that it is empty.",
+  "exemptions": [
+    {
+      "target": "pal_rtos_freertos",
+      "where": "pal/rtos/freertos",
+      "owner": "platform",
+      "reason": "third-party FreeRTOS port plus our own port code; the target has never been compiled under the warning gate, so its warnings are unmeasured rather than absent",
+      "exit": "flip to gated once the port compiles clean under -Wall -Wextra -Wpedantic -Werror; tracked by the RTOS hardening work",
+      "issue": "#134"
+    }
+  ]
+}
