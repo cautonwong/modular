@@ -17,7 +17,13 @@ option(EDGE_MODULE_BUILD_ARM_CORTEX_M4_QEMU "Build Cortex-M4 MPS2 AN386 target" 
 option(EDGE_MODULE_ARM_QEMU_SEMIHOSTING "Enable ARM semihosting exit for QEMU smoke tests" OFF)
 option(EDGE_MODULE_BUILD_RISCV32_QEMU "Build RISC-V 32 QEMU (virt) target" OFF)
 option(EDGE_MODULE_BUILD_FREERTOS_QEMU "Build FreeRTOS-hosted Cortex-M4 QEMU target" OFF)
-set(EDGE_MODULE_FREERTOS_KERNEL_TAG "V11.1.0" CACHE STRING "FreeRTOS-Kernel git tag")
+set(EDGE_MODULE_FREERTOS_KERNEL_TAG "V11.1.0" CACHE STRING
+    "FreeRTOS-Kernel git tag - for humans; the commit below is the pin")
+# The pin. A tag can be moved, so the build fetches by tag (shallow, fast) and then
+# verifies the resolved revision against this commit, and check_dependencies.py verifies
+# that this line agrees with ci/dependencies.json. Keep the two in step (docs/dependencies.md).
+set(EDGE_MODULE_FREERTOS_KERNEL_COMMIT "dbf70559b27d39c1fdb68dfb9a32140b6a6777a0"
+    CACHE STRING "FreeRTOS-Kernel commit - the immutable pin (see ci/dependencies.json)")
 
 # When targeting bare-metal ARM, every compiled object (including static
 # libraries) must use the same core and Thumb mode. Selecting it globally avoids

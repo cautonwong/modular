@@ -476,6 +476,8 @@ jobs:
         run: python3 .github/scripts/check_pal_arch_binding.py
       - name: Quality-gate exemptions are registered (D45)
         run: python3 .github/scripts/check_exemptions.py
+      - name: Dependency pins are immutable and agree with the build (#89)
+        run: python3 .github/scripts/check_dependencies.py
       - name: Guard self-test (negative fixtures)
         run: python3 tests/guards/run_guard_selftest.py
       - name: Guard coverage (every checker has a refutation fixture)

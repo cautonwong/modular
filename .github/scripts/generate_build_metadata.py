@@ -6,6 +6,27 @@ import os
 import platform
 import subprocess
 import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+DEPENDENCIES = ROOT / "ci/dependencies.json"
+
+
+def dependencies():
+    """The pinned third-party components (#89): name, tag and the commit the build verified."""
+    if not DEPENDENCIES.is_file():
+        return []
+    document = json.loads(DEPENDENCIES.read_text(encoding="utf-8"))
+    return [
+        {
+            "name": entry["name"],
+            "version": entry.get("version", "unknown"),
+            "commit": entry.get("commit", "unknown"),
+            "licence": entry.get("licence", "unknown"),
+            "url": entry.get("url", ""),
+        }
+        for entry in document.get("dependencies", [])
+    ]
 
 
 def run(cmd):
@@ -34,6 +55,7 @@ def main() -> int:
         "cmake": first_line(run(["cmake", "--version"])),
         "runner_os": os.environ.get("RUNNER_OS", platform.system()),
         "python": platform.python_version(),
+        "dependencies": dependencies(),
         "generated_utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     with open(out, "w", encoding="utf-8") as handle:
