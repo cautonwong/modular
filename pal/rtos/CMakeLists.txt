@@ -4,3 +4,4 @@
 edge_add_pal(rtos SOURCES src/assert.c DEPS edge_module pal_os)
 
 add_subdirectory(freertos)
+add_subdirectory(zephyr)

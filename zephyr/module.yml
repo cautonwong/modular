@@ -1,0 +1,7 @@
+# Zephyr module definition for modular framework (Issue #82)
+name: modular
+build:
+  cmake: zephyr
+  kconfig: zephyr/Kconfig
+  settings:
+    dts_root: zephyr
