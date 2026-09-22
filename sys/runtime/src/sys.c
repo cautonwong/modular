@@ -168,7 +168,7 @@ edge_status_t edge_sys_subscribe(edge_sys_t *sys, uint32_t event_id, edge_module
         return EDGE_ESTATE;
     if (sys->subscription_count >= sys->subscription_capacity)
         return EDGE_ENOSPC;
-    for (size_t i = 0u; i < sys->subscription_count; ++i) {
+    for (size_t i = sys->subscription_count; i-- > 0u;) {
         if (sys->subscriptions[i].event_id == event_id && sys->subscriptions[i].app == app)
             return EDGE_EBUSY;
     }
@@ -181,7 +181,7 @@ edge_status_t edge_sys_unsubscribe(edge_sys_t *sys, uint32_t event_id, const edg
         return EDGE_EINVAL;
     if (sys->state != EDGE_SYS_CONSTRUCTED && sys->state != EDGE_SYS_RUNNING)
         return EDGE_ESTATE;
-    for (size_t i = 0u; i < sys->subscription_count; ++i) {
+    for (size_t i = sys->subscription_count; i-- > 0u;) {
         if (sys->subscriptions[i].event_id == event_id && sys->subscriptions[i].app == app) {
             for (size_t j = i + 1u; j < sys->subscription_count; ++j)
                 sys->subscriptions[j - 1u] = sys->subscriptions[j];
@@ -275,7 +275,14 @@ edge_status_t edge_sys_dispatch_events(edge_sys_t *sys) {
         }
         ++handled;
         ++sys->stats.events;
-        for (size_t i = 0u; i < sys->subscription_count; ++i) {
+        /*
+         * Reverse iteration, because an `on_event` callback may unsubscribe - which
+         * removes an entry and shifts the array left. Going forward would then visit
+         * the slot whose occupant moved into it and skip that subscription
+         * entirely; going backwards only ever steps into slots a left shift cannot
+         * have changed underneath us.
+         */
+        for (size_t i = sys->subscription_count; i-- > 0u;) {
             edge_sys_subscription_t *sub = &sys->subscriptions[i];
             if (sub->event_id == event.id && sub->app != NULL && sub->app->on_event != NULL &&
                 !sub->app->failed && !sub->app->suspended) {

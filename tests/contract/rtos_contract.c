@@ -11,13 +11,21 @@
 #include "pal_rtos/assert.h"
 
 /*
- * The parts of the port contract that are observable without running a scheduler -
- * see the header for why the scheduling half is evidenced elsewhere. Small on
- * purpose: every assertion here is one a port can actually fail.
+ * The parts of the port contract that are observable on the host - see the header
+ * for how the scheduling half is closed. Small on purpose: every assertion here is
+ * one a port can actually fail.
  */
 
 static void must_not_run(void *arg) {
     (void)arg;
+}
+
+static uint32_t g_order[4];
+static uint32_t g_order_len;
+
+static void record_run(void *arg) {
+    if (g_order_len < (uint32_t)(sizeof(g_order) / sizeof(g_order[0])))
+        g_order[g_order_len++] = (uint32_t)(uintptr_t)arg;
 }
 
 static const char *g_assert_file;
@@ -56,6 +64,14 @@ void edge_contract_rtos_run(const edge_rtos_contract_t *contract) {
      * becomes a jump to address zero the first time the scheduler runs. */
     assert_int_equal(contract->task_create("null-entry", NULL, NULL, 128u, 0u), EDGE_EINVAL);
 
+    /* A priority the port cannot represent is rejected, **never clamped**: clamping
+     * turns a caller's mistake into a scheduling surprise nobody can trace back. */
+    if (contract->max_priority > 0u) {
+        assert_int_equal(
+            contract->task_create("too-high", must_not_run, NULL, 128u, contract->max_priority),
+            EDGE_EINVAL);
+    }
+
     /* A valid task is accepted at suite start, so a port with no room left has
      * something wrong with it before the suite even runs. */
     assert_int_equal(contract->task_create("contract", must_not_run, NULL, 128u, 0u), EDGE_OK);
@@ -73,6 +89,21 @@ void edge_contract_rtos_run(const edge_rtos_contract_t *contract) {
     contract->wake_from_isr();
     contract->wake_target_set_self();
     (void)contract->wait_for_work(1u);
+
+    /*
+     * The pinned priority direction, when the harness can advance the scheduler:
+     * priority 0 must run before priority 1 in the same round. This is the assertion
+     * #163 asked for - "0 = highest" was documented but never executed.
+     */
+    if (contract->step != NULL) {
+        g_order_len = 0u;
+        assert_int_equal(contract->task_create("prio0", record_run, (void *)1, 128u, 0u), EDGE_OK);
+        assert_int_equal(contract->task_create("prio1", record_run, (void *)2, 128u, 1u), EDGE_OK);
+        contract->step(contract->step_ctx);
+        assert_true(g_order_len >= 2u);
+        assert_int_equal(g_order[0], 1u); /* 0 ran first */
+        assert_int_equal(g_order[1], 2u);
+    }
 
     /* The assert contract is shared by every port (`pal/rtos/src/assert.c`), and it
      * is the one rule that may never be violated: a failed assert is counted and

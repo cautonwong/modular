@@ -6,6 +6,36 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The Cortex-M clock's sample and accumulator update are now one critical section
+  (#175). An ISR preempting between the `SYSTICK_VAL` read and
+  `edge_pal_cortex_m_extend()` advanced the accumulator's last sample, and the
+  interrupted read was then evaluated against that newer value, read as a wrap and
+  incremented `wrap` for a wrap that never happened - system time corruption. The
+  clock *is* read from an ISR (the event sink stamps timestamps from it), so the two
+  contexts were always concurrent; the port's own documentation demanded masking and
+  the implementation did not do it.
+- The event queue publishes its payload before the index that makes it visible
+  (#161): a release fence after the slot write and an acquire fence before the reader
+  reads it. Without the pair, a consumer can observe the new head and read a slot that
+  has not been written yet - after any compiler reordering, and on a weakly ordered
+  core even without one.
+- Event dispatch walks the subscription array in reverse (#176). A callback that
+  unsubscribes removes an entry and shifts the array left, so forward iteration moved
+  an unvisited subscription into a slot the loop had already passed and **silently
+  dropped its event** - invisible until someone relies on two handlers for one event.
+  The regression test registers three subscribers, has the middle one unsubscribe
+  during delivery, and fails against the old loop.
+- An out-of-range task priority is **rejected with `EDGE_EINVAL` rather than clamped**
+  (#174). Clamping turned a caller's mistake into a scheduling surprise nobody could
+  trace back; the contract now states the range rule, and the port suite checks it by
+  supplying the port's own maximum.
+- The port suite now executes the pinned priority direction instead of describing it
+  (#163): the harness supplies a bounded "advance one round" hook - deliberately
+  outside the product contract, whose `start()` does not return - and the suite
+  asserts that a priority-0 task runs before a priority-1 task. Verified by
+  inverting the order in the reference port: the suite fails.
 ### Added
 
 - `tests/contract/rtos_contract.{c,h}`: the RTOS port contract as an executable
