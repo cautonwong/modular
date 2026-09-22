@@ -22,9 +22,9 @@ Single-context repo:
 ├── todo.md                        archived D1-D45 (superseded by docs/adr.md)
 ├── docs/
 │   ├── adr.md                     extended decision record (D1-D85)
-│   ├── adr-conformance.md         ADR vs implementation status
-│   ├── architecture.md
-│   └── todo-status.md
+│   ├── adr-conformance.md         ADR vs implementation status (the only one -
+│   │                              CONTRIBUTING rules out a second status table)
+│   └── architecture.md
 ├── edge_module/                   framework contract
 ├── sys/  board/  infra/  app/     layers
 └── product/                       composition root
