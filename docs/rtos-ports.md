@@ -25,16 +25,16 @@ FreeRTOS rows are facts from this tree. ThreadX and Zephyr rows come from the ve
 documentation reviewed in #134 and #82 and are **not verified here** - they are the
 reason the preparation exists, not a substitute for trying it.
 
-| concern | FreeRTOS (in tree) | ThreadX (#134) | Zephyr (#82) |
-|---|---|---|---|
-| task creation | `xTaskCreate`, kernel-allocated stack | `tx_thread_create` with a **caller-owned** `TX_THREAD` + stack; no heap | `k_thread_create` with a caller-owned stack (or a dynamic slab if enabled) |
-| start | `vTaskStartScheduler` after creation | `tx_kernel_enter` **never returns**; objects are created in `tx_application_define` | no entry call: the kernel is started at boot, threads are started individually |
-| priority | **higher number = higher priority**, 0 = idle | 0 = highest | lower number = higher; negative = cooperative |
-| stack high-water | `uxTaskGetStackHighWaterMark` (real) | `tx_thread_stack_highest_ptr`, only with `TX_ENABLE_STACK_CHECKING`, documented as approximate | `k_thread_stack_space_get` (real) |
-| assert contract | `configASSERT` routed to `edge_rtos_assert_failed()` | **no assert macro at all**; needs fault handlers plus stack-error notification | `__ASSERT` / `k_panic`, hookable |
-| configuration | product-owned `FreeRTOSConfig.h` (D87) | product-owned `tx_user.h` - and it is included from **assembly**, so it must stay pure preprocessor | **Kconfig + devicetree**, not a C header |
-| build integration | `FetchContent` of the kernel sources | same shape as FreeRTOS | **west + `module.yml` + DTS**: a different kind of work |
-| tickless | `configUSE_TICKLESS_IDLE` (on in our product) | `TX_LOW_POWER` plus the low-power utility | `CONFIG_PM` / tickless idle |
+| concern | FreeRTOS (in tree) | ThreadX (#134) | Zephyr (#82) | RTEMS (#135) |
+|---|---|---|---|---|
+| task creation | `xTaskCreate`, kernel-allocated stack | `tx_thread_create` with a **caller-owned** `TX_THREAD` + stack; no heap | `k_thread_create` with a caller-owned stack | `rtems_task_create` with static task pool |
+| start | `vTaskStartScheduler` after creation | `tx_kernel_enter` **never returns** | no entry call: started at boot | `rtems_initialize_executive` / `Init` task |
+| priority | **higher number = higher priority**, 0 = idle | 0 = highest | lower number = higher; negative = cooperative | 1 = highest, 255 = lowest (`prio + 1`) |
+| stack high-water | `uxTaskGetStackHighWaterMark` (real) | `tx_thread_stack_highest_ptr` | `k_thread_stack_space_get` (real) | stack checker hook |
+| assert contract | `configASSERT` routed to `edge_rtos_assert_failed()` | fault handlers | `__ASSERT` / `k_panic`, hookable | `rtems_fatal_error_occurred` |
+| configuration | product-owned `FreeRTOSConfig.h` (D87) | product-owned `tx_user.h` | **Kconfig + devicetree** | `<rtems/confdefs.h>` |
+| build integration | `FetchContent` of the kernel sources | same shape as FreeRTOS | **west + `module.yml` + DTS** | CMake / Waf BSP link |
+| tickless | `configUSE_TICKLESS_IDLE` | `TX_LOW_POWER` | `CONFIG_PM` / tickless idle | BSP idle power hook |
 
 ## The two hard parts, named
 
