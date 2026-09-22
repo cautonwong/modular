@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Removed
+
+- `docs/todo-status.md`: a **second** area-level status table, while `CONTRIBUTING.md`
+  declares `docs/adr-conformance.md` the *only* decision-vs-implementation view. Two
+  tables that answer the same question drift apart, and the one nobody declared
+  authoritative is the one that rots - the file's own header already said
+  "summary view only". Its content is derivable from the conformance table and the
+  code, and the tracker holds the work state. `todo.md` stays where it is: the repo
+  archives superseded documents, and that one is declared an archive.
 ### Fixed
 
 - The Cortex-M clock's sample and accumulator update are now one critical section
