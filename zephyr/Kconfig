@@ -1,0 +1,46 @@
+# Kconfig for Modular embedded framework in Zephyr (Issue #82)
+
+menu "Modular Embedded Framework"
+
+config MODULAR
+    bool "Enable Modular Embedded Framework"
+    default y
+    help
+      Enables the modular foreground/background framework components (edge_module,
+      sys/runtime, pal_rtos_zephyr, and modular apps).
+
+if MODULAR
+
+config MODULAR_RUNNER_STACK_SIZE
+    int "Runner task stack size in bytes"
+    default 2048
+    help
+      Stack size allocated for the modular runner task executing edge_sys_step().
+
+config MODULAR_RUNNER_PRIORITY
+    int "Runner task priority (0 is highest preemptible)"
+    default 5
+    range 0 14
+    help
+      Preemptible priority assigned to the modular runner task.
+      Follows the neutral contract convention (0 is highest priority).
+
+config MODULAR_WITNESS_TASK
+    bool "Enable lower-priority witness task for starvation probe"
+    default y
+    help
+      Enables a lower-priority background witness task to prove the runner
+      yields/parks without starving lower-priority tasks (D47 yield policy).
+
+config MODULAR_WITNESS_PRIORITY
+    int "Witness task priority (lower than runner)"
+    default 7
+    range 1 15
+    depends on MODULAR_WITNESS_TASK
+    help
+      Priority assigned to the witness task. Must be numerically larger
+      (lower priority) than MODULAR_RUNNER_PRIORITY.
+
+endif # MODULAR
+
+endmenu

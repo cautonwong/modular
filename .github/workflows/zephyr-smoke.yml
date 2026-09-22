@@ -1,0 +1,45 @@
+name: Zephyr QEMU Smoke
+
+on:
+  push:
+    branches: [main, "feat/**", "feature/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  zephyr-qemu-smoke:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/zephyrproject-rtos/zephyr-build:main
+      options: --user root
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          path: modular
+
+      - name: Initialize Zephyr workspace
+        run: |
+          mkdir -p /tmp/zephyrproject
+          cd /tmp/zephyrproject
+          west init -m https://github.com/zephyrproject-rtos/zephyr --mr v4.4.0 .
+          west update cmsis cmsis_6
+          west zephyr-export
+
+      - name: Build and Run Zephyr Modular Meter on QEMU Cortex-M3
+        run: |
+          export ZEPHYR_BASE=/tmp/zephyrproject/zephyr
+          SDK_DIR=$(find /opt -maxdepth 2 -name "zephyr-sdk*" 2>/dev/null | head -1)
+          if [ -n "$SDK_DIR" ]; then
+            export ZEPHYR_SDK_INSTALL_DIR="$SDK_DIR"
+            echo "Using Zephyr SDK at $ZEPHYR_SDK_INSTALL_DIR"
+          fi
+          cd /tmp/zephyrproject
+          west build -b qemu_cortex_m3 "$GITHUB_WORKSPACE/modular/product/meter_zephyr" -p -- \
+            -DEXTRA_ZEPHYR_MODULES="$GITHUB_WORKSPACE/modular"
+          west build -t run | tee /tmp/qemu_output.log &
+          QEMU_PID=$!
+          sleep 10
+          kill -9 $QEMU_PID || true
+          cat /tmp/qemu_output.log
+          grep "PASS: Zephyr modular meter ran successfully" /tmp/qemu_output.log

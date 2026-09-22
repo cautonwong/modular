@@ -8,6 +8,14 @@
       "reason": "third-party FreeRTOS port plus our own port code; the target has never been compiled under the warning gate, so its warnings are unmeasured rather than absent",
       "exit": "flip to gated once the port compiles clean under -Wall -Wextra -Wpedantic -Werror; tracked by the RTOS hardening work",
       "issue": "#134"
+    },
+    {
+      "target": "pal_rtos_zephyr",
+      "where": "pal/rtos/zephyr",
+      "owner": "platform",
+      "reason": "Zephyr RTOS port; compiles with Zephyr native build system and headers under west build",
+      "exit": "gated in Zephyr CI workflow with CONFIG_ASSERT and warning flags",
+      "issue": "#82"
     }
   ]
 }
