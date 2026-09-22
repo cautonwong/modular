@@ -65,6 +65,12 @@ edge_status_t edge_sys_bind_pending_queue(edge_sys_t *sys, edge_event_t *storage
                                           uint32_t capacity);
 edge_status_t edge_sys_set_clock(edge_sys_t *sys, const edge_clock_port_t *clock);
 edge_status_t edge_sys_set_event_budget(edge_sys_t *sys, uint32_t max_events_per_run);
+/*
+ * The list is **borrowed, not copied**: `ids` must outlive the sys - a `static
+ * const` table, not a caller's stack frame - because `edge_sys_validate_required()`
+ * dereferences it on every run. A product that passes a local array is relying on
+ * its stack frame surviving the handover, which no contract here promises.
+ */
 edge_status_t edge_sys_set_required(edge_sys_t *sys, const uint32_t *ids, size_t count);
 edge_status_t edge_sys_set_idle(edge_sys_t *sys, edge_sys_idle_fn hook, void *ctx);
 edge_status_t edge_sys_subscribe(edge_sys_t *sys, uint32_t event_id, edge_module_t *app);

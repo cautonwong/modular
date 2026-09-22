@@ -145,7 +145,10 @@ static void on_rtos_assert(void *ctx, const char *file, int line) {
 }
 
 int main(void) {
-    const uint32_t required[] = {EDGE_MOD_DLT645};
+    /* Static: `edge_sys_set_required` stores this pointer and
+     * `edge_sys_validate_required()` dereferences it on every run, so its lifetime
+     * has to be the program's - not a stack frame's. */
+    static const uint32_t required[] = {EDGE_MOD_DLT645};
 
     edge_rtos_set_assert_hook(on_rtos_assert, NULL);
 
