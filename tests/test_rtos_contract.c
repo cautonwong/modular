@@ -13,12 +13,10 @@
  * The RTOS port contract, run against the one port that exists on the host.
  *
  * EOS implements `pal_rtos/rtos.h` with the same function names a kernel port uses,
- * so this binary is what makes the contract executable rather than declared: without
- * it, every assertion in `tests/contract/rtos_contract.c` would need a target and a
- * kernel to mean anything.
+ * so this binary is what makes the contract executable rather than declared. The
+ * harness supplies `step`, which is what lets the suite check the pinned priority
+ * direction here instead of only on target.
  */
-
-extern edge_status_t edge_eos_bind_rtos(edge_eos_t *eos);
 
 static uint64_t g_now;
 
@@ -30,6 +28,10 @@ static uint64_t fake_now(void *self) {
 static const edge_clock_port_t g_clock = {
     .monotonic_ticks = fake_now, .wall_time = NULL, .self = NULL};
 
+static void step_once(void *ctx) {
+    (void)edge_eos_run_once((edge_eos_t *)ctx);
+}
+
 static void run_suite(void **state) {
     (void)state;
     edge_eos_t eos;
@@ -39,6 +41,7 @@ static void run_suite(void **state) {
 
     const edge_rtos_contract_t contract = {
         .name = "eos",
+        .max_priority = EDGE_EOS_MAX_PRIORITIES,
         .task_create = edge_rtos_task_create,
         .start = edge_rtos_start,
         .os_port = edge_rtos_os_port,
@@ -46,6 +49,8 @@ static void run_suite(void **state) {
         .wake_target_set_self = edge_rtos_wake_target_set_self,
         .wake_from_isr = edge_rtos_wake_from_isr,
         .wait_for_work = edge_rtos_wait_for_work,
+        .step = step_once,
+        .step_ctx = &eos,
     };
     edge_contract_rtos_run(&contract);
 }

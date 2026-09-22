@@ -26,10 +26,12 @@ extern "C" {
  * See `docs/rtos-ports.md` for what each kernel provides and what its port must
  * therefore emulate.
  *
- * 1. PRIORITY DIRECTION: `0` is the HIGHEST priority, and numerically larger is
- *    lower. (FreeRTOS is the opposite, ThreadX agrees with this, Zephyr's
- *    cooperative priorities are negative numbers.) A port must invert rather than
- *    forward: forwarding means a caller asking for "the priority above" gets the
+ * 1. PRIORITY DIRECTION AND RANGE: `0` is the HIGHEST priority, and numerically
+ *    larger is lower. An implementation has a maximum it can represent, and a
+ *    request above it must be **rejected with EDGE_EINVAL rather than clamped**:
+ *    clamping turns a caller's mistake into a scheduling surprise. (FreeRTOS is the opposite,
+ * ThreadX agrees with this, Zephyr's cooperative priorities are negative numbers.) A port must
+ * invert rather than forward: forwarding means a caller asking for "the priority above" gets the
  *    one below.
  *
  * 2. TASK STORAGE: the *implementation* owns the task's control block and stack.

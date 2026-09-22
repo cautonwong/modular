@@ -16,16 +16,20 @@
  * struct of the port's entry points, passed in. A port supplies its own functions
  * (EOS does, on the host) and the suite is identical for all of them.
  *
- * What this suite does *not* check, and why: anything that requires the scheduler to
- * run. `edge_rtos_start()` does not return by contract, a fixed-rate executive and a
- * preemptive kernel cannot be stepped the same way, and inventing a "step" entry
- * point would put a test-only primitive into the product contract. Priority
- * *direction* is therefore evidenced elsewhere and by construction: EOS's own test
- * asserts that priority 0 runs first, and a kernel port proves it through its
- * product's behaviour test (the runner-starvation probe).
+ * What this suite cannot check by itself, and how the gap is closed: anything that
+ * requires the scheduler to run. `edge_rtos_start()` does not return by contract and
+ * a port may not add a "step" entry point to the product contract for a test's
+ * benefit. So the *harness* may supply one (`step`, below); when it does, the
+ * priority direction becomes observable and the suite asserts it. A port without a
+ * harness step proves the direction the way it proves everything else on target:
+ * through its product's behaviour test (the runner-starvation probe).
  */
 typedef struct edge_rtos_contract {
     const char *name;
+    /* The first priority value this port cannot represent; the suite requires it to
+     * be rejected. 0 would be nonsense, so a port that cannot state a maximum should
+     * not be run through the suite. */
+    uint32_t max_priority;
     edge_status_t (*task_create)(const char *name, edge_rtos_task_fn fn, void *arg,
                                  uint32_t stack_words, uint32_t priority);
     void (*start)(void);
@@ -34,6 +38,11 @@ typedef struct edge_rtos_contract {
     void (*wake_target_set_self)(void);
     void (*wake_from_isr)(void);
     bool (*wait_for_work)(uint32_t timeout_ticks);
+    /* Test-harness hook, deliberately outside the product contract: advance the
+     * scheduler by one bounded step. NULL means "this port cannot be stepped", and
+     * the suite then checks only what it can observe without running. */
+    void (*step)(void *ctx);
+    void *step_ctx;
 } edge_rtos_contract_t;
 
 void edge_contract_rtos_run(const edge_rtos_contract_t *contract);

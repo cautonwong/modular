@@ -59,6 +59,7 @@ static void test_broken_port_is_rejected(void **state) {
     (void)state;
     const edge_rtos_contract_t contract = {
         .name = "broken",
+        .max_priority = 4u,
         .task_create = broken_task_create,
         .start = broken_start,
         .os_port = broken_os_port,
@@ -66,6 +67,8 @@ static void test_broken_port_is_rejected(void **state) {
         .wake_target_set_self = broken_wake_target,
         .wake_from_isr = broken_wake_isr,
         .wait_for_work = broken_wait,
+        .step = NULL,
+        .step_ctx = NULL,
     };
     edge_contract_rtos_run(&contract);
 }

@@ -1,5 +1,7 @@
 #include "edge/event.h"
 
+#include <stdatomic.h>
+
 edge_status_t edge_event_queue_init(edge_event_queue_t *queue, edge_event_t *storage,
                                     uint32_t capacity) {
     if (queue == NULL || storage == NULL || capacity < 2u)
@@ -22,6 +24,11 @@ edge_status_t edge_event_push_isr(edge_event_queue_t *queue, const edge_event_t 
         return EDGE_EOVERFLOW;
     }
     queue->items[head] = *event;
+    /* Publish the payload before the index that makes it visible (single producer,
+     * single consumer). Without this the consumer can observe the new head and read
+     * a slot that has not been written yet - after any compiler reordering, and on a
+     * weakly ordered core even without one. */
+    atomic_thread_fence(memory_order_release);
     queue->head = next;
     return EDGE_OK;
 }
@@ -49,6 +56,9 @@ edge_status_t edge_event_pop(edge_event_queue_t *queue, edge_event_t *event) {
     const uint32_t tail = queue->tail;
     if (tail == queue->head)
         return EDGE_ENOENT;
+    /* The other half of the pair above: observe the index, then read what the
+     * producer published before it. */
+    atomic_thread_fence(memory_order_acquire);
     *event = queue->items[tail];
     queue->tail = (tail + 1u) % queue->capacity;
     return EDGE_OK;

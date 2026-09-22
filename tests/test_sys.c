@@ -24,6 +24,11 @@ typedef struct fake_app {
     edge_status_t resume_rc;
     edge_sys_t *publish_sys;
     uint32_t publish_id;
+    /* When set, this app unsubscribes itself the first time on_event runs (#176). */
+    edge_sys_t *unsubscribe_sys;
+    uint32_t unsubscribe_id;
+    const edge_module_t *unsubscribe_app;
+    int unsubscribe_count;
 } fake_app_t;
 
 static uint64_t g_now;
@@ -58,6 +63,11 @@ static edge_status_t fake_poll(edge_module_t *m) {
 static edge_status_t fake_event(edge_module_t *m, const edge_event_t *e) {
     fake_app_t *a = as_fake(m);
     ++a->event_count;
+    if (a->unsubscribe_sys != NULL) {
+        (void)edge_sys_unsubscribe(a->unsubscribe_sys, a->unsubscribe_id, a->unsubscribe_app);
+        ++a->unsubscribe_count;
+        a->unsubscribe_sys = NULL; /* once is enough */
+    }
     if (a->publish_sys != NULL) {
         const edge_event_t out = {.id = a->publish_id, .arg0 = e->id};
         (void)edge_sys_publish(a->publish_sys, &out);
@@ -519,6 +529,50 @@ static void test_unsubscribe(void **state) {
     assert_int_equal(a.event_count, 0);
 }
 
+/*
+ * #176: a callback that unsubscribes must not swallow the event for the
+ * subscriptions that follow it. `edge_sys_dispatch_events` walks the subscription
+ * array in reverse precisely so that the left shift a removal causes cannot move an
+ * unvisited subscription into a slot the loop has already passed - forward
+ * iteration drops the last subscriber, which is invisible until someone relies on
+ * two handlers for one event.
+ */
+static void test_unsubscribe_during_dispatch_delivers_to_the_rest(void **state) {
+    (void)state;
+    fake_app_t a, b, c;
+    make_app(&a, 1u, 1u);
+    make_app(&b, 2u, 2u);
+    make_app(&c, 3u, 3u);
+    edge_module_t *apps[] = {&a.module, &b.module, &c.module};
+    edge_event_t storage[4];
+    edge_event_queue_t queue;
+    edge_sys_subscription_t subs[4];
+    edge_sys_t sys;
+    const edge_event_t event = {.id = EDGE_EVT_UART0_RX};
+
+    assert_int_equal(edge_event_queue_init(&queue, storage, 4u), EDGE_OK);
+    assert_int_equal(edge_sys_init(&sys, apps, 3u), EDGE_OK);
+    assert_int_equal(edge_sys_bind_event_queue(&sys, &queue, subs, 4u), EDGE_OK);
+    assert_int_equal(edge_sys_subscribe(&sys, EDGE_EVT_UART0_RX, &a.module), EDGE_OK);
+    assert_int_equal(edge_sys_subscribe(&sys, EDGE_EVT_UART0_RX, &b.module), EDGE_OK);
+    assert_int_equal(edge_sys_subscribe(&sys, EDGE_EVT_UART0_RX, &c.module), EDGE_OK);
+    assert_int_equal(edge_sys_start(&sys), EDGE_OK);
+
+    /* The middle subscriber leaves while the event is being delivered. */
+    b.unsubscribe_sys = &sys;
+    b.unsubscribe_id = EDGE_EVT_UART0_RX;
+    b.unsubscribe_app = &b.module;
+
+    assert_int_equal(edge_event_push_isr(&queue, &event), EDGE_OK);
+    assert_int_equal(edge_sys_run_once(&sys), EDGE_OK);
+
+    assert_int_equal(b.unsubscribe_count, 1);
+    /* Every subscription present when the dispatch began received the event. */
+    assert_int_equal(a.event_count, 1);
+    assert_int_equal(b.event_count, 1);
+    assert_int_equal(c.event_count, 1);
+}
+
 static void test_suspend_resume(void **state) {
     (void)state;
     fake_app_t a;
@@ -658,6 +712,7 @@ int main(void) {
         cmocka_unit_test(test_publish_deferred_queue),
         cmocka_unit_test(test_publish_overflow_and_binding),
         cmocka_unit_test(test_unsubscribe),
+        cmocka_unit_test(test_unsubscribe_during_dispatch_delivers_to_the_rest),
         cmocka_unit_test(test_suspend_resume),
         cmocka_unit_test(test_idle_hook),
         cmocka_unit_test(test_step_and_run_shutdown),

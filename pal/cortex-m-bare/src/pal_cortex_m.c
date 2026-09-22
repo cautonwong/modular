@@ -112,7 +112,21 @@ static uint64_t monotonic_ticks(void *self) {
     edge_pal_cortex_m_state_t *state = (edge_pal_cortex_m_state_t *)self;
     if (state == NULL)
         return 0u;
-    return edge_pal_cortex_m_extend(state, SYSTICK_VAL);
+    /*
+     * The sample and the accumulator update are one critical section.
+     *
+     * The clock is read from an ISR as well - the event sink stamps timestamps from
+     * it - so an ISR can preempt between the SYSTICK_VAL read and the update. It
+     * would then advance `state->last`, and the interrupted read would be evaluated
+     * against that newer sample, read as a wrap, and increment `wrap` for a wrap
+     * that never happened. The mask costs a PRIMASK save/restore and restores the
+     * previous value rather than clearing it.
+     */
+    const uint32_t primask = primask_read();
+    __asm volatile("cpsid i" ::: "memory");
+    const uint64_t now = edge_pal_cortex_m_extend(state, SYSTICK_VAL);
+    __asm volatile("msr primask, %0" ::"r"(primask) : "memory");
+    return now;
 }
 
 static bool in_isr(void *self) {
