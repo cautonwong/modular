@@ -166,8 +166,15 @@ jobs:
             --report build-rv/stack-report.json
       - name: QEMU virt RISC-V timer IRQ smoke
         run: |
+          # The firmware exits 0 only when the timer interrupt delivered the event;
+          # 1 means the loop finished without it. Assert, so a hang and a silent
+          # "no IRQ" cannot both count as success - this step asserted nothing, and
+          # a firmware that hung passed it.
+          rc=0
           timeout --signal=KILL 10s \
-            qemu-system-riscv32 -M virt -nographic -bios none -kernel build-rv/riscv_meter
+            qemu-system-riscv32 -M virt -nographic -bios none -kernel build-rv/riscv_meter || rc=$?
+          echo "firmware exit status: $rc"
+          test "$rc" -eq 0
       - name: Upload RISC-V QEMU image
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

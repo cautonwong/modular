@@ -52,7 +52,10 @@ int main(void) {
     edge_event_sink_t event_sink;
     edge_sys_subscription_t subscriptions[4];
     edge_sys_t sys;
-    const uint32_t required[] = {EDGE_MOD_DLT645, EDGE_MOD_RELAY};
+    /* Static: `edge_sys_set_required` stores this pointer and
+     * `edge_sys_validate_required()` dereferences it on every run, so its lifetime
+     * has to be the program's - not a stack frame's. */
+    static const uint32_t required[] = {EDGE_MOD_DLT645, EDGE_MOD_RELAY};
 
     product_meter_mps2_make_storage(&storage, flash_state);
     product_meter_mps2_make_relay_out(&relay_out, gpio_state);

@@ -537,6 +537,29 @@ static void test_unsubscribe(void **state) {
  * iteration drops the last subscriber, which is invisible until someone relies on
  * two handlers for one event.
  */
+/*
+ * #162: the required list is **borrowed, not copied**, so it has to outlive the sys.
+ * This pins the behaviour a product depends on when it uses a `static const` table,
+ * and documents the trap for a caller that passes a stack frame: the list is read on
+ * every validation, not captured at registration.
+ */
+static void test_required_list_is_borrowed_not_copied(void **state) {
+    (void)state;
+    fake_app_t a;
+    make_app(&a, 7u, 1u);
+    edge_module_t *apps[] = {&a.module};
+    edge_sys_t sys;
+    static const uint32_t present[] = {7u};
+    static const uint32_t absent[] = {8u};
+
+    assert_int_equal(edge_sys_init(&sys, apps, 1u), EDGE_OK);
+    assert_int_equal(edge_sys_set_required(&sys, present, 1u), EDGE_OK);
+    assert_int_equal(edge_sys_validate_required(&sys), EDGE_OK);
+    /* Repointing the sys at another table changes the answer: nothing was copied. */
+    assert_int_equal(edge_sys_set_required(&sys, absent, 1u), EDGE_OK);
+    assert_true(edge_sys_validate_required(&sys) < 0);
+}
+
 static void test_unsubscribe_during_dispatch_delivers_to_the_rest(void **state) {
     (void)state;
     fake_app_t a, b, c;
@@ -713,6 +736,7 @@ int main(void) {
         cmocka_unit_test(test_publish_overflow_and_binding),
         cmocka_unit_test(test_unsubscribe),
         cmocka_unit_test(test_unsubscribe_during_dispatch_delivers_to_the_rest),
+        cmocka_unit_test(test_required_list_is_borrowed_not_copied),
         cmocka_unit_test(test_suspend_resume),
         cmocka_unit_test(test_idle_hook),
         cmocka_unit_test(test_step_and_run_shutdown),
