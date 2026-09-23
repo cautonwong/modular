@@ -61,6 +61,10 @@ static edge_status_t mb_transport_write(void *self, const void *buf, size_t len)
     gateway_state_t *state = (gateway_state_t *)self;
     if (state == NULL)
         return EDGE_EINVAL;
+    /* `uart_write` copies `len` bytes into `self` with no notion of its size, so the
+     * bound belongs here: the sink is 128 bytes and a 32-register read builds 69. */
+    if (len > sizeof(state->uart_tx))
+        return EDGE_ENOSPC;
     ++state->uart_writes;
     return uart_write(state->uart_tx, buf, len);
 }

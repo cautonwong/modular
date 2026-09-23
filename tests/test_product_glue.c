@@ -108,6 +108,16 @@ static void test_gateway_glue(void **state) {
     assert_int_equal(gateway.uart_writes, 1u);
     assert_int_equal(gateway.uart_tx[0], 0xAAu);
     assert_int_equal(gateway.uart_tx[1], 0xBBu);
+
+    /* #170: the largest frame the protocol can build (32 registers: 2 + 64 PDU + 3)
+     * fits the sink, and one byte more is refused instead of copied past its end -
+     * which is what the previous 64-byte buffer did, silently. */
+    uint8_t worst_case[69] = {0};
+    assert_int_equal(transport.write(transport.self, worst_case, sizeof worst_case), EDGE_OK);
+    assert_int_equal(gateway.uart_writes, 2u);
+    uint8_t too_big[GATEWAY_UART_TX_CAPACITY + 1u] = {0};
+    assert_int_equal(transport.write(transport.self, too_big, sizeof too_big), EDGE_ENOSPC);
+    assert_int_equal(gateway.uart_writes, 2u);
 }
 
 static void test_gateway_transport_rejects_missing_state(void **state) {

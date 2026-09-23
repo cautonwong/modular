@@ -36,8 +36,10 @@
 #define configUSE_TICKLESS_IDLE 1
 #define configEXPECTED_IDLE_TIME_BEFORE_SLEEP 2
 #define configUSE_MUTEXES 0
-#define configSUPPORT_STATIC_ALLOCATION 0
-#define configSUPPORT_DYNAMIC_ALLOCATION 1
+/* No heap: the port owns static task storage, and heap_4.c is not compiled in
+ * (#172). Stated explicitly because the PAL requires it to be stated. */
+#define configSUPPORT_STATIC_ALLOCATION 1
+#define configSUPPORT_DYNAMIC_ALLOCATION 0
 
 /* PAL-required capabilities, stated explicitly by the product. */
 #define configCHECK_FOR_STACK_OVERFLOW 2
