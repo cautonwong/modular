@@ -1,16 +1,30 @@
 #include "pal_rtos/rtos.h"
 
-#if defined(__ZEPHYR__)
-#include <zephyr/kernel.h>
+#if !defined(__ZEPHYR__)
+#error "pal/rtos/zephyr is a Zephyr port: build it inside a Zephyr build, not on the host"
 #endif
+
+#include <zephyr/kernel.h>
 
 #include <stddef.h>
 #include <stdint.h>
 
 #define EDGE_ZEPHYR_MAX_TASKS 4u
-#define EDGE_ZEPHYR_DEFAULT_STACK_BYTES 2048u
 
-#if defined(__ZEPHYR__)
+/* One knob: the product's Kconfig value, so the port cannot disagree with prj.conf. */
+#ifndef CONFIG_MODULAR_RUNNER_STACK_SIZE
+#define EDGE_ZEPHYR_STACK_BYTES 2048u
+#else
+#define EDGE_ZEPHYR_STACK_BYTES ((uint32_t)CONFIG_MODULAR_RUNNER_STACK_SIZE)
+#endif
+
+/* The port owns the task storage (the contract requires it): static stacks, no heap. */
+K_THREAD_STACK_ARRAY_DEFINE(g_task_stacks, EDGE_ZEPHYR_MAX_TASKS, EDGE_ZEPHYR_STACK_BYTES);
+static struct k_thread g_threads[EDGE_ZEPHYR_MAX_TASKS];
+static bool g_used[EDGE_ZEPHYR_MAX_TASKS];
+
+/* Zephyr's static initialiser: no lazy init, no "initialised yet" flag. */
+K_SEM_DEFINE(g_wake_sem, 0, 1);
 
 static void os_yield(void *self) {
     (void)self;
@@ -22,134 +36,63 @@ static void os_sleep_ms(void *self, uint32_t ms) {
     k_msleep(ms);
 }
 
-typedef struct zephyr_task_entry {
-    struct k_thread thread;
-    edge_rtos_task_fn fn;
-    void *arg;
-    bool used;
-} zephyr_task_entry_t;
-
-K_THREAD_STACK_ARRAY_DEFINE(g_task_stacks, EDGE_ZEPHYR_MAX_TASKS, EDGE_ZEPHYR_DEFAULT_STACK_BYTES);
-static zephyr_task_entry_t g_tasks[EDGE_ZEPHYR_MAX_TASKS];
-static struct k_sem g_wake_sem;
-static bool g_wake_sem_inited = false;
-static k_tid_t g_wake_target = NULL;
-
-#endif /* __ZEPHYR__ */
-
 edge_os_port_t edge_rtos_os_port(void) {
-#if defined(__ZEPHYR__)
     const edge_os_port_t port = {
         .yield = os_yield,
         .sleep_ms = os_sleep_ms,
         .self = NULL,
     };
     return port;
-#else
-    const edge_os_port_t port = {
-        .yield = NULL,
-        .sleep_ms = NULL,
-        .self = NULL,
-    };
-    return port;
-#endif
 }
 
 edge_status_t edge_rtos_task_create(const char *name, edge_rtos_task_fn fn, void *arg,
                                     uint32_t stack_words, uint32_t priority) {
-    if (fn == NULL) {
+    if (fn == NULL)
         return EDGE_EINVAL;
-    }
 
-#if defined(__ZEPHYR__)
-    /*
-     * Priority translation: 0 is the highest priority in the neutral contract.
-     * In Zephyr preemptible threads, 0 is also the highest priority (K_PRIO_PREEMPT(0)).
-     */
-    if (priority >= (uint32_t)CONFIG_NUM_PREEMPT_PRIORITIES) {
+    /* The direction matches Zephyr's; an unrepresentable value is rejected, not clamped. */
+    if (priority >= (uint32_t)CONFIG_NUM_PREEMPT_PRIORITIES)
         return EDGE_EINVAL;
-    }
 
-    /* Convert stack words to bytes */
-    const size_t req_bytes = (size_t)stack_words * sizeof(uint32_t);
-    if (req_bytes > EDGE_ZEPHYR_DEFAULT_STACK_BYTES) {
+    /* Refused, not silently given the pool size. */
+    if ((size_t)stack_words * sizeof(uint32_t) > (size_t)EDGE_ZEPHYR_STACK_BYTES)
         return EDGE_ENOSPC;
-    }
 
     for (uint32_t i = 0u; i < EDGE_ZEPHYR_MAX_TASKS; ++i) {
-        if (!g_tasks[i].used) {
-            g_tasks[i].used = true;
-            g_tasks[i].fn = fn;
-            g_tasks[i].arg = arg;
-
-            const int zephyr_prio = K_PRIO_PREEMPT(priority);
-            k_tid_t tid = k_thread_create(&g_tasks[i].thread, g_task_stacks[i],
-                                          EDGE_ZEPHYR_DEFAULT_STACK_BYTES, (k_thread_entry_t)fn,
-                                          arg, NULL, NULL, zephyr_prio, 0, K_NO_WAIT);
-            if (name != NULL) {
-                k_thread_name_set(tid, name);
-            }
-            return EDGE_OK;
-        }
+        if (g_used[i])
+            continue;
+        g_used[i] = true;
+        const k_tid_t tid = k_thread_create(
+            &g_threads[i], g_task_stacks[i], EDGE_ZEPHYR_STACK_BYTES, (k_thread_entry_t)fn, arg,
+            NULL, NULL, K_PRIO_PREEMPT((int)priority), 0, K_NO_WAIT);
+        if (name != NULL)
+            k_thread_name_set(tid, name);
+        return EDGE_OK;
     }
     return EDGE_ENOSPC;
-#else
-    (void)name;
-    (void)arg;
-    (void)stack_words;
-    (void)priority;
-    return EDGE_OK;
-#endif
 }
 
+/* Zephyr's kernel is already running when main() starts; the contract only requires
+ * that creation before this call works, which it does. */
 void edge_rtos_start(void) {
-#if defined(__ZEPHYR__)
-    /* In Zephyr, the kernel is already started when main() runs. */
-#endif
 }
 
 uint32_t edge_rtos_task_stack_high_water(void) {
-#if defined(__ZEPHYR__)
-    size_t unused = 0;
-    if (k_thread_stack_space_get(k_current_get(), &unused) == 0) {
+    size_t unused = 0u;
+    if (k_thread_stack_space_get(k_current_get(), &unused) == 0)
         return (uint32_t)unused;
-    }
-    return 0u;
-#else
-    return 256u;
-#endif
+    return 0u; /* unavailable, which the contract defines as 0 rather than "plenty" */
 }
 
-/* ---- wake/block (D47/D71) ---------------------------------------------- */
-
 void edge_rtos_wake_target_set_self(void) {
-#if defined(__ZEPHYR__)
-    if (!g_wake_sem_inited) {
-        k_sem_init(&g_wake_sem, 0, 1);
-        g_wake_sem_inited = true;
-    }
-    g_wake_target = k_current_get();
-#endif
+    /* The semaphore is the rendezvous, so there is no handle to publish. */
 }
 
 void edge_rtos_wake_from_isr(void) {
-#if defined(__ZEPHYR__)
-    if (g_wake_sem_inited) {
-        k_sem_give(&g_wake_sem);
-    }
-#endif
+    k_sem_give(&g_wake_sem); /* ISR-safe in Zephyr */
 }
 
 bool edge_rtos_wait_for_work(uint32_t timeout_ticks) {
-#if defined(__ZEPHYR__)
-    if (!g_wake_sem_inited) {
-        k_sem_init(&g_wake_sem, 0, 1);
-        g_wake_sem_inited = true;
-    }
     const k_timeout_t timeout = (timeout_ticks == 0u) ? K_NO_WAIT : K_TICKS(timeout_ticks);
     return k_sem_take(&g_wake_sem, timeout) == 0;
-#else
-    (void)timeout_ticks;
-    return true;
-#endif
 }

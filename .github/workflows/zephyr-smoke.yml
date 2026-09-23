@@ -20,20 +20,31 @@ jobs:
 
       - name: Initialize Zephyr workspace
         run: |
+          # Tag to fetch, commit to verify - the pin lives in the port's CMakeLists.
           mkdir -p /tmp/zephyrproject
           cd /tmp/zephyrproject
           west init -m https://github.com/zephyrproject-rtos/zephyr --mr v4.4.0 .
           west update cmsis cmsis_6
           west zephyr-export
 
+      - name: Verify the Zephyr revision matches the pin
+        run: |
+          pinned=$(sed -n 's/^set(EDGE_MODULE_ZEPHYR_COMMIT "\([0-9a-f]\{40\}\)".*/\1/p' \
+            modular/pal/rtos/zephyr/CMakeLists.txt)
+          resolved=$(git -C /tmp/zephyrproject/zephyr rev-parse HEAD)
+          echo "pinned $pinned / resolved $resolved"
+          test -n "$pinned" && test "$pinned" = "$resolved"
+
       - name: Build and Run Zephyr Modular Meter on QEMU Cortex-M3
         run: |
           export ZEPHYR_BASE=/tmp/zephyrproject/zephyr
-          SDK_DIR=$(find /opt -maxdepth 2 -name "zephyr-sdk*" 2>/dev/null | head -1)
-          if [ -n "$SDK_DIR" ]; then
-            export ZEPHYR_SDK_INSTALL_DIR="$SDK_DIR"
-            echo "Using Zephyr SDK at $ZEPHYR_SDK_INSTALL_DIR"
+          # The official image sets ZEPHYR_SDK_INSTALL_DIR; only look for it if it is
+          # unset, instead of always walking /opt.
+          if [ -z "${ZEPHYR_SDK_INSTALL_DIR:-}" ]; then
+            ZEPHYR_SDK_INSTALL_DIR=$(find /opt -maxdepth 2 -name "zephyr-sdk*" | head -1)
+            export ZEPHYR_SDK_INSTALL_DIR
           fi
+          echo "Using Zephyr SDK at $ZEPHYR_SDK_INSTALL_DIR"
           cd /tmp/zephyrproject
           west build -b qemu_cortex_m3 "$GITHUB_WORKSPACE/modular/product/meter_zephyr" -p -- \
             -DEXTRA_ZEPHYR_MODULES="$GITHUB_WORKSPACE/modular"
