@@ -7,6 +7,7 @@
 #define EDGE_EVT_DLMS_BASE 0x1100u
 #define EDGE_EVT_RELAY_BASE 0x1200u
 #define EDGE_EVT_MODBUS_BASE 0x1300u
+#define EDGE_EVT_PULSE_BASE 0x1500u
 
 #define EDGE_EVT_UART0_RX (EDGE_EVT_BOARD_BASE + 0x01u)
 #define EDGE_EVT_UART0_TX_DONE (EDGE_EVT_BOARD_BASE + 0x02u)
@@ -15,6 +16,8 @@
 #define EDGE_EVT_DLMS_RX (EDGE_EVT_DLMS_BASE + 0x01u)
 #define EDGE_EVT_RELAY_CHANGED (EDGE_EVT_RELAY_BASE + 0x01u)
 #define EDGE_EVT_MODBUS_RX (EDGE_EVT_MODBUS_BASE + 0x01u)
+#define EDGE_EVT_PULSE_COUNT (EDGE_EVT_PULSE_BASE + 0x01u)
+#define EDGE_EVT_TAMPER_DETECTED (EDGE_EVT_PULSE_BASE + 0x02u)
 
 _Static_assert(EDGE_EVT_UART0_RX != EDGE_EVT_UART0_TX_DONE, "duplicate event ID");
 _Static_assert(EDGE_EVT_UART0_RX != EDGE_EVT_BOARD_TIMER0, "duplicate event ID");
@@ -37,5 +40,8 @@ _Static_assert(EDGE_EVT_BOARD_TIMER0 != EDGE_EVT_MODBUS_RX, "duplicate event ID"
 _Static_assert(EDGE_EVT_DLT645_RX != EDGE_EVT_MODBUS_RX, "duplicate event ID");
 _Static_assert(EDGE_EVT_DLMS_RX != EDGE_EVT_MODBUS_RX, "duplicate event ID");
 _Static_assert(EDGE_EVT_RELAY_CHANGED != EDGE_EVT_MODBUS_RX, "duplicate event ID");
+_Static_assert(EDGE_EVT_PULSE_COUNT != EDGE_EVT_TAMPER_DETECTED, "duplicate event ID");
+_Static_assert(EDGE_EVT_PULSE_COUNT != EDGE_EVT_MODBUS_RX, "duplicate event ID");
+_Static_assert(EDGE_EVT_PULSE_COUNT != EDGE_EVT_UART0_RX, "duplicate event ID");
 
 #endif

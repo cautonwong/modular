@@ -102,12 +102,69 @@ static void test_health_and_pending(void **state) {
     app.module.failed = 1u;
     assert_false(edge_sys_healthy(&sys));
 }
+static void test_sys_next_due_tickless(void **state) {
+    (void)state;
+    fake_app_t app1 = {0};
+    fake_app_t app2 = {0};
+    edge_module_t *apps[2];
+    edge_sys_t sys;
+    const edge_clock_port_t clock = {.monotonic_ticks = clock_now, .wall_time = NULL, .self = NULL};
+    edge_event_t storage[4];
+    edge_event_queue_t queue;
+    edge_sys_subscription_t subs[2];
+    uint64_t next_due = 0u;
+
+    app1.module =
+        (edge_module_t){.module_id = 1u, .priority = 1u, .period = 100u, .poll = fake_poll};
+    app2.module =
+        (edge_module_t){.module_id = 2u, .priority = 2u, .period = 50u, .poll = fake_poll};
+    apps[0] = &app1.module;
+    apps[1] = &app2.module;
+
+    /* Invalid arguments */
+    assert_int_equal(edge_sys_next_due(NULL, 10u, &next_due), EDGE_EINVAL);
+    assert_int_equal(edge_sys_next_due(&sys, 10u, NULL), EDGE_EINVAL);
+
+    assert_int_equal(edge_event_queue_init(&queue, storage, 4u), EDGE_OK);
+    assert_int_equal(edge_sys_init(&sys, apps, 2u), EDGE_OK);
+    assert_int_equal(edge_sys_bind_event_queue(&sys, &queue, subs, 2u), EDGE_OK);
+    assert_int_equal(edge_sys_set_clock(&sys, &clock), EDGE_OK);
+
+    /* Not started -> ESTATE */
+    assert_int_equal(edge_sys_next_due(&sys, 10u, &next_due), EDGE_ESTATE);
+
+    g_now = 10u;
+    assert_int_equal(edge_sys_start(&sys), EDGE_OK);
+    /* app1 due at 110, app2 due at 60 */
+    assert_int_equal(edge_sys_next_due(&sys, 10u, &next_due), EDGE_OK);
+    assert_int_equal(next_due, 60u);
+
+    /* When now reaches 60, next_due is now (work due immediately) */
+    assert_int_equal(edge_sys_next_due(&sys, 60u, &next_due), EDGE_OK);
+    assert_int_equal(next_due, 60u);
+
+    /* If an event is pushed, next_due is now immediately */
+    const edge_event_t evt = {.id = 100u};
+    assert_int_equal(edge_event_push_isr(&queue, &evt), EDGE_OK);
+    assert_int_equal(edge_sys_next_due(&sys, 15u, &next_due), EDGE_OK);
+    assert_int_equal(next_due, 15u);
+
+    /* Pop the event */
+    edge_event_t popped;
+    assert_int_equal(edge_event_pop(&queue, &popped), EDGE_OK);
+
+    /* When all modules are suspended, next_due is UINT64_MAX (pure interrupt-driven sleep) */
+    assert_int_equal(edge_sys_suspend_all(&sys), EDGE_OK);
+    assert_int_equal(edge_sys_next_due(&sys, 15u, &next_due), EDGE_OK);
+    assert_int_equal(next_due, UINT64_MAX);
+}
 
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_atomic_idle_sequence),
         cmocka_unit_test(test_board_hardware_actions),
         cmocka_unit_test(test_health_and_pending),
+        cmocka_unit_test(test_sys_next_due_tickless),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

@@ -158,12 +158,13 @@ assumption explicitly instead of inheriting it (#78).
   verified on a real IRQ in the QEMU smoke (#84); a runner that parks on a
   notification and wakes from the ISR, with tickless sleep on and a lower-priority
   task proven not to starve (#90).
-- Missing: real STOP-mode and peripheral gating (#78, #75); retained-memory
-  verification (#78); an `edge_sys_next_due()` so the runner sleeps exactly until
-  the next deadline instead of for the smallest app period, which costs one
-  periodic wake per period even when nothing is due (docs/rtos-runner.md section
-  7).
-- The largest term is gone: section 1 put the old 1 ms polling runner ~1800x over
-  a ten-year budget on the fixed cost per wake alone. The runner no longer polls;
-  what remains is the residual periodic wake above and anything a board fails to
-  gate.
+- Have: `edge_sys_next_due()` (`sys/runtime`) for dynamic tickless scheduling across
+  all registered apps (#184).
+- Have: `edge_pm_*` power management framework (`pal/os/include/pal_os/power.h`) with
+  reference-counted mode locks (ACTIVE, IDLE, STOP, STANDBY) and atomic sleep execution.
+- Have: Dedicated low-power pulse metering app (`app/pulse_meter`) with debouncing,
+  tamper detection, battery monitoring, and flash retention.
+- Have: Water meter host reference product (`product/water_meter_host`) demonstrating
+  dynamic sleep calculation and power mode execution.
+- Next steps: Silicon-specific STOP mode drivers and peripheral power gating on
+  physical target boards (#78, #75).

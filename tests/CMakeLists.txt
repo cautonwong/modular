@@ -76,11 +76,15 @@ edge_add_host_test(test_runner_threads SOURCES test_runner_threads.c DEPS sys_ex
 edge_add_host_test(test_flash_glue SOURCES test_flash_glue.c ../product/example/glue.c
     DEPS app_dlt645 infra_flash)
 
+edge_add_host_test(test_app_pulse_meter SOURCES test_app_pulse_meter.c DEPS app_pulse_meter edge_test_contract)
+edge_add_host_test(test_pal_power SOURCES test_pal_power.c DEPS pal_host pal_os)
+
 # Every product's glue is in the coverage scope, so every trampoline is exercised
 # here instead of living only inside a product executable.
 edge_add_host_test(test_product_glue SOURCES test_product_glue.c
     ../product/meter_host/glue.c
     ../product/meter_mps2/glue.c
     ../product/meter_gateway_host/glue.c
-    DEPS app_dlt645 app_meter_core app_modbus_slave app_relay infra_flash infra_gpio infra_uart)
-target_include_directories(test_product_glue PRIVATE ${EDGE_ROOT}/product/meter_gateway_host)
+    ../product/water_meter_host/glue.c
+    DEPS app_dlt645 app_meter_core app_modbus_slave app_pulse_meter app_relay infra_flash infra_gpio infra_uart)
+target_include_directories(test_product_glue PRIVATE ${EDGE_ROOT}/product/meter_gateway_host ${EDGE_ROOT}/product/water_meter_host)

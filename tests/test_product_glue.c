@@ -11,6 +11,7 @@
 #include "gpio/gpio.h"
 #include "meter_core/meter_core.h"
 #include "modbus_slave/modbus_slave.h"
+#include "pulse_meter/pulse_meter.h"
 #include "relay/relay.h"
 #include "uart/uart.h"
 
@@ -28,6 +29,7 @@ void product_meter_gateway_host_make_storage(dlt645_storage_if_t *out, void *fla
 void product_meter_gateway_host_make_modbus(modbus_store_if_t *store,
                                             modbus_transport_if_t *transport,
                                             gateway_state_t *state);
+void product_water_meter_host_make_storage(pulse_meter_storage_t *out, void *state_buf);
 
 static void exercise_storage(const dlt645_storage_if_t *storage) {
     const uint8_t payload[3] = {0x11u, 0x22u, 0x33u};
@@ -144,6 +146,21 @@ static void test_glue_factories_are_null_safe(void **state) {
     product_meter_gateway_host_make_modbus(NULL, NULL, &gateway);
 }
 
+static void test_water_meter_host_glue(void **state) {
+    (void)state;
+    uint8_t buffer[128] = {0};
+    pulse_meter_storage_t storage;
+    product_water_meter_host_make_storage(&storage, buffer);
+    assert_non_null(storage.read);
+    assert_non_null(storage.write);
+    assert_int_equal(storage.write(storage.self, 50u, 1u), EDGE_OK);
+    uint32_t pulses = 0u;
+    uint32_t tamper = 0u;
+    assert_int_equal(storage.read(storage.self, &pulses, &tamper), EDGE_OK);
+    assert_int_equal(pulses, 50u);
+    assert_int_equal(tamper, 1u);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_meter_host_glue),
@@ -151,6 +168,7 @@ int main(void) {
         cmocka_unit_test(test_gateway_glue),
         cmocka_unit_test(test_gateway_transport_rejects_missing_state),
         cmocka_unit_test(test_glue_factories_are_null_safe),
+        cmocka_unit_test(test_water_meter_host_glue),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

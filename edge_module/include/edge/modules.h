@@ -39,6 +39,7 @@ extern "C" {
     X(DLMS, 0x1100, app)                                                                           \
     X(MODBUS, 0x1300, app)                                                                         \
     X(METER, 0x1400, app)                                                                          \
+    X(PULSE_METER, 0x1500, app)                                                                    \
     X(RELAY, 0x2000, app)
 
 /* One block per layer token used above, inclusive. */
@@ -58,7 +59,7 @@ enum { EDGE_MODULE_IDS(EDGE_MODULE_DEFINE) };
 #undef EDGE_MODULE_DEFINE
 
 /* High byte of a module/event segment, used by EDGE_ERR() in edge/errors.h. */
-#define EDGE_MODULE_SEGMENT(id) ((uint32_t)(id) & 0xFF00u)
+#define EDGE_MODULE_SEGMENT(id) ((uint32_t)(id)&0xFF00u)
 
 /* Generated, one triple per table entry: an unnamed layer has no block, so it
  * fails to compile rather than silently passing. */

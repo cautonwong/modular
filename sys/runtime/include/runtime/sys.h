@@ -97,5 +97,8 @@ edge_status_t edge_sys_stats_reset(edge_sys_t *sys);
 bool edge_sys_healthy(const edge_sys_t *sys);
 /* True when an event or a due poll is waiting; the atomic idle re-check (D71). */
 bool edge_sys_pending(const edge_sys_t *sys);
+/* Earliest deadline across all active modules (D47/D52/Tickless). Sets *next_due = now if work is
+ * waiting, or UINT64_MAX if no periodic modules are active. */
+edge_status_t edge_sys_next_due(const edge_sys_t *sys, uint64_t now, uint64_t *next_due);
 
 #endif

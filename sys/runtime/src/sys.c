@@ -502,3 +502,30 @@ bool edge_sys_pending(const edge_sys_t *sys) {
     }
     return false;
 }
+
+edge_status_t edge_sys_next_due(const edge_sys_t *sys, uint64_t now, uint64_t *next_due) {
+    if (sys == NULL || next_due == NULL)
+        return EDGE_EINVAL;
+    if (sys->state != EDGE_SYS_RUNNING) {
+        *next_due = now;
+        return EDGE_ESTATE;
+    }
+    if ((sys->events != NULL && edge_event_count(sys->events) > 0u) || sys->pending_count > 0u) {
+        *next_due = now;
+        return EDGE_OK;
+    }
+    uint64_t earliest = UINT64_MAX;
+    for (size_t i = 0u; i < sys->app_count; ++i) {
+        const edge_module_t *app = sys->apps[i];
+        if (app->failed != 0u || app->suspended != 0u || app->poll == NULL || app->period == 0u)
+            continue;
+        if (tick_due(now, app->next_due)) {
+            *next_due = now;
+            return EDGE_OK;
+        }
+        if (app->next_due < earliest)
+            earliest = app->next_due;
+    }
+    *next_due = earliest;
+    return EDGE_OK;
+}

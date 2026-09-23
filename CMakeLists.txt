@@ -205,6 +205,10 @@ edge_add_product(meter_rtems family meter board example infra flash apps dlt645)
 if(TARGET meter_rtems)
     target_link_libraries(meter_rtems PRIVATE pal_rtos_rtems)
 endif()
+edge_add_product(water_meter_host family meter board example infra flash apps pulse_meter)
+if(TARGET water_meter_host)
+    target_link_libraries(water_meter_host PRIVATE pal_os)
+endif()
 
 if(EDGE_MODULE_BUILD_THREADX)
     # D87: one compiled kernel serves one configuration. Claiming it here as well means
