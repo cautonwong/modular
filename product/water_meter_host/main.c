@@ -51,12 +51,8 @@ static void water_meter_idle_hook(void *ctx) {
     if (edge_sys_next_due(ictx->sys, now, &next_due) != EDGE_OK)
         return;
 
-    uint64_t idle_ticks = 0u;
-    if (next_due == UINT64_MAX) {
-        idle_ticks = 100000u; /* Purely interrupt-driven sleep */
-    } else if (next_due > now) {
-        idle_ticks = next_due - now;
-    }
+    const uint64_t idle_ticks =
+        (next_due == UINT64_MAX) ? 100000u : (next_due > now ? next_due - now : 0u);
 
     (void)edge_pm_execute(ictx->pm, idle_ticks, &ictx->pal, board_pm_handler, ictx, water_pending,
                           ictx);

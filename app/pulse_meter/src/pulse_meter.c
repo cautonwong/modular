@@ -75,21 +75,9 @@ void pulse_meter_construct(pulse_meter_t *self, uint32_t module_id, uint32_t pri
         .private_data = self,
     };
 
-    if (config != NULL) {
-        self->config = *config;
-    } else {
-        self->config = (pulse_meter_config_t){0};
-    }
-    if (storage != NULL) {
-        self->storage = *storage;
-    } else {
-        self->storage = (pulse_meter_storage_t){0};
-    }
-    if (battery != NULL) {
-        self->battery = *battery;
-    } else {
-        self->battery = (pulse_meter_battery_t){0};
-    }
+    self->config = config ? *config : (pulse_meter_config_t){0};
+    self->storage = storage ? *storage : (pulse_meter_storage_t){0};
+    self->battery = battery ? *battery : (pulse_meter_battery_t){0};
 
     self->total_pulses = 0u;
     self->tamper_events = 0u;
@@ -144,9 +132,7 @@ edge_status_t pulse_meter_on_pulse(pulse_meter_t *meter, uint64_t now_tick, bool
     if (!reverse) {
         ++meter->total_pulses;
     } else {
-        /* Reverse flow: flag tamper if continuous or decrease/handle accordingly */
-        if (meter->total_pulses > 0u)
-            --meter->total_pulses;
+        meter->total_pulses = (meter->total_pulses > 0u) ? meter->total_pulses - 1u : 0u;
         ++meter->tamper_events;
     }
 

@@ -6,10 +6,10 @@ edge_status_t edge_pm_init(edge_pm_state_t *pm, uint64_t stop_threshold_ticks,
                            uint64_t standby_threshold_ticks) {
     if (pm == NULL)
         return EDGE_EINVAL;
-    for (size_t i = 0u; i < (size_t)EDGE_PM_MODE_COUNT; ++i)
-        pm->lock_counts[i] = 0u;
-    pm->stop_threshold_ticks = stop_threshold_ticks;
-    pm->standby_threshold_ticks = standby_threshold_ticks;
+    *pm = (edge_pm_state_t){
+        .stop_threshold_ticks = stop_threshold_ticks,
+        .standby_threshold_ticks = standby_threshold_ticks,
+    };
     return EDGE_OK;
 }
 
