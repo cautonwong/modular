@@ -129,6 +129,43 @@ static void test_wraparound_preserves_order(void **state) {
     assert_int_equal(out.id, 0xCCu);
 }
 
+/*
+ * #167: the test above does walk the indices past the end, but it never fills the
+ * ring *after* wrapping - which is where the full-queue branch lives (drop-newest
+ * plus the counter) and where an off-by-one in the modulo would lose a slot.
+ */
+static void test_full_after_wrap_drops_the_newest(void **state) {
+    (void)state;
+    edge_event_t storage[3];
+    edge_event_queue_t queue;
+    edge_event_t out;
+    const edge_event_t a = {.id = 0xAAu};
+    const edge_event_t b = {.id = 0xBBu};
+    const edge_event_t c = {.id = 0xCCu};
+    const edge_event_t d = {.id = 0xDDu};
+
+    assert_int_equal(edge_event_queue_init(&queue, storage, 3u), EDGE_OK);
+    assert_int_equal(edge_event_push_isr(&queue, &a), EDGE_OK);
+    assert_int_equal(edge_event_pop(&queue, &out), EDGE_OK); /* head 1, tail 1 */
+    assert_int_equal(edge_event_push_isr(&queue, &b), EDGE_OK);
+    assert_int_equal(edge_event_push_isr(&queue, &c), EDGE_OK); /* head wraps to 0 */
+    assert_int_equal(edge_event_count(&queue), 2u);
+
+    /* Full after the wrap: the newest is refused, never written over an older one. */
+    assert_int_equal(edge_event_push_isr(&queue, &d), EDGE_EOVERFLOW);
+    assert_int_equal(edge_event_dropped(&queue), 1u);
+    assert_int_equal(edge_event_count(&queue), 2u);
+    assert_int_equal(edge_event_pop(&queue, &out), EDGE_OK);
+    assert_int_equal(out.id, 0xBBu);
+    assert_int_equal(edge_event_pop(&queue, &out), EDGE_OK);
+    assert_int_equal(out.id, 0xCCu);
+
+    /* And the slot the pops freed is usable again. */
+    assert_int_equal(edge_event_push_isr(&queue, &d), EDGE_OK);
+    assert_int_equal(edge_event_pop(&queue, &out), EDGE_OK);
+    assert_int_equal(out.id, 0xDDu);
+}
+
 static void test_sink_stamps_with_clock_and_guard(void **state) {
     (void)state;
     edge_event_t storage[4];
@@ -202,6 +239,7 @@ int main(void) {
         cmocka_unit_test(test_pop_empty_and_invalid),
         cmocka_unit_test(test_bounded_drop_newest_and_counter),
         cmocka_unit_test(test_wraparound_preserves_order),
+        cmocka_unit_test(test_full_after_wrap_drops_the_newest),
         cmocka_unit_test(test_sink_stamps_with_clock_and_guard),
         cmocka_unit_test(test_sink_without_clock_preserves_timestamp),
         cmocka_unit_test(test_sink_validates_arguments),

@@ -35,7 +35,27 @@ static uint64_t g_now;
 static uint64_t g_poll_advance;
 static int g_idle_calls;
 static edge_sys_t *g_shutdown_sys; /* runner-shutdown trigger, see test_step_and_run_shutdown */
+static uint32_t g_off_order[4];    /* power_off call order, see the reverse-order test */
+static uint32_t g_off_len;
+
 static int g_shutdown_after_polls;
+
+/*
+ * Reset the module's state **before** each test rather than at the end of one: a
+ * cmocka assertion longjmps out of the test, so an end-of-test reset is skipped
+ * exactly when something has already gone wrong, and the next test inherits it
+ * (#171).
+ */
+static int reset_state(void **state) {
+    (void)state;
+    g_now = 0u;
+    g_poll_advance = 0u;
+    g_idle_calls = 0;
+    g_shutdown_sys = NULL;
+    g_shutdown_after_polls = 0;
+    g_off_len = 0u;
+    return 0;
+}
 
 static void fake_idle(void *ctx) {
     (void)ctx;
@@ -90,6 +110,8 @@ static edge_status_t fake_resume(edge_module_t *m) {
 static edge_status_t fake_off(edge_module_t *m) {
     fake_app_t *a = as_fake(m);
     ++a->off_count;
+    if (g_off_len < (uint32_t)(sizeof(g_off_order) / sizeof(g_off_order[0])))
+        g_off_order[g_off_len++] = m->module_id;
     return a->off_rc;
 }
 
@@ -264,6 +286,32 @@ static void test_fault_isolation(void **state) {
     assert_int_equal(edge_sys_stats_get(&sys, &stats), EDGE_OK);
     assert_int_equal(stats.isolated, 1u);
     assert_int_equal(stats.errors, 1u);
+}
+
+/*
+ * #165: D82 says shutdown runs in reverse construction order, so a module can still
+ * use what it was handed. The existing test used one app, which cannot observe an
+ * order at all.
+ */
+static void test_power_off_runs_in_reverse_order(void **state) {
+    (void)state;
+    fake_app_t first;
+    fake_app_t second;
+    fake_app_t third;
+    make_app(&first, 1u, 1u);
+    make_app(&second, 2u, 1u);
+    make_app(&third, 3u, 1u);
+    edge_module_t *apps[] = {&first.module, &second.module, &third.module};
+    edge_sys_t sys;
+
+    assert_int_equal(edge_sys_init(&sys, apps, 3u), EDGE_OK);
+    assert_int_equal(edge_sys_start(&sys), EDGE_OK);
+    assert_int_equal(edge_sys_power_off(&sys), EDGE_OK);
+
+    assert_int_equal(g_off_len, 3u);
+    assert_int_equal(g_off_order[0], 3u);
+    assert_int_equal(g_off_order[1], 2u);
+    assert_int_equal(g_off_order[2], 1u);
 }
 
 static void test_power_off_failure(void **state) {
@@ -653,9 +701,6 @@ static void test_step_and_run_shutdown(void **state) {
     assert_int_equal(edge_sys_run(&sys), EDGE_OK);
     assert_int_equal(sys.state, EDGE_SYS_STOPPED);
     assert_int_equal(a.poll_count, 3);
-    g_shutdown_sys = NULL;
-    g_shutdown_after_polls = 0;
-
     assert_int_equal(edge_sys_step(NULL), EDGE_ESTATE);
 }
 
@@ -715,33 +760,42 @@ static void test_new_api_argument_guards(void **state) {
     assert_int_equal(edge_sys_set_idle(&sys, NULL, NULL), EDGE_ESTATE);
 }
 
+/*
+ * Every case resets the module's state **before** it runs. `cmocka_run_group_tests`
+ * would run a setup once for the whole group, which is not enough: state leaks
+ * between cases, and an end-of-test reset is skipped by the longjmp an assertion
+ * takes - so it fails exactly when the state is dirty (#171).
+ */
+#define TEST(fn) cmocka_unit_test_setup(fn, reset_state)
+
 int main(void) {
     const struct CMUnitTest tests[] = {
-        cmocka_unit_test(test_start_sorts_by_priority_then_id),
-        cmocka_unit_test(test_validation),
-        cmocka_unit_test(test_required_and_lifecycle),
-        cmocka_unit_test(test_event_routing_and_bound),
-        cmocka_unit_test(test_periodic_scheduler),
-        cmocka_unit_test(test_event_budget_and_stats),
-        cmocka_unit_test(test_fault_isolation),
-        cmocka_unit_test(test_power_off_failure),
-        cmocka_unit_test(test_wrapper_and_guards),
-        cmocka_unit_test(test_argument_and_state_guards),
-        cmocka_unit_test(test_required_missing),
-        cmocka_unit_test(test_dispatch_event_failure_and_pop_error),
-        cmocka_unit_test(test_execution_budget),
-        cmocka_unit_test(test_deinit_stops_scheduler_only),
-        cmocka_unit_test(test_meter_wrapper),
-        cmocka_unit_test(test_publish_deferred_queue),
-        cmocka_unit_test(test_publish_overflow_and_binding),
-        cmocka_unit_test(test_unsubscribe),
-        cmocka_unit_test(test_unsubscribe_during_dispatch_delivers_to_the_rest),
-        cmocka_unit_test(test_required_list_is_borrowed_not_copied),
-        cmocka_unit_test(test_suspend_resume),
-        cmocka_unit_test(test_idle_hook),
-        cmocka_unit_test(test_step_and_run_shutdown),
-        cmocka_unit_test(test_stats_reset),
-        cmocka_unit_test(test_new_api_argument_guards),
+        TEST(test_start_sorts_by_priority_then_id),
+        TEST(test_validation),
+        TEST(test_required_and_lifecycle),
+        TEST(test_event_routing_and_bound),
+        TEST(test_periodic_scheduler),
+        TEST(test_event_budget_and_stats),
+        TEST(test_fault_isolation),
+        TEST(test_power_off_failure),
+        TEST(test_power_off_runs_in_reverse_order),
+        TEST(test_wrapper_and_guards),
+        TEST(test_argument_and_state_guards),
+        TEST(test_required_missing),
+        TEST(test_dispatch_event_failure_and_pop_error),
+        TEST(test_execution_budget),
+        TEST(test_deinit_stops_scheduler_only),
+        TEST(test_meter_wrapper),
+        TEST(test_publish_deferred_queue),
+        TEST(test_publish_overflow_and_binding),
+        TEST(test_unsubscribe),
+        TEST(test_unsubscribe_during_dispatch_delivers_to_the_rest),
+        TEST(test_required_list_is_borrowed_not_copied),
+        TEST(test_suspend_resume),
+        TEST(test_idle_hook),
+        TEST(test_step_and_run_shutdown),
+        TEST(test_stats_reset),
+        TEST(test_new_api_argument_guards),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

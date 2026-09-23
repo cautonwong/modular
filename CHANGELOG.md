@@ -6,6 +6,39 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `check_layer_dependencies.py` now checks the **declared build dependencies** as well
+  as the includes. The matrix was enforced on `#include` only, so a library could
+  declare a dependency it never included: the dependency's `PUBLIC` include
+  directories reach the compile line, and the forbidden include would have worked the
+  day someone wrote it with no gate noticing (#173). `edge_module` is treated as
+  bookkeeping rather than a dependency - the helper requires a `DEPS` and puts
+  `edge_module/include` on every target, which is why `soc` can name it without
+  weakening `soc -> soc` for real includes. A negative fixture covers the case, and
+  the check found the `soc -> edge_module` contradiction on its first run.
+
+### Fixed
+
+- Tests reset their module state **before every case** instead of at the end of a
+  function: a cmocka assertion longjmps out of the test, so an end-of-test reset is
+  skipped exactly when the state has already gone wrong and the next case inherits it.
+  `cmocka_unit_test_setup` does this per case - a group setup runs once, which the
+  first version of the fix demonstrated by still leaking state (#171). The IRQ-table
+  test keeps its documented order dependence, and its capacity case queries the count
+  rather than assuming one.
+
+### Tests
+
+- The event-ring test now fills the queue **after** the indices have wrapped, which is
+  where the full-queue branch and its counter live (verified: disabling the check
+  fails two cases). The wraparound it already did was real, so #167 is closed with
+  that correction plus this case (#167).
+- A shutdown-order case with three modules asserts that `power_off` runs in reverse
+  construction order (D82) - the existing test used one module and could not observe
+  an order at all (verified: a forward loop fails it) (#165).
+- #169 was closed as stale: `tests/test_tick64.c` already covers the 32-bit wrap
+  across `UINT32_MAX -> 0` (`test_wrap_extends_the_epoch`, `test_three_wraps_stay_monotonic`).
 ### Fixed
 
 - The gateway's transport sink was 64 bytes while the protocol can build 69 (32
