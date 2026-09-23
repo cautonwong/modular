@@ -13,6 +13,19 @@
       "pin_file": "CMakeLists.txt",
       "owner": "platform",
       "note": "V11.1.0 is an annotated tag; the tag object is recorded because it is what `git ls-remote` returns, but the commit is what the build verifies. Fetched by tag and shallow for speed, then the resolved revision is checked against this commit at configure time."
+    },
+    {
+      "name": "Zephyr",
+      "version": "v4.4.0",
+      "commit": "684c9e8f32e4373a21098559f748f06915f950c9",
+      "tag_object": "4f50f0ba8905f27b2f60123d0ee0934fda6fe134",
+      "url": "https://github.com/zephyrproject-rtos/zephyr",
+      "licence": "Apache-2.0",
+      "used_by": "pal/rtos/zephyr",
+      "pin_variable": "EDGE_MODULE_ZEPHYR_COMMIT",
+      "pin_file": "pal/rtos/zephyr/CMakeLists.txt",
+      "owner": "platform",
+      "note": "Fetched by `west init --mr v4.4.0` rather than FetchContent, so the pin lives in this port's CMakeLists and the smoke job compares it against the revision west resolved. west.yml also accepts a SHA in `revision:`; the tag is kept because it is what a human recognises and the comparison makes it safe."
     }
   ]
 }
