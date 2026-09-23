@@ -16,6 +16,14 @@
       "reason": "Zephyr RTOS port; compiles with Zephyr native build system and headers under west build",
       "exit": "gated in Zephyr CI workflow with CONFIG_ASSERT and warning flags",
       "issue": "#82"
+    },
+    {
+      "target": "pal_rtos_rtems",
+      "where": "pal/rtos/rtems",
+      "owner": "platform",
+      "reason": "RTEMS RTOS port; compiles with RTEMS 6 toolchain and Classic API headers",
+      "exit": "gated in RTEMS CI workflow with warning flags",
+      "issue": "#135"
     }
   ]
 }

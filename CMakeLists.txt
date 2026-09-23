@@ -198,6 +198,10 @@ edge_add_product(example family example board example infra flash apps dlt645)
 edge_add_product(meter_host family meter board example infra flash gpio apps dlt645 relay)
 edge_add_product(meter_mps2 family meter board mps2 infra flash gpio apps dlt645 relay)
 edge_add_product(meter_gateway_host family meter board example infra flash uart apps dlt645 modbus_slave meter_core)
+edge_add_product(meter_rtems family meter board example infra flash apps dlt645)
+if(TARGET meter_rtems)
+    target_link_libraries(meter_rtems PRIVATE pal_rtos_rtems)
+endif()
 
 # Host neutrality matrix: board example x {baremetal, thread} runner, same app.
 if(NOT CMAKE_CROSSCOMPILING)

@@ -1,0 +1,41 @@
+name: RTEMS QEMU Smoke
+
+on:
+  push:
+    branches: [main, "feat/**", "feature/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  rtems-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Build Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build gcc libcmocka-dev qemu-system-arm
+
+      - name: Build Host RTEMS Verification
+        run: |
+          cmake -S . -B build-rtems -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DEDGE_MODULE_BUILD_TESTS=ON \
+            -DEDGE_MODULE_ENABLE_WERROR=ON
+          cmake --build build-rtems --parallel
+
+      - name: Run RTOS Contract and Architecture Guard Tests
+        run: |
+          python3 tests/guards/run_guard_selftest.py
+          ctest --test-dir build-rtems --output-on-failure
+
+      - name: Build and Run RTEMS Modular Meter Product Smoke
+        run: |
+          echo "Building meter_rtems product..."
+          cmake --build build-rtems --target meter_rtems
+          echo "Running meter_rtems execution smoke test..."
+          ./build-rtems/meter_rtems | tee /tmp/rtems_output.log
+          grep "PASS: RTEMS modular meter ran successfully with witness ticks=" /tmp/rtems_output.log
