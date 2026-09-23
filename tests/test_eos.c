@@ -40,6 +40,16 @@ static void stopping_task(void *arg) {
         edge_eos_stop(g_stop_target);
 }
 
+/* Reset before each test, not at the end of one: a cmocka failure longjmps out and
+ * would skip an end-of-test reset exactly when the state is dirty (#171). */
+static int reset_state(void **state) {
+    (void)state;
+    g_now = 0u;
+    g_trace_len = 0u;
+    g_stop_after = 0u;
+    return 0;
+}
+
 static edge_eos_t make_eos(void) {
     edge_eos_t eos;
     g_now = 0u;
@@ -173,15 +183,20 @@ static void test_null_clock_is_a_fixed_zero(void **state) {
     assert_int_equal(edge_eos_init(NULL, NULL), EDGE_EINVAL);
 }
 
+/*
+ * Every case resets the module's state **before** it runs. `cmocka_run_group_tests`
+ * would run a setup once for the whole group, which is not enough: state leaks
+ * between cases, and an end-of-test reset is skipped by the longjmp an assertion
+ * takes - so it fails exactly when the state is dirty (#171).
+ */
+#define TEST(fn) cmocka_unit_test_setup(fn, reset_state)
+
 int main(void) {
     const struct CMUnitTest tests[] = {
-        cmocka_unit_test(test_registration_limits),
-        cmocka_unit_test(test_priority_order_within_a_round),
-        cmocka_unit_test(test_lower_priority_is_not_starved),
-        cmocka_unit_test(test_periodic_deadlines_do_not_accumulate),
-        cmocka_unit_test(test_idle_rounds_are_counted),
-        cmocka_unit_test(test_run_until_stop),
-        cmocka_unit_test(test_null_clock_is_a_fixed_zero),
+        TEST(test_registration_limits),           TEST(test_priority_order_within_a_round),
+        TEST(test_lower_priority_is_not_starved), TEST(test_periodic_deadlines_do_not_accumulate),
+        TEST(test_idle_rounds_are_counted),       TEST(test_run_until_stop),
+        TEST(test_null_clock_is_a_fixed_zero),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

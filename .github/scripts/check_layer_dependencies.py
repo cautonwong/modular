@@ -65,6 +65,40 @@ def owner_of(path, root, layer):
     return None
 
 
+CMAKE_CALL = re.compile(r"edge_add_[a-z_]+\(((?:[^()]|\([^()]*\))*)\)")
+
+
+def declared_deps(root):
+    """(owner layer, file, dependency layer, dependency name) for every declared DEPS.
+
+    The matrix is enforced above on *includes*. A library can also declare a
+    dependency it never includes: the dependency's `PUBLIC` include directories then
+    reach the compile line, so the forbidden include would work the day someone
+    writes it, and no gate would have noticed until then (#173).
+    """
+    found = []
+    for layer in LAYER_DIRS:
+        base = root / layer
+        if not base.is_dir():
+            continue
+        for path in sorted(base.rglob("CMakeLists.txt")):
+            text = path.read_text(encoding="utf-8", errors="replace")
+            flat = " ".join(line.split("#", 1)[0] for line in text.splitlines())
+            for args in CMAKE_CALL.findall(flat):
+                tokens = args.split()
+                if "DEPS" not in tokens:
+                    continue
+                for dep in tokens[tokens.index("DEPS") + 1:]:
+                    if dep == "edge_module":
+                        dep_layer = "edge_module"
+                    else:
+                        head = dep.split("_", 1)[0]
+                        dep_layer = head if head in LAYER_DIRS else None
+                    if dep_layer is not None:
+                        found.append((layer, path.relative_to(root), dep_layer, dep))
+    return found
+
+
 def check(root):
     root = root.resolve()
     roots = include_roots(root)
@@ -102,9 +136,22 @@ def check(root):
                     if owner != reached:
                         problems.append(f"{rel}: app '{owner}' -> app '{reached}' via '{include}'")
 
+    for layer, rel, dep_layer, dep in declared_deps(root):
+        # `edge_module` is bookkeeping, not a dependency: the helper requires a DEPS
+        # and puts `edge_module/include` on every target, so naming it says nothing
+        # about what the layer may include - the include rule above still does (D49
+        # keeps `soc -> soc` for real includes).
+        if dep_layer == layer or dep_layer == "edge_module":
+            continue
+        if dep_layer not in ALLOWED[layer]:
+            problems.append(f"{rel}: {layer} -> {dep_layer} declared in DEPS ('{dep}')")
+
     if problems:
         return (1, problems)
-    return (0, [f"layer dependency check: PASS ({len(LAYER_DIRS)} layers)"])
+    return (
+        0,
+        [f"layer dependency check: PASS ({len(LAYER_DIRS)} layers, includes and CMake DEPS)"],
+    )
 
 
 def main(argv):

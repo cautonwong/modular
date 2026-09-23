@@ -27,6 +27,7 @@ CASES = [
     ("check_layer_dependencies.py", "tests/guards/layer_bad", False),
     ("check_layer_dependencies.py", "tests/guards/layer_bad_app", False),
     ("check_layer_dependencies.py", "tests/guards/layer_bad_infra_soc", False),
+    ("check_layer_dependencies.py", "tests/guards/layer_bad_cmake", False),
     ("check_cmake_apps.py", "tests/guards/cmake_good", True),
     ("check_cmake_apps.py", "tests/guards/cmake_bad", False),
     ("check_event_ids.py", "tests/guards/events_good", True),
