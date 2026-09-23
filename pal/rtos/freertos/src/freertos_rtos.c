@@ -3,6 +3,22 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+/*
+ * Task storage belongs to the port (the contract requires it), and the image has no
+ * heap at all: `configSUPPORT_DYNAMIC_ALLOCATION` is 0 and `heap_4.c` is not compiled
+ * in, so `xTaskCreate` does not exist and nothing can allocate at run time (#172).
+ */
+#ifndef EDGE_FREERTOS_MAX_TASKS
+#define EDGE_FREERTOS_MAX_TASKS 4u
+#endif
+#ifndef EDGE_FREERTOS_STACK_WORDS
+#define EDGE_FREERTOS_STACK_WORDS 512u /* the largest a product here asks for */
+#endif
+
+static StaticTask_t g_task_tcb[EDGE_FREERTOS_MAX_TASKS];
+static StackType_t g_task_stack[EDGE_FREERTOS_MAX_TASKS][EDGE_FREERTOS_STACK_WORDS];
+static uint32_t g_tasks_used;
+
 static void os_yield(void *self) {
     (void)self;
     taskYIELD();
@@ -40,14 +56,34 @@ edge_status_t edge_rtos_task_create(const char *name, edge_rtos_task_fn fn, void
      * lowest one hides a caller's mistake behind a scheduling surprise. */
     if (priority >= (uint32_t)configMAX_PRIORITIES)
         return EDGE_EINVAL;
-    if (xTaskCreate((TaskFunction_t)fn, name, (configSTACK_DEPTH_TYPE)stack_words, arg,
-                    to_freertos_priority(priority), NULL) != pdPASS)
+    /* Refused, not served by allocating: the port owns a fixed pool and there is no
+     * heap to fall back on. */
+    if (stack_words == 0u || stack_words > EDGE_FREERTOS_STACK_WORDS)
+        return EDGE_EINVAL;
+    if (g_tasks_used >= EDGE_FREERTOS_MAX_TASKS)
         return EDGE_ENOSPC;
+    TaskHandle_t handle = xTaskCreateStatic(
+        (TaskFunction_t)fn, name, (configSTACK_DEPTH_TYPE)stack_words, arg,
+        to_freertos_priority(priority), g_task_stack[g_tasks_used], &g_task_tcb[g_tasks_used]);
+    if (handle == NULL)
+        return EDGE_ENOSPC;
+    ++g_tasks_used;
     return EDGE_OK;
 }
 
 void edge_rtos_start(void) {
     vTaskStartScheduler();
+}
+
+/* With static allocation and no heap, the kernel asks the application for the idle
+ * task's memory instead of allocating it. */
+void vApplicationGetIdleTaskMemory(StaticTask_t **tcb, StackType_t **stack,
+                                   configSTACK_DEPTH_TYPE *size) {
+    static StaticTask_t idle_tcb;
+    static StackType_t idle_stack[configMINIMAL_STACK_SIZE];
+    *tcb = &idle_tcb;
+    *stack = idle_stack;
+    *size = configMINIMAL_STACK_SIZE;
 }
 
 /* Overrun guard (configCHECK_FOR_STACK_OVERFLOW == 2): halt so a stack overflow

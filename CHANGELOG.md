@@ -6,6 +6,30 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The gateway's transport sink was 64 bytes while the protocol can build 69 (32
+  registers: 2 + 64 PDU + unit id + CRC), so a large read response copied past the end
+  of it (`uart_write` copies `len` bytes into the caller's buffer and has no notion of
+  its size). The sink is now derived from the slave's own response capacity and the
+  adapter refuses anything larger with `EDGE_ENOSPC`; the test writes the worst case
+  and then one byte more (#170).
+- The FreeRTOS port allocated its tasks (`xTaskCreate` with `heap_4.c` compiled in),
+  which contradicted the zero-allocation rule the rest of the repository is gated on -
+  and the gate could not see it, because its forbidden-symbol list held only the libc
+  `malloc` family. The port now owns static task storage (`xTaskCreateStatic`, a fixed
+  pool, an idle-task memory provider), the product states
+  `configSUPPORT_STATIC_ALLOCATION 1` / `configSUPPORT_DYNAMIC_ALLOCATION 0`, `heap_4.c`
+  is no longer compiled in, and `check_no_dynamic_memory.py` rejects `pvPortMalloc` and
+  friends. Verified by `arm-none-eabi-nm`: the image contains **no** allocator symbol
+  at all (#172).
+
+### Note
+
+- #166 and #168 were closed as **not defects**: `app/dlt645` has no frame parser to
+  validate a length in, and the Modbus response builders already bound `qty` against
+  `MODBUS_SLAVE_MAX_QTY` with PDU arrays sized for that maximum and a bounded
+  `send_pdu` (see the closing comments for the indices).
 ### Removed
 
 - `docs/todo-status.md`: a **second** area-level status table, while `CONTRIBUTING.md`

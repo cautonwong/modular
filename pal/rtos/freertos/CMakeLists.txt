@@ -43,7 +43,8 @@ add_library(freertos_kernel STATIC
     ${freertos_kernel_SOURCE_DIR}/list.c
     ${freertos_kernel_SOURCE_DIR}/queue.c
     ${freertos_kernel_SOURCE_DIR}/portable/GCC/ARM_CM3/port.c
-    ${freertos_kernel_SOURCE_DIR}/portable/MemMang/heap_4.c
+    # No heap_4.c: the port owns static task storage and the image must not be able
+    # to allocate (#172).
 )
 target_include_directories(freertos_kernel PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include

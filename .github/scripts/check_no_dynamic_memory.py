@@ -24,6 +24,11 @@ FORBIDDEN = {
     "_realloc_r",
     "_free_r",
     "_strdup_r",
+    # Kernel-level allocators: a kernel's own malloc family is still allocation (#172).
+    "pvPortMalloc",
+    "vPortFree",
+    "pvPortCalloc",
+    "pvPortRealloc",
 }
 
 
