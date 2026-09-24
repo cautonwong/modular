@@ -45,7 +45,11 @@ extern "C" {
     X(VESC_COMM, 0x2200, app)                                                                      \
     X(MOTOR_CONFIG, 0x2300, app)                                                                   \
     X(TIMEOUT_GUARD, 0x2400, app)                                                                  \
-    X(THROTTLE, 0x2500, app)
+    X(THROTTLE, 0x2500, app)                                                                       \
+    X(MOTOR_ID, 0x2600, app)                                                                       \
+    X(PPM, 0x2700, app)                                                                            \
+    X(ADC_INPUT, 0x2800, app)                                                                      \
+    X(VESC_CAN, 0x2900, app)
 
 /* One block per layer token used above, inclusive. */
 #define EDGE_MODULE_BLOCK_app_LO 0x1000u

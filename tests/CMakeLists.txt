@@ -87,6 +87,12 @@ edge_add_host_test(test_infra_encoder SOURCES test_infra_encoder.c DEPS infra_en
 edge_add_host_test(test_infra_imu SOURCES test_infra_imu.c DEPS infra_imu)
 edge_add_host_test(test_board_vesc6 SOURCES test_board_vesc6.c DEPS board_vesc6 soc_stm32f4)
 edge_add_host_test(test_pal_power SOURCES test_pal_power.c DEPS pal_host pal_os)
+edge_add_host_test(test_app_motor_id SOURCES test_app_motor_id.c DEPS app_motor_id)
+edge_add_host_test(test_app_ppm SOURCES test_app_ppm.c DEPS app_ppm)
+edge_add_host_test(test_app_adc_input SOURCES test_app_adc_input.c DEPS app_adc_input)
+edge_add_host_test(test_app_vesc_can SOURCES test_app_vesc_can.c DEPS app_vesc_can)
+edge_add_host_test(test_board_vesc4 SOURCES test_board_vesc4.c DEPS board_vesc4 soc_stm32f4)
+edge_add_host_test(test_board_vesc_unity SOURCES test_board_vesc_unity.c DEPS board_vesc_unity soc_stm32f4)
 
 # Every product's glue is in the coverage scope, so every trampoline is exercised
 # here instead of living only inside a product executable.
@@ -96,5 +102,5 @@ edge_add_host_test(test_product_glue SOURCES test_product_glue.c
     ../product/meter_gateway_host/glue.c
     ../product/water_meter_host/glue.c
     ../product/vesc_host/glue.c
-    DEPS app_dlt645 app_meter_core app_modbus_slave app_pulse_meter app_relay app_foc_core app_vesc_comm app_motor_config infra_flash infra_gpio infra_uart)
+    DEPS app_dlt645 app_meter_core app_modbus_slave app_pulse_meter app_relay app_foc_core app_vesc_comm app_motor_config app_ppm app_adc_input app_vesc_can app_motor_id infra_flash infra_gpio infra_uart)
 target_include_directories(test_product_glue PRIVATE ${EDGE_ROOT}/product/meter_gateway_host ${EDGE_ROOT}/product/water_meter_host ${EDGE_ROOT}/product/vesc_host)

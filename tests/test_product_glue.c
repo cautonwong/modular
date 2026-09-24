@@ -197,6 +197,26 @@ static void test_vesc_host_glue(void **state) {
     foc_rotor_port_t rotor;
     vesc_host_make_rotor_port(&rotor, &glue_state);
     assert_non_null(rotor.read_angle);
+
+    ppm_receiver_port_t ppm;
+    vesc_host_make_ppm_port(&ppm, &glue_state);
+    assert_non_null(ppm.read_pulse_us);
+
+    adc_input_port_t adc;
+    vesc_host_make_adc_port(&adc, &glue_state);
+    assert_non_null(adc.read_throttle_v);
+
+    vesc_can_port_t can;
+    vesc_host_make_can_port(&can, &glue_state);
+    assert_non_null(can.send_frame);
+
+    motor_id_measure_port_t id_m;
+    vesc_host_make_motor_id_measure_port(&id_m, &glue_state);
+    assert_non_null(id_m.get_currents);
+
+    motor_id_control_port_t id_c;
+    vesc_host_make_motor_id_control_port(&id_c, &glue_state);
+    assert_non_null(id_c.set_voltage_alpha_beta);
 }
 
 int main(void) {

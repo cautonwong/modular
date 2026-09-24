@@ -199,3 +199,166 @@ void vesc_host_make_rotor_port(foc_rotor_port_t *out, vesc_host_glue_state_t *st
         .self = state,
     };
 }
+
+/* PPM Port Adaptor */
+static edge_status_t ppm_read_pulse(void *self, float *pulse_us) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    *pulse_us = s->ppm_pulse_us > 0.0f ? s->ppm_pulse_us : 1500.0f;
+    return EDGE_OK;
+}
+
+static bool ppm_is_signal(void *self) {
+    (void)self;
+    return true;
+}
+
+void vesc_host_make_ppm_port(ppm_receiver_port_t *out, vesc_host_glue_state_t *state) {
+    if (!out || !state) {
+        return;
+    }
+    *out = (ppm_receiver_port_t){
+        .self = state,
+        .read_pulse_us = ppm_read_pulse,
+        .is_signal_present = ppm_is_signal,
+    };
+}
+
+/* ADC Port Adaptor */
+static edge_status_t adc_read_throttle(void *self, float *v) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    *v = s->adc_throttle_v > 0.0f ? s->adc_throttle_v : 1.0f;
+    return EDGE_OK;
+}
+
+static edge_status_t adc_read_brake(void *self, float *v) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    *v = s->adc_brake_v;
+    return EDGE_OK;
+}
+
+static bool adc_read_button(void *self, uint8_t idx) {
+    (void)self;
+    (void)idx;
+    return false;
+}
+
+void vesc_host_make_adc_port(adc_input_port_t *out, vesc_host_glue_state_t *state) {
+    if (!out || !state) {
+        return;
+    }
+    *out = (adc_input_port_t){
+        .self = state,
+        .read_throttle_v = adc_read_throttle,
+        .read_brake_v = adc_read_brake,
+        .read_button = adc_read_button,
+    };
+}
+
+/* CAN Port Adaptor */
+static edge_status_t can_send(void *self, uint32_t can_id, const uint8_t *data, uint8_t len) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    s->last_can_id = can_id;
+    s->last_can_len = len;
+    for (uint8_t i = 0; i < len && i < 8; i++) {
+        s->last_can_data[i] = data[i];
+    }
+    return EDGE_OK;
+}
+
+static edge_status_t can_recv(void *self, uint32_t *can_id, uint8_t *data, uint8_t *len) {
+    (void)self;
+    (void)can_id;
+    (void)data;
+    (void)len;
+    return EDGE_ENOENT;
+}
+
+void vesc_host_make_can_port(vesc_can_port_t *out, vesc_host_glue_state_t *state) {
+    if (!out || !state) {
+        return;
+    }
+    *out = (vesc_can_port_t){
+        .self = state,
+        .send_frame = can_send,
+        .receive_frame = can_recv,
+    };
+}
+
+/* Motor ID Measure & Control Port Adaptors */
+static edge_status_t id_get_currents(void *self, float *ia, float *ib) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    *ia = s->vmotor.ia;
+    *ib = s->vmotor.ib;
+    return EDGE_OK;
+}
+
+static edge_status_t id_get_vbus(void *self, float *v_bus) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    *v_bus = s->v_bus > 0.0f ? s->v_bus : 24.0f;
+    return EDGE_OK;
+}
+
+static uint8_t id_get_hall(void *self) {
+    (void)self;
+    return 1;
+}
+
+static float id_get_rotor_angle(void *self) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    return s->vmotor.rotor_angle_rad;
+}
+
+void vesc_host_make_motor_id_measure_port(motor_id_measure_port_t *out,
+                                          vesc_host_glue_state_t *state) {
+    if (!out || !state) {
+        return;
+    }
+    *out = (motor_id_measure_port_t){
+        .self = state,
+        .get_currents = id_get_currents,
+        .get_vbus = id_get_vbus,
+        .get_hall = id_get_hall,
+        .get_rotor_angle = id_get_rotor_angle,
+    };
+}
+
+static edge_status_t id_set_v_ab(void *self, float va, float vb) {
+    (void)self;
+    (void)va;
+    (void)vb;
+    return EDGE_OK;
+}
+
+static edge_status_t id_set_duty(void *self, float da, float db, float dc) {
+    (void)self;
+    (void)da;
+    (void)db;
+    (void)dc;
+    return EDGE_OK;
+}
+
+static edge_status_t id_set_openloop(void *self, float angle, float curr) {
+    (void)self;
+    (void)angle;
+    (void)curr;
+    return EDGE_OK;
+}
+
+static edge_status_t id_stop(void *self) {
+    (void)self;
+    return EDGE_OK;
+}
+
+void vesc_host_make_motor_id_control_port(motor_id_control_port_t *out,
+                                          vesc_host_glue_state_t *state) {
+    if (!out || !state) {
+        return;
+    }
+    *out = (motor_id_control_port_t){
+        .self = state,
+        .set_voltage_alpha_beta = id_set_v_ab,
+        .set_pwm_duty = id_set_duty,
+        .set_openloop_angle = id_set_openloop,
+        .stop_inverter = id_stop,
+    };
+}
