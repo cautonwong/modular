@@ -25,6 +25,13 @@ uint32_t edge_rtos_assert_count(void) {
     return g_assert_count;
 }
 
+void edge_rtos_fault_handler(void) {
+    /* A fault is the ThreadX/FreeRTOS-independent way into this contract: the vector
+     * table points here (EDGE_FAULT_HANDLER) and the product's hook decides the
+     * reaction, because the reaction is the composition root's decision. */
+    edge_rtos_assert_failed("fault", 0);
+}
+
 void edge_rtos_assert_failed(const char *file, int line) {
     ++g_assert_count;
     if (g_assert_fn != NULL)

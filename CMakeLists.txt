@@ -400,6 +400,7 @@ function(edge_add_arm_freertos_firmware name product)
         EDGE_SVC_HANDLER=vPortSVCHandler
         EDGE_PENDSV_HANDLER=xPortPendSVHandler
         EDGE_SYSTICK_HANDLER=xPortSysTickHandler
+        EDGE_FAULT_HANDLER=edge_rtos_fault_handler
     )
     # The board IRQ handler (same contract as edge_add_arm_firmware): without it
     # the timer vector falls back to default_handler and the first interrupt
@@ -488,6 +489,7 @@ function(edge_add_arm_threadx_firmware name product)
         EDGE_QEMU_SEMIHOSTING=1
         EDGE_PENDSV_HANDLER=__tx_PendSVHandler
         EDGE_SYSTICK_HANDLER=__tx_SysTickHandler
+        EDGE_FAULT_HANDLER=edge_rtos_fault_handler
     )
     # Same contract as edge_add_arm_firmware: without a board IRQ handler the timer
     # vector falls back to default_handler and the first interrupt parks the CPU.

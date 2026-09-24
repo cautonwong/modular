@@ -8,6 +8,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **A fault in an RTOS firmware now reports itself instead of parking the CPU.** The
+  shared startup table gained `EDGE_FAULT_HANDLER`, both firmware products point it at a
+  handler that calls the shared assert contract, and the product's existing hook turns
+  that into its own exit code. Verified the way it should be: a deliberate `udf` exits 9,
+  and the normal path still exits 0. That test caught a real defect - `handlers[i]` in the
+  table is hardware vector `i + 2`, so the fault vectors are indices 1 to 4, not 3 to 6,
+  and at the wrong index the fault is silently delivered to `default_handler` (#134).
+
 - **ThreadX is integrated, and verified on the host and on Cortex-M.**
   `pal/rtos/threadx` fetches the kernel like the FreeRTOS port does (by tag, shallow,
   then the resolved revision is checked against the pin in `ci/dependencies.json`),

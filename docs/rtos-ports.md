@@ -41,9 +41,12 @@ reason the preparation exists, not a substitute for trying it.
 1. **ThreadX is a kernel-shaped port** - the same shape as the FreeRTOS one, with
    four translations instead of none: a static task pool, buffered creation because
    entry never returns, a preprocessor-only config file, and an assertion surface -
-   though that last one is still open, because the shared startup table exposes no
-   fault vector to hang it off (the same gap the other firmware products have, so it
-   belongs in `.github/arm/startup.c`, not in this port). That is mechanical work, which is why #134
+   faults reach the shared assert contract through the startup table's fault vectors,
+   which both RTOS firmwares point at their own handler. That last one has a trap worth
+   stating: `handlers[i]` in `.github/arm/startup.c` is hardware vector `i + 2` (index 9
+   is SVCall, index 12 is PendSV), so HardFault is index 1, not 3. Written at the wrong
+   index the table still names a handler, just the wrong vector, and the fault lands in
+   `default_handler` - which reads as a hang. A deliberate `udf` is what catches it. That is mechanical work, which is why #134
    recommends it as the second kernel. It is now integrated and host-verified
    (`pal/rtos/threadx`, `product/meter_threadx`), and three port facts were measured
    rather than assumed:
