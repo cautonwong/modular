@@ -80,6 +80,9 @@ edge_add_host_test(test_app_pulse_meter SOURCES test_app_pulse_meter.c DEPS app_
 edge_add_host_test(test_foc_core SOURCES test_foc_core.c DEPS app_foc_core)
 edge_add_host_test(test_app_vesc_comm SOURCES test_app_vesc_comm.c DEPS app_vesc_comm)
 edge_add_host_test(test_motor_config SOURCES test_motor_config.c DEPS app_motor_config)
+edge_add_host_test(test_infra_drv83xx SOURCES test_infra_drv83xx.c DEPS infra_drv83xx)
+edge_add_host_test(test_infra_encoder SOURCES test_infra_encoder.c DEPS infra_encoder)
+edge_add_host_test(test_board_vesc6 SOURCES test_board_vesc6.c DEPS board_vesc6 soc_stm32f4)
 edge_add_host_test(test_pal_power SOURCES test_pal_power.c DEPS pal_host pal_os)
 
 # Every product's glue is in the coverage scope, so every trampoline is exercised
