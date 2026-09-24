@@ -2,32 +2,77 @@
 #include <math.h>
 #include <string.h>
 
-float throttle_apply_curve(float raw_in, float deadband, float expo) {
-    if (deadband >= 1.0f || deadband < 0.0f) {
-        deadband = 0.0f;
-    }
-    if (expo > 1.0f) {
-        expo = 1.0f;
-    } else if (expo < -1.0f) {
-        expo = -1.0f;
-    }
-
-    float sign = raw_in >= 0.0f ? 1.0f : -1.0f;
-    float abs_in = fabsf(raw_in);
-
-    if (abs_in <= deadband) {
+/*
+ * Reference firmware: util/utils_math.c `utils_deadband(value, tres, 1.0)`.
+ * The reference treats this as its own step (app_ppm.c applies it before the
+ * throttle curve), so it stays a separate function here as well.
+ */
+float throttle_apply_deadband(float value, float threshold) {
+    if (fabsf(value) < threshold) {
         return 0.0f;
     }
 
-    /* Rescale range [deadband .. 1.0] -> [0.0 .. 1.0] */
-    float x = (abs_in - deadband) / (1.0f - deadband);
-    if (x > 1.0f) {
-        x = 1.0f;
+    const float max = 1.0f;
+    float k = max / (max - threshold);
+    if (value > 0.0f) {
+        return k * value + max * (1.0f - k);
+    }
+    return -(k * -value + max * (1.0f - k));
+}
+
+/*
+ * Reference firmware: util/utils_math.c `utils_throttle_curve`. All four modes
+ * are ported; the accelerating and braking sides carry their own curve so that
+ * the parked throttle curve cannot be substituted for the requested one.
+ */
+float throttle_apply_curve(float raw_in, float curve_acc, float curve_brake, int mode) {
+    float val = raw_in;
+
+    if (val < -1.0f) {
+        val = -1.0f;
+    }
+    if (val > 1.0f) {
+        val = 1.0f;
     }
 
-    /* VESC cubic polynomial curve: y = (1 - expo)*x + expo*x^3 */
-    float y = (1.0f - expo) * x + expo * (x * x * x);
-    return sign * y;
+    float val_a = fabsf(val);
+    float curve = (val >= 0.0f) ? curve_acc : curve_brake;
+    float ret = 0.0f;
+
+    /* See
+     * http://math.stackexchange.com/questions/297768/how-would-i-create-a-exponential-ramp-function-from-0-0-to-1-1-with-a-single-val
+     */
+    if (mode == 0) { /* Exponential */
+        if (curve >= 0.0f) {
+            ret = 1.0f - powf(1.0f - val_a, 1.0f + curve);
+        } else {
+            ret = powf(val_a, 1.0f - curve);
+        }
+    } else if (mode == 1) { /* Natural */
+        if (fabsf(curve) < 1e-10f) {
+            ret = val_a;
+        } else {
+            if (curve >= 0.0f) {
+                ret = 1.0f - ((expf(curve * (1.0f - val_a)) - 1.0f) / (expf(curve) - 1.0f));
+            } else {
+                ret = (expf(-curve * val_a) - 1.0f) / (expf(-curve) - 1.0f);
+            }
+        }
+    } else if (mode == 2) { /* Polynomial */
+        if (curve >= 0.0f) {
+            ret = 1.0f - ((1.0f - val_a) / (1.0f + curve * val_a));
+        } else {
+            ret = val_a / (1.0f - curve * (1.0f - val_a));
+        }
+    } else { /* Linear */
+        ret = val_a;
+    }
+
+    if (val < 0.0f) {
+        ret = -ret;
+    }
+
+    return ret;
 }
 
 float throttle_apply_ramp(float current_val, float target_val, float ramp_up, float ramp_down,
@@ -108,7 +153,9 @@ void throttle_construct(throttle_t *self, uint32_t module_id, uint32_t priority,
     } else {
         self->config = (throttle_curve_config_t){
             .deadband = 0.05f,
-            .expo = 0.0f,
+            .expo_acc = 0.0f,
+            .expo_brake = 0.0f,
+            .expo_mode = 0, /* THR_EXP_EXPO; with both curves at 0.0 every mode is linear */
             .ramp_up_rate = 2.0f,
             .ramp_down_rate = 5.0f,
             .min_out = -1.0f,
@@ -149,8 +196,11 @@ edge_status_t throttle_step(throttle_t *self) {
 
     self->last_raw_input = raw;
 
-    /* 1. Apply curve and deadband */
-    float curved = throttle_apply_curve(raw, self->config.deadband, self->config.expo);
+    /* 1. Deadband, then curve, then rate limit - the order the reference firmware
+     *    uses in app_ppm.c / app_adc.c. */
+    float deadbanded = throttle_apply_deadband(raw, self->config.deadband);
+    float curved = throttle_apply_curve(deadbanded, self->config.expo_acc, self->config.expo_brake,
+                                        self->config.expo_mode);
 
     /* 2. Apply clamp limits */
     if (curved > self->config.max_out) {

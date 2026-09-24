@@ -30,15 +30,48 @@ static edge_status_t mock_throttle_set_cmd(void *self, float cmd) {
     return EDGE_OK;
 }
 
-static void test_throttle_deadband_and_curve(void **state) {
+static void test_throttle_deadband(void **state) {
     (void)state;
-    /* Deadband 0.1: input <= 0.1 -> 0.0 */
-    assert_true(fabsf(throttle_apply_curve(0.05f, 0.1f, 0.0f)) < 1e-4f);
-    assert_true(fabsf(throttle_apply_curve(-0.08f, 0.1f, 0.0f)) < 1e-4f);
+    /* utils_deadband(v, 0.1, 1.0): below the threshold the value is zeroed, above it
+     * the band [0.1 .. 1.0] is stretched back to [0.0 .. 1.0]. */
+    assert_float_equal(throttle_apply_deadband(0.05f, 0.1f), 0.0f, 1e-6f);
+    assert_float_equal(throttle_apply_deadband(-0.08f, 0.1f), 0.0f, 1e-6f);
+    assert_float_equal(throttle_apply_deadband(0.5f, 0.1f), (0.5f - 0.1f) / 0.9f, 1e-6f);
+    assert_float_equal(throttle_apply_deadband(-0.5f, 0.1f), -((0.5f - 0.1f) / 0.9f), 1e-6f);
+    assert_float_equal(throttle_apply_deadband(1.0f, 0.1f), 1.0f, 1e-6f);
+    assert_float_equal(throttle_apply_deadband(-1.0f, 0.1f), -1.0f, 1e-6f);
+}
 
-    /* Full throttle: 1.0 -> 1.0 */
-    assert_true(fabsf(throttle_apply_curve(1.0f, 0.1f, 0.0f) - 1.0f) < 1e-4f);
-    assert_true(fabsf(throttle_apply_curve(-1.0f, 0.1f, 0.0f) - (-1.0f)) < 1e-4f);
+/*
+ * Values below are the reference firmware's util/utils_math.c utils_throttle_curve
+ * output, so a rewritten curve cannot pass by agreeing with itself.
+ */
+static void test_throttle_curve_matches_reference(void **state) {
+    (void)state;
+
+    /* Every mode is the identity at curve = 0. */
+    for (int mode = 0; mode < 4; mode++) {
+        assert_float_equal(throttle_apply_curve(0.4f, 0.0f, 0.0f, mode), 0.4f, 1e-6f);
+        assert_float_equal(throttle_apply_curve(-0.4f, 0.0f, 0.0f, mode), -0.4f, 1e-6f);
+    }
+
+    /* mode 0 (exponential), curve_acc = 1: 1 - (1 - x)^2 */
+    assert_float_equal(throttle_apply_curve(0.5f, 1.0f, 0.0f, 0), 0.75f, 1e-6f);
+    /* mode 1 (natural), curve 1: 1 - (e^(1-x) - 1)/(e - 1) */
+    assert_float_equal(throttle_apply_curve(0.5f, 1.0f, 0.0f, 1),
+                       1.0f - ((expf(0.5f) - 1.0f) / (expf(1.0f) - 1.0f)), 1e-6f);
+    /* mode 2 (polynomial), curve 1: 1 - (1-x)/(1+x) */
+    assert_float_equal(throttle_apply_curve(0.5f, 1.0f, 0.0f, 2), 1.0f - (0.5f / 1.5f), 1e-6f);
+    /* mode 3 (linear): unchanged whatever the curve */
+    assert_float_equal(throttle_apply_curve(0.5f, 1.0f, 1.0f, 3), 0.5f, 1e-6f);
+
+    /* Braking side uses curve_brake, not curve_acc. */
+    assert_float_equal(throttle_apply_curve(-0.5f, 0.0f, 1.0f, 0),
+                       -(1.0f - (1.0f - 0.5f) * (1.0f - 0.5f)), 1e-6f);
+
+    /* Inputs are clamped to [-1, 1]. */
+    assert_float_equal(throttle_apply_curve(9.0f, 0.0f, 0.0f, 0), 1.0f, 1e-6f);
+    assert_float_equal(throttle_apply_curve(-9.0f, 0.0f, 0.0f, 0), -1.0f, 1e-6f);
 }
 
 static void test_throttle_rate_limiting_ramp(void **state) {
@@ -67,7 +100,9 @@ static void test_throttle_module_step(void **state) {
 
     throttle_curve_config_t cfg = {
         .deadband = 0.05f,
-        .expo = 0.0f,
+        .expo_acc = 0.0f,
+        .expo_brake = 0.0f,
+        .expo_mode = 0,
         .ramp_up_rate = 10.0f,
         .ramp_down_rate = 10.0f,
         .min_out = -1.0f,
@@ -84,7 +119,8 @@ static void test_throttle_module_step(void **state) {
 
 int main(void) {
     const struct CMUnitTest tests[] = {
-        cmocka_unit_test(test_throttle_deadband_and_curve),
+        cmocka_unit_test(test_throttle_deadband),
+        cmocka_unit_test(test_throttle_curve_matches_reference),
         cmocka_unit_test(test_throttle_rate_limiting_ramp),
         cmocka_unit_test(test_throttle_module_step),
     };

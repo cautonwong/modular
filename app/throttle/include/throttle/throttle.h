@@ -25,8 +25,10 @@ typedef struct throttle_output_port {
 } throttle_output_port_t;
 
 typedef struct throttle_curve_config {
-    float deadband;
-    float expo;
+    float deadband;       /* utils_deadband tres, with max = 1.0 */
+    float expo_acc;       /* throttle_exp       - accelerating side */
+    float expo_brake;     /* throttle_exp_brake - braking side */
+    int expo_mode;        /* throttle_exp_mode  - 0 exp, 1 natural, 2 polynomial, 3 linear */
     float ramp_up_rate;   /* Units per second */
     float ramp_down_rate; /* Units per second */
     float min_out;
@@ -50,7 +52,8 @@ typedef struct throttle {
     float dt_s;
 } throttle_t;
 
-float throttle_apply_curve(float raw_in, float deadband, float expo);
+float throttle_apply_deadband(float value, float threshold);
+float throttle_apply_curve(float raw_in, float curve_acc, float curve_brake, int mode);
 float throttle_apply_ramp(float current_val, float target_val, float ramp_up, float ramp_down,
                           float dt);
 

@@ -385,10 +385,75 @@ static void test_foc_core_modes(void **state) {
     assert_int_equal(foc_core_fast_loop(&foc, 0.00005f), EDGE_OK);
 }
 
+/*
+ * The reference firmware's util/utils_math.c utils_fast_sincos_better - a parabola
+ * fit plus one 0.225 refinement pass, deliberately not exact. Golden values come
+ * from running the reference; tolerance is well below the fit's residual error
+ * (up to 0.0011), so replacing this with sinf/cosf fails the test.
+ */
+static void test_foc_math_sincos_matches_reference(void **state) {
+    (void)state;
+    static const struct {
+        float angle;
+        float sin_v;
+        float cos_v;
+    } golden[] = {
+        {0.0f, 0.0f, 1.0f},
+        {0.5235988f, 0.5f, 0.8666666f},
+        {1.5707963f, 1.0f, 0.0000001f},
+        {-2.0f, -0.9097958f, -0.4157479f},
+        {2.5f, 0.5988864f, -0.8018935f},
+    };
+
+    for (size_t i = 0; i < sizeof golden / sizeof golden[0]; i++) {
+        float s = 0.0f;
+        float c = 0.0f;
+        foc_fast_sincos(golden[i].angle, &s, &c);
+        assert_float_equal(s, golden[i].sin_v, 1e-6f);
+        assert_float_equal(c, golden[i].cos_v, 1e-6f);
+    }
+}
+
+/*
+ * Two guards the reference observer has and a naive rewrite drops: a NaN sample
+ * must not poison x1/x2 permanently, and a flux vector that collapses towards
+ * zero must be lifted, or atan2 jumps by half a turn on noise alone.
+ *
+ * Note the scope: the reference guards its state, not its inputs, so a NaN sample
+ * still yields a NaN phase for that sample. What must hold is that the observer
+ * recovers on the next valid sample.
+ */
+static void test_foc_observer_nan_and_flux_floor(void **state) {
+    (void)state;
+    foc_observer_t obs;
+
+    foc_observer_init(&obs, 0.005f);
+    foc_observer_update(&obs, NAN, NAN, NAN, NAN, 5e-5f, 0.05f, 5e-5f, 0.005f, 1000.0f);
+    assert_false(isnan(obs.x1));
+    assert_false(isnan(obs.x2));
+
+    /* Still usable afterwards: one bad sample is not a latched failure. The phase
+     * recovers on the first valid sample and the derived speed on the second, since
+     * it is a difference against the previous (still poisoned) phase. */
+    foc_observer_update(&obs, 1.0f, 0.0f, 0.1f, 0.0f, 5e-5f, 0.05f, 5e-5f, 0.005f, 1000.0f);
+    assert_false(isnan(obs.phase));
+    foc_observer_update(&obs, 1.0f, 0.0f, 0.1f, 0.0f, 5e-5f, 0.05f, 5e-5f, 0.005f, 1000.0f);
+    assert_false(isnan(obs.phase));
+    assert_false(isnan(obs.speed_rad_s));
+
+    /* Start below half the configured linkage and let the floor lift the vector. */
+    foc_observer_init(&obs, 0.001f);
+    foc_observer_update(&obs, 0.0f, 0.0f, 0.0f, 0.0f, 5e-5f, 0.05f, 5e-5f, 0.005f, 0.0f);
+    assert_float_equal(obs.x1, 0.001f * 1.1f, 1e-6f);
+    assert_float_equal(obs.x2, 0.0f, 1e-6f);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_foc_math_transforms),
         cmocka_unit_test(test_foc_math_svpwm),
+        cmocka_unit_test(test_foc_math_sincos_matches_reference),
+        cmocka_unit_test(test_foc_observer_nan_and_flux_floor),
         cmocka_unit_test(test_foc_core_construct_contract),
         cmocka_unit_test(test_foc_core_voltage_protection),
         cmocka_unit_test(test_foc_core_thermal_protection),
