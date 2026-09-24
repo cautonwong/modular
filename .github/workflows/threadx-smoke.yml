@@ -1,0 +1,46 @@
+name: ThreadX Host Smoke
+
+# The ThreadX verification runs the product on the host, against the vendor's own Linux
+# port: the first thing worth proving about a new kernel port is that the port contract
+# holds end to end, and the Linux port ships its own `_tx_initialize_low_level()`, so
+# that proof needs no cross toolchain, no board bring-up and no QEMU. The Cortex-M
+# firmware (kernel + port + low-level init + vectors) is a separate, later job.
+on:
+  push:
+    branches: [main, "feat/**", "feature/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  threadx-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup build environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build gcc libcmocka-dev
+
+      - name: Configure with the ThreadX port enabled
+        run: |
+          cmake -S . -B build-threadx -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DEDGE_MODULE_BUILD_THREADX=ON \
+            -DEDGE_MODULE_BUILD_TESTS=ON \
+            -DEDGE_MODULE_ENABLE_WERROR=ON
+
+      - name: Build
+        run: cmake --build build-threadx --parallel
+
+      - name: Guard self-test and unit tests
+        run: |
+          python3 tests/guards/run_guard_selftest.py
+          ctest --test-dir build-threadx --output-on-failure
+
+      - name: Run the ThreadX product
+        run: |
+          ./build-threadx/meter_threadx | tee /tmp/threadx_output.log
+          grep "PASS: ThreadX modular meter ran successfully with witness ticks=" /tmp/threadx_output.log
