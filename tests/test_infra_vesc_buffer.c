@@ -1,10 +1,14 @@
-#include "vesc_buffer/buffer.h"
-#include <cmocka.h>
-#include <math.h>
-#include <setjmp.h>
+/* clang-format off */
 #include <stdarg.h>
 #include <stddef.h>
+#include <setjmp.h>
 #include <stdint.h>
+#include <math.h>
+
+#include <cmocka.h>
+/* clang-format on */
+
+#include "vesc_buffer/buffer.h"
 
 static void test_vesc_buffer_integers(void **state) {
     (void)state;

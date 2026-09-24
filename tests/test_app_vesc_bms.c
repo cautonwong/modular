@@ -1,10 +1,15 @@
-#include "vesc_bms/vesc_bms.h"
-#include <cmocka.h>
-#include <math.h>
-#include <setjmp.h>
+/* clang-format off */
 #include <stdarg.h>
 #include <stddef.h>
+#include <setjmp.h>
 #include <stdint.h>
+#include <math.h>
+
+#include <cmocka.h>
+/* clang-format on */
+
+#include "edge/errors.h"
+#include "vesc_bms/vesc_bms.h"
 
 static void test_vesc_bms_lifecycle(void **state) {
     (void)state;
