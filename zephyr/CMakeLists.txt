@@ -16,6 +16,7 @@ if(CONFIG_MODULAR)
         ../app/meter_core/include
         ../app/modbus_slave/include
         ../app/relay/include
+        ../product/common/include
     )
 
     zephyr_library_sources(
@@ -32,6 +33,7 @@ if(CONFIG_MODULAR)
         ../app/modbus_slave/src/modbus_slave.c
         ../app/relay/src/relay.c
         ../infra/flash/src/flash.c
+        ../product/common/storage.c
         ../infra/gpio/src/gpio.c
         ../infra/uart/src/uart.c
     )
