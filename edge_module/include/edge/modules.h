@@ -40,7 +40,8 @@ extern "C" {
     X(MODBUS, 0x1300, app)                                                                         \
     X(METER, 0x1400, app)                                                                          \
     X(PULSE_METER, 0x1500, app)                                                                    \
-    X(RELAY, 0x2000, app)
+    X(RELAY, 0x2000, app)                                                                          \
+    X(FOC_CORE, 0x2100, app)
 
 /* One block per layer token used above, inclusive. */
 #define EDGE_MODULE_BLOCK_app_LO 0x1000u

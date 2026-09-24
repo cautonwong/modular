@@ -77,6 +77,7 @@ edge_add_host_test(test_flash_glue SOURCES test_flash_glue.c ../product/example/
     DEPS app_dlt645 infra_flash)
 
 edge_add_host_test(test_app_pulse_meter SOURCES test_app_pulse_meter.c DEPS app_pulse_meter edge_test_contract)
+edge_add_host_test(test_foc_core SOURCES test_foc_core.c DEPS app_foc_core)
 edge_add_host_test(test_pal_power SOURCES test_pal_power.c DEPS pal_host pal_os)
 
 # Every product's glue is in the coverage scope, so every trampoline is exercised
