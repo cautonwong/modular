@@ -68,6 +68,10 @@ typedef struct foc_config {
     float vbus_uv_threshold;
     float temp_fet_max_c;
 
+    /* Reference: mcconf foc_current_filter_const, default 0.1
+     * (motor/mcconf_default.h MCCONF_FOC_CURRENT_FILTER_CONST). */
+    float current_filter_const;
+
     bool sensorless_mode;
     float observer_gamma;
 } foc_config_t;
@@ -83,6 +87,18 @@ typedef struct foc_telemetry {
     float rotor_angle_rad;
     float speed_rpm;
     float fet_temp_c;
+
+    /*
+     * Energy counters are cumulative, not averages, and the reference never reads
+     * them with its reset flag set (no caller in the tree passes true), so a plain
+     * snapshot is the whole contract. Units are hours, as the protocol sends them
+     * (the accumulators are in amp-seconds / watt-seconds and divided by 3600).
+     */
+    float current_in;
+    float amp_hours;
+    float amp_hours_charged;
+    float watt_hours;
+    float watt_hours_charged;
 } foc_telemetry_t;
 
 typedef struct foc_core {
@@ -129,6 +145,28 @@ typedef struct foc_core {
     float last_angle_rad;
     float last_rpm;
     float fet_temp_c;
+
+    /*
+     * Low-passed currents. The reference filters id/iq right after the Park
+     * transform (mcpwm_foc.c:4628) and is explicit that these are for "less time
+     * critical parts, not for the feedback" - the current controller keeps using
+     * the raw values. They exist because the energy counters are gated on the
+     * filtered current magnitude, not the instantaneous one.
+     */
+    float id_filter;
+    float iq_filter;
+    float i_abs_filter;
+
+    /* Input (bus) current: the reference has no DC-current sensor on this path and
+     * estimates it by power balance, mcpwm_foc.c:4713 with the modulation
+     * normalised as 1.5/v_bus, i.e. i_bus = 1.5 * (vd*id + vq*iq) / v_bus. */
+    float i_bus;
+
+    /* Energy counters, amp-seconds / watt-seconds before the /3600. */
+    float amp_seconds;
+    float amp_seconds_charged;
+    float watt_seconds;
+    float watt_seconds_charged;
 
     /*
      * Running sums for the read-and-reset averages the reference serves over the

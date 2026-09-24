@@ -402,6 +402,90 @@ static void test_foc_core_averages_are_read_reset_and_masked(void **state) {
     assert_true(isnan(avg.id));
 }
 
+/*
+ * Energy counters. The reference gates them on the FILTERED motor current
+ * magnitude (> 1 A) and splits powered/charged by the sign of the input current
+ * (mc_interface.c:2036), so a current below the gate must accumulate nothing.
+ */
+static void test_foc_core_energy_counters(void **state) {
+    (void)state;
+
+    sim_context_t sim;
+    sim.v_bus = 24.0f;
+    sim.inv.enabled = false;
+    foc_virtual_motor_init(&sim.vm, 0.05f, 0.00005f, 0.005f, 7, 0.0005f);
+
+    foc_inverter_port_t inv_port = {
+        .set_duty = sim_set_duty, .set_phase_state = sim_set_phase_state, .self = &sim};
+    foc_current_port_t cs_port = {
+        .read_currents = sim_read_currents, .read_vbus = sim_read_vbus, .self = &sim};
+    foc_rotor_port_t rs_port = {.read_angle = sim_read_angle, .self = &sim};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .pole_pairs = 7,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = 300.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .current_filter_const = 0.1f,
+                        .sensorless_mode = false};
+
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    foc_telemetry_t telem;
+
+    /* Idle: below the 1 A gate, nothing accumulates and the bus current is 0. */
+    for (int step = 0; step < 200; step++) {
+        assert_int_equal(foc_core_fast_loop(&foc, 0.00005f), EDGE_OK);
+        foc_virtual_motor_step(&sim.vm, foc.v_alpha, foc.v_beta, 0.0f, 0.00005f, 0.0f);
+    }
+    foc_core_get_telemetry(&foc, &telem);
+    assert_float_equal(telem.amp_hours, 0.0f, 1e-9f);
+    assert_float_equal(telem.watt_hours, 0.0f, 1e-9f);
+
+    /* Drive a real current: the counters must start moving, in the same direction. */
+    assert_int_equal(foc_core_set_current(&foc, 8.0f, 0.0f), EDGE_OK);
+    for (int step = 0; step < 4000; step++) {
+        assert_int_equal(foc_core_fast_loop(&foc, 0.00005f), EDGE_OK);
+        foc_virtual_motor_step(&sim.vm, foc.v_alpha, foc.v_beta, 0.0f, 0.00005f, 0.05f);
+    }
+
+    foc_core_get_telemetry(&foc, &telem);
+    assert_true(telem.amp_hours > 0.0f);
+    assert_true(telem.watt_hours > 0.0f);
+    assert_true(telem.current_in > 0.0f);
+    /* Power balance: v_bus * current_in must equal 1.5 * (vd*id + vq*iq). */
+    assert_float_equal(telem.v_bus * telem.current_in,
+                       1.5f * (foc.v_d * foc.last_id + foc.v_q * foc.last_iq), 1e-2f);
+    /* Nothing was regenerated, so the charged side stays empty. */
+    assert_float_equal(telem.amp_hours_charged, 0.0f, 1e-9f);
+    assert_float_equal(telem.watt_hours_charged, 0.0f, 1e-9f);
+
+    /* Amp-hours are the integral of the bus current over the loop dt, so the
+     * increment across N steps must equal the sum of i_bus * dt over those steps. */
+    foc_telemetry_t before;
+    foc_core_get_telemetry(&foc, &before);
+
+    float expected_amp_seconds = 0.0f;
+    for (int step = 0; step < 100; step++) {
+        assert_int_equal(foc_core_fast_loop(&foc, 0.00005f), EDGE_OK);
+        foc_virtual_motor_step(&sim.vm, foc.v_alpha, foc.v_beta, 0.0f, 0.00005f, 0.05f);
+        expected_amp_seconds += foc.i_bus * 0.00005f;
+    }
+
+    foc_core_get_telemetry(&foc, &telem);
+    assert_true(expected_amp_seconds > 0.0f);
+    assert_float_equal((telem.amp_hours - before.amp_hours) * 3600.0f, expected_amp_seconds, 1e-3f);
+}
+
 /* Test 7: Speed and Position Control Modes */
 static void test_foc_core_modes(void **state) {
     (void)state;
@@ -522,6 +606,7 @@ int main(void) {
         cmocka_unit_test(test_foc_core_thermal_protection),
         cmocka_unit_test(test_foc_core_closed_loop_virtual_motor),
         cmocka_unit_test(test_foc_core_averages_are_read_reset_and_masked),
+        cmocka_unit_test(test_foc_core_energy_counters),
         cmocka_unit_test(test_foc_core_modes),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);

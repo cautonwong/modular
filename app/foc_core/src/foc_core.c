@@ -100,6 +100,7 @@ void foc_core_construct(foc_core_t *self, uint32_t module_id, uint32_t priority,
         self->config.vbus_ov_threshold = 60.0f;
         self->config.vbus_uv_threshold = 8.0f;
         self->config.temp_fet_max_c = 100.0f;
+        self->config.current_filter_const = 0.1f;
         self->config.sensorless_mode = false;
         self->config.observer_gamma = 1000.0f;
     }
@@ -134,6 +135,15 @@ void foc_core_construct(foc_core_t *self, uint32_t module_id, uint32_t priority,
     self->last_angle_rad = 0.0f;
     self->last_rpm = 0.0f;
     self->fet_temp_c = 25.0f;
+
+    self->id_filter = 0.0f;
+    self->iq_filter = 0.0f;
+    self->i_abs_filter = 0.0f;
+    self->i_bus = 0.0f;
+    self->amp_seconds = 0.0f;
+    self->amp_seconds_charged = 0.0f;
+    self->watt_seconds = 0.0f;
+    self->watt_seconds_charged = 0.0f;
 
     self->fast_loop_count = 0u;
     self->step_count = 0u;
@@ -291,6 +301,12 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
     self->last_id = id;
     self->last_iq = iq;
 
+    /* Reference: UTILS_LP_FAST(id_filter, id, foc_current_filter_const) at
+     * mcpwm_foc.c:4628. Telemetry and the energy-counter gate only; the current
+     * controller below keeps using the raw id/iq, as the reference does. */
+    self->id_filter += self->config.current_filter_const * (id - self->id_filter);
+    self->iq_filter += self->config.current_filter_const * (iq - self->iq_filter);
+
     /* 6. Current Safety Invariant Checks */
     float current_mag = sqrtf(SQ(id) + SQ(iq));
     if (current_mag > self->config.current_max_a * 1.5f && self->config.current_max_a > 0.0f) {
@@ -381,6 +397,30 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
     self->duty_b = db;
     self->duty_c = dc;
     self->svm_sector = sector;
+
+    /*
+     * Input current and the energy counters. Reference: mcpwm_foc.c:4711-4718 for
+     * i_abs/i_abs_filter/i_bus, mc_interface.c:2036-2039 for the counters.
+     *
+     * Known difference: the reference runs the counters on the periodic MC timer
+     * with that timer's dt, not in the FOC loop. The integrated quantity is the
+     * same (integral of current over time) and the port has no separate timer
+     * tick carrying a dt, so it accumulates here with the loop dt.
+     */
+    self->i_abs_filter = sqrtf(SQ(self->id_filter) + SQ(self->iq_filter));
+    if (v_bus > 0.0f) {
+        self->i_bus = 1.5f * (vd * id + vq * iq) / v_bus;
+    }
+
+    if (fabsf(self->i_abs_filter) > 1.0f) {
+        if (self->i_bus > 0.0f) {
+            self->amp_seconds += self->i_bus * dt;
+            self->watt_seconds += self->i_bus * dt * v_bus;
+        } else {
+            self->amp_seconds_charged -= self->i_bus * dt;
+            self->watt_seconds_charged -= self->i_bus * dt * v_bus;
+        }
+    }
 
     /* 11. Output to Inverter */
     (void)self->inverter->set_phase_state(self->inverter->self, true);
@@ -569,6 +609,11 @@ void foc_core_get_telemetry(const foc_core_t *self, foc_telemetry_t *out_telem) 
     out_telem->rotor_angle_rad = self->last_angle_rad;
     out_telem->speed_rpm = self->last_rpm;
     out_telem->fet_temp_c = self->fet_temp_c;
+    out_telem->current_in = self->i_bus;
+    out_telem->amp_hours = self->amp_seconds / 3600.0f;
+    out_telem->amp_hours_charged = self->amp_seconds_charged / 3600.0f;
+    out_telem->watt_hours = self->watt_seconds / 3600.0f;
+    out_telem->watt_hours_charged = self->watt_seconds_charged / 3600.0f;
 }
 
 void foc_core_set_temperature(foc_core_t *self, float fet_temp_c) {

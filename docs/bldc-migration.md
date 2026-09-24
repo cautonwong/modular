@@ -61,7 +61,9 @@ clang-format --dry-run     # 格式
 | A1 | packet 层（CRC16、8/16 位帧、解码指针语义） | 已验证 ✓ |
 | A2 | 命令全表 160 个 id + `COMM_FW_VERSION` 字节布局 + identity 由组合根提供 | 已完成 ✓ |
 | A3 | `GET_VALUES` / `SELECTIVE` 的**读清语义**与掩码 | 已完成 ✓ |
-| A4 | 带 `reset` 的累加器家族：`amp_hours`、`watt_hours`、`tachometer`（打通 bit 9-14） | 下一步 |
+| A4 | 输入电流估计 + 电量累加器（打通 bit 3、9-12） | 已完成 ✓ |
+| A4b | 电流低通链（`foc_current_filter_const` → `id_filter`/`iq_filter` → `i_abs_filter`） | 已完成 ✓（A4 的前置，读原版才发现的依赖） |
+| A4c | `tachometer`（bit 13/14）：原版计的是**霍尔/编码器步进差分**，不是角度；需要转子端口暴露步进源 | 待办（阻塞于端口形状） |
 | A5 | `GET_STATS` / `RESET_STATS` | 待办 |
 | A6 | `GET_DECODED_ADC` / `GET_DECODED_PPM`（需要 `adc_input`、`ppm` 端口） | 待办 |
 | A7 | `GET_MCCONF`/`GET_APPCONF` + `SET` 版（需要配置序列化器，见阶段 C） | 待办 |
@@ -120,6 +122,9 @@ clang-format --dry-run     # 格式
 
 1. 均值累加器的采样时机：原版采样器与控制环解耦且停机时仍累加（复用上次 vd/vq），
    本仓库在 `foc_core` 的周期 poll 中累加、停机时不累加 vd/vq。
+1b. 电量累加器（amp/watt hours）的累加节拍：原版在周期性 MC 定时器 ISR 里用该定时器的
+   `dt` 累加（`mc_interface.c:2036`），本仓库在快环里用环路 `dt` 累加。被积量同为
+   ∫i dt，但采样率不同（此处更密）。
 2. 无数据源的字段（电机 NTC、输入电流、三路 MOS 温度）在协议层返回 0，
    原版返回真实测量值。
 3. `soc/stm32f4` 与 `board/vesc6` 目前是纯算术适配，不含寄存器级驱动。
