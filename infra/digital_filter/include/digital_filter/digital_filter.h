@@ -8,11 +8,21 @@
 extern "C" {
 #endif
 
+/*
+ * Direct form II transposed, with the coefficient set the reference firmware uses
+ * (util/digital_filter.c biquad_config): K = tan(pi * Fc) with Fc already
+ * normalised to the sample rate, Q fixed at 0.707. Ported as-is because the
+ * IMU's accelerometer and gyro paths filter through exactly this response.
+ */
+typedef enum {
+    BQ_LOWPASS = 0,
+    BQ_HIGHPASS,
+} biquad_type_t;
+
 typedef struct biquad_filter {
-    float b0, b1, b2;
-    float a1, a2;
-    float x1, x2;
-    float y1, y2;
+    float a0, a1, a2;
+    float b1, b2;
+    float z1, z2;
 } biquad_filter_t;
 
 typedef struct lowpass_filter {
@@ -32,10 +42,9 @@ typedef struct moving_average_filter {
 } moving_average_filter_t;
 
 /* Biquad Filter */
-void biquad_init_lowpass(biquad_filter_t *filter, float sample_rate, float cutoff_freq, float q);
-void biquad_init_notch(biquad_filter_t *filter, float sample_rate, float center_freq, float q);
-float biquad_process(biquad_filter_t *filter, float input);
+void biquad_config(biquad_filter_t *filter, biquad_type_t type, float fc_normalized);
 void biquad_reset(biquad_filter_t *filter);
+float biquad_process(biquad_filter_t *filter, float input);
 
 /* Lowpass First-Order Filter */
 void lowpass_init(lowpass_filter_t *filter, float cutoff_hz, float sample_rate_hz);
