@@ -3,11 +3,13 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #include <cmocka.h>
 
 #include "dlt645/dlt645.h"
 #include "gateway.h"
+#include "glue.h"
 #include "gpio/gpio.h"
 #include "meter_core/meter_core.h"
 #include "modbus_slave/modbus_slave.h"
@@ -161,6 +163,42 @@ static void test_water_meter_host_glue(void **state) {
     assert_int_equal(tamper, 1u);
 }
 
+static void test_vesc_host_glue(void **state) {
+    (void)state;
+    vesc_host_glue_state_t glue_state;
+    memset(&glue_state, 0, sizeof(glue_state));
+
+    motor_config_storage_port_t storage;
+    vesc_host_make_storage_port(&storage, &glue_state);
+    assert_non_null(storage.read);
+    assert_non_null(storage.write);
+    assert_non_null(storage.erase);
+
+    uint8_t dummy_buf[16] = {1, 2, 3, 4};
+    assert_int_equal(storage.write(storage.self, 0, dummy_buf, sizeof(dummy_buf)), EDGE_OK);
+    uint8_t read_buf[16] = {0};
+    assert_int_equal(storage.read(storage.self, 0, read_buf, sizeof(read_buf)), EDGE_OK);
+    assert_memory_equal(dummy_buf, read_buf, sizeof(dummy_buf));
+
+    edge_stream_tx_port_t stream_tx;
+    vesc_host_make_stream_tx_port(&stream_tx, &glue_state);
+    assert_non_null(stream_tx.write);
+    assert_int_equal(stream_tx.write(stream_tx.self, dummy_buf, sizeof(dummy_buf)), EDGE_OK);
+    assert_int_equal(glue_state.stream_tx_len, sizeof(dummy_buf));
+
+    foc_inverter_port_t inverter;
+    vesc_host_make_inverter_port(&inverter, &glue_state);
+    assert_non_null(inverter.set_duty);
+
+    foc_current_port_t current;
+    vesc_host_make_current_port(&current, &glue_state);
+    assert_non_null(current.read_currents);
+
+    foc_rotor_port_t rotor;
+    vesc_host_make_rotor_port(&rotor, &glue_state);
+    assert_non_null(rotor.read_angle);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_meter_host_glue),
@@ -169,6 +207,7 @@ int main(void) {
         cmocka_unit_test(test_gateway_transport_rejects_missing_state),
         cmocka_unit_test(test_glue_factories_are_null_safe),
         cmocka_unit_test(test_water_meter_host_glue),
+        cmocka_unit_test(test_vesc_host_glue),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
