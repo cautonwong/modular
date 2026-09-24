@@ -1,0 +1,214 @@
+#include <cmocka.h>
+#include <math.h>
+#include <setjmp.h>
+#include <stdarg.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+
+#include "edge/errors.h"
+#include "edge/modules.h"
+#include "vesc_comm/vesc_comm.h"
+
+typedef struct mock_comm_ctx {
+    uint8_t tx_buf[1024];
+    size_t tx_len;
+    size_t tx_count;
+
+    vesc_values_t current_values;
+    float set_duty_val;
+    float set_current_val;
+    float set_rpm_val;
+    float set_pos_val;
+} mock_comm_ctx_t;
+
+static edge_status_t mock_stream_write(void *self, const uint8_t *data, size_t len) {
+    mock_comm_ctx_t *ctx = (mock_comm_ctx_t *)self;
+    if (len > sizeof(ctx->tx_buf)) {
+        return EDGE_ENOSPC;
+    }
+    memcpy(ctx->tx_buf, data, len);
+    ctx->tx_len = len;
+    ctx->tx_count++;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_get_values(void *self, vesc_values_t *out_val) {
+    mock_comm_ctx_t *ctx = (mock_comm_ctx_t *)self;
+    *out_val = ctx->current_values;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_set_duty(void *self, float duty) {
+    mock_comm_ctx_t *ctx = (mock_comm_ctx_t *)self;
+    ctx->set_duty_val = duty;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_set_current(void *self, float current) {
+    mock_comm_ctx_t *ctx = (mock_comm_ctx_t *)self;
+    ctx->set_current_val = current;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_set_current_brake(void *self, float current) {
+    mock_comm_ctx_t *ctx = (mock_comm_ctx_t *)self;
+    ctx->set_current_val = -current;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_set_rpm(void *self, float rpm) {
+    mock_comm_ctx_t *ctx = (mock_comm_ctx_t *)self;
+    ctx->set_rpm_val = rpm;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_set_pos(void *self, float pos) {
+    mock_comm_ctx_t *ctx = (mock_comm_ctx_t *)self;
+    ctx->set_pos_val = pos;
+    return EDGE_OK;
+}
+
+static void test_crc16_calculation(void **state) {
+    (void)state;
+    const uint8_t test_data[] = {1, 2, 3, 4, 5, 6, 7, 8};
+    uint16_t crc1 = vesc_crc16(test_data, sizeof(test_data));
+    uint16_t crc2 = vesc_crc16(test_data, sizeof(test_data));
+    assert_int_equal(crc1, crc2);
+    assert_true(crc1 != 0);
+}
+
+static void test_send_packet_framing(void **state) {
+    (void)state;
+    mock_comm_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+
+    edge_stream_tx_port_t tx_port = {
+        .write = mock_stream_write,
+        .self = &ctx,
+    };
+
+    vesc_comm_t comm;
+    vesc_comm_construct(&comm, EDGE_MOD_VESC_COMM, 10, &tx_port, NULL);
+    assert_int_equal(vesc_comm_init(&comm), EDGE_OK);
+
+    uint8_t payload[] = {0x04, 0x01, 0x02, 0x03};
+    assert_int_equal(vesc_comm_send_packet(&comm, payload, sizeof(payload)), EDGE_OK);
+
+    /* Framing: [2][len=4][payload: 4 bytes][crc: 2 bytes][3] = total 9 bytes */
+    assert_int_equal(ctx.tx_len, 9);
+    assert_int_equal(ctx.tx_buf[0], 2);
+    assert_int_equal(ctx.tx_buf[1], 4);
+    assert_int_equal(ctx.tx_buf[2], 0x04);
+    assert_int_equal(ctx.tx_buf[3], 0x01);
+    assert_int_equal(ctx.tx_buf[4], 0x02);
+    assert_int_equal(ctx.tx_buf[5], 0x03);
+
+    uint16_t expected_crc = vesc_crc16(payload, sizeof(payload));
+    uint16_t actual_crc = ((uint16_t)ctx.tx_buf[6] << 8) | ctx.tx_buf[7];
+    assert_int_equal(actual_crc, expected_crc);
+    assert_int_equal(ctx.tx_buf[8], 3); /* Stop byte */
+    assert_int_equal(comm.packets_sent, 1);
+}
+
+static void test_receive_packet_and_commands(void **state) {
+    (void)state;
+    mock_comm_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+
+    edge_stream_tx_port_t tx_port = {
+        .write = mock_stream_write,
+        .self = &ctx,
+    };
+
+    vesc_motor_provider_port_t motor_port = {
+        .get_values = mock_get_values,
+        .set_duty = mock_set_duty,
+        .set_current = mock_set_current,
+        .set_current_brake = mock_set_current_brake,
+        .set_rpm = mock_set_rpm,
+        .set_pos = mock_set_pos,
+        .self = &ctx,
+    };
+
+    vesc_comm_t comm;
+    vesc_comm_construct(&comm, EDGE_MOD_VESC_COMM, 10, &tx_port, &motor_port);
+    assert_int_equal(vesc_comm_init(&comm), EDGE_OK);
+
+    /* Test 1: COMM_SET_DUTY */
+    /* payload: [COMM_SET_DUTY=5][duty*100000 = 0.5 * 100000 = 50000 = 0x0000C350] */
+    uint8_t cmd_duty[] = {0x05, 0x00, 0x00, 0xC3, 0x50};
+    uint16_t crc = vesc_crc16(cmd_duty, sizeof(cmd_duty));
+    uint8_t frame[16];
+    size_t f_idx = 0;
+    frame[f_idx++] = 2;
+    frame[f_idx++] = (uint8_t)sizeof(cmd_duty);
+    memcpy(frame + f_idx, cmd_duty, sizeof(cmd_duty));
+    f_idx += sizeof(cmd_duty);
+    frame[f_idx++] = (uint8_t)(crc >> 8);
+    frame[f_idx++] = (uint8_t)(crc & 0xFFu);
+    frame[f_idx++] = 3;
+
+    /* Feed byte-by-byte */
+    for (size_t i = 0; i < f_idx; i++) {
+        vesc_comm_process_byte(&comm, frame[i]);
+    }
+
+    assert_int_equal(comm.packets_received, 1);
+    assert_true(fabsf(ctx.set_duty_val - 0.5f) < 1e-4f);
+
+    /* Test 2: COMM_SET_RPM */
+    /* payload: [COMM_SET_RPM=8][rpm = 3000 = 0x00000BB8] */
+    uint8_t cmd_rpm[] = {0x08, 0x00, 0x00, 0x0B, 0xB8};
+    crc = vesc_crc16(cmd_rpm, sizeof(cmd_rpm));
+    f_idx = 0;
+    frame[f_idx++] = 2;
+    frame[f_idx++] = (uint8_t)sizeof(cmd_rpm);
+    memcpy(frame + f_idx, cmd_rpm, sizeof(cmd_rpm));
+    f_idx += sizeof(cmd_rpm);
+    frame[f_idx++] = (uint8_t)(crc >> 8);
+    frame[f_idx++] = (uint8_t)(crc & 0xFFu);
+    frame[f_idx++] = 3;
+
+    for (size_t i = 0; i < f_idx; i++) {
+        vesc_comm_process_byte(&comm, frame[i]);
+    }
+    assert_int_equal(comm.packets_received, 2);
+    assert_true(fabsf(ctx.set_rpm_val - 3000.0f) < 1e-4f);
+
+    /* Test 3: COMM_FW_VERSION query */
+    ctx.tx_count = 0;
+    uint8_t cmd_fw[] = {0x00};
+    crc = vesc_crc16(cmd_fw, sizeof(cmd_fw));
+    f_idx = 0;
+    frame[f_idx++] = 2;
+    frame[f_idx++] = 1;
+    frame[f_idx++] = cmd_fw[0];
+    frame[f_idx++] = (uint8_t)(crc >> 8);
+    frame[f_idx++] = (uint8_t)(crc & 0xFFu);
+    frame[f_idx++] = 3;
+
+    for (size_t i = 0; i < f_idx; i++) {
+        vesc_comm_process_byte(&comm, frame[i]);
+    }
+    assert_int_equal(comm.packets_received, 3);
+    assert_int_equal(ctx.tx_count, 1);
+    /* Returned packet payload starts with COMM_FW_VERSION (0) */
+    assert_int_equal(ctx.tx_buf[2], 0);
+
+    /* Test 4: Corrupted CRC */
+    frame[f_idx - 2] ^= 0xFF; /* Corrupt CRC */
+    for (size_t i = 0; i < f_idx; i++) {
+        vesc_comm_process_byte(&comm, frame[i]);
+    }
+    assert_int_equal(comm.crc_errors, 1);
+}
+
+int main(void) {
+    const struct CMUnitTest tests[] = {
+        cmocka_unit_test(test_crc16_calculation),
+        cmocka_unit_test(test_send_packet_framing),
+        cmocka_unit_test(test_receive_packet_and_commands),
+    };
+    return cmocka_run_group_tests(tests, NULL, NULL);
+}

@@ -1,0 +1,181 @@
+#include "edge/errors.h"
+#include "vesc_comm/vesc_comm.h"
+#include <string.h>
+
+static void buffer_append_int16(uint8_t *buffer, int16_t number, size_t *index) {
+    buffer[(*index)++] = (uint8_t)(number >> 8);
+    buffer[(*index)++] = (uint8_t)number;
+}
+
+static void buffer_append_int32(uint8_t *buffer, int32_t number, size_t *index) {
+    buffer[(*index)++] = (uint8_t)(number >> 24);
+    buffer[(*index)++] = (uint8_t)(number >> 16);
+    buffer[(*index)++] = (uint8_t)(number >> 8);
+    buffer[(*index)++] = (uint8_t)number;
+}
+
+static void buffer_append_uint32(uint8_t *buffer, uint32_t number, size_t *index) {
+    buffer[(*index)++] = (uint8_t)(number >> 24);
+    buffer[(*index)++] = (uint8_t)(number >> 16);
+    buffer[(*index)++] = (uint8_t)(number >> 8);
+    buffer[(*index)++] = (uint8_t)number;
+}
+
+static void buffer_append_float16(uint8_t *buffer, float number, float scale, size_t *index) {
+    buffer_append_int16(buffer, (int16_t)(number * scale), index);
+}
+
+static void buffer_append_float32(uint8_t *buffer, float number, float scale, size_t *index) {
+    buffer_append_int32(buffer, (int32_t)(number * scale), index);
+}
+
+static int32_t buffer_get_int32(const uint8_t *buffer, size_t *index) {
+    int32_t res =
+        (int32_t)(((uint32_t)buffer[*index] << 24) | ((uint32_t)buffer[*index + 1] << 16) |
+                  ((uint32_t)buffer[*index + 2] << 8) | (uint32_t)buffer[*index + 3]);
+    *index += 4;
+    return res;
+}
+
+static float buffer_get_float32(const uint8_t *buffer, float scale, size_t *index) {
+    return (float)buffer_get_int32(buffer, index) / scale;
+}
+
+edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, size_t len) {
+    if (!self || !data || len == 0) {
+        return EDGE_EINVAL;
+    }
+
+    uint8_t cmd_id = data[0];
+    size_t ind = 1;
+
+    switch (cmd_id) {
+    case COMM_FW_VERSION: {
+        uint8_t resp[64];
+        size_t resp_len = 0;
+        resp[resp_len++] = COMM_FW_VERSION;
+        resp[resp_len++] = 6; /* Major */
+        resp[resp_len++] = 0; /* Minor */
+
+        const char *hw_name = "VESC_MODULAR";
+        size_t hw_len = strlen(hw_name) + 1;
+        memcpy(resp + resp_len, hw_name, hw_len);
+        resp_len += hw_len;
+
+        /* UUID (12 bytes) */
+        memset(resp + resp_len, 0xAA, 12);
+        resp_len += 12;
+
+        resp[resp_len++] = 0; /* Pairing done */
+        resp[resp_len++] = 0; /* Test version */
+        resp[resp_len++] = 0; /* HW type */
+        resp[resp_len++] = 0; /* Custom cfg */
+        resp[resp_len++] = 0; /* Phase filters */
+        resp[resp_len++] = 0; /* QMLUI */
+        resp[resp_len++] = 0; /* QML flags */
+
+        const char *fw_name = "ModularBLDC";
+        size_t fw_len = strlen(fw_name) + 1;
+        memcpy(resp + resp_len, fw_name, fw_len);
+        resp_len += fw_len;
+
+        buffer_append_uint32(resp, 0x12345678u, &resp_len);
+
+        return vesc_comm_send_packet(self, resp, resp_len);
+    }
+
+    case COMM_GET_VALUES: {
+        vesc_values_t val;
+        memset(&val, 0, sizeof(val));
+        if (self->motor && self->motor->get_values) {
+            self->motor->get_values(self->motor->self, &val);
+        }
+
+        uint8_t resp[128];
+        size_t resp_len = 0;
+        resp[resp_len++] = COMM_GET_VALUES;
+
+        buffer_append_float16(resp, val.temp_mos, 1e1f, &resp_len);
+        buffer_append_float16(resp, val.temp_motor, 1e1f, &resp_len);
+        buffer_append_float32(resp, val.current_motor, 1e2f, &resp_len);
+        buffer_append_float32(resp, val.current_in, 1e2f, &resp_len);
+        buffer_append_float32(resp, val.id, 1e2f, &resp_len);
+        buffer_append_float32(resp, val.iq, 1e2f, &resp_len);
+        buffer_append_float16(resp, val.duty_now, 1e3f, &resp_len);
+        buffer_append_float32(resp, val.rpm, 1e0f, &resp_len);
+        buffer_append_float16(resp, val.v_in, 1e1f, &resp_len);
+        buffer_append_float32(resp, val.amp_hours, 1e4f, &resp_len);
+        buffer_append_float32(resp, val.amp_hours_charged, 1e4f, &resp_len);
+        buffer_append_float32(resp, val.watt_hours, 1e4f, &resp_len);
+        buffer_append_float32(resp, val.watt_hours_charged, 1e4f, &resp_len);
+        buffer_append_int32(resp, val.tachometer, &resp_len);
+        buffer_append_int32(resp, val.tachometer_abs, &resp_len);
+        resp[resp_len++] = (uint8_t)val.fault_code;
+        buffer_append_float32(resp, val.pid_pos_now, 1e6f, &resp_len);
+        resp[resp_len++] = 1; /* Controller ID */
+
+        return vesc_comm_send_packet(self, resp, resp_len);
+    }
+
+    case COMM_SET_DUTY: {
+        if (len < 5) {
+            return EDGE_EINVAL;
+        }
+        float duty = buffer_get_float32(data, 1e5f, &ind);
+        if (self->motor && self->motor->set_duty) {
+            return self->motor->set_duty(self->motor->self, duty);
+        }
+        return EDGE_OK;
+    }
+
+    case COMM_SET_CURRENT: {
+        if (len < 5) {
+            return EDGE_EINVAL;
+        }
+        float current = buffer_get_float32(data, 1e3f, &ind);
+        if (self->motor && self->motor->set_current) {
+            return self->motor->set_current(self->motor->self, current);
+        }
+        return EDGE_OK;
+    }
+
+    case COMM_SET_CURRENT_BRAKE: {
+        if (len < 5) {
+            return EDGE_EINVAL;
+        }
+        float current = buffer_get_float32(data, 1e3f, &ind);
+        if (self->motor && self->motor->set_current_brake) {
+            return self->motor->set_current_brake(self->motor->self, current);
+        }
+        return EDGE_OK;
+    }
+
+    case COMM_SET_RPM: {
+        if (len < 5) {
+            return EDGE_EINVAL;
+        }
+        float rpm = (float)buffer_get_int32(data, &ind);
+        if (self->motor && self->motor->set_rpm) {
+            return self->motor->set_rpm(self->motor->self, rpm);
+        }
+        return EDGE_OK;
+    }
+
+    case COMM_SET_POS: {
+        if (len < 5) {
+            return EDGE_EINVAL;
+        }
+        float pos = buffer_get_float32(data, 1e6f, &ind);
+        if (self->motor && self->motor->set_pos) {
+            return self->motor->set_pos(self->motor->self, pos);
+        }
+        return EDGE_OK;
+    }
+
+    case COMM_ALIVE:
+        return EDGE_OK;
+
+    default:
+        return EDGE_ENOTSUP;
+    }
+}
