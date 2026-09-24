@@ -110,13 +110,15 @@ function(edge_add_product name)
     # D86: a product is registered exactly once and is permanently bound to one
     # board. The binding is recorded here so firmware targets can only reuse it --
     # they take a product name, never a board, and cannot override this.
-    if(DEFINED EDGE_PRODUCT_${name}_BOARD)
+    get_property(_prev_board GLOBAL PROPERTY EDGE_PRODUCT_${name}_BOARD)
+    if(_prev_board)
         message(FATAL_ERROR
             "edge_add_product(${name}): product already registered (board "
-            "'${EDGE_PRODUCT_${name}_BOARD}'); a product name may only be registered once")
+            "'${_prev_board}'); a product name may only be registered once")
     endif()
-    set(EDGE_PRODUCT_${name}_BOARD "${P_board}" CACHE INTERNAL "Product ${name} board binding")
-    set(EDGE_PRODUCT_${name}_FAMILY "${P_family}" CACHE INTERNAL "Product ${name} family binding")
+    set_property(GLOBAL PROPERTY EDGE_PRODUCT_${name}_BOARD "${P_board}")
+    set(EDGE_PRODUCT_${name}_BOARD "${P_board}" PARENT_SCOPE)
+    set(EDGE_PRODUCT_${name}_FAMILY "${P_family}" PARENT_SCOPE)
 
     set(dep_targets ${EDGE_SYS_TARGET_${P_family}} ${EDGE_BOARD_TARGET_${P_board}})
     foreach(app IN LISTS P_apps)
@@ -141,7 +143,7 @@ function(edge_add_product name)
 
     # Record dependencies so edge_add_arm_firmware() can reuse the same product
     # definition without re-parsing the composition.
-    set(EDGE_PRODUCT_${name}_TARGETS "${dep_targets}" CACHE INTERNAL "Product ${name} dependencies")
+    set(EDGE_PRODUCT_${name}_TARGETS "${dep_targets}" PARENT_SCOPE)
     if(NOT EDGE_MODULE_BUILD_EXAMPLE)
         return()
     endif()
