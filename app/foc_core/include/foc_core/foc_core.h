@@ -151,6 +151,9 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt);
 /* Domain Commands & Setpoints */
 edge_status_t foc_core_set_current(foc_core_t *self, float iq_target, float id_target);
 edge_status_t foc_core_set_duty(foc_core_t *self, float duty_target);
+edge_status_t foc_core_set_rpm(foc_core_t *self, float rpm_target);
+edge_status_t foc_core_set_pos(foc_core_t *self, float pos_target_deg);
+edge_status_t foc_core_set_handbrake(foc_core_t *self, float brake_current_a);
 edge_status_t foc_core_stop(foc_core_t *self);
 edge_status_t foc_core_clear_faults(foc_core_t *self);
 

@@ -10,6 +10,7 @@
 #include "nunchuk/nunchuk.h"
 #include "pas/pas.h"
 #include "ppm/ppm.h"
+#include "vesc_bms/vesc_bms.h"
 #include "vesc_can/vesc_can.h"
 #include "vesc_comm/vesc_comm.h"
 #include "vesc_terminal/vesc_terminal.h"
@@ -53,6 +54,7 @@ void vesc_host_make_balance_port(balance_port_t *out, vesc_host_glue_state_t *st
 void vesc_host_make_terminal_stream_port(terminal_stream_port_t *out,
                                          vesc_host_glue_state_t *state);
 void vesc_host_make_terminal_system_port(terminal_system_port_t *out, foc_core_t *foc);
+void vesc_host_make_bms_can_port(bms_can_port_t *out, vesc_host_glue_state_t *state);
 
 #ifdef __cplusplus
 }

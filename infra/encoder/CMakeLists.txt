@@ -4,3 +4,7 @@ edge_add_infra(encoder
     DEPS
         edge_module
 )
+if(NOT WIN32)
+    target_link_libraries(infra_encoder PUBLIC m)
+endif()
+

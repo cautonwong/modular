@@ -498,3 +498,24 @@ void vesc_host_make_terminal_system_port(terminal_system_port_t *out, foc_core_t
         .get_stats = term_get_stats,
     };
 }
+
+/* BMS CAN Port */
+static edge_status_t bms_send_can(void *self, uint32_t id, const uint8_t *data, uint8_t len) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    s->last_can_id = id;
+    s->last_can_len = len > 8 ? 8 : len;
+    if (data) {
+        memcpy(s->last_can_data, data, s->last_can_len);
+    }
+    return EDGE_OK;
+}
+
+void vesc_host_make_bms_can_port(bms_can_port_t *out, vesc_host_glue_state_t *state) {
+    if (!out || !state) {
+        return;
+    }
+    *out = (bms_can_port_t){
+        .self = state,
+        .send_can_msg = bms_send_can,
+    };
+}

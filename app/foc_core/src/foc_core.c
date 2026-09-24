@@ -272,7 +272,33 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
 
     /* 8. Closed-loop Controllers */
     float vd = 0.0f, vq = 0.0f;
-    if (self->state == FOC_STATE_RUNNING_CURRENT) {
+    if (self->state == FOC_STATE_RUNNING_RPM) {
+        /* Speed PID loop to compute target_iq */
+        float err_rpm = self->target_rpm - rpm;
+        float iq_cmd = err_rpm * 0.01f; /* Simple speed gain */
+        if (iq_cmd > self->config.current_max_a) {
+            iq_cmd = self->config.current_max_a;
+        }
+        if (iq_cmd < self->config.current_min_a) {
+            iq_cmd = self->config.current_min_a;
+        }
+        self->target_iq = iq_cmd;
+    } else if (self->state == FOC_STATE_RUNNING_POS) {
+        /* Position PID loop to compute target_iq */
+        float current_deg = angle_rad * (180.0f / (float)M_PI);
+        float err_pos = self->target_rpm - current_deg; /* using target_rpm as target_pos */
+        float iq_cmd = err_pos * 0.1f;
+        if (iq_cmd > self->config.current_max_a) {
+            iq_cmd = self->config.current_max_a;
+        }
+        if (iq_cmd < self->config.current_min_a) {
+            iq_cmd = self->config.current_min_a;
+        }
+        self->target_iq = iq_cmd;
+    }
+
+    if (self->state == FOC_STATE_RUNNING_CURRENT || self->state == FOC_STATE_RUNNING_RPM ||
+        self->state == FOC_STATE_RUNNING_POS) {
         /* d-axis PI controller */
         float err_d = self->target_id - id;
         self->id_integral += err_d * self->config.current_ki * dt;
@@ -340,6 +366,47 @@ edge_status_t foc_core_set_current(foc_core_t *self, float iq_target, float id_t
     self->state = FOC_STATE_RUNNING_CURRENT;
 
     return EDGE_OK;
+}
+
+edge_status_t foc_core_set_rpm(foc_core_t *self, float rpm_target) {
+    if (self == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    if (self->state == FOC_STATE_FAULT || self->state == FOC_STATE_UNINITIALIZED) {
+        return EDGE_EBUSY;
+    }
+
+    self->target_rpm = rpm_target;
+    self->target_id = 0.0f;
+    self->state = FOC_STATE_RUNNING_RPM;
+    return EDGE_OK;
+}
+
+edge_status_t foc_core_set_pos(foc_core_t *self, float pos_target_deg) {
+    if (self == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    if (self->state == FOC_STATE_FAULT || self->state == FOC_STATE_UNINITIALIZED) {
+        return EDGE_EBUSY;
+    }
+
+    self->target_rpm = pos_target_deg; /* Store pos setpoint */
+    self->target_id = 0.0f;
+    self->state = FOC_STATE_RUNNING_POS;
+    return EDGE_OK;
+}
+
+edge_status_t foc_core_set_handbrake(foc_core_t *self, float brake_current_a) {
+    if (self == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    if (self->state == FOC_STATE_FAULT || self->state == FOC_STATE_UNINITIALIZED) {
+        return EDGE_EBUSY;
+    }
+    if (brake_current_a < 0.0f) {
+        brake_current_a = -brake_current_a;
+    }
+    return foc_core_set_current(self, 0.0f, brake_current_a);
 }
 
 edge_status_t foc_core_set_duty(foc_core_t *self, float duty_target) {

@@ -32,6 +32,11 @@ void foc_inv_park_transform(float vd, float vq, float sin_th, float cos_th, floa
 void foc_svpwm(float v_alpha, float v_beta, float v_bus, float *duty_a, float *duty_b,
                float *duty_c, uint32_t *sector_out);
 
+/* Deadtime & MTPA compensation */
+void foc_deadtime_comp(float ia, float ib, float ic, float dt_comp_v, float *va_comp,
+                       float *vb_comp, float *vc_comp);
+float foc_calc_mtpa_id(float iq, float ld_h, float lq_h, float lambda_wb);
+
 /* Ortega flux observer state */
 typedef struct foc_observer {
     float x1;

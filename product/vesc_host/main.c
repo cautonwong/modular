@@ -212,8 +212,17 @@ int main(void) {
         return 22;
     }
 
+    bms_can_port_t bms_can_port;
+    vesc_host_make_bms_can_port(&bms_can_port, &glue_state);
+
+    vesc_bms_app_t bms_app;
+    vesc_bms_construct(&bms_app, EDGE_MOD_VESC_BMS, 45u, NULL, &bms_can_port);
+    if (vesc_bms_init(&bms_app) != EDGE_OK) {
+        return 23;
+    }
+
     /* Assemble App List */
-    edge_module_t *apps[13];
+    edge_module_t *apps[14];
     apps[0] = foc_core_module(&foc);
     apps[1] = vesc_comm_module(&comm);
     apps[2] = motor_config_module(&motor_cfg);
@@ -227,6 +236,7 @@ int main(void) {
     apps[10] = pas_module(&pas_app);
     apps[11] = balance_module(&balance_app);
     apps[12] = vesc_terminal_module(&term_app);
+    apps[13] = vesc_bms_module(&bms_app);
 
     /* System & Event Infrastructure */
     edge_event_t event_storage[16];
@@ -236,7 +246,7 @@ int main(void) {
     edge_sys_subscription_t subs[16];
     edge_sys_t sys;
 
-    if (sys_bldc_init(&sys, apps, 13, &event_queue, subs, 16) != EDGE_OK) {
+    if (sys_bldc_init(&sys, apps, 14, &event_queue, subs, 16) != EDGE_OK) {
         return 1;
     }
 

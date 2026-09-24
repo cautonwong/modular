@@ -211,7 +211,7 @@ edge_add_product(water_meter_host family meter board example infra flash apps pu
 if(TARGET water_meter_host)
     target_link_libraries(water_meter_host PRIVATE pal_os)
 endif()
-edge_add_product(vesc_host family bldc board example infra flash digital_filter apps foc_core vesc_comm motor_config timeout_guard throttle motor_id ppm adc_input vesc_can nunchuk pas balance vesc_terminal)
+edge_add_product(vesc_host family bldc board example infra flash digital_filter vesc_buffer apps foc_core vesc_comm motor_config timeout_guard throttle motor_id ppm adc_input vesc_can nunchuk pas balance vesc_terminal vesc_bms)
 
 
 if(EDGE_MODULE_BUILD_THREADX)
