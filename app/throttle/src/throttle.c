@@ -12,12 +12,12 @@ float throttle_apply_deadband(float value, float threshold) {
         return 0.0f;
     }
 
-    const float max = 1.0f;
-    float k = max / (max - threshold);
+    /* The reference form is k * v + max * (1 - k) with max fixed at 1.0. */
+    float k = 1.0f / (1.0f - threshold);
     if (value > 0.0f) {
-        return k * value + max * (1.0f - k);
+        return k * value + (1.0f - k);
     }
-    return -(k * -value + max * (1.0f - k));
+    return -(k * -value + (1.0f - k));
 }
 
 /*
