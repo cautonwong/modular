@@ -1,10 +1,6 @@
 #include "pal_os/os.h"
 #include "pal_rtos/rtos.h"
 
-#if !defined(__arm__)
-#error "pal/rtos/threadx is a ThreadX port: build it inside a ThreadX firmware for a Cortex-M target"
-#endif
-
 #include "tx_api.h"
 
 /* After tx_api.h: this validates the values the product stated in its tx_user.h
@@ -33,8 +29,27 @@
 #ifndef EDGE_THREADX_MAX_TASKS
 #define EDGE_THREADX_MAX_TASKS 4u
 #endif
+/*
+ * The host port builds a `ucontext` on the thread's own stack, so a stack that fits the
+ * application's frames can still be too small for the port; the floor turns that into a
+ * refusal instead of an overflow.
+ */
+#if defined(__arm__)
+#define EDGE_THREADX_MIN_STACK_BYTES 256u
+#define EDGE_THREADX_STACK_BYTES_DEFAULT (4u * 1024u)
+#else
+#define EDGE_THREADX_MIN_STACK_BYTES 8192u
+#define EDGE_THREADX_STACK_BYTES_DEFAULT 8192u
+#endif
+
 #ifndef EDGE_THREADX_STACK_BYTES
-#define EDGE_THREADX_STACK_BYTES (4u * 1024u) /* per task; ThreadX counts bytes */
+#define EDGE_THREADX_STACK_BYTES EDGE_THREADX_STACK_BYTES_DEFAULT /* per task, in bytes */
+#endif
+
+/* A pool smaller than the floor would refuse every request: say so here rather than at
+ * the first create. */
+#if EDGE_THREADX_STACK_BYTES < EDGE_THREADX_MIN_STACK_BYTES
+#error "EDGE_THREADX_STACK_BYTES is below EDGE_THREADX_MIN_STACK_BYTES"
 #endif
 
 typedef struct edge_threadx_task {
@@ -53,8 +68,18 @@ static uint8_t g_stacks[EDGE_THREADX_MAX_TASKS][EDGE_THREADX_STACK_BYTES]
 static TX_SEMAPHORE g_wake;
 static bool g_started;
 
+/*
+ * The entry input is an index, not the task's address: ThreadX's entry parameter is a
+ * `ULONG`, and on the Linux port that cannot hold a 64-bit host pointer (measured: the
+ * address arrives truncated and the first dereference faults). An index cannot be
+ * truncated, and the pool is small enough that the lookup is free.
+ */
 static void task_entry(ULONG input) {
-    edge_threadx_task_t *task = (edge_threadx_task_t *)(uintptr_t)input;
+    if (input == 0u || input > (ULONG)EDGE_THREADX_MAX_TASKS) {
+        for (;;)
+            tx_thread_sleep(TX_TIMER_TICKS_PER_SECOND);
+    }
+    edge_threadx_task_t *task = &g_tasks[input - 1u];
     task->fn(task->arg);
     /* A task function here runs a superloop; returning is a contract violation, and
      * returning into ThreadX's scheduler is worse than parking. */
@@ -64,9 +89,9 @@ static void task_entry(ULONG input) {
 
 /* One place that turns a buffered request into a ThreadX thread. */
 static void create_now(edge_threadx_task_t *task, uint32_t index) {
-    (void)tx_thread_create(&task->thread, task->name, task_entry, (ULONG)(uintptr_t)task,
-                          g_stacks[index], task->stack_bytes, task->priority, task->priority,
-                          TX_NO_TIME_SLICE, TX_AUTO_START);
+    (void)tx_thread_create(&task->thread, task->name, task_entry, (ULONG)(index + 1u),
+                           g_stacks[index], task->stack_bytes, task->priority, task->priority,
+                           TX_NO_TIME_SLICE, TX_AUTO_START);
 }
 
 static void os_yield(void *self) {
@@ -98,7 +123,7 @@ edge_status_t edge_rtos_task_create(const char *name, edge_rtos_task_fn fn, void
     if (priority >= (uint32_t)TX_MAX_PRIORITIES)
         return EDGE_EINVAL;
     const ULONG stack_bytes = (ULONG)((size_t)stack_words * sizeof(uint32_t));
-    if (stack_bytes == 0u || stack_bytes > EDGE_THREADX_STACK_BYTES)
+    if (stack_bytes < EDGE_THREADX_MIN_STACK_BYTES || stack_bytes > EDGE_THREADX_STACK_BYTES)
         return EDGE_EINVAL;
 
     for (uint32_t i = 0u; i < EDGE_THREADX_MAX_TASKS; ++i) {

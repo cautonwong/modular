@@ -31,7 +31,8 @@
 #endif
 
 #ifdef TX_DISABLE_STACK_FILLING
-#error "PAL requires TX_DISABLE_STACK_FILLING to be undefined; stack checking needs the fill pattern"
+#error                                                                                             \
+    "PAL requires TX_DISABLE_STACK_FILLING to be undefined; stack checking needs the fill pattern"
 #endif
 
 /*
@@ -43,9 +44,14 @@
 #error "PAL requires EDGE_THREADX_MASK_MODE to be stated by the product: 'primask' or 'basepri'"
 #endif
 
-/* The value is informational - the actual masking comes from TX_PORT_USE_BASEPRI and
- * TX_PORT_BASEPRI in tx_port.h, which the product must define for both C and assembly.
- * Stating the mode here is what stops it from being an accident. */
+/* The masking itself comes from TX_PORT_USE_BASEPRI and TX_PORT_BASEPRI in tx_port.h,
+ * which the product must define for C *and* assembly. Stating the mode here is only
+ * worth anything if it is checked, so the two are tied together. */
+#if defined(EDGE_THREADX_MASK_MODE) && (EDGE_THREADX_MASK_MODE == 1)
+#if !defined(TX_PORT_USE_BASEPRI)
+#error "EDGE_THREADX_MASK_MODE says basepri, but TX_PORT_USE_BASEPRI is not defined"
+#endif
+#endif
 
 /*
  * Tick frequency stated explicitly: it is the unit of `edge_rtos_wait_for_work()`'s

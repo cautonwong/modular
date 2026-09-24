@@ -19,9 +19,9 @@ extern "C" {
  */
 
 typedef struct edge_rtos_pal_state {
-    edge_tick64_t tick;   /* kernel tick, extended to 64 bit (D72) */
-    uint32_t posture;     /* interrupt posture saved by the outermost TX_DISABLE */
-    uint32_t depth;       /* nesting count */
+    edge_tick64_t tick; /* kernel tick, extended to 64 bit (D72) */
+    uint32_t posture;   /* interrupt posture saved by the outermost TX_DISABLE */
+    uint32_t depth;     /* nesting count */
 } edge_rtos_pal_state_t;
 
 void edge_rtos_pal_init(edge_rtos_pal_state_t *state);

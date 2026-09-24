@@ -17,6 +17,7 @@ option(EDGE_MODULE_BUILD_ARM_CORTEX_M4_QEMU "Build Cortex-M4 MPS2 AN386 target" 
 option(EDGE_MODULE_ARM_QEMU_SEMIHOSTING "Enable ARM semihosting exit for QEMU smoke tests" OFF)
 option(EDGE_MODULE_BUILD_RISCV32_QEMU "Build RISC-V 32 QEMU (virt) target" OFF)
 option(EDGE_MODULE_BUILD_FREERTOS_QEMU "Build FreeRTOS-hosted Cortex-M4 QEMU target" OFF)
+option(EDGE_MODULE_BUILD_THREADX "Build the ThreadX-hosted host product (issue #134)" OFF)
 set(EDGE_MODULE_FREERTOS_KERNEL_TAG "V11.1.0" CACHE STRING
     "FreeRTOS-Kernel git tag - for humans; the commit below is the pin")
 # The pin. A tag can be moved, so the build fetches by tag (shallow, fast) and then
@@ -201,6 +202,19 @@ edge_add_product(meter_gateway_host family meter board example infra flash uart 
 edge_add_product(meter_rtems family meter board example infra flash apps dlt645)
 if(TARGET meter_rtems)
     target_link_libraries(meter_rtems PRIVATE pal_rtos_rtems)
+endif()
+
+if(EDGE_MODULE_BUILD_THREADX)
+    edge_add_product(meter_threadx family meter board example infra flash apps dlt645)
+    target_link_libraries(meter_threadx PRIVATE pal_rtos_threadx)
+    # One kernel, one configuration (D87): the product owns `tx_user.h` and the kernel
+    # and the port must both be compiled with it, or they would disagree about the tick
+    # rate and the mask mode. Wired here, in the composition root, exactly as the
+    # FreeRTOS firmware function does - `pal/` ships no product configuration.
+    foreach(_tgt threadx_kernel pal_rtos_threadx)
+        target_include_directories(${_tgt} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/product/meter_threadx/include)
+        target_compile_definitions(${_tgt} PRIVATE TX_INCLUDE_USER_DEFINE_FILE)
+    endforeach()
 endif()
 
 # Host neutrality matrix: board example x {baremetal, thread} runner, same app.

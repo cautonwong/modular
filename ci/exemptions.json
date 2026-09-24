@@ -24,6 +24,14 @@
       "reason": "RTEMS RTOS port; compiles with RTEMS 6 toolchain and Classic API headers",
       "exit": "gated in RTEMS CI workflow with warning flags",
       "issue": "#135"
+    },
+    {
+      "target": "pal_rtos_threadx",
+      "where": "pal/rtos/threadx",
+      "owner": "platform",
+      "reason": "third-party ThreadX kernel plus our own port code; the target has never been compiled under the warning gate, so its warnings are unmeasured rather than absent",
+      "exit": "flip to gated once the port compiles clean under -Wall -Wextra -Wpedantic -Werror; tracked by the RTOS hardening work",
+      "issue": "#134"
     }
   ]
 }

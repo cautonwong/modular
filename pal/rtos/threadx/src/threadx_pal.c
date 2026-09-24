@@ -1,12 +1,20 @@
 #include "pal_rtos_threadx/pal_rtos_threadx.h"
 
-#if !defined(__arm__)
-#error "pal/rtos/threadx is a ThreadX port: build it inside a ThreadX firmware for a Cortex-M target"
-#endif
-
 #include "tx_api.h"
 
 #include <stddef.h>
+
+/*
+ * The macros of a critical section insist on a save slot declared by name, and the name
+ * is the port's (`interrupt_save` on the Cortex-M GNU port, `tx_saved_posture` on the
+ * Linux one). Capture and restore it through one alias so both ports work; a rename
+ * upstream breaks the build rather than silently changing what gets restored.
+ */
+#if defined(__arm__)
+#define EDGE_THREADX_SAVE_SLOT interrupt_save
+#else
+#define EDGE_THREADX_SAVE_SLOT tx_saved_posture
+#endif
 
 /* --- architecture primitives (D46) -------------------------------------- */
 
@@ -23,7 +31,7 @@ static void critical_enter(void *self) {
     if (state->depth == 0u) {
         TX_INTERRUPT_SAVE_AREA
         TX_DISABLE
-        state->posture = (uint32_t)interrupt_save;
+        state->posture = (uint32_t)EDGE_THREADX_SAVE_SLOT;
     }
     ++state->depth;
 }
@@ -35,14 +43,18 @@ static void critical_exit(void *self) {
     --state->depth;
     if (state->depth == 0u) {
         TX_INTERRUPT_SAVE_AREA
-        interrupt_save = (UINT)state->posture;
+        EDGE_THREADX_SAVE_SLOT = (UINT)state->posture;
         TX_RESTORE
     }
 }
 
 static void memory_barrier(void *self) {
     (void)self;
+#if defined(__arm__)
     __asm volatile("dsb 0xF" ::: "memory");
+#else
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+#endif
 }
 
 /*
@@ -53,6 +65,7 @@ static void memory_barrier(void *self) {
  */
 static uint64_t monotonic_ticks(void *self) {
     edge_rtos_pal_state_t *state = (edge_rtos_pal_state_t *)self;
+#if defined(__arm__)
     TX_INTERRUPT_SAVE_AREA
     TX_DISABLE
     const ULONG ticks = tx_time_get();
@@ -60,14 +73,26 @@ static uint64_t monotonic_ticks(void *self) {
         edge_tick64_extend(state != NULL ? &state->tick : NULL, (uint32_t)ticks);
     TX_RESTORE
     return extended;
+#else
+    /* The host port has no interrupt that samples this clock, so an interleaved read
+     * cannot happen and the critical section is pure cost - and on that port a critical
+     * section is a non-recursive mutex, which the sink's own guard would be holding. */
+    const ULONG ticks = tx_time_get();
+    return edge_tick64_extend(state != NULL ? &state->tick : NULL, (uint32_t)ticks);
+#endif
 }
 
 static bool in_isr(void *self) {
     (void)self;
+#if defined(__arm__)
     uint32_t ipsr = 0u;
     __asm volatile("mrs %0, ipsr" : "=r"(ipsr));
     // cppcheck-suppress knownConditionTrueFalse ; `ipsr` is written by the asm above
     return ipsr != 0u;
+#else
+    /* The host port schedules threads and has no interrupt context to be inside of. */
+    return false;
+#endif
 }
 
 static void isr_enter(void *self) {
@@ -81,8 +106,13 @@ static void isr_exit(void *self) {
 /* Raw wait primitive: the D71 sequence lives in edge_os_idle_wait(). */
 static void idle(void *self) {
     (void)self;
+#if defined(__arm__)
     __asm volatile("dsb 0xF" ::: "memory");
     __asm volatile("wfi" ::: "memory");
+#else
+    /* There is no halt instruction to give up the CPU to on the host port. A no-op is
+     * the truth here; inventing a yield would be a different contract. */
+#endif
 }
 
 /* --- ISR-side guard ------------------------------------------------------ */
@@ -95,7 +125,7 @@ static void irq_guard_enter(void *self) {
     if (g_isr_depth == 0u) {
         TX_INTERRUPT_SAVE_AREA
         TX_DISABLE
-        g_isr_posture = (uint32_t)interrupt_save;
+        g_isr_posture = (uint32_t)EDGE_THREADX_SAVE_SLOT;
     }
     ++g_isr_depth;
 }
@@ -107,7 +137,7 @@ static void irq_guard_exit(void *self) {
     if (g_isr_depth != 0u)
         return;
     TX_INTERRUPT_SAVE_AREA
-    interrupt_save = (UINT)g_isr_posture;
+    EDGE_THREADX_SAVE_SLOT = (UINT)g_isr_posture;
     TX_RESTORE
 }
 

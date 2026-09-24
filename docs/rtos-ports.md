@@ -21,7 +21,7 @@ disagree about it:
 
 ## The kernels, side by side
 
-FreeRTOS rows are facts from this tree. ThreadX and Zephyr rows come from the vendor
+FreeRTOS, ThreadX and RTEMS rows are facts from this tree. Zephyr rows come from the vendor
 documentation reviewed in #134 and #82 and are **not verified here** - they are the
 reason the preparation exists, not a substitute for trying it.
 
@@ -42,7 +42,20 @@ reason the preparation exists, not a substitute for trying it.
    four translations instead of none: a static task pool, buffered creation because
    entry never returns, the assert contract rebuilt from faults, and a
    preprocessor-only config file. That is mechanical work, which is why #134
-   recommends it as the second kernel.
+   recommends it as the second kernel. It is now integrated and host-verified
+   (`pal/rtos/threadx`, `product/meter_threadx`), and three port facts were measured
+   rather than assumed:
+   - **The kernel's clock is not readable before `tx_kernel_enter()`** on the Linux
+     port: `tx_time_get()` takes the kernel's own lock, which `_tx_initialize_low_level()`
+     has not created yet, so an early read blocks forever. The product initialises the
+     framework from its first thread instead.
+   - **A thread's entry parameter is a `ULONG`**, which on the Linux port is 32 bits:
+     passing a host pointer there truncates it and the first dereference faults. The
+     port passes a pool index.
+   - **The Linux port's `TX_LINUX_DEBUG_ENABLE` trace turns `TX_DISABLE` into a plain
+     non-recursive mutex**, so any kernel call made inside a critical section
+     self-deadlocks. The port does not enable the trace, and the host build does not
+     mask a clock read that no interrupt can interleave.
 2. **Zephyr is a build-system integration, not a header swap.** Kconfig and
    devicetree describe the *board* as data, which touches D3/D9 ("the board owns
    the hardware facts") in a way the other two do not: a Zephyr board is a DTS
