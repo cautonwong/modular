@@ -1,20 +1,61 @@
 #include "foc_core/foc_math.h"
 #include <math.h>
 
+/*
+ * Reference firmware: util/utils_math.c `utils_fast_sincos_better`. The FOC ISR
+ * uses this variant, not the one-pass `utils_fast_sincos`: the parabola fit alone
+ * is off by up to 0.056, and the 0.225 refinement pass brings that down to 0.0011.
+ * The residual approximation error is therefore part of the reference behaviour -
+ * replacing this with sinf/cosf changes the Park transform, and the Park transform
+ * feeds the current loop.
+ * Kept bit-compatible with the reference on purpose - the Park transform feeds
+ * the current loop, so a different sine is a different loop gain.
+ */
 void foc_fast_sincos(float angle_rad, float *sin_out, float *cos_out) {
-    /* Wrap angle to [-PI, PI] */
-    while (angle_rad > (float)M_PI) {
-        angle_rad -= 2.0f * (float)M_PI;
-    }
+    /* Always wrap input angle to -PI..PI */
     while (angle_rad < -(float)M_PI) {
         angle_rad += 2.0f * (float)M_PI;
     }
-
-    if (sin_out != (void *)0) {
-        *sin_out = sinf(angle_rad);
+    while (angle_rad > (float)M_PI) {
+        angle_rad -= 2.0f * (float)M_PI;
     }
-    if (cos_out != (void *)0) {
-        *cos_out = cosf(angle_rad);
+
+    /* Compute sine */
+    if (angle_rad < 0.0f) {
+        *sin_out = 1.27323954f * angle_rad + 0.405284735f * angle_rad * angle_rad;
+        *sin_out = 0.225f * (*sin_out * -*sin_out - *sin_out) + *sin_out;
+    } else {
+        *sin_out = 1.27323954f * angle_rad - 0.405284735f * angle_rad * angle_rad;
+
+        if (*sin_out < 0.0f) {
+            *sin_out = 0.225f * (*sin_out * -*sin_out - *sin_out) + *sin_out;
+        } else {
+            *sin_out = 0.225f * (*sin_out * *sin_out - *sin_out) + *sin_out;
+        }
+    }
+
+    /* Compute cosine: sin(x + PI/2) = cos(x) */
+    angle_rad += 0.5f * (float)M_PI;
+    if (angle_rad > (float)M_PI) {
+        angle_rad -= 2.0f * (float)M_PI;
+    }
+
+    if (angle_rad < 0.0f) {
+        *cos_out = 1.27323954f * angle_rad + 0.405284735f * angle_rad * angle_rad;
+
+        if (*cos_out < 0.0f) {
+            *cos_out = 0.225f * (*cos_out * -*cos_out - *cos_out) + *cos_out;
+        } else {
+            *cos_out = 0.225f * (*cos_out * *cos_out - *cos_out) + *cos_out;
+        }
+    } else {
+        *cos_out = 1.27323954f * angle_rad - 0.405284735f * angle_rad * angle_rad;
+
+        if (*cos_out < 0.0f) {
+            *cos_out = 0.225f * (*cos_out * -*cos_out - *cos_out) + *cos_out;
+        } else {
+            *cos_out = 0.225f * (*cos_out * *cos_out - *cos_out) + *cos_out;
+        }
     }
 }
 
@@ -216,6 +257,22 @@ void foc_observer_update(foc_observer_t *obs, float v_alpha, float v_beta, float
 
     obs->x1 += x1_dot * dt;
     obs->x2 += x2_dot * dt;
+
+    /*
+     * Reference firmware: mcpwm_foc.c foc_observer_update(), FOC_OBSERVER_ORTEGA_ORIGINAL.
+     * Both guards are missing in a naive port and both matter: once x1/x2 is NaN it
+     * stays NaN for the lifetime of the observer, and a flux vector that collapses
+     * towards zero makes atan2 jump by half a turn on noise alone.
+     */
+    obs->x1 = (obs->x1 != obs->x1) ? 0.0f : obs->x1;
+    obs->x2 = (obs->x2 != obs->x2) ? 0.0f : obs->x2;
+
+    /* Prevent the magnitude from getting too low, as that makes the angle very unstable. */
+    float flux_mag = sqrtf(SQ(obs->x1) + SQ(obs->x2));
+    if (flux_mag < (lambda_wb * 0.5f)) {
+        obs->x1 *= 1.1f;
+        obs->x2 *= 1.1f;
+    }
 
     float psi_alpha = obs->x1 - l_ia;
     float psi_beta = obs->x2 - l_ib;
