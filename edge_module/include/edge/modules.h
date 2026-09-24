@@ -42,7 +42,8 @@ extern "C" {
     X(PULSE_METER, 0x1500, app)                                                                    \
     X(RELAY, 0x2000, app)                                                                          \
     X(FOC_CORE, 0x2100, app)                                                                       \
-    X(VESC_COMM, 0x2200, app)
+    X(VESC_COMM, 0x2200, app)                                                                      \
+    X(MOTOR_CONFIG, 0x2300, app)
 
 /* One block per layer token used above, inclusive. */
 #define EDGE_MODULE_BLOCK_app_LO 0x1000u
