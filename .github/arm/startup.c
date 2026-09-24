@@ -61,6 +61,23 @@ extern void EDGE_PENDSV_HANDLER(void);
 #define EDGE_VECT_PENDSV default_handler
 #endif
 
+/*
+ * `handlers[i]` is hardware vector `i + 2` (index 9 is SVCall, i.e. vector 11; index 12 is
+ * PendSV, i.e. vector 14), so the fault vectors - 3 HardFault, 4 MemManage, 5 BusFault,
+ * 6 UsageFault - are indices 1 to 4. Getting this wrong is silent: the entries still name
+ * a handler, just the wrong vector, and a fault then lands in `default_handler`. A
+ * deliberate `udf` is what caught it.
+ */
+#if defined(EDGE_FAULT_HANDLER)
+extern void EDGE_FAULT_HANDLER(void);
+#define EDGE_VECT_FAULT EDGE_FAULT_HANDLER
+#else
+/* Default: no reaction. A firmware that can report a fault passes its own handler (the
+ * assertion shape the RTOS products already own), because a fault otherwise parks the
+ * CPU in default_handler and reads exactly like a hang. */
+#define EDGE_VECT_FAULT default_handler
+#endif
+
 #if defined(EDGE_SYSTICK_HANDLER)
 extern void EDGE_SYSTICK_HANDLER(void);
 #define EDGE_VECT_SYSTICK EDGE_SYSTICK_HANDLER
@@ -76,10 +93,12 @@ __attribute__((used, section(".isr_vector"))) const edge_vector_table_t edge_vec
         [0] = default_handler,
         [1] = default_handler,
         [2] = default_handler,
-        [3] = default_handler,
-        [4] = default_handler,
-        [5] = default_handler,
-        [6] = default_handler,
+        [1] = EDGE_VECT_FAULT, /* HardFault (vector 3) */
+        [2] = EDGE_VECT_FAULT, /* MemManage (vector 4) */
+        [3] = EDGE_VECT_FAULT, /* BusFault (vector 5) */
+        [4] = EDGE_VECT_FAULT, /* UsageFault (vector 6) */
+        [5] = default_handler, /* vector 7: reserved */
+        [6] = default_handler, /* vector 8: IRQ0 */
         [7] = default_handler,
         [8] = default_handler,
         [9] = EDGE_VECT_SVC,

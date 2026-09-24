@@ -22,6 +22,7 @@ extern "C" {
 typedef void (*edge_rtos_assert_fn)(void *ctx, const char *file, int line);
 
 void edge_rtos_assert_failed(const char *file, int line);
+void edge_rtos_fault_handler(void);
 void edge_rtos_set_assert_hook(edge_rtos_assert_fn fn, void *ctx);
 uint32_t edge_rtos_assert_count(void);
 
