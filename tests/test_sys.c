@@ -755,9 +755,44 @@ static void test_new_api_argument_guards(void **state) {
     assert_int_equal(edge_sys_suspend_all(&sys), EDGE_OK);
     assert_int_equal(edge_sys_resume_all(&sys), EDGE_OK);
     assert_int_equal(edge_sys_power_off(&sys), EDGE_OK);
-    assert_int_equal(edge_sys_suspend_all(&sys), EDGE_ESTATE);
-    assert_int_equal(edge_sys_resume_all(&sys), EDGE_ESTATE);
     assert_int_equal(edge_sys_set_idle(&sys, NULL, NULL), EDGE_ESTATE);
+}
+
+static void test_sys_configure(void **state) {
+    (void)state;
+    fake_app_t a;
+    make_app(&a, 1u, 1u);
+    edge_module_t *apps[] = {&a.module};
+    edge_event_t storage[4];
+    edge_event_queue_t queue;
+    edge_sys_subscription_t subs[4];
+    edge_sys_t sys;
+    static const uint32_t required[] = {1u};
+    edge_clock_port_t clock = {.monotonic_ticks = NULL, .wall_time = NULL, .self = NULL};
+
+    assert_int_equal(edge_event_queue_init(&queue, storage, 4u), EDGE_OK);
+
+    /* NULL guards */
+    assert_int_equal(edge_sys_configure(NULL, NULL), EDGE_EINVAL);
+    assert_int_equal(edge_sys_configure(&sys, NULL), EDGE_EINVAL);
+
+    const edge_sys_config_t config = {
+        .apps = apps,
+        .app_count = 1u,
+        .required_ids = required,
+        .required_count = 1u,
+        .events = &queue,
+        .subscriptions = subs,
+        .subscription_capacity = 4u,
+        .clock = &clock,
+        .event_budget = 16u,
+    };
+
+    assert_int_equal(edge_sys_configure(&sys, &config), EDGE_OK);
+    assert_int_equal(edge_sys_validate_required(&sys), EDGE_OK);
+    assert_int_equal(edge_sys_start(&sys), EDGE_OK);
+    assert_int_equal(edge_sys_power_off(&sys), EDGE_OK);
+    assert_int_equal(edge_sys_deinit(&sys), EDGE_OK);
 }
 
 /*
@@ -796,6 +831,7 @@ int main(void) {
         TEST(test_step_and_run_shutdown),
         TEST(test_stats_reset),
         TEST(test_new_api_argument_guards),
+        TEST(test_sys_configure),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

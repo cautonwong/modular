@@ -57,6 +57,26 @@ typedef struct edge_sys {
     void *idle_ctx;
 } edge_sys_t;
 
+/* Declarative system configuration manifest for composition roots. */
+typedef struct edge_sys_config {
+    edge_module_t **apps;
+    size_t app_count;
+    const uint32_t *required_ids;
+    size_t required_count;
+    edge_event_queue_t *events;
+    edge_sys_subscription_t *subscriptions;
+    size_t subscription_capacity;
+    const edge_clock_port_t *clock;
+    uint32_t event_budget;
+    edge_sys_idle_fn idle_hook;
+    void *idle_ctx;
+    edge_event_t *pending_storage;
+    uint32_t pending_capacity;
+} edge_sys_config_t;
+
+/* Atomically initialize and configure edge_sys from a declarative manifest. */
+edge_status_t edge_sys_configure(edge_sys_t *sys, const edge_sys_config_t *config);
+
 edge_status_t edge_sys_init(edge_sys_t *sys, edge_module_t **apps, size_t count);
 edge_status_t edge_sys_bind_event_queue(edge_sys_t *sys, edge_event_queue_t *queue,
                                         edge_sys_subscription_t *subscriptions, size_t capacity);
