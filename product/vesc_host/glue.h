@@ -2,13 +2,17 @@
 #define PRODUCT_VESC_HOST_GLUE_H
 
 #include "adc_input/adc_input.h"
+#include "balance/balance.h"
 #include "foc_core/foc_core.h"
 #include "foc_core/foc_math.h"
 #include "motor_config/motor_config.h"
 #include "motor_id/motor_id.h"
+#include "nunchuk/nunchuk.h"
+#include "pas/pas.h"
 #include "ppm/ppm.h"
 #include "vesc_can/vesc_can.h"
 #include "vesc_comm/vesc_comm.h"
+#include "vesc_terminal/vesc_terminal.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -27,6 +31,7 @@ typedef struct vesc_host_glue_state {
     uint32_t last_can_id;
     uint8_t last_can_data[8];
     uint8_t last_can_len;
+    char terminal_tx_buf[256];
 } vesc_host_glue_state_t;
 
 void vesc_host_make_storage_port(motor_config_storage_port_t *out, vesc_host_glue_state_t *state);
@@ -42,6 +47,12 @@ void vesc_host_make_motor_id_measure_port(motor_id_measure_port_t *out,
                                           vesc_host_glue_state_t *state);
 void vesc_host_make_motor_id_control_port(motor_id_control_port_t *out,
                                           vesc_host_glue_state_t *state);
+void vesc_host_make_nunchuk_port(nunchuk_port_t *out, vesc_host_glue_state_t *state);
+void vesc_host_make_pas_port(pas_port_t *out, vesc_host_glue_state_t *state);
+void vesc_host_make_balance_port(balance_port_t *out, vesc_host_glue_state_t *state);
+void vesc_host_make_terminal_stream_port(terminal_stream_port_t *out,
+                                         vesc_host_glue_state_t *state);
+void vesc_host_make_terminal_system_port(terminal_system_port_t *out, foc_core_t *foc);
 
 #ifdef __cplusplus
 }
