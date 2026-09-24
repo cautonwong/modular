@@ -74,10 +74,8 @@ static edge_status_t motor_get_values(void *self, vesc_values_t *out_val) {
 
     memset(out_val, 0, sizeof(*out_val));
     out_val->temp_mos = telem.fet_temp_c;
-    /* No motor NTC exists on any board wired into this product yet, so there is no
-     * motor temperature to report. Reporting the FET temperature here reads as a
-     * healthy motor and hides a missing sensor; 0 matches the reference firmware's
-     * "no temperature sensor configured" case. */
+    /* No board wired into this product has a motor NTC, so there is no motor
+     * temperature to report; 0 is the reference's "no sensor configured" case. */
     out_val->temp_motor = 0.0f;
     out_val->current_motor = telem.current_q;
     out_val->id = telem.current_d;

@@ -5,11 +5,8 @@
  * Reference firmware: util/utils_math.c `utils_fast_sincos_better`. The FOC ISR
  * uses this variant, not the one-pass `utils_fast_sincos`: the parabola fit alone
  * is off by up to 0.056, and the 0.225 refinement pass brings that down to 0.0011.
- * The residual approximation error is therefore part of the reference behaviour -
- * replacing this with sinf/cosf changes the Park transform, and the Park transform
- * feeds the current loop.
- * Kept bit-compatible with the reference on purpose - the Park transform feeds
- * the current loop, so a different sine is a different loop gain.
+ * That residual error is part of the reference behaviour and is kept: this feeds
+ * the Park transform, so a different sine is a different loop gain.
  */
 void foc_fast_sincos(float angle_rad, float *sin_out, float *cos_out) {
     /* Always wrap input angle to -PI..PI */
