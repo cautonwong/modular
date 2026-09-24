@@ -6,7 +6,9 @@
 # the M4 we build for, soft float, no FPU lazy stacking to configure), and the Linux
 # GNU port for a host product - which ships its own `tx_initialize_low_level.c`, so the
 # first ThreadX verification needs no bare-metal bring-up at all.
-if(NOT EDGE_MODULE_BUILD_THREADX)
+# Two ways in: the host product (Linux port, no toolchain needed) and the Cortex-M
+# firmware (the MPS2 product). Either one is reason enough to build the kernel.
+if(NOT EDGE_MODULE_BUILD_THREADX AND NOT EDGE_MODULE_BUILD_THREADX_QEMU)
     return()
 endif()
 

@@ -44,3 +44,44 @@ jobs:
         run: |
           ./build-threadx/meter_threadx | tee /tmp/threadx_output.log
           grep "PASS: ThreadX modular meter ran successfully with witness ticks=" /tmp/threadx_output.log
+
+  threadx-qemu:
+    # The Cortex-M4 firmware: the pinned kernel and port built for the target, the
+    # product's own configuration and low-level initialisation, run on the MPS2 model.
+    # A kernel port that only ever runs on a host proves the contract but not the
+    # vectors, the priority ceiling or the tick.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup build environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build \
+            gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi \
+            qemu-system-arm
+
+      - name: Configure the firmware
+        run: |
+          cmake -S . -B build-threadx-arm -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=.github/arm/arm-none-eabi.cmake \
+            -DEDGE_MODULE_BUILD_THREADX_QEMU=ON \
+            -DEDGE_MODULE_ARM_QEMU_SEMIHOSTING=ON \
+            -DEDGE_MODULE_ENABLE_WERROR=ON \
+            -DEDGE_MODULE_BUILD_TESTS=OFF \
+            -DEDGE_MODULE_BUILD_EXAMPLE=OFF
+
+      - name: Build the firmware
+        run: cmake --build build-threadx-arm --target meter_mps2_threadx_fw --parallel
+
+      - name: Run it on the MPS2 model
+        run: |
+          rc=0
+          timeout 60 qemu-system-arm -M mps2-an386 -nographic \
+            -semihosting-config enable=on,target=native \
+            -kernel build-threadx-arm/meter_mps2_threadx_fw || rc=$?
+          echo "ThreadX firmware rc=$rc (0 is the product's PASS path)"
+          test "$rc" -eq 0

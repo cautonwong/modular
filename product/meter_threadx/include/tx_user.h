@@ -32,11 +32,22 @@
  */
 #if defined(__arm__)
 #define TX_PORT_USE_BASEPRI
-#define TX_PORT_BASEPRI (5u << (8u - 4u)) /* library priority 5, 4 priority bits */
+/* The ceiling sits at 4, one step above the board's timer IRQ (5): the kernel tick
+ * takes that step so it can preempt a busy peripheral interrupt, and both stay maskable
+ * by a critical section - which is the property the kernel needs from every interrupt
+ * that calls into it. At the same priority the two cannot preempt each other, and a
+ * fast periodic IRQ then starves the tick (measured: the witness task froze at 20 ms
+ * and every kernel timeout stopped expiring). */
+#define TX_PORT_BASEPRI (4u << (8u - 4u)) /* library priority 4, 4 priority bits */
 #define EDGE_THREADX_MASK_MODE 1          /* basepri */
 #else
 #define EDGE_THREADX_MASK_MODE 0 /* primask (host port: nominal) */
 #endif
+
+/* The static pool, stated by the product (D87). On the host the floor is 8 KiB per
+ * task, because the port builds its thread context on the task's own stack. */
+#define EDGE_THREADX_MAX_TASKS 4u
+#define EDGE_THREADX_STACK_BYTES 8192u
 
 #include "edge_threadx_config.h"
 

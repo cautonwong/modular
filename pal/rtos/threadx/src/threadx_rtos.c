@@ -36,11 +36,14 @@
  */
 #if defined(__arm__)
 #define EDGE_THREADX_MIN_STACK_BYTES 256u
-#define EDGE_THREADX_STACK_BYTES_DEFAULT (4u * 1024u)
 #else
 #define EDGE_THREADX_MIN_STACK_BYTES 8192u
-#define EDGE_THREADX_STACK_BYTES_DEFAULT 8192u
 #endif
+
+/* A pool nobody stated defaults to the floor per task: small enough to fit the smallest
+ * target, and stated by every product that needs more (see the pool comment in the
+ * product's tx_user.h). */
+#define EDGE_THREADX_STACK_BYTES_DEFAULT EDGE_THREADX_MIN_STACK_BYTES
 
 #ifndef EDGE_THREADX_STACK_BYTES
 #define EDGE_THREADX_STACK_BYTES EDGE_THREADX_STACK_BYTES_DEFAULT /* per task, in bytes */
