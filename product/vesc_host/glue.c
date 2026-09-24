@@ -74,7 +74,11 @@ static edge_status_t motor_get_values(void *self, vesc_values_t *out_val) {
 
     memset(out_val, 0, sizeof(*out_val));
     out_val->temp_mos = telem.fet_temp_c;
-    out_val->temp_motor = telem.fet_temp_c;
+    /* No motor NTC exists on any board wired into this product yet, so there is no
+     * motor temperature to report. Reporting the FET temperature here reads as a
+     * healthy motor and hides a missing sensor; 0 matches the reference firmware's
+     * "no temperature sensor configured" case. */
+    out_val->temp_motor = 0.0f;
     out_val->current_motor = telem.current_q;
     out_val->id = telem.current_d;
     out_val->iq = telem.current_q;
@@ -101,15 +105,11 @@ static edge_status_t motor_set_current_brake(void *self, float current) {
 }
 
 static edge_status_t motor_set_rpm(void *self, float rpm) {
-    (void)self;
-    (void)rpm;
-    return EDGE_OK;
+    return foc_core_set_rpm((foc_core_t *)self, rpm);
 }
 
 static edge_status_t motor_set_pos(void *self, float pos) {
-    (void)self;
-    (void)pos;
-    return EDGE_OK;
+    return foc_core_set_pos((foc_core_t *)self, pos);
 }
 
 void vesc_host_make_motor_provider_port(vesc_motor_provider_port_t *out, foc_core_t *foc) {
