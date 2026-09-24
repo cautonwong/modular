@@ -8,16 +8,20 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- **ThreadX is integrated and verified on the host.** `pal/rtos/threadx` fetches the
-  kernel like the FreeRTOS port does (by tag, shallow, then the resolved revision is
-  checked against the pin in `ci/dependencies.json`), builds it, and implements both
-  contracts. `product/meter_threadx` runs the framework on it and passes the same
-  starvation probe as the other products. Three port facts had to be measured rather
-  than assumed, and are recorded in `docs/rtos-ports.md`: the kernel clock is not
-  readable before `tx_kernel_enter()`, a thread entry parameter is a 32-bit `ULONG` on
-  the Linux port (so the pool index is passed, not an address), and the vendor debug
-  trace makes `TX_DISABLE` a non-recursive mutex that self-deadlocks on any kernel call
-  inside it (#134).
+- **ThreadX is integrated, and verified on the host and on Cortex-M.**
+  `pal/rtos/threadx` fetches the kernel like the FreeRTOS port does (by tag, shallow,
+  then the resolved revision is checked against the pin in `ci/dependencies.json`),
+  builds it, and implements both contracts. Two products run the same starvation probe
+  on it: `product/meter_threadx` on the vendor's Linux port, and
+  `product/meter_mps2_threadx` on the MPS2 model, which is what covers the vectors, the
+  interrupt priorities and the tick. Five port facts had to be measured rather than
+  assumed, and are recorded in `docs/rtos-ports.md`: the kernel clock is not readable
+  before `tx_kernel_enter()`, a thread entry parameter is a 32-bit `ULONG` on the Linux
+  port (so the pool index is passed, not an address), the vendor debug trace makes
+  `TX_DISABLE` a non-recursive mutex that self-deadlocks on any kernel call inside it, a
+  fast peripheral interrupt sharing the tick's priority starves the tick outright, and a
+  QEMU firmware built without the semihosting option turns its exit into a spin loop
+  (#134).
 
 - `check_layer_dependencies.py` now checks the **declared build dependencies** as well
   as the includes. The matrix was enforced on `#include` only, so a library could

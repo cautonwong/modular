@@ -18,6 +18,7 @@ option(EDGE_MODULE_ARM_QEMU_SEMIHOSTING "Enable ARM semihosting exit for QEMU sm
 option(EDGE_MODULE_BUILD_RISCV32_QEMU "Build RISC-V 32 QEMU (virt) target" OFF)
 option(EDGE_MODULE_BUILD_FREERTOS_QEMU "Build FreeRTOS-hosted Cortex-M4 QEMU target" OFF)
 option(EDGE_MODULE_BUILD_THREADX "Build the ThreadX-hosted host product (issue #134)" OFF)
+option(EDGE_MODULE_BUILD_THREADX_QEMU "Build the ThreadX Cortex-M4 MPS2 firmware (issue #134)" OFF)
 set(EDGE_MODULE_FREERTOS_KERNEL_TAG "V11.1.0" CACHE STRING
     "FreeRTOS-Kernel git tag - for humans; the commit below is the pin")
 # The pin. A tag can be moved, so the build fetches by tag (shallow, fast) and then
@@ -31,7 +32,8 @@ set(EDGE_MODULE_FREERTOS_KERNEL_COMMIT "dbf70559b27d39c1fdb68dfb9a32140b6a6777a0
 # linking ARM-mode library objects into a Thumb firmware image.
 if(EDGE_MODULE_BUILD_ARM_CORTEX_M0)
     set(EDGE_ARM_CPU cortex-m0)
-elseif(EDGE_MODULE_BUILD_ARM_CORTEX_M4 OR EDGE_MODULE_BUILD_ARM_CORTEX_M4_QEMU OR EDGE_MODULE_BUILD_FREERTOS_QEMU)
+elseif(EDGE_MODULE_BUILD_ARM_CORTEX_M4 OR EDGE_MODULE_BUILD_ARM_CORTEX_M4_QEMU
+       OR EDGE_MODULE_BUILD_FREERTOS_QEMU OR EDGE_MODULE_BUILD_THREADX_QEMU)
     set(EDGE_ARM_CPU cortex-m4)
 endif()
 if(DEFINED EDGE_ARM_CPU)
@@ -205,6 +207,15 @@ if(TARGET meter_rtems)
 endif()
 
 if(EDGE_MODULE_BUILD_THREADX)
+    # D87: one compiled kernel serves one configuration. Claiming it here as well means
+    # enabling both products fails with a clear message instead of silently compiling the
+    # kernel against whichever config was wired last.
+    if(DEFINED EDGE_THREADX_CONFIG_PRODUCT AND NOT EDGE_THREADX_CONFIG_PRODUCT STREQUAL "meter_threadx")
+        message(FATAL_ERROR
+            "the ThreadX kernel is already configured for '${EDGE_THREADX_CONFIG_PRODUCT}'; "
+            "one kernel serves one product configuration (D87)")
+    endif()
+    set(EDGE_THREADX_CONFIG_PRODUCT "meter_threadx" CACHE INTERNAL "Product owning the ThreadX config")
     edge_add_product(meter_threadx family meter board example infra flash apps dlt645)
     target_link_libraries(meter_threadx PRIVATE pal_rtos_threadx)
     # One kernel, one configuration (D87): the product owns `tx_user.h` and the kernel
@@ -414,6 +425,98 @@ function(edge_add_arm_freertos_firmware name product)
         VERBATIM
     )
 endfunction()
+
+# ThreadX firmware: the pinned kernel, the port, and the two things the vendor port does
+# not ship - the product's configuration and its low-level initialisation. Same contract
+# as the FreeRTOS one; the differences are ThreadX's: two vectors instead of three
+# (ThreadX's Cortex-M port has no SVCall handler) and no tickless idle, so the tick is a
+# plain periodic SysTick.
+function(edge_add_arm_threadx_firmware name product)
+    if(NOT CMAKE_C_COMPILER MATCHES "arm-none-eabi-gcc$")
+        message(FATAL_ERROR "${name} requires arm-none-eabi-gcc toolchain")
+    endif()
+    # This firmware exists to be run, and a QEMU firmware exits through semihosting.
+    # Without the option the board's exit compiles to a spin loop, which reads as a
+    # firmware hang: refuse the build instead (measured - a full debug cycle on it).
+    if(NOT EDGE_MODULE_ARM_QEMU_SEMIHOSTING)
+        message(FATAL_ERROR
+            "${name}: run this firmware with -DEDGE_MODULE_ARM_QEMU_SEMIHOSTING=ON; "
+            "without it the board's exit is a spin loop and QEMU never sees the result")
+    endif()
+    if(NOT DEFINED EDGE_PRODUCT_${product}_TARGETS)
+        message(FATAL_ERROR "${name}: unknown product '${product}'")
+    endif()
+    if(NOT DEFINED EDGE_PRODUCT_${product}_BOARD)
+        message(FATAL_ERROR "${name}: product '${product}' has no registered board binding (D86)")
+    endif()
+
+    if(DEFINED EDGE_THREADX_CONFIG_PRODUCT AND NOT EDGE_THREADX_CONFIG_PRODUCT STREQUAL "${product}")
+        message(FATAL_ERROR
+            "${name}: the ThreadX kernel is already configured for '${EDGE_THREADX_CONFIG_PRODUCT}'; "
+            "a second ThreadX product needs its own kernel target (deferred, see D87)")
+    endif()
+    set(EDGE_THREADX_CONFIG_PRODUCT "${product}" CACHE INTERNAL "Product owning the ThreadX config")
+
+    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/product/${product}/include/tx_user.h")
+        message(FATAL_ERROR
+            "${name}: product '${product}' must provide include/tx_user.h (D87)")
+    endif()
+    set(_fw_board ${EDGE_PRODUCT_${product}_BOARD})
+    get_target_property(_fw_board_includes ${EDGE_BOARD_TARGET_${_fw_board}}
+                        INTERFACE_INCLUDE_DIRECTORIES)
+    # The kernel and the port are compiled against the product's configuration instance,
+    # and the product's low-level file needs the board's include root.
+    foreach(_tgt threadx_kernel pal_rtos_threadx)
+        target_include_directories(${_tgt} PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/product/${product}/include
+            ${_fw_board_includes}
+        )
+        target_compile_definitions(${_tgt} PRIVATE TX_INCLUDE_USER_DEFINE_FILE)
+    endforeach()
+
+    add_executable(${name}
+        product/${product}/main.c
+        product/${product}/glue.c
+        product/${product}/low_level.c
+        .github/arm/startup.c
+    )
+    target_link_libraries(${name} PRIVATE
+        edge_module ${EDGE_PRODUCT_${product}_TARGETS} pal_rtos_threadx threadx_kernel
+    )
+    target_compile_definitions(${name} PRIVATE
+        EDGE_TARGET_ARM32=1
+        EDGE_QEMU_SEMIHOSTING=1
+        EDGE_PENDSV_HANDLER=__tx_PendSVHandler
+        EDGE_SYSTICK_HANDLER=__tx_SysTickHandler
+    )
+    # Same contract as edge_add_arm_firmware: without a board IRQ handler the timer
+    # vector falls back to default_handler and the first interrupt parks the CPU.
+    if(ARGC GREATER 2)
+        target_compile_definitions(${name} PRIVATE EDGE_BOARD_TIMER_ISR=${ARGV2})
+    endif()
+    target_compile_options(${name} PRIVATE
+        -mcpu=cortex-m4 -mthumb -mno-unaligned-access -mfloat-abi=soft
+        -ffreestanding -fdata-sections -ffunction-sections -fno-common -Os
+    )
+    target_link_options(${name} PRIVATE
+        -mcpu=cortex-m4 -mthumb -mfloat-abi=soft
+        -T${CMAKE_CURRENT_SOURCE_DIR}/.github/arm/cortex-m4-qemu.ld
+        -nostartfiles --specs=nosys.specs
+        -Wl,--gc-sections
+        -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/${name}.map
+    )
+    set_target_properties(${name} PROPERTIES OUTPUT_NAME ${name})
+    add_custom_command(TARGET ${name} POST_BUILD
+        COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:${name}> ${CMAKE_CURRENT_BINARY_DIR}/${name}.bin
+        COMMAND ${CMAKE_SIZE} $<TARGET_FILE:${name}>
+        VERBATIM
+    )
+endfunction()
+
+if(EDGE_MODULE_BUILD_THREADX_QEMU)
+    edge_add_product(meter_mps2_threadx family meter board mps2 infra flash apps dlt645)
+    edge_add_arm_threadx_firmware(meter_mps2_threadx_fw meter_mps2_threadx board_mps2_irq_timer0)
+endif()
 
 if(EDGE_MODULE_BUILD_FREERTOS_QEMU)
     edge_add_arm_freertos_firmware(meter_mps2_freertos_fw meter_mps2_freertos board_mps2_irq_timer0)

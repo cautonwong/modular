@@ -40,8 +40,10 @@ reason the preparation exists, not a substitute for trying it.
 
 1. **ThreadX is a kernel-shaped port** - the same shape as the FreeRTOS one, with
    four translations instead of none: a static task pool, buffered creation because
-   entry never returns, the assert contract rebuilt from faults, and a
-   preprocessor-only config file. That is mechanical work, which is why #134
+   entry never returns, a preprocessor-only config file, and an assertion surface -
+   though that last one is still open, because the shared startup table exposes no
+   fault vector to hang it off (the same gap the other firmware products have, so it
+   belongs in `.github/arm/startup.c`, not in this port). That is mechanical work, which is why #134
    recommends it as the second kernel. It is now integrated and host-verified
    (`pal/rtos/threadx`, `product/meter_threadx`), and three port facts were measured
    rather than assumed:
@@ -56,6 +58,20 @@ reason the preparation exists, not a substitute for trying it.
      non-recursive mutex**, so any kernel call made inside a critical section
      self-deadlocks. The port does not enable the trace, and the host build does not
      mask a clock read that no interrupt can interleave.
+   - **A fast peripheral interrupt at the same priority as the tick starves it.** The
+     board's timer IRQ sits at library priority 5 and fires every 250 core cycles
+     (~100 kHz on the MPS2); with the tick at the same priority neither can preempt the
+     other, so the tick stopped and every kernel timeout stopped expiring (measured: the
+     witness task froze at 20 ms). The ceiling is now 4, one step above the peripheral:
+     the tick preempts it, and both stay maskable by a critical section, which is what
+     the kernel needs from an interrupt that calls into it.
+   - **The task pool is the product's to state.** It is the largest single consumer of
+     RAM, and this board has 16 KiB in total: an unstated pool is either too small to
+     create anything or too large to link.
+   - **A QEMU firmware without `EDGE_MODULE_ARM_QEMU_SEMIHOSTING` compiles its exit into
+     a spin loop** - the board's semihosting exit is behind that macro, so a missing
+     option looks exactly like a firmware hang. The ThreadX firmware function refuses
+     that build.
 2. **Zephyr is a build-system integration, not a header swap.** Kconfig and
    devicetree describe the *board* as data, which touches D3/D9 ("the board owns
    the hardware facts") in a way the other two do not: a Zephyr board is a DTS
