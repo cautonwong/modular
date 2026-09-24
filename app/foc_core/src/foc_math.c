@@ -74,29 +74,6 @@ void foc_inv_park_transform(float vd, float vq, float sin_th, float cos_th, floa
     *v_beta = vd * sin_th + vq * cos_th;
 }
 
-void foc_deadtime_comp(float ia, float ib, float ic, float dt_comp_v, float *va_comp,
-                       float *vb_comp, float *vc_comp) {
-    if (va_comp) {
-        *va_comp = (ia > 0.1f) ? dt_comp_v : ((ia < -0.1f) ? -dt_comp_v : 0.0f);
-    }
-    if (vb_comp) {
-        *vb_comp = (ib > 0.1f) ? dt_comp_v : ((ib < -0.1f) ? -dt_comp_v : 0.0f);
-    }
-    if (vc_comp) {
-        *vc_comp = (ic > 0.1f) ? dt_comp_v : ((ic < -0.1f) ? -dt_comp_v : 0.0f);
-    }
-}
-
-float foc_calc_mtpa_id(float iq, float ld_h, float lq_h, float lambda_wb) {
-    float ld_lq_diff = ld_h - lq_h;
-    if (fabsf(ld_lq_diff) < 1e-9f || fabsf(iq) < 1e-4f) {
-        return 0.0f;
-    }
-    float num = -lambda_wb + sqrtf(SQ(lambda_wb) + 8.0f * SQ(ld_lq_diff) * SQ(iq));
-    float den = 4.0f * ld_lq_diff;
-    return num / den;
-}
-
 void foc_svpwm(float v_alpha, float v_beta, float v_bus, float *duty_a, float *duty_b,
                float *duty_c, uint32_t *sector_out) {
     if (v_bus <= 0.001f) {
