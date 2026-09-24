@@ -60,16 +60,41 @@ void vesc_buffer_append_double64(uint8_t *buffer, double number, double scale, i
     vesc_buffer_append_int64(buffer, (int64_t)(number * scale), index);
 }
 
+/*
+ * The "auto" encoding is the IEEE-754 single-precision bit pattern, with the
+ * mantissa normalised to [0.5, 1) and the exponent biased by 126 instead of 127.
+ * VESC Tool decodes it, so the byte layout is a wire contract: it is copied
+ * bit-for-bit from util/buffer.c in the reference firmware.
+ */
 void vesc_buffer_append_float32_auto(uint8_t *buffer, float number, int32_t *index) {
+    /* Set subnormal numbers to 0 as they are not handled properly by this method. */
+    if (fabsf(number) < 1.5e-38) {
+        number = 0.0f;
+    }
+
     int e = 0;
     float sig = frexpf(number, &e);
-    float sig_scaled = sig * 8388608.0f; /* 2^23 */
-    int32_t sig_int = (int32_t)sig_scaled;
-    int32_t res = ((e & 0xFF) << 23) | (sig_int & 0x7FFFFF);
-    if (number < 0.0f) {
-        res |= (int32_t)0x80000000u;
+    float sig_abs = fabsf(sig);
+    uint32_t sig_i = 0u;
+
+    if (sig_abs >= 0.5f) {
+        sig_i = (uint32_t)((sig_abs - 0.5f) * 2.0f * 8388608.0f);
+        e += 126;
     }
-    vesc_buffer_append_int32(buffer, res, index);
+
+    uint32_t res = ((uint32_t)(e & 0xFF) << 23) | (sig_i & 0x7FFFFFu);
+    if (sig < 0.0f) {
+        res |= 1u << 31;
+    }
+
+    vesc_buffer_append_uint32(buffer, res, index);
+}
+
+void vesc_buffer_append_float64_auto(uint8_t *buffer, double number, int32_t *index) {
+    float n = number;
+    float err = (float)(number - (double)n);
+    vesc_buffer_append_float32_auto(buffer, n, index);
+    vesc_buffer_append_float32_auto(buffer, err, index);
 }
 
 int16_t vesc_buffer_get_int16(const uint8_t *buffer, int32_t *index) {
@@ -131,15 +156,27 @@ double vesc_buffer_get_double64(const uint8_t *buffer, double scale, int32_t *in
 }
 
 float vesc_buffer_get_float32_auto(const uint8_t *buffer, int32_t *index) {
-    int32_t res = vesc_buffer_get_int32(buffer, index);
-    int e = (int)((res >> 23) & 0xFF);
-    if (e & 0x80) {
-        e -= 256;
+    uint32_t res = vesc_buffer_get_uint32(buffer, index);
+
+    int e = (int)((res >> 23) & 0xFFu);
+    uint32_t sig_i = res & 0x7FFFFFu;
+    bool neg = (res & (1u << 31)) != 0u;
+
+    float sig = 0.0f;
+    if (e != 0 || sig_i != 0u) {
+        sig = (float)sig_i / (8388608.0 * 2.0) + 0.5;
+        e -= 126;
     }
-    int32_t sig_int = res & 0x7FFFFF;
-    if (res & (int32_t)0x80000000u) {
-        sig_int = -sig_int;
+
+    if (neg) {
+        sig = -sig;
     }
-    float sig = (float)sig_int / 8388608.0f;
+
     return ldexpf(sig, e);
+}
+
+double vesc_buffer_get_float64_auto(const uint8_t *buffer, int32_t *index) {
+    double n = vesc_buffer_get_float32_auto(buffer, index);
+    double err = vesc_buffer_get_float32_auto(buffer, index);
+    return n + err;
 }
