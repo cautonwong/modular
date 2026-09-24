@@ -1,0 +1,352 @@
+#include <math.h>
+#include <setjmp.h>
+#include <stdarg.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <cmocka.h>
+
+#include "edge/errors.h"
+#include "edge/modules.h"
+#include "foc_core/foc_core.h"
+#include "foc_core/foc_math.h"
+
+/* Inverter mock */
+typedef struct mock_inverter {
+    float duty_a;
+    float duty_b;
+    float duty_c;
+    bool enabled;
+    int set_duty_calls;
+    int set_phase_calls;
+} mock_inverter_t;
+
+static edge_status_t mock_set_duty(void *self, float duty_a, float duty_b, float duty_c) {
+    mock_inverter_t *inv = (mock_inverter_t *)self;
+    inv->duty_a = duty_a;
+    inv->duty_b = duty_b;
+    inv->duty_c = duty_c;
+    inv->set_duty_calls++;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_set_phase_state(void *self, bool enable) {
+    mock_inverter_t *inv = (mock_inverter_t *)self;
+    inv->enabled = enable;
+    inv->set_phase_calls++;
+    return EDGE_OK;
+}
+
+/* Current sensor mock */
+typedef struct mock_current_sensor {
+    float ia;
+    float ib;
+    float ic;
+    float v_bus;
+} mock_current_sensor_t;
+
+static edge_status_t mock_read_currents(void *self, float *ia, float *ib, float *ic) {
+    mock_current_sensor_t *cs = (mock_current_sensor_t *)self;
+    *ia = cs->ia;
+    *ib = cs->ib;
+    *ic = cs->ic;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_read_vbus(void *self, float *v_bus) {
+    mock_current_sensor_t *cs = (mock_current_sensor_t *)self;
+    *v_bus = cs->v_bus;
+    return EDGE_OK;
+}
+
+/* Rotor sensor mock */
+typedef struct mock_rotor_sensor {
+    float angle_rad;
+    float rpm;
+} mock_rotor_sensor_t;
+
+static edge_status_t mock_read_angle(void *self, float *angle_rad, float *rpm) {
+    mock_rotor_sensor_t *rs = (mock_rotor_sensor_t *)self;
+    *angle_rad = rs->angle_rad;
+    *rpm = rs->rpm;
+    return EDGE_OK;
+}
+
+/* Test 1: Math Clarke, Park, and Inverse Park Transforms */
+static void test_foc_math_transforms(void **state) {
+    (void)state;
+
+    float ia = 10.0f, ib = -5.0f, ic = -5.0f;
+    float i_alpha = 0.0f, i_beta = 0.0f;
+
+    foc_clarke_transform(ia, ib, ic, &i_alpha, &i_beta);
+    assert_float_equal(i_alpha, 10.0f, 0.001f);
+    assert_float_equal(i_beta, 0.0f, 0.001f);
+
+    float sin_th = 0.0f, cos_th = 1.0f; /* theta = 0 */
+    float id = 0.0f, iq = 0.0f;
+    foc_park_transform(i_alpha, i_beta, sin_th, cos_th, &id, &iq);
+    assert_float_equal(id, 10.0f, 0.001f);
+    assert_float_equal(iq, 0.0f, 0.001f);
+
+    float v_alpha = 0.0f, v_beta = 0.0f;
+    foc_inv_park_transform(id, iq, sin_th, cos_th, &v_alpha, &v_beta);
+    assert_float_equal(v_alpha, 10.0f, 0.001f);
+    assert_float_equal(v_beta, 0.0f, 0.001f);
+}
+
+/* Test 2: Space Vector Modulation (SVPWM) */
+static void test_foc_math_svpwm(void **state) {
+    (void)state;
+
+    float v_bus = 24.0f;
+    float da = 0.0f, db = 0.0f, dc = 0.0f;
+    uint32_t sector = 0;
+
+    /* Zero vector -> 50% duty */
+    foc_svpwm(0.0f, 0.0f, v_bus, &da, &db, &dc, &sector);
+    assert_float_equal(da, 0.5f, 0.01f);
+    assert_float_equal(db, 0.5f, 0.01f);
+    assert_float_equal(dc, 0.5f, 0.01f);
+
+    /* Pure alpha positive voltage -> Sector 1 */
+    foc_svpwm(10.0f, 0.0f, v_bus, &da, &db, &dc, &sector);
+    assert_int_equal(sector, 1u);
+    assert_true(da > db);
+    assert_true(db >= dc);
+}
+
+/* Test 3: Module Construction and Contract */
+static void test_foc_core_construct_contract(void **state) {
+    (void)state;
+
+    mock_inverter_t inv_mock = {0};
+    foc_inverter_port_t inv_port = {
+        .set_duty = mock_set_duty, .set_phase_state = mock_set_phase_state, .self = &inv_mock};
+
+    mock_current_sensor_t cs_mock = {.v_bus = 24.0f};
+    foc_current_port_t cs_port = {
+        .read_currents = mock_read_currents, .read_vbus = mock_read_vbus, .self = &cs_mock};
+
+    mock_rotor_sensor_t rs_mock = {0};
+    foc_rotor_port_t rs_port = {.read_angle = mock_read_angle, .self = &rs_mock};
+
+    foc_core_t foc;
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, (void *)0, &inv_port, &cs_port, &rs_port);
+
+    assert_int_equal(foc.module.module_id, EDGE_MOD_FOC_CORE);
+    assert_int_equal(foc.module.priority, 10u);
+    assert_ptr_equal(foc_core_module(&foc), &foc.module);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_UNINITIALIZED);
+
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_IDLE);
+
+    assert_int_equal(foc_core_deinit(&foc), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_UNINITIALIZED);
+}
+
+/* Test 4: Fault Protection - Overvoltage and Undervoltage */
+static void test_foc_core_voltage_protection(void **state) {
+    (void)state;
+
+    mock_inverter_t inv_mock = {0};
+    foc_inverter_port_t inv_port = {
+        .set_duty = mock_set_duty, .set_phase_state = mock_set_phase_state, .self = &inv_mock};
+
+    mock_current_sensor_t cs_mock = {.v_bus = 24.0f};
+    foc_current_port_t cs_port = {
+        .read_currents = mock_read_currents, .read_vbus = mock_read_vbus, .self = &cs_mock};
+
+    mock_rotor_sensor_t rs_mock = {0};
+    foc_rotor_port_t rs_port = {.read_angle = mock_read_angle, .self = &rs_mock};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .pole_pairs = 7,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.1f,
+                        .current_ki = 100.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = false};
+
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    /* Enable current mode */
+    assert_int_equal(foc_core_set_current(&foc, 10.0f, 0.0f), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_RUNNING_CURRENT);
+
+    /* Run normal loop */
+    assert_int_equal(foc_core_fast_loop(&foc, 0.00005f), EDGE_OK);
+    assert_true(inv_mock.enabled);
+
+    /* Inject Overvoltage */
+    cs_mock.v_bus = 65.0f;
+    edge_status_t st = foc_core_fast_loop(&foc, 0.00005f);
+    assert_int_equal(st, EDGE_EBUSY);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_FAULT);
+    assert_true(foc_core_get_faults(&foc) & FOC_FAULT_OVER_VOLTAGE);
+    assert_false(inv_mock.enabled);
+
+    /* Clear faults after voltage normalized */
+    cs_mock.v_bus = 24.0f;
+    assert_int_equal(foc_core_clear_faults(&foc), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_IDLE);
+}
+
+/* Test 5: Thermal Protection via Background Step */
+static void test_foc_core_thermal_protection(void **state) {
+    (void)state;
+
+    mock_inverter_t inv_mock = {0};
+    foc_inverter_port_t inv_port = {
+        .set_duty = mock_set_duty, .set_phase_state = mock_set_phase_state, .self = &inv_mock};
+    mock_current_sensor_t cs_mock = {.v_bus = 24.0f};
+    foc_current_port_t cs_port = {
+        .read_currents = mock_read_currents, .read_vbus = mock_read_vbus, .self = &cs_mock};
+    mock_rotor_sensor_t rs_mock = {0};
+    foc_rotor_port_t rs_port = {.read_angle = mock_read_angle, .self = &rs_mock};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .pole_pairs = 7,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.1f,
+                        .current_ki = 100.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 85.0f};
+
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    foc_core_set_temperature(&foc, 90.0f);
+    assert_int_equal(foc.module.poll(&foc.module), EDGE_OK);
+
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_FAULT);
+    assert_true(foc_core_get_faults(&foc) & FOC_FAULT_OVER_TEMP);
+}
+
+/* Virtual motor simulation context for closed loop test */
+typedef struct sim_context {
+    foc_virtual_motor_t vm;
+    mock_inverter_t inv;
+    float v_bus;
+} sim_context_t;
+
+static edge_status_t sim_set_duty(void *self, float duty_a, float duty_b, float duty_c) {
+    sim_context_t *ctx = (sim_context_t *)self;
+    ctx->inv.duty_a = duty_a;
+    ctx->inv.duty_b = duty_b;
+    ctx->inv.duty_c = duty_c;
+    return EDGE_OK;
+}
+
+static edge_status_t sim_set_phase_state(void *self, bool enable) {
+    sim_context_t *ctx = (sim_context_t *)self;
+    ctx->inv.enabled = enable;
+    return EDGE_OK;
+}
+
+static edge_status_t sim_read_currents(void *self, float *ia, float *ib, float *ic) {
+    sim_context_t *ctx = (sim_context_t *)self;
+    *ia = ctx->vm.ia;
+    *ib = ctx->vm.ib;
+    *ic = ctx->vm.ic;
+    return EDGE_OK;
+}
+
+static edge_status_t sim_read_vbus(void *self, float *v_bus) {
+    sim_context_t *ctx = (sim_context_t *)self;
+    *v_bus = ctx->v_bus;
+    return EDGE_OK;
+}
+
+static edge_status_t sim_read_angle(void *self, float *angle_rad, float *rpm) {
+    sim_context_t *ctx = (sim_context_t *)self;
+    *angle_rad = ctx->vm.rotor_angle_rad;
+    *rpm = ctx->vm.rotor_speed_rad_s * 60.0f / (2.0f * (float)M_PI);
+    return EDGE_OK;
+}
+
+/* Test 6: Closed-loop Current Control with Virtual Motor */
+static void test_foc_core_closed_loop_virtual_motor(void **state) {
+    (void)state;
+
+    sim_context_t sim;
+    sim.v_bus = 24.0f;
+    sim.inv.enabled = false;
+    foc_virtual_motor_init(&sim.vm, 0.05f, 0.00005f, 0.005f, 7, 0.0005f);
+
+    foc_inverter_port_t inv_port = {
+        .set_duty = sim_set_duty, .set_phase_state = sim_set_phase_state, .self = &sim};
+    foc_current_port_t cs_port = {
+        .read_currents = sim_read_currents, .read_vbus = sim_read_vbus, .self = &sim};
+    foc_rotor_port_t rs_port = {.read_angle = sim_read_angle, .self = &sim};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .pole_pairs = 7,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = 300.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = false};
+
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    /* Command 8.0 Amps on q-axis */
+    float target_iq = 8.0f;
+    assert_int_equal(foc_core_set_current(&foc, target_iq, 0.0f), EDGE_OK);
+
+    float dt = 0.00005f; /* 20 kHz loop */
+
+    /* Run 2000 steps = 100ms simulation */
+    for (int step = 0; step < 2000; step++) {
+        /* 1. FOC fast control loop computes inverter duties */
+        assert_int_equal(foc_core_fast_loop(&foc, dt), EDGE_OK);
+
+        /* 2. Step physical virtual motor with FOC output voltages */
+        foc_virtual_motor_step(&sim.vm, foc.v_alpha, foc.v_beta, 0.0f, dt,
+                               0.05f /* 0.05 Nm load */);
+    }
+
+    foc_telemetry_t telem;
+    foc_core_get_telemetry(&foc, &telem);
+
+    /* Assert current converged to target +/- 0.5A */
+    assert_float_equal(telem.current_q, target_iq, 0.5f);
+    assert_float_equal(telem.current_d, 0.0f, 0.5f);
+    /* Assert motor is rotating */
+    assert_true(telem.speed_rpm > 100.0f);
+}
+
+int main(void) {
+    const struct CMUnitTest tests[] = {
+        cmocka_unit_test(test_foc_math_transforms),
+        cmocka_unit_test(test_foc_math_svpwm),
+        cmocka_unit_test(test_foc_core_construct_contract),
+        cmocka_unit_test(test_foc_core_voltage_protection),
+        cmocka_unit_test(test_foc_core_thermal_protection),
+        cmocka_unit_test(test_foc_core_closed_loop_virtual_motor),
+    };
+    return cmocka_run_group_tests(tests, NULL, NULL);
+}
