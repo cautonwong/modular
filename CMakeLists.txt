@@ -90,7 +90,7 @@ edge_add_area(app)
 
 # Legal family x board combinations (D39). An unknown family/board fails above;
 # a known-but-unlisted pair is a product composition error and fails here.
-set(EDGE_LEGAL_FAMILY_BOARD "example:example;meter:example;meter:mps2;meter:riscv_virt")
+set(EDGE_LEGAL_FAMILY_BOARD "example:example;meter:example;meter:mps2;meter:riscv_virt;bldc:example;bldc:vesc6")
 
 function(edge_add_product name)
     cmake_parse_arguments(P "" "family;board" "apps;infra" ${ARGN})
@@ -211,6 +211,8 @@ edge_add_product(water_meter_host family meter board example infra flash apps pu
 if(TARGET water_meter_host)
     target_link_libraries(water_meter_host PRIVATE pal_os)
 endif()
+edge_add_product(vesc_host family bldc board example infra flash apps foc_core vesc_comm motor_config)
+
 
 if(EDGE_MODULE_BUILD_THREADX)
     # D87: one compiled kernel serves one configuration. Claiming it here as well means

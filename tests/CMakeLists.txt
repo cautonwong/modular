@@ -92,5 +92,6 @@ edge_add_host_test(test_product_glue SOURCES test_product_glue.c
     ../product/meter_mps2/glue.c
     ../product/meter_gateway_host/glue.c
     ../product/water_meter_host/glue.c
-    DEPS app_dlt645 app_meter_core app_modbus_slave app_pulse_meter app_relay infra_flash infra_gpio infra_uart)
-target_include_directories(test_product_glue PRIVATE ${EDGE_ROOT}/product/meter_gateway_host ${EDGE_ROOT}/product/water_meter_host)
+    ../product/vesc_host/glue.c
+    DEPS app_dlt645 app_meter_core app_modbus_slave app_pulse_meter app_relay app_foc_core app_vesc_comm app_motor_config infra_flash infra_gpio infra_uart)
+target_include_directories(test_product_glue PRIVATE ${EDGE_ROOT}/product/meter_gateway_host ${EDGE_ROOT}/product/water_meter_host ${EDGE_ROOT}/product/vesc_host)
