@@ -25,6 +25,38 @@ typedef struct mock_comm_ctx {
     float set_pos_val;
 } mock_comm_ctx_t;
 
+/*
+ * Identity facts are product input to the codec; the wire layout is what is under
+ * test, so these are values nothing else depends on.
+ */
+static const uint8_t test_uuid[12] = {1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u, 10u, 11u, 12u};
+static const vesc_identity_t test_identity = {
+    .hw_name = "TEST_HW",
+    .fw_name = "test_fw",
+    .uuid = test_uuid,
+    .fw_version_major = 6u,
+    .fw_version_minor = 2u,
+    .pairing_done = 1u,
+    .fw_test_version = 3u,
+    .hw_type = 0u,
+    .custom_cfg_num = 4u,
+    .phase_filters = 1u,
+    .qmlui_hw = 2u,
+    .qmlui_app = 0u,
+    .nrf_flags = 5u,
+    .controller_id = 7u,
+    .hw_crc = 0xDEADBEEFu,
+};
+
+/* Names long enough that the reply cannot be built without overflowing it. */
+static const char oversized_name[80] =
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+static const vesc_identity_t oversized_identity = {
+    .hw_name = oversized_name,
+    .fw_name = oversized_name,
+    .uuid = test_uuid,
+};
+
 static edge_status_t mock_stream_write(void *self, const uint8_t *data, size_t len) {
     mock_comm_ctx_t *ctx = (mock_comm_ctx_t *)self;
     if (len > sizeof(ctx->tx_buf)) {
@@ -92,7 +124,7 @@ static void test_send_packet_framing(void **state) {
     };
 
     vesc_comm_t comm;
-    vesc_comm_construct(&comm, EDGE_MOD_VESC_COMM, 10, &tx_port, NULL);
+    vesc_comm_construct(&comm, EDGE_MOD_VESC_COMM, 10, &tx_port, NULL, &test_identity);
     assert_int_equal(vesc_comm_init(&comm), EDGE_OK);
 
     uint8_t payload[] = {0x04, 0x01, 0x02, 0x03};
@@ -135,7 +167,7 @@ static void test_receive_packet_and_commands(void **state) {
     };
 
     vesc_comm_t comm;
-    vesc_comm_construct(&comm, EDGE_MOD_VESC_COMM, 10, &tx_port, &motor_port);
+    vesc_comm_construct(&comm, EDGE_MOD_VESC_COMM, 10, &tx_port, &motor_port, &test_identity);
     assert_int_equal(vesc_comm_init(&comm), EDGE_OK);
 
     /* Test 1: COMM_SET_DUTY */
@@ -196,8 +228,55 @@ static void test_receive_packet_and_commands(void **state) {
     }
     assert_int_equal(comm.packets_received, 3);
     assert_int_equal(ctx.tx_count, 1);
-    /* Returned packet payload starts with COMM_FW_VERSION (0) */
-    assert_int_equal(ctx.tx_buf[2], 0);
+
+    /*
+     * Byte-exact COMM_FW_VERSION, in the reference's field order:
+     * id, major, minor, "HW_NAME\0", 12-byte uuid, pairing_done, test_version,
+     * hw_type, custom_cfg_num, phase_filters, qmlui_hw, qmlui_app, nrf_flags,
+     * "FW_NAME\0", uint32 hw_crc.  The nrf_flags byte sits between qmlui_app and
+     * the firmware name; leaving it out shifts every later field by one.
+     */
+    const uint8_t *p = ctx.tx_buf + 2;
+    assert_int_equal(p[0], COMM_FW_VERSION);
+    assert_int_equal(p[1], 6u);
+    assert_int_equal(p[2], 2u);
+    assert_memory_equal(p + 3, "TEST_HW", 8u);
+
+    const uint8_t uuid_expected[12] = {1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u, 10u, 11u, 12u};
+    assert_memory_equal(p + 11, uuid_expected, 12u);
+
+    assert_int_equal(p[23], 1u); /* pairing_done */
+    assert_int_equal(p[24], 3u); /* fw_test_version */
+    assert_int_equal(p[25], 0u); /* hw_type */
+    assert_int_equal(p[26], 4u); /* custom_cfg_num */
+    assert_int_equal(p[27], 1u); /* phase_filters */
+    assert_int_equal(p[28], 2u); /* qmlui_hw */
+    assert_int_equal(p[29], 0u); /* qmlui_app */
+    assert_int_equal(p[30], 5u); /* nrf_flags */
+
+    assert_memory_equal(p + 31, "test_fw", 8u);
+    assert_int_equal(p[39], 0xDEu);
+    assert_int_equal(p[40], 0xADu);
+    assert_int_equal(p[41], 0xBEu);
+    assert_int_equal(p[42], 0xEFu);
+    assert_int_equal(ctx.tx_buf[1], 43u); /* payload length byte */
+
+    /* Identity that cannot fit is refused rather than truncated or overflowed. */
+    vesc_comm_t oversize_comm;
+    vesc_comm_construct(&oversize_comm, EDGE_MOD_VESC_COMM, 10, &tx_port, NULL,
+                        &oversized_identity);
+    assert_int_equal(vesc_comm_init(&oversize_comm), EDGE_OK);
+    ctx.tx_count = 0;
+    assert_int_equal(vesc_comm_process_command(&oversize_comm, cmd_fw, sizeof(cmd_fw)),
+                     EDGE_EINVAL);
+    assert_int_equal(ctx.tx_count, 0);
+
+    /* A codec with no identity at all refuses the same way. */
+    vesc_comm_construct(&oversize_comm, EDGE_MOD_VESC_COMM, 10, &tx_port, NULL, NULL);
+    assert_int_equal(vesc_comm_init(&oversize_comm), EDGE_OK);
+    assert_int_equal(vesc_comm_process_command(&oversize_comm, cmd_fw, sizeof(cmd_fw)),
+                     EDGE_EINVAL);
+    assert_int_equal(ctx.tx_count, 0);
 
     /* Test 4: Corrupted CRC */
     frame[f_idx - 2] ^= 0xFF; /* Corrupt CRC */

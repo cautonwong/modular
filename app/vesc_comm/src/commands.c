@@ -51,35 +51,46 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
 
     switch (cmd_id) {
     case COMM_FW_VERSION: {
-        uint8_t resp[64];
+        const vesc_identity_t *id = self->identity;
+        if (id == (void *)0 || id->hw_name == (void *)0 || id->fw_name == (void *)0 ||
+            id->uuid == (void *)0) {
+            return EDGE_EINVAL;
+        }
+
+        /* 1 id + 1 major + 1 minor + 12 uuid + 8 flags + 4 crc = 27 fixed bytes. */
+        uint8_t resp[80];
+        size_t hw_len = strlen(id->hw_name) + 1;
+        size_t fw_len = strlen(id->fw_name) + 1;
+        if (hw_len + fw_len > sizeof(resp) - 27u) {
+            return EDGE_EINVAL;
+        }
+
         size_t resp_len = 0;
         resp[resp_len++] = COMM_FW_VERSION;
-        resp[resp_len++] = 6; /* Major */
-        resp[resp_len++] = 0; /* Minor */
+        resp[resp_len++] = id->fw_version_major;
+        resp[resp_len++] = id->fw_version_minor;
 
-        const char *hw_name = "VESC_MODULAR";
-        size_t hw_len = strlen(hw_name) + 1;
-        memcpy(resp + resp_len, hw_name, hw_len);
+        memcpy(resp + resp_len, id->hw_name, hw_len);
         resp_len += hw_len;
 
-        /* UUID (12 bytes) */
-        memset(resp + resp_len, 0xAA, 12);
-        resp_len += 12;
+        memcpy(resp + resp_len, id->uuid, 12u);
+        resp_len += 12u;
 
-        resp[resp_len++] = 0; /* Pairing done */
-        resp[resp_len++] = 0; /* Test version */
-        resp[resp_len++] = 0; /* HW type */
-        resp[resp_len++] = 0; /* Custom cfg */
-        resp[resp_len++] = 0; /* Phase filters */
-        resp[resp_len++] = 0; /* QMLUI */
-        resp[resp_len++] = 0; /* QML flags */
+        /* Field order from the reference's COMM_FW_VERSION. The nrf_flags byte in
+         * the middle is easy to miss, and dropping it shifts everything after it. */
+        resp[resp_len++] = id->pairing_done;
+        resp[resp_len++] = id->fw_test_version;
+        resp[resp_len++] = id->hw_type;
+        resp[resp_len++] = id->custom_cfg_num;
+        resp[resp_len++] = id->phase_filters;
+        resp[resp_len++] = id->qmlui_hw;
+        resp[resp_len++] = id->qmlui_app;
+        resp[resp_len++] = id->nrf_flags;
 
-        const char *fw_name = "ModularBLDC";
-        size_t fw_len = strlen(fw_name) + 1;
-        memcpy(resp + resp_len, fw_name, fw_len);
+        memcpy(resp + resp_len, id->fw_name, fw_len);
         resp_len += fw_len;
 
-        buffer_append_uint32(resp, 0x12345678u, &resp_len);
+        buffer_append_uint32(resp, id->hw_crc, &resp_len);
 
         return vesc_comm_send_packet(self, resp, resp_len);
     }
@@ -112,7 +123,8 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
         buffer_append_int32(resp, val.tachometer_abs, &resp_len);
         resp[resp_len++] = (uint8_t)val.fault_code;
         buffer_append_float32(resp, val.pid_pos_now, 1e6f, &resp_len);
-        resp[resp_len++] = 1; /* Controller ID */
+        /* Reference takes this from the app configuration, not a constant. */
+        resp[resp_len++] = self->identity != (void *)0 ? self->identity->controller_id : 0u;
 
         return vesc_comm_send_packet(self, resp, resp_len);
     }
