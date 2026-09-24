@@ -53,6 +53,7 @@ check_event_ids.py
 check_event_payload.py
 check_dependencies.py
 check_exemptions.py
+check_consumer_ports.py
 check_guard_coverage.py
 check_layer_dependencies.py
 check_module_ids.py

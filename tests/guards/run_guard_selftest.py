@@ -113,6 +113,9 @@ CASES = [
     ("check_exemptions.py", "tests/guards/exemptions_bad", False),
     ("check_area_registration.py", "tests/guards/area_registration_good", True),
     ("check_area_registration.py", "tests/guards/area_registration_bad", False),
+    ("check_consumer_ports.py", "tests/guards/consumer_ports_good", True),
+    ("check_consumer_ports.py", "tests/guards/consumer_ports_bad_no_self", False),
+    ("check_consumer_ports.py", "tests/guards/consumer_ports_bad_malloc", False),
 ]
 
 
