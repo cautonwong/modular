@@ -1,10 +1,14 @@
-#include "encoder/encoder.h"
-#include <cmocka.h>
-#include <math.h>
-#include <setjmp.h>
+/* clang-format off */
 #include <stdarg.h>
 #include <stddef.h>
+#include <setjmp.h>
 #include <stdint.h>
+#include <math.h>
+
+#include <cmocka.h>
+/* clang-format on */
+
+#include "encoder/encoder.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846f
