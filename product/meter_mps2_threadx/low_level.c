@@ -22,7 +22,6 @@
 #define SYSTICK_CTRL (*(volatile uint32_t *)0xe000e010u)
 #define SYSTICK_LOAD (*(volatile uint32_t *)0xe000e014u)
 #define SYSTICK_VAL (*(volatile uint32_t *)0xe000e018u)
-#define SCS_SHPR2 (*(volatile uint32_t *)0xe000ed1cu) /* SVCall */
 #define SCS_SHPR3 (*(volatile uint32_t *)0xe000ed20u) /* PendSV, SysTick */
 
 /* Provided by the vendor port. */
@@ -40,7 +39,6 @@ void __tx_SysTickHandler(void) {
  * interrupt - the vendor's own low-level file orders it the same way.
  */
 void _tx_initialize_low_level(void) {
-    SCS_SHPR2 = (SCS_SHPR2 & 0x00ffffffu) | 0xff000000u;  /* SVCall lowest */
     SCS_SHPR3 = (SCS_SHPR3 & 0x0000ffffu) | (0xffu << 16) /* PendSV lowest */
                 | (4u << 24); /* SysTick above the board IRQ, below nothing maskable */
     SYSTICK_LOAD = (EDGE_MPS2_AN386_HZ / TX_TIMER_TICKS_PER_SECOND) - 1u;
