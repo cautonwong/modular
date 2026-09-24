@@ -74,17 +74,21 @@ static bool g_started;
  * address arrives truncated and the first dereference faults). An index cannot be
  * truncated, and the pool is small enough that the lookup is free.
  */
-static void task_entry(ULONG input) {
-    if (input == 0u || input > (ULONG)EDGE_THREADX_MAX_TASKS) {
-        for (;;)
-            tx_thread_sleep(TX_TIMER_TICKS_PER_SECOND);
-    }
-    edge_threadx_task_t *task = &g_tasks[input - 1u];
-    task->fn(task->arg);
-    /* A task function here runs a superloop; returning is a contract violation, and
-     * returning into ThreadX's scheduler is worse than parking. */
+/* A task function here runs a superloop; returning is a contract violation, and
+ * returning into ThreadX's scheduler is worse than parking. */
+static void park_forever(void) {
     for (;;)
         tx_thread_sleep(TX_TIMER_TICKS_PER_SECOND);
+}
+
+static void task_entry(ULONG input) {
+    /* The valid range is checked here, so the array is indexed only where the range is
+     * known good. */
+    if (input >= 1u && input <= (ULONG)EDGE_THREADX_MAX_TASKS) {
+        edge_threadx_task_t *task = &g_tasks[input - 1u];
+        task->fn(task->arg);
+    }
+    park_forever();
 }
 
 /* One place that turns a buffered request into a ThreadX thread. */

@@ -49,6 +49,8 @@
  * worth anything if it is checked, so the two are tied together. */
 #if defined(EDGE_THREADX_MASK_MODE) && (EDGE_THREADX_MASK_MODE == 1)
 #if !defined(TX_PORT_USE_BASEPRI)
+// cppcheck-suppress preprocessorErrorDirective ; tx_port.h defines it for both C and
+// assembly; cppcheck cannot see the vendor header, so it reaches this branch blind.
 #error "EDGE_THREADX_MASK_MODE says basepri, but TX_PORT_USE_BASEPRI is not defined"
 #endif
 #endif

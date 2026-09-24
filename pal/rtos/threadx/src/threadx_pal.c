@@ -44,6 +44,7 @@ static void critical_exit(void *self) {
     if (state->depth == 0u) {
         TX_INTERRUPT_SAVE_AREA
         EDGE_THREADX_SAVE_SLOT = (UINT)state->posture;
+        // cppcheck-suppress unknownMacro ; vendor macro, brace-less by design
         TX_RESTORE
     }
 }
@@ -71,6 +72,7 @@ static uint64_t monotonic_ticks(void *self) {
     const ULONG ticks = tx_time_get();
     const uint64_t extended =
         edge_tick64_extend(state != NULL ? &state->tick : NULL, (uint32_t)ticks);
+    // cppcheck-suppress unknownMacro ; vendor macro, brace-less by design
     TX_RESTORE
     return extended;
 #else
@@ -138,6 +140,7 @@ static void irq_guard_exit(void *self) {
         return;
     TX_INTERRUPT_SAVE_AREA
     EDGE_THREADX_SAVE_SLOT = (UINT)g_isr_posture;
+    // cppcheck-suppress unknownMacro ; vendor macro, brace-less by design
     TX_RESTORE
 }
 
