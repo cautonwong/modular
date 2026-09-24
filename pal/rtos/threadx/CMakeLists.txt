@@ -1,0 +1,56 @@
+# ThreadX PAL (D46/D85, issue #134).
+#
+# Fetched like the FreeRTOS port: by tag and shallow for speed, then the resolved
+# revision is verified against the pin, because a tag can be moved. ThreadX is a
+# kernel-shaped port, so the only third-party sources are its own - the common kernel
+# and the Cortex-M3 GNU port, which runs on the M4 we build for (soft float, no FPU
+# lazy stacking to configure).
+if(NOT EDGE_MODULE_BUILD_THREADX_QEMU)
+    return()
+endif()
+
+set(EDGE_MODULE_THREADX_TAG "v6.5.1.202602a_rel"
+    CACHE STRING "ThreadX tag - for humans; the commit below is the pin")
+set(EDGE_MODULE_THREADX_COMMIT "b91b03b9e75fa523b17127f9e0eca09dca916459"
+    CACHE STRING "ThreadX commit - the immutable pin (see ci/dependencies.json)")
+
+include(FetchContent)
+FetchContent_Declare(threadx
+    GIT_REPOSITORY https://github.com/eclipse-threadx/threadx.git
+    GIT_TAG ${EDGE_MODULE_THREADX_TAG}
+    GIT_SHALLOW TRUE
+)
+FetchContent_GetProperties(threadx)
+if(NOT threadx_POPULATED)
+    FetchContent_Populate(threadx)
+endif()
+
+execute_process(
+    COMMAND git -C ${threadx_SOURCE_DIR} rev-parse HEAD
+    OUTPUT_VARIABLE EDGE_THREADX_HEAD
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if(NOT EDGE_THREADX_HEAD STREQUAL "${EDGE_MODULE_THREADX_COMMIT}")
+    message(FATAL_ERROR
+        "ThreadX revision drift: the checkout is ${EDGE_THREADX_HEAD} but the pin is "
+        "${EDGE_MODULE_THREADX_COMMIT} (tag ${EDGE_MODULE_THREADX_TAG}); see docs/dependencies.md")
+endif()
+message(STATUS "ThreadX pinned at ${EDGE_THREADX_HEAD} (${EDGE_MODULE_THREADX_TAG})")
+
+# Third-party sources, so deliberately outside edge_enable_quality(). Globbing the
+# vendor's common kernel is the one place a glob belongs: the list is theirs, it is
+# pinned, and CONFIGURE_DEPENDS keeps it honest on reconfigure. Our own sources stay
+# explicit.
+file(GLOB THREADX_COMMON CONFIGURE_DEPENDS ${threadx_SOURCE_DIR}/common/src/*.c)
+file(GLOB THREADX_PORT CONFIGURE_DEPENDS ${threadx_SOURCE_DIR}/ports/cortex_m3/gnu/src/*.S)
+
+add_library(threadx_kernel STATIC ${THREADX_COMMON} ${THREADX_PORT})
+target_include_directories(threadx_kernel PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${threadx_SOURCE_DIR}/common/inc
+    ${threadx_SOURCE_DIR}/ports/cortex_m3/gnu/inc
+)
+
+edge_add_pal(rtos_threadx RAW SOURCES src/threadx_rtos.c src/threadx_pal.c
+    DEPS edge_module pal_os pal_rtos threadx_kernel)

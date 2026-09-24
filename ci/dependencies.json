@@ -26,6 +26,18 @@
       "pin_file": "pal/rtos/zephyr/CMakeLists.txt",
       "owner": "platform",
       "note": "Fetched by `west init --mr v4.4.0` rather than FetchContent, so the pin lives in this port's CMakeLists and the smoke job compares it against the revision west resolved. west.yml also accepts a SHA in `revision:`; the tag is kept because it is what a human recognises and the comparison makes it safe."
+    },
+    {
+      "name": "ThreadX",
+      "version": "v6.5.1.202602a_rel",
+      "commit": "b91b03b9e75fa523b17127f9e0eca09dca916459",
+      "url": "https://github.com/eclipse-threadx/threadx.git",
+      "licence": "MIT",
+      "used_by": "pal/rtos/threadx",
+      "pin_variable": "EDGE_MODULE_THREADX_COMMIT",
+      "pin_file": "pal/rtos/threadx/CMakeLists.txt",
+      "owner": "platform",
+      "note": "Eclipse ThreadX, fetched by tag and shallow like FreeRTOS, then verified against this commit at configure time. The tag is a hotfix release (.202602a) because the preceding one broke Cortex-M builds - a reason to keep the commit, not the tag, as the truth."
     }
   ]
 }
