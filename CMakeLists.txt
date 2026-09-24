@@ -41,6 +41,11 @@ if(DEFINED EDGE_ARM_CPU)
     add_link_options(-mcpu=${EDGE_ARM_CPU} -mthumb)
 endif()
 
+# The shared product adapter's header (product/common/include). Directory-scoped so no
+# product target can miss it: every one of them compiles a glue.c that includes it, in the
+# host products and in the firmware functions alike.
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/product/common/include)
+
 function(edge_enable_quality target)
     target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
     if(EDGE_MODULE_ENABLE_WERROR)
@@ -149,6 +154,7 @@ function(edge_add_product name)
     add_executable(${name}
         product/${name}/main.c
         product/${name}/glue.c
+        product/common/storage.c
     )
     target_include_directories(${name} PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/product/${name}
@@ -262,6 +268,7 @@ function(edge_add_arm_firmware name product cpu linker_script)
     add_executable(${name}
         product/${product}/main.c
         product/${product}/glue.c
+        product/common/storage.c
         .github/arm/startup.c
     )
     target_link_libraries(${name} PRIVATE edge_module ${EDGE_PRODUCT_${product}_TARGETS})
@@ -319,6 +326,7 @@ function(edge_add_riscv_firmware name product linker_script)
     add_executable(${name}
         product/${product}/main.c
         product/${product}/glue.c
+        product/common/storage.c
         .github/riscv/startup.S
         .github/riscv/support.c
     )
@@ -389,6 +397,7 @@ function(edge_add_arm_freertos_firmware name product)
     add_executable(${name}
         product/${product}/main.c
         product/${product}/glue.c
+        product/common/storage.c
         .github/arm/startup.c
     )
     target_link_libraries(${name} PRIVATE
@@ -478,6 +487,7 @@ function(edge_add_arm_threadx_firmware name product)
     add_executable(${name}
         product/${product}/main.c
         product/${product}/glue.c
+        product/common/storage.c
         product/${product}/low_level.c
         .github/arm/startup.c
     )

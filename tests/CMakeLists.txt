@@ -24,6 +24,7 @@ edge_add_host_test(test_contract SOURCES test_contract.c
     ../product/meter_host/glue.c
     ../product/meter_mps2/glue.c
     ../product/meter_gateway_host/glue.c
+    ../product/common/storage.c
     DEPS edge_test_contract app_dlt645 app_meter_core app_modbus_slave app_relay
          board_example infra_flash infra_gpio infra_uart)
 target_include_directories(test_contract PRIVATE ${EDGE_ROOT}/product/meter_gateway_host)
@@ -74,6 +75,7 @@ edge_add_host_test(test_riscv_deadline SOURCES test_riscv_deadline.c DEPS edge_m
 target_include_directories(test_riscv_deadline PRIVATE ${EDGE_ROOT}/board/riscv_virt/include)
 edge_add_host_test(test_runner_threads SOURCES test_runner_threads.c DEPS sys_example)
 edge_add_host_test(test_flash_glue SOURCES test_flash_glue.c ../product/example/glue.c
+    ../product/common/storage.c
     DEPS app_dlt645 infra_flash)
 
 # Every product's glue is in the coverage scope, so every trampoline is exercised
@@ -82,5 +84,6 @@ edge_add_host_test(test_product_glue SOURCES test_product_glue.c
     ../product/meter_host/glue.c
     ../product/meter_mps2/glue.c
     ../product/meter_gateway_host/glue.c
+    ../product/common/storage.c
     DEPS app_dlt645 app_meter_core app_modbus_slave app_relay infra_flash infra_gpio infra_uart)
 target_include_directories(test_product_glue PRIVATE ${EDGE_ROOT}/product/meter_gateway_host)
