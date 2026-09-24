@@ -95,36 +95,107 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
         return vesc_comm_send_packet(self, resp, resp_len);
     }
 
-    case COMM_GET_VALUES: {
-        vesc_values_t val;
-        memset(&val, 0, sizeof(val));
-        if (self->motor && self->motor->get_values) {
-            self->motor->get_values(self->motor->self, &val);
+    case COMM_GET_VALUES:
+    case COMM_GET_VALUES_SELECTIVE: {
+        uint32_t mask = VESC_VALUES_MASK_ALL;
+        if (cmd_id == COMM_GET_VALUES_SELECTIVE) {
+            if (len < 5) {
+                return EDGE_EINVAL;
+            }
+            mask = ((uint32_t)data[1] << 24) | ((uint32_t)data[2] << 16) |
+                   ((uint32_t)data[3] << 8) | (uint32_t)data[4];
         }
 
+        vesc_values_t val;
+        memset(&val, 0, sizeof(val));
+        if (self->motor == (void *)0 || self->motor->get_values == (void *)0) {
+            return EDGE_EINVAL;
+        }
+        edge_status_t st = self->motor->get_values(self->motor->self, mask, &val);
+        if (st != EDGE_OK) {
+            return st;
+        }
+
+        /*
+         * Mask ladder from the reference's COMM_GET_VALUES. GET_VALUES and
+         * GET_VALUES_SELECTIVE are one code path there, with the mask all-ones for
+         * the former; SELECTIVE echoes the mask it was given, GET_VALUES does not.
+         */
         uint8_t resp[128];
         size_t resp_len = 0;
-        resp[resp_len++] = COMM_GET_VALUES;
+        resp[resp_len++] = cmd_id;
+        if (cmd_id == COMM_GET_VALUES_SELECTIVE) {
+            buffer_append_uint32(resp, mask, &resp_len);
+        }
 
-        buffer_append_float16(resp, val.temp_mos, 1e1f, &resp_len);
-        buffer_append_float16(resp, val.temp_motor, 1e1f, &resp_len);
-        buffer_append_float32(resp, val.current_motor, 1e2f, &resp_len);
-        buffer_append_float32(resp, val.current_in, 1e2f, &resp_len);
-        buffer_append_float32(resp, val.id, 1e2f, &resp_len);
-        buffer_append_float32(resp, val.iq, 1e2f, &resp_len);
-        buffer_append_float16(resp, val.duty_now, 1e3f, &resp_len);
-        buffer_append_float32(resp, val.rpm, 1e0f, &resp_len);
-        buffer_append_float16(resp, val.v_in, 1e1f, &resp_len);
-        buffer_append_float32(resp, val.amp_hours, 1e4f, &resp_len);
-        buffer_append_float32(resp, val.amp_hours_charged, 1e4f, &resp_len);
-        buffer_append_float32(resp, val.watt_hours, 1e4f, &resp_len);
-        buffer_append_float32(resp, val.watt_hours_charged, 1e4f, &resp_len);
-        buffer_append_int32(resp, val.tachometer, &resp_len);
-        buffer_append_int32(resp, val.tachometer_abs, &resp_len);
-        resp[resp_len++] = (uint8_t)val.fault_code;
-        buffer_append_float32(resp, val.pid_pos_now, 1e6f, &resp_len);
-        /* Reference takes this from the app configuration, not a constant. */
-        resp[resp_len++] = self->identity != (void *)0 ? self->identity->controller_id : 0u;
+        if (mask & (1u << 0)) {
+            buffer_append_float16(resp, val.temp_mos, 1e1f, &resp_len);
+        }
+        if (mask & (1u << 1)) {
+            buffer_append_float16(resp, val.temp_motor, 1e1f, &resp_len);
+        }
+        if (mask & (1u << 2)) {
+            buffer_append_float32(resp, val.current_motor, 1e2f, &resp_len);
+        }
+        if (mask & (1u << 3)) {
+            buffer_append_float32(resp, val.current_in, 1e2f, &resp_len);
+        }
+        if (mask & (1u << 4)) {
+            buffer_append_float32(resp, val.id, 1e2f, &resp_len);
+        }
+        if (mask & (1u << 5)) {
+            buffer_append_float32(resp, val.iq, 1e2f, &resp_len);
+        }
+        if (mask & (1u << 6)) {
+            buffer_append_float16(resp, val.duty_now, 1e3f, &resp_len);
+        }
+        if (mask & (1u << 7)) {
+            buffer_append_float32(resp, val.rpm, 1e0f, &resp_len);
+        }
+        if (mask & (1u << 8)) {
+            buffer_append_float16(resp, val.v_in, 1e1f, &resp_len);
+        }
+        if (mask & (1u << 9)) {
+            buffer_append_float32(resp, val.amp_hours, 1e4f, &resp_len);
+        }
+        if (mask & (1u << 10)) {
+            buffer_append_float32(resp, val.amp_hours_charged, 1e4f, &resp_len);
+        }
+        if (mask & (1u << 11)) {
+            buffer_append_float32(resp, val.watt_hours, 1e4f, &resp_len);
+        }
+        if (mask & (1u << 12)) {
+            buffer_append_float32(resp, val.watt_hours_charged, 1e4f, &resp_len);
+        }
+        if (mask & (1u << 13)) {
+            buffer_append_int32(resp, val.tachometer, &resp_len);
+        }
+        if (mask & (1u << 14)) {
+            buffer_append_int32(resp, val.tachometer_abs, &resp_len);
+        }
+        if (mask & (1u << 15)) {
+            resp[resp_len++] = (uint8_t)val.fault_code;
+        }
+        if (mask & (1u << 16)) {
+            buffer_append_float32(resp, val.pid_pos_now, 1e6f, &resp_len);
+        }
+        if (mask & (1u << 17)) {
+            resp[resp_len++] = val.controller_id;
+        }
+        if (mask & (1u << 18)) {
+            buffer_append_float16(resp, val.temp_mos_1, 1e1f, &resp_len);
+            buffer_append_float16(resp, val.temp_mos_2, 1e1f, &resp_len);
+            buffer_append_float16(resp, val.temp_mos_3, 1e1f, &resp_len);
+        }
+        if (mask & (1u << 19)) {
+            buffer_append_float32(resp, val.vd, 1e3f, &resp_len);
+        }
+        if (mask & (1u << 20)) {
+            buffer_append_float32(resp, val.vq, 1e3f, &resp_len);
+        }
+        if (mask & (1u << 21)) {
+            resp[resp_len++] = val.status;
+        }
 
         return vesc_comm_send_packet(self, resp, resp_len);
     }

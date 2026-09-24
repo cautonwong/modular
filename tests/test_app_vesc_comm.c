@@ -23,6 +23,8 @@ typedef struct mock_comm_ctx {
     float set_current_val;
     float set_rpm_val;
     float set_pos_val;
+    uint32_t last_mask;
+    int get_values_calls;
 } mock_comm_ctx_t;
 
 /*
@@ -68,8 +70,10 @@ static edge_status_t mock_stream_write(void *self, const uint8_t *data, size_t l
     return EDGE_OK;
 }
 
-static edge_status_t mock_get_values(void *self, vesc_values_t *out_val) {
+static edge_status_t mock_get_values(void *self, uint32_t mask, vesc_values_t *out_val) {
     mock_comm_ctx_t *ctx = (mock_comm_ctx_t *)self;
+    ctx->last_mask = mask;
+    ctx->get_values_calls++;
     *out_val = ctx->current_values;
     return EDGE_OK;
 }
@@ -276,6 +280,52 @@ static void test_receive_packet_and_commands(void **state) {
     assert_int_equal(vesc_comm_init(&oversize_comm), EDGE_OK);
     assert_int_equal(vesc_comm_process_command(&oversize_comm, cmd_fw, sizeof(cmd_fw)),
                      EDGE_EINVAL);
+    assert_int_equal(ctx.tx_count, 0);
+
+    /*
+     * Test 4: COMM_GET_VALUES_SELECTIVE. The mask decides both the payload and what
+     * the provider is asked for, and it is echoed back before the fields: id, then
+     * the 4-byte mask, then only the selected fields. A mask of "rpm only" must
+     * therefore produce a 9-byte payload, not the 60-odd of a full reply.
+     */
+    ctx.tx_count = 0;
+    ctx.get_values_calls = 0;
+    ctx.last_mask = 0u;
+    uint8_t cmd_sel[5] = {COMM_GET_VALUES_SELECTIVE, 0x00u, 0x00u, 0x00u, 0x80u}; /* 1 << 7 */
+    crc = vesc_crc16(cmd_sel, sizeof(cmd_sel));
+    f_idx = 0;
+    frame[f_idx++] = 2; /* 8-bit length frame; a 16-bit frame must carry >= 255 bytes */
+    frame[f_idx++] = 0x05u;
+    for (size_t i = 0; i < sizeof(cmd_sel); i++) {
+        frame[f_idx++] = cmd_sel[i];
+    }
+    frame[f_idx++] = (uint8_t)(crc >> 8);
+    frame[f_idx++] = (uint8_t)(crc & 0xFFu);
+    frame[f_idx++] = 3;
+
+    for (size_t i = 0; i < f_idx; i++) {
+        vesc_comm_process_byte(&comm, frame[i]);
+    }
+
+    assert_int_equal(ctx.tx_count, 1);
+    assert_int_equal(ctx.get_values_calls, 1);
+    assert_int_equal(ctx.last_mask, 1u << 7); /* the peer's mask reaches the provider */
+    assert_int_equal(ctx.tx_buf[1], 9u);      /* mask(4) + rpm(4) + id(1) */
+    const uint8_t *sel_p = ctx.tx_buf + 2;
+    assert_int_equal(sel_p[0], COMM_GET_VALUES_SELECTIVE);
+    assert_int_equal(sel_p[1], 0x00u); /* mask echoed, big endian */
+    assert_int_equal(sel_p[2], 0x00u);
+    assert_int_equal(sel_p[3], 0x00u);
+    assert_int_equal(sel_p[4], 0x80u);
+    /* rpm is the only field, float32 with scale 1e0, big endian */
+    int32_t rpm_raw = (int32_t)(((uint32_t)sel_p[5] << 24) | ((uint32_t)sel_p[6] << 16) |
+                                ((uint32_t)sel_p[7] << 8) | (uint32_t)sel_p[8]);
+    assert_int_equal(rpm_raw, (int32_t)ctx.current_values.rpm);
+
+    /* A SELECTIVE frame without its 4-byte mask is malformed, not a guess. */
+    ctx.tx_count = 0;
+    uint8_t cmd_short[1] = {COMM_GET_VALUES_SELECTIVE};
+    assert_int_equal(vesc_comm_process_command(&comm, cmd_short, sizeof(cmd_short)), EDGE_EINVAL);
     assert_int_equal(ctx.tx_count, 0);
 
     /* Test 4: Corrupted CRC */

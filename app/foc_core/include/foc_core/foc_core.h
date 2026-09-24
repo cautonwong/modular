@@ -130,10 +130,49 @@ typedef struct foc_core {
     float last_rpm;
     float fet_temp_c;
 
+    /*
+     * Running sums for the read-and-reset averages the reference serves over the
+     * protocol. The reference keeps these in mc_interface.c and feeds them from a
+     * periodic sampler (m_motor_id_sum += mcpwm_foc_get_id(), ...), then
+     * mc_interface_read_reset_avg_id() divides by the iteration count and zeroes
+     * it. Same contract here: average since the previous read, 0/0 included.
+     */
+    float avg_id_sum;
+    float avg_iq_sum;
+    float avg_vd_sum;
+    float avg_vq_sum;
+    float avg_motor_current_sum;
+    float avg_input_current_sum;
+    float avg_id_iterations;
+    float avg_iq_iterations;
+    float avg_vd_iterations;
+    float avg_vq_iterations;
+    float avg_motor_current_iterations;
+    float avg_input_current_iterations;
+
     /* Metrics & Diagnostics */
     uint32_t fast_loop_count;
     uint32_t step_count;
 } foc_core_t;
+
+/* One bit per read-and-reset average; only the masked channels are read and reset. */
+typedef enum {
+    FOC_AVG_MOTOR_CURRENT = (1u << 0),
+    FOC_AVG_INPUT_CURRENT = (1u << 1),
+    FOC_AVG_ID = (1u << 2),
+    FOC_AVG_IQ = (1u << 3),
+    FOC_AVG_VD = (1u << 4),
+    FOC_AVG_VQ = (1u << 5),
+} foc_avg_channel_t;
+
+typedef struct foc_averages {
+    float motor_current;
+    float input_current;
+    float id;
+    float iq;
+    float vd;
+    float vq;
+} foc_averages_t;
 
 /* Construction & Lifecycle API (D51: init called by composition root) */
 void foc_core_construct(foc_core_t *self, uint32_t module_id, uint32_t priority,
@@ -161,6 +200,14 @@ edge_status_t foc_core_clear_faults(foc_core_t *self);
 foc_state_t foc_core_get_state(const foc_core_t *self);
 uint32_t foc_core_get_faults(const foc_core_t *self);
 void foc_core_get_telemetry(const foc_core_t *self, foc_telemetry_t *out_telem);
+
+/*
+ * Read the averages selected by channel_mask and reset exactly those accumulators.
+ * Channels not in the mask are left alone, so a peer polling one field does not
+ * shorten every other field's averaging window (reference: COMM_GET_VALUES_SELECTIVE
+ * only calls mc_interface_read_reset_* for the bits its mask selects).
+ */
+void foc_core_read_reset_averages(foc_core_t *self, uint32_t channel_mask, foc_averages_t *out);
 void foc_core_set_temperature(foc_core_t *self, float fet_temp_c);
 
 #ifdef __cplusplus
