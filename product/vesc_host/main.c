@@ -112,8 +112,36 @@ int main(void) {
     vesc_motor_provider_port_t motor_port;
     vesc_host_make_motor_provider_port(&motor_port, &foc);
 
+    /*
+     * Identity facts for COMM_FW_VERSION. The host has no MCU serial, so the uuid
+     * is zeroed rather than invented, and the version is this repository's own
+     * (VERSION, project() in CMakeLists) rather than the reference's 7.1: this
+     * port implements a subset of the reference's command set, and reporting the
+     * reference's number would claim API coverage it does not have.
+     */
+    static const uint8_t host_uuid[12] = {0};
+    const vesc_identity_t comm_identity = {
+        .hw_name = "EXAMPLE", /* the board this product actually binds; a vesc6-bound
+                               * product should pass VESC6_HW_NAME from board/vesc6 */
+        .fw_name = "vesc_host",
+        .uuid = host_uuid,
+        .fw_version_major = 0u,
+        .fw_version_minor = 5u,
+        .pairing_done = 0u,
+        .fw_test_version = 0u,
+        .hw_type = 0u,
+        .custom_cfg_num = 0u,
+        .phase_filters = 0u,
+        .qmlui_hw = 0u,
+        .qmlui_app = 0u,
+        .nrf_flags = 0u,
+        .controller_id = 1u,
+        .hw_crc = 0u,
+    };
+
     vesc_comm_t comm;
-    vesc_comm_construct(&comm, EDGE_MOD_VESC_COMM, 20u, &stream_tx_port, &motor_port);
+    vesc_comm_construct(&comm, EDGE_MOD_VESC_COMM, 20u, &stream_tx_port, &motor_port,
+                        &comm_identity);
     if (vesc_comm_init(&comm) < 0) {
         return 12;
     }
