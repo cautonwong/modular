@@ -255,7 +255,12 @@ int main(void) {
     /* Run 1000 fast-loop FOC and system cycles */
     for (int i = 0; i < 1000; i++) {
         foc_core_fast_loop(&foc, 0.000050f);
-        foc_virtual_motor_step(&glue_state.vmotor, 12.0f, 0.0f, 0.0f, 0.000050f, 0.0f);
+        /* Close the loop on the voltage vector the FOC just commanded, which is what
+         * the reference firmware's virtual-motor hook does (virtual_motor_int_handler(
+         * v_alpha, v_beta) from the FOC ISR). Feeding the plant a fixed voltage instead
+         * leaves the actuator disconnected from the controller: the d-axis current then
+         * diverges and the loop trips its own over-current guard. */
+        foc_virtual_motor_step(&glue_state.vmotor, foc.v_alpha, foc.v_beta, 0.0f, 0.000050f, 0.0f);
         edge_sys_step(&sys);
     }
 
