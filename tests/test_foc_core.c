@@ -339,6 +339,52 @@ static void test_foc_core_closed_loop_virtual_motor(void **state) {
     assert_true(telem.speed_rpm > 100.0f);
 }
 
+/* Test 7: Speed and Position Control Modes */
+static void test_foc_core_modes(void **state) {
+    (void)state;
+
+    mock_inverter_t inv_mock = {0};
+    foc_inverter_port_t inv_port = {
+        .set_duty = mock_set_duty, .set_phase_state = mock_set_phase_state, .self = &inv_mock};
+    mock_current_sensor_t cs_mock = {.v_bus = 24.0f};
+    foc_current_port_t cs_port = {
+        .read_currents = mock_read_currents, .read_vbus = mock_read_vbus, .self = &cs_mock};
+    mock_rotor_sensor_t rs_mock = {.angle_rad = 0.5f, .rpm = 500.0f};
+    foc_rotor_port_t rs_port = {.read_angle = mock_read_angle, .self = &rs_mock};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .pole_pairs = 7,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = 300.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f};
+
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    /* Test RPM mode */
+    assert_int_equal(foc_core_set_rpm(&foc, 1000.0f), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_RUNNING_RPM);
+    assert_int_equal(foc_core_fast_loop(&foc, 0.00005f), EDGE_OK);
+
+    /* Test Pos mode */
+    assert_int_equal(foc_core_set_pos(&foc, 90.0f), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_RUNNING_POS);
+    assert_int_equal(foc_core_fast_loop(&foc, 0.00005f), EDGE_OK);
+
+    /* Test Handbrake mode */
+    assert_int_equal(foc_core_set_handbrake(&foc, 15.0f), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_RUNNING_CURRENT);
+    assert_int_equal(foc_core_fast_loop(&foc, 0.00005f), EDGE_OK);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_foc_math_transforms),
@@ -347,6 +393,7 @@ int main(void) {
         cmocka_unit_test(test_foc_core_voltage_protection),
         cmocka_unit_test(test_foc_core_thermal_protection),
         cmocka_unit_test(test_foc_core_closed_loop_virtual_motor),
+        cmocka_unit_test(test_foc_core_modes),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

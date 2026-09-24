@@ -233,6 +233,10 @@ static void test_vesc_host_glue(void **state) {
     terminal_stream_port_t term_stream;
     vesc_host_make_terminal_stream_port(&term_stream, &glue_state);
     assert_non_null(term_stream.write_string);
+
+    bms_can_port_t bms_can;
+    vesc_host_make_bms_can_port(&bms_can, &glue_state);
+    assert_non_null(bms_can.send_can_msg);
 }
 
 int main(void) {
