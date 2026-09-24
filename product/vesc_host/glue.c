@@ -113,7 +113,19 @@ static edge_status_t motor_get_values(void *self, uint32_t mask, vesc_values_t *
         out_val->current_motor = avg.motor_current;
     }
     if (mask & (1u << 3)) {
-        out_val->current_in = avg.input_current;
+        out_val->current_in = telem.current_in;
+    }
+    if (mask & (1u << 9)) {
+        out_val->amp_hours = telem.amp_hours;
+    }
+    if (mask & (1u << 10)) {
+        out_val->amp_hours_charged = telem.amp_hours_charged;
+    }
+    if (mask & (1u << 11)) {
+        out_val->watt_hours = telem.watt_hours;
+    }
+    if (mask & (1u << 12)) {
+        out_val->watt_hours_charged = telem.watt_hours_charged;
     }
     if (mask & (1u << 4)) {
         out_val->id = avg.id;
@@ -146,10 +158,11 @@ static edge_status_t motor_get_values(void *self, uint32_t mask, vesc_values_t *
         out_val->vq = avg.vq;
     }
     /*
-     * Not filled, and not silently faked: bits 9-14 (amp/watt hours, tachometer)
-     * have no accumulator in this port, bit 18 (three MOSFET temperatures) has no
-     * NTC source, and bit 21 (timeout / kill switch) belongs to apps this product
-     * does not wire. They stay 0.
+     * Not filled, and not silently faked: bits 13/14 (tachometer) need a hall or
+     * encoder step source the rotor port does not expose (the reference counts
+     * step deltas, not angles), bit 18 (three MOSFET temperatures) has no NTC
+     * source, and bit 21 (timeout / kill switch) belongs to apps this product does
+     * not wire. They stay 0.
      */
     return EDGE_OK;
 }
