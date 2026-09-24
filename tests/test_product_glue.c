@@ -217,6 +217,22 @@ static void test_vesc_host_glue(void **state) {
     motor_id_control_port_t id_c;
     vesc_host_make_motor_id_control_port(&id_c, &glue_state);
     assert_non_null(id_c.set_voltage_alpha_beta);
+
+    nunchuk_port_t nunchuk;
+    vesc_host_make_nunchuk_port(&nunchuk, &glue_state);
+    assert_non_null(nunchuk.read_data);
+
+    pas_port_t pas;
+    vesc_host_make_pas_port(&pas, &glue_state);
+    assert_non_null(pas.read_cadence_rpm);
+
+    balance_port_t balance;
+    vesc_host_make_balance_port(&balance, &glue_state);
+    assert_non_null(balance.read_attitude);
+
+    terminal_stream_port_t term_stream;
+    vesc_host_make_terminal_stream_port(&term_stream, &glue_state);
+    assert_non_null(term_stream.write_string);
 }
 
 int main(void) {

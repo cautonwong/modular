@@ -1,4 +1,5 @@
 #include "adc_input/adc_input.h"
+#include "balance/balance.h"
 #include "bldc/sys.h"
 #include "edge/clock.h"
 #include "edge/event.h"
@@ -9,11 +10,14 @@
 #include "glue.h"
 #include "motor_config/motor_config.h"
 #include "motor_id/motor_id.h"
+#include "nunchuk/nunchuk.h"
+#include "pas/pas.h"
 #include "ppm/ppm.h"
 #include "throttle/throttle.h"
 #include "timeout_guard/timeout_guard.h"
 #include "vesc_can/vesc_can.h"
 #include "vesc_comm/vesc_comm.h"
+#include "vesc_terminal/vesc_terminal.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -59,6 +63,18 @@ int main(void) {
 
     motor_id_control_port_t id_c_port;
     vesc_host_make_motor_id_control_port(&id_c_port, &glue_state);
+
+    nunchuk_port_t nunchuk_port;
+    vesc_host_make_nunchuk_port(&nunchuk_port, &glue_state);
+
+    pas_port_t pas_port;
+    vesc_host_make_pas_port(&pas_port, &glue_state);
+
+    balance_port_t balance_port;
+    vesc_host_make_balance_port(&balance_port, &glue_state);
+
+    terminal_stream_port_t term_stream_port;
+    vesc_host_make_terminal_stream_port(&term_stream_port, &glue_state);
 
     /* Construct Apps */
     motor_config_t motor_cfg;
@@ -165,8 +181,39 @@ int main(void) {
         return 18;
     }
 
+    nunchuk_app_t nunchuk_app;
+    nunchuk_config_t nunchuk_cfg = {.deadband = 0.05f, .timeout_s = 0.2f};
+    nunchuk_construct(&nunchuk_app, EDGE_MOD_NUNCHUK, 25u, &nunchuk_cfg, &nunchuk_port);
+    if (nunchuk_init(&nunchuk_app) != EDGE_OK) {
+        return 19;
+    }
+
+    pas_app_t pas_app;
+    pas_config_t pas_cfg = {.assist_ratio = 1.0f, .max_motor_current_a = 20.0f};
+    pas_construct(&pas_app, EDGE_MOD_PAS, 25u, &pas_cfg, &pas_port);
+    if (pas_init(&pas_app) != EDGE_OK) {
+        return 20;
+    }
+
+    balance_app_t balance_app;
+    balance_config_t balance_cfg = {.kp = 1.5f, .max_current_a = 30.0f};
+    balance_construct(&balance_app, EDGE_MOD_BALANCE, 10u, &balance_cfg, &balance_port);
+    if (balance_init(&balance_app) != EDGE_OK) {
+        return 21;
+    }
+
+    terminal_system_port_t term_sys_port;
+    vesc_host_make_terminal_system_port(&term_sys_port, &foc);
+
+    vesc_terminal_app_t term_app;
+    vesc_terminal_construct(&term_app, EDGE_MOD_VESC_TERMINAL, 50u, &term_stream_port,
+                            &term_sys_port);
+    if (vesc_terminal_init(&term_app) != EDGE_OK) {
+        return 22;
+    }
+
     /* Assemble App List */
-    edge_module_t *apps[9];
+    edge_module_t *apps[13];
     apps[0] = foc_core_module(&foc);
     apps[1] = vesc_comm_module(&comm);
     apps[2] = motor_config_module(&motor_cfg);
@@ -176,6 +223,10 @@ int main(void) {
     apps[6] = adc_input_module(&adc_app);
     apps[7] = vesc_can_module(&can_app);
     apps[8] = motor_id_module(&motor_id);
+    apps[9] = nunchuk_module(&nunchuk_app);
+    apps[10] = pas_module(&pas_app);
+    apps[11] = balance_module(&balance_app);
+    apps[12] = vesc_terminal_module(&term_app);
 
     /* System & Event Infrastructure */
     edge_event_t event_storage[16];
@@ -185,7 +236,7 @@ int main(void) {
     edge_sys_subscription_t subs[16];
     edge_sys_t sys;
 
-    if (sys_bldc_init(&sys, apps, 9, &event_queue, subs, 16) != EDGE_OK) {
+    if (sys_bldc_init(&sys, apps, 13, &event_queue, subs, 16) != EDGE_OK) {
         return 1;
     }
 

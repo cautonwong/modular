@@ -1,4 +1,5 @@
 #include "glue.h"
+#include <stdio.h>
 #include <string.h>
 
 /* Storage Port Adaptors */
@@ -360,5 +361,140 @@ void vesc_host_make_motor_id_control_port(motor_id_control_port_t *out,
         .set_pwm_duty = id_set_duty,
         .set_openloop_angle = id_set_openloop,
         .stop_inverter = id_stop,
+    };
+}
+
+/* Nunchuk Port Adaptor */
+static edge_status_t nunchuk_read(void *self, uint8_t *js_x, uint8_t *js_y, int16_t *acc_x,
+                                  int16_t *acc_y, int16_t *acc_z, bool *btn_c, bool *btn_z) {
+    (void)self;
+    if (js_x)
+        *js_x = 128;
+    if (js_y)
+        *js_y = 128;
+    if (acc_x)
+        *acc_x = 0;
+    if (acc_y)
+        *acc_y = 0;
+    if (acc_z)
+        *acc_z = 0;
+    if (btn_c)
+        *btn_c = false;
+    if (btn_z)
+        *btn_z = false;
+    return EDGE_OK;
+}
+
+void vesc_host_make_nunchuk_port(nunchuk_port_t *out, vesc_host_glue_state_t *state) {
+    if (!out || !state) {
+        return;
+    }
+    *out = (nunchuk_port_t){
+        .self = state,
+        .read_data = nunchuk_read,
+    };
+}
+
+/* PAS Port Adaptor */
+static edge_status_t pas_read_cadence(void *self, float *rpm) {
+    (void)self;
+    if (rpm)
+        *rpm = 60.0f;
+    return EDGE_OK;
+}
+
+static edge_status_t pas_read_torque(void *self, float *nm) {
+    (void)self;
+    if (nm)
+        *nm = 15.0f;
+    return EDGE_OK;
+}
+
+void vesc_host_make_pas_port(pas_port_t *out, vesc_host_glue_state_t *state) {
+    if (!out || !state) {
+        return;
+    }
+    *out = (pas_port_t){
+        .self = state,
+        .read_cadence_rpm = pas_read_cadence,
+        .read_torque_nm = pas_read_torque,
+    };
+}
+
+/* Balance Port Adaptor */
+static edge_status_t balance_read_att(void *self, float *pitch, float *roll, float *gp, float *gr,
+                                      bool *sw1, bool *sw2) {
+    (void)self;
+    if (pitch)
+        *pitch = 0.0f;
+    if (roll)
+        *roll = 0.0f;
+    if (gp)
+        *gp = 0.0f;
+    if (gr)
+        *gr = 0.0f;
+    if (sw1)
+        *sw1 = false;
+    if (sw2)
+        *sw2 = false;
+    return EDGE_OK;
+}
+
+void vesc_host_make_balance_port(balance_port_t *out, vesc_host_glue_state_t *state) {
+    if (!out || !state) {
+        return;
+    }
+    *out = (balance_port_t){
+        .self = state,
+        .read_attitude = balance_read_att,
+    };
+}
+
+/* Terminal Stream & System Ports */
+static edge_status_t term_write_str(void *self, const char *str) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    strncpy(s->terminal_tx_buf, str, sizeof(s->terminal_tx_buf) - 1);
+    return EDGE_OK;
+}
+
+void vesc_host_make_terminal_stream_port(terminal_stream_port_t *out,
+                                         vesc_host_glue_state_t *state) {
+    if (!out || !state) {
+        return;
+    }
+    *out = (terminal_stream_port_t){
+        .self = state,
+        .write_string = term_write_str,
+    };
+}
+
+static edge_status_t term_get_stats(void *self, float *rpm, float *iq, float *v_bus, float *temp,
+                                    uint32_t *faults) {
+    foc_core_t *foc = (foc_core_t *)self;
+    if (!foc) {
+        return EDGE_EINVAL;
+    }
+    foc_telemetry_t telem;
+    foc_core_get_telemetry(foc, &telem);
+    if (rpm)
+        *rpm = telem.speed_rpm;
+    if (iq)
+        *iq = telem.current_q;
+    if (v_bus)
+        *v_bus = telem.v_bus;
+    if (temp)
+        *temp = telem.fet_temp_c;
+    if (faults)
+        *faults = telem.faults;
+    return EDGE_OK;
+}
+
+void vesc_host_make_terminal_system_port(terminal_system_port_t *out, foc_core_t *foc) {
+    if (!out || !foc) {
+        return;
+    }
+    *out = (terminal_system_port_t){
+        .self = foc,
+        .get_stats = term_get_stats,
     };
 }
