@@ -3,6 +3,7 @@
 #include "edge/module.h"
 #include "edge/modules.h"
 #include <math.h>
+#include <string.h>
 
 static edge_status_t foc_core_poll(edge_module_t *module) {
     foc_core_t *self = (foc_core_t *)edge_module_data(module);
@@ -10,6 +11,27 @@ static edge_status_t foc_core_poll(edge_module_t *module) {
         return EDGE_EINVAL;
     }
     self->step_count++;
+
+    /*
+     * Average sampler. The reference keeps this separate from the control path:
+     * mc_interface.c accumulates m_motor_{id,iq,vd,vq,current}_sum from the last
+     * FOC values on a periodic tick, so the sums advance even when the control
+     * path did not run this iteration, and mc_interface_read_reset_avg_* divides
+     * by the iteration count and zeroes. Same split here - the fast loop stores,
+     * the periodic poll accumulates.
+     */
+    self->avg_id_sum += self->last_id;
+    self->avg_iq_sum += self->last_iq;
+    self->avg_vd_sum += self->v_d;
+    self->avg_vq_sum += self->v_q;
+    /* The reference sums a filtered total motor current; this port has no input
+     * current sensor, so that channel stays at 0/0 until one exists. */
+    self->avg_motor_current_sum += sqrtf(SQ(self->last_id) + SQ(self->last_iq));
+    self->avg_id_iterations += 1.0f;
+    self->avg_iq_iterations += 1.0f;
+    self->avg_vd_iterations += 1.0f;
+    self->avg_vq_iterations += 1.0f;
+    self->avg_motor_current_iterations += 1.0f;
 
     /* Background Thermal Protection Check */
     if (self->fet_temp_c > self->config.temp_fet_max_c && self->config.temp_fet_max_c > 1.0f) {
@@ -115,6 +137,24 @@ void foc_core_construct(foc_core_t *self, uint32_t module_id, uint32_t priority,
 
     self->fast_loop_count = 0u;
     self->step_count = 0u;
+
+    /*
+     * Averaging accumulators must start at zero. Leaving them to the caller's
+     * stack was not caught by a single green test run - it showed up only as
+     * flaky averages, because the first read divided garbage by garbage.
+     */
+    self->avg_id_sum = 0.0f;
+    self->avg_iq_sum = 0.0f;
+    self->avg_vd_sum = 0.0f;
+    self->avg_vq_sum = 0.0f;
+    self->avg_motor_current_sum = 0.0f;
+    self->avg_input_current_sum = 0.0f;
+    self->avg_id_iterations = 0.0f;
+    self->avg_iq_iterations = 0.0f;
+    self->avg_vd_iterations = 0.0f;
+    self->avg_vq_iterations = 0.0f;
+    self->avg_motor_current_iterations = 0.0f;
+    self->avg_input_current_iterations = 0.0f;
 }
 
 edge_status_t foc_core_init(foc_core_t *self) {
@@ -345,6 +385,47 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
     /* 11. Output to Inverter */
     (void)self->inverter->set_phase_state(self->inverter->self, true);
     return self->inverter->set_duty(self->inverter->self, da, db, dc);
+}
+
+void foc_core_read_reset_averages(foc_core_t *self, uint32_t channel_mask, foc_averages_t *out) {
+    if (self == (void *)0 || out == (void *)0) {
+        return;
+    }
+
+    memset(out, 0, sizeof(*out));
+
+    /* Division by the iteration count, then reset - the reference's arithmetic,
+     * including its 0/0 when nothing was sampled since the previous read. */
+    if (channel_mask & FOC_AVG_MOTOR_CURRENT) {
+        out->motor_current = self->avg_motor_current_sum / self->avg_motor_current_iterations;
+        self->avg_motor_current_sum = 0.0f;
+        self->avg_motor_current_iterations = 0.0f;
+    }
+    if (channel_mask & FOC_AVG_INPUT_CURRENT) {
+        out->input_current = self->avg_input_current_sum / self->avg_input_current_iterations;
+        self->avg_input_current_sum = 0.0f;
+        self->avg_input_current_iterations = 0.0f;
+    }
+    if (channel_mask & FOC_AVG_ID) {
+        out->id = self->avg_id_sum / self->avg_id_iterations;
+        self->avg_id_sum = 0.0f;
+        self->avg_id_iterations = 0.0f;
+    }
+    if (channel_mask & FOC_AVG_IQ) {
+        out->iq = self->avg_iq_sum / self->avg_iq_iterations;
+        self->avg_iq_sum = 0.0f;
+        self->avg_iq_iterations = 0.0f;
+    }
+    if (channel_mask & FOC_AVG_VD) {
+        out->vd = self->avg_vd_sum / self->avg_vd_iterations;
+        self->avg_vd_sum = 0.0f;
+        self->avg_vd_iterations = 0.0f;
+    }
+    if (channel_mask & FOC_AVG_VQ) {
+        out->vq = self->avg_vq_sum / self->avg_vq_iterations;
+        self->avg_vq_sum = 0.0f;
+        self->avg_vq_iterations = 0.0f;
+    }
 }
 
 edge_status_t foc_core_set_current(foc_core_t *self, float iq_target, float id_target) {

@@ -339,6 +339,69 @@ static void test_foc_core_closed_loop_virtual_motor(void **state) {
     assert_true(telem.speed_rpm > 100.0f);
 }
 
+/*
+ * The averages are read-and-reset, and the mask decides which ones. Two things
+ * follow that a "return a snapshot" implementation cannot do: a channel you did
+ * not ask for keeps accumulating its window, and the reference's 0/0 is visible
+ * when you read a channel twice with no samples in between.
+ */
+static void test_foc_core_averages_are_read_reset_and_masked(void **state) {
+    (void)state;
+
+    sim_context_t sim;
+    sim.v_bus = 24.0f;
+    sim.inv.enabled = false;
+    foc_virtual_motor_init(&sim.vm, 0.05f, 0.00005f, 0.005f, 7, 0.0005f);
+
+    foc_inverter_port_t inv_port = {
+        .set_duty = sim_set_duty, .set_phase_state = sim_set_phase_state, .self = &sim};
+    foc_current_port_t cs_port = {
+        .read_currents = sim_read_currents, .read_vbus = sim_read_vbus, .self = &sim};
+    foc_rotor_port_t rs_port = {.read_angle = sim_read_angle, .self = &sim};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .pole_pairs = 7,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = 300.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = false};
+
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    assert_int_equal(foc_core_set_current(&foc, 8.0f, 0.0f), EDGE_OK);
+
+    const float dt = 0.00005f;
+    for (int step = 0; step < 2000; step++) {
+        assert_int_equal(foc_core_fast_loop(&foc, dt), EDGE_OK);
+        foc_virtual_motor_step(&sim.vm, foc.v_alpha, foc.v_beta, 0.0f, dt, 0.05f);
+        assert_int_equal(foc.module.poll(&foc.module), EDGE_OK); /* the sampler tick */
+    }
+
+    foc_averages_t avg;
+
+    /* Ask for id only. Unrequested channels are neither filled nor consumed. */
+    foc_core_read_reset_averages(&foc, FOC_AVG_ID, &avg);
+    assert_false(isnan(avg.id));
+    assert_float_equal(avg.iq, 0.0f, 1e-9f);
+
+    /* iq kept its window, so its average is still available ... */
+    foc_core_read_reset_averages(&foc, FOC_AVG_IQ, &avg);
+    assert_false(isnan(avg.iq));
+    assert_true(fabsf(avg.iq) > 1.0f);
+
+    /* ... while id was consumed and has nothing new to average. */
+    foc_core_read_reset_averages(&foc, FOC_AVG_ID, &avg);
+    assert_true(isnan(avg.id));
+}
+
 /* Test 7: Speed and Position Control Modes */
 static void test_foc_core_modes(void **state) {
     (void)state;
@@ -458,6 +521,7 @@ int main(void) {
         cmocka_unit_test(test_foc_core_voltage_protection),
         cmocka_unit_test(test_foc_core_thermal_protection),
         cmocka_unit_test(test_foc_core_closed_loop_virtual_motor),
+        cmocka_unit_test(test_foc_core_averages_are_read_reset_and_masked),
         cmocka_unit_test(test_foc_core_modes),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);

@@ -64,26 +64,93 @@ void vesc_host_make_stream_tx_port(edge_stream_tx_port_t *out, vesc_host_glue_st
 }
 
 /* VESC Motor Provider Port Adaptors */
-static edge_status_t motor_get_values(void *self, vesc_values_t *out_val) {
+static edge_status_t motor_get_values(void *self, uint32_t mask, vesc_values_t *out_val) {
     foc_core_t *foc = (foc_core_t *)self;
     if (!foc || !out_val) {
         return EDGE_EINVAL;
     }
+
     foc_telemetry_t telem;
     foc_core_get_telemetry(foc, &telem);
-
     memset(out_val, 0, sizeof(*out_val));
-    out_val->temp_mos = telem.fet_temp_c;
-    /* No board wired into this product has a motor NTC, so there is no motor
-     * temperature to report; 0 is the reference's "no sensor configured" case. */
-    out_val->temp_motor = 0.0f;
-    out_val->current_motor = telem.current_q;
-    out_val->id = telem.current_d;
-    out_val->iq = telem.current_q;
-    out_val->v_in = telem.v_bus;
-    out_val->rpm = telem.speed_rpm;
-    out_val->duty_now = telem.duty_now;
-    out_val->fault_code = telem.faults;
+
+    /*
+     * Read-and-reset channels: only the ones the peer asked for are consumed, so a
+     * selective read cannot shorten another field's averaging window.
+     */
+    uint32_t channels = 0u;
+    if (mask & (1u << 2)) {
+        channels |= FOC_AVG_MOTOR_CURRENT;
+    }
+    if (mask & (1u << 3)) {
+        channels |= FOC_AVG_INPUT_CURRENT;
+    }
+    if (mask & (1u << 4)) {
+        channels |= FOC_AVG_ID;
+    }
+    if (mask & (1u << 5)) {
+        channels |= FOC_AVG_IQ;
+    }
+    if (mask & (1u << 19)) {
+        channels |= FOC_AVG_VD;
+    }
+    if (mask & (1u << 20)) {
+        channels |= FOC_AVG_VQ;
+    }
+
+    foc_averages_t avg;
+    foc_core_read_reset_averages(foc, channels, &avg);
+
+    if (mask & (1u << 0)) {
+        out_val->temp_mos = telem.fet_temp_c;
+    }
+    if (mask & (1u << 1)) {
+        /* No board wired into this product has a motor NTC, so there is no motor
+         * temperature to report; 0 is the reference's "no sensor configured" case. */
+        out_val->temp_motor = 0.0f;
+    }
+    if (mask & (1u << 2)) {
+        out_val->current_motor = avg.motor_current;
+    }
+    if (mask & (1u << 3)) {
+        out_val->current_in = avg.input_current;
+    }
+    if (mask & (1u << 4)) {
+        out_val->id = avg.id;
+    }
+    if (mask & (1u << 5)) {
+        out_val->iq = avg.iq;
+    }
+    if (mask & (1u << 6)) {
+        out_val->duty_now = telem.duty_now;
+    }
+    if (mask & (1u << 7)) {
+        out_val->rpm = telem.speed_rpm;
+    }
+    if (mask & (1u << 8)) {
+        out_val->v_in = telem.v_bus;
+    }
+    if (mask & (1u << 15)) {
+        out_val->fault_code = telem.faults;
+    }
+    if (mask & (1u << 16)) {
+        out_val->pid_pos_now = telem.rotor_angle_rad;
+    }
+    if (mask & (1u << 17)) {
+        out_val->controller_id = 1u;
+    }
+    if (mask & (1u << 19)) {
+        out_val->vd = avg.vd;
+    }
+    if (mask & (1u << 20)) {
+        out_val->vq = avg.vq;
+    }
+    /*
+     * Not filled, and not silently faked: bits 9-14 (amp/watt hours, tachometer)
+     * have no accumulator in this port, bit 18 (three MOSFET temperatures) has no
+     * NTC source, and bit 21 (timeout / kill switch) belongs to apps this product
+     * does not wire. They stay 0.
+     */
     return EDGE_OK;
 }
 

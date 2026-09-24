@@ -184,7 +184,12 @@ typedef enum {
     COMM_MOTOR_ESTOP = 159,
 } vesc_comm_cmd_t;
 
-/* Telemetry values queried from motor provider */
+/*
+ * Telemetry snapshot for COMM_GET_VALUES / COMM_GET_VALUES_SELECTIVE. The mask
+ * selects which fields the caller will send (reference: comm/commands.c, the
+ * `mask & (1 << n)` ladder); it is also what decides which read-and-reset
+ * averages the provider may consume. Fields are the reference's.
+ */
 typedef struct vesc_values {
     float temp_mos;
     float temp_motor;
@@ -203,7 +208,17 @@ typedef struct vesc_values {
     int32_t tachometer_abs;
     uint32_t fault_code;
     float pid_pos_now;
+    uint8_t controller_id;
+    float temp_mos_1;
+    float temp_mos_2;
+    float temp_mos_3;
+    float vd;
+    float vq;
+    uint8_t status; /* bit 0 timeout, bit 1 kill switch (reference: bits 21) */
 } vesc_values_t;
+
+/* COMM_GET_VALUES asks for every field. */
+#define VESC_VALUES_MASK_ALL 0xFFFFFFFFu
 
 /*
  * Consumer-Defined Ports (Rules: must have void *self; callbacks take void *self)
@@ -214,7 +229,14 @@ typedef struct edge_stream_tx_port {
 } edge_stream_tx_port_t;
 
 typedef struct vesc_motor_provider_port {
-    edge_status_t (*get_values)(void *self, vesc_values_t *out_val);
+    /*
+     * Fill out_val for the fields `mask` selects. The fields the reference serves
+     * through mc_interface_read_reset_avg_* are averages since the previous call,
+     * and reading them RESETS the accumulator - so a provider must read-and-reset
+     * exactly the masked channels and leave the others untouched, or a selective
+     * read would silently shorten every other average's window.
+     */
+    edge_status_t (*get_values)(void *self, uint32_t mask, vesc_values_t *out_val);
     edge_status_t (*set_duty)(void *self, float duty);
     edge_status_t (*set_current)(void *self, float current);
     edge_status_t (*set_current_brake)(void *self, float current);
