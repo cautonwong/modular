@@ -886,8 +886,8 @@ static void test_foc_observer_adjust_params(void **state) {
 
     /* Disabled: parameters come back untouched. */
     foc_observer_adjust_params(r, l, lambda, 0.0f, 0.0f, 0.0f, 0.0f, 60.0f, lambda, 0.0f,
-                               FOC_SAT_COMP_DISABLED, 0.0f, false, FOC_OBSERVER_ORTEGA_ORIGINAL, &ra,
-                               &la, &lwa);
+                               FOC_SAT_COMP_DISABLED, 0.0f, false, FOC_OBSERVER_ORTEGA_ORIGINAL,
+                               &ra, &la, &lwa);
     assert_float_equal(ra, r, 1e-9f);
     assert_float_equal(la, l, 1e-9f);
     assert_float_equal(lwa, lambda, 1e-9f);
@@ -911,12 +911,12 @@ static void test_foc_observer_adjust_params(void **state) {
      * reference's 0.1 A gate. */
     float ld_lq = 2.5e-6f, id = 4.0f, iq = 6.0f;
     foc_observer_adjust_params(r, l, lambda, ld_lq, id, iq, 0.0f, 60.0f, lambda, 0.0f,
-                               FOC_SAT_COMP_DISABLED, 0.0f, false, FOC_OBSERVER_ORTEGA_ORIGINAL, &ra,
-                               &la, &lwa);
+                               FOC_SAT_COMP_DISABLED, 0.0f, false, FOC_OBSERVER_ORTEGA_ORIGINAL,
+                               &ra, &la, &lwa);
     assert_float_equal(la, l - ld_lq / 2.0f + ld_lq * (iq * iq) / (id * id + iq * iq), 1e-12f);
     foc_observer_adjust_params(r, l, lambda, ld_lq, 0.05f, 0.05f, 0.0f, 60.0f, lambda, 0.0f,
-                               FOC_SAT_COMP_DISABLED, 0.0f, false, FOC_OBSERVER_ORTEGA_ORIGINAL, &ra,
-                               &la, &lwa);
+                               FOC_SAT_COMP_DISABLED, 0.0f, false, FOC_OBSERVER_ORTEGA_ORIGINAL,
+                               &ra, &la, &lwa);
     assert_float_equal(la, l, 1e-12f);
 
     /* LAMBDA scales L by the live flux estimate, for the observers that track one. */

@@ -86,6 +86,13 @@ typedef struct foc_config {
     /* Reference: mcconf foc_observer_type (datatypes.h). */
     foc_observer_type_t observer_type;
 
+    /* Reference: mcconf foc_sat_comp_mode / foc_sat_comp / foc_motor_ld_lq_diff.
+     * Temperature compensation is deliberately absent: its model needs a motor
+     * temperature this port has no source for. */
+    uint8_t sat_comp_mode;
+    float sat_comp;
+    float ld_lq_diff;
+
     /* Reference: mcconf foc_pll_kp / foc_pll_ki, defaults 2000 / 30000
      * (motor/mcconf_default.h:284-288). */
     float pll_kp;
