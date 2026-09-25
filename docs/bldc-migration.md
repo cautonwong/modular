@@ -118,9 +118,18 @@ clang-format --dry-run     # 格式
 | 切片 | 内容 |
 |---|---|
 | E1 | 覆盖率回到门槛（当前 76%，main 94%，CI 门槛 95%） |
-| E2 | `vesc_host` 进 CI `product-matrix` 运行列表（现在只跑 meter 系产品） |
-| E3 | 在 `adr.md` / `adr-conformance.md` 登记 `bldc` family 与三处已知语义偏差 |
-| E4 | 未接入但存在的模块（`board/vesc4`、`board/vesc_unity`）明确处置 |
+| E2 | `vesc_host` 进 CI `product-matrix` 运行列表 | 已完成 ✓（产品自检：故障或未起转即非零退出，CI 只判退出码） |
+| E3 | 在 `adr-conformance.md` 登记 `bldc` family 与全部已知偏差 | 已完成 ✓ |
+| E4 | 未接入但存在的模块明确处置 | 已完成 ✓（结论见下表） |
+
+### E4 的处置结论（三选一，不留空白）
+
+| 对象 | 结论 | 理由 |
+|---|---|---|
+| `board/vesc4`、`board/vesc_unity` | **保留但不绑定产品** | 两者在 `EDGE_LEGAL_FAMILY_BOARD` 里是合法组合、可交叉编译；绑定留给真正的 vesc4/unity 产品。当前无产品使用是**有意保留**，不是遗忘 |
+| `soc/stm32f4`、`board/vesc6` | **登记偏差** | 目前是纯算术适配；寄存器级驱动归 D2 |
+| 未实现的 `COMM_*` | **登记偏差 + 指明归属阶段** | 160 个 id 已全表声明；实际处理集见 `vesc_comm_process_command`。缺口归 A7（配置流）与 A8（转发/终端/其余） |
+| `product/vesc6_stm32f4` | **实现** | ticket #203 声称已交付但不存在，归 D1 |
 
 ## 4. 工作方法（每次提交都这样）
 
