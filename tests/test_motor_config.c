@@ -58,17 +58,17 @@ static void test_defaults_and_validation(void **state) {
     motor_config_set_defaults(&mc, &app);
     assert_int_equal(motor_config_validate(&mc, &app), EDGE_OK);
 
-    assert_int_equal(mc.motor_type, MC_MOTOR_TYPE_FOC);
-    assert_true(mc.current_max > 0.0f);
-    assert_true(mc.current_min < 0.0f);
-    assert_true(mc.v_in_max > mc.v_in_min);
+    assert_int_equal(mc.motor_type, MOTOR_TYPE_FOC);
+    assert_true(mc.l_current_max > 0.0f);
+    assert_true(mc.l_current_min < 0.0f);
+    assert_true(mc.l_max_vin > mc.l_min_vin);
 
     /* Test invalid configs */
-    mc.current_max = -10.0f;
+    mc.l_current_max = -10.0f;
     assert_int_equal(motor_config_validate(&mc, &app), EDGE_EINVAL);
 
-    mc.current_max = 50.0f;
-    mc.v_in_max = 5.0f; /* Less than v_in_min */
+    mc.l_current_max = 50.0f;
+    mc.l_max_vin = 5.0f; /* Less than v_in_min */
     assert_int_equal(motor_config_validate(&mc, &app), EDGE_EINVAL);
 }
 
@@ -161,7 +161,7 @@ static void test_serialization_roundtrip(void **state) {
     app_configuration_t app_orig, app_restored;
 
     motor_config_set_defaults(&mc_orig, &app_orig);
-    mc_orig.current_max = 75.5f;
+    mc_orig.l_current_max = 75.5f;
     mc_orig.foc_current_kp = 0.045f;
     app_orig.controller_id = 42;
 
@@ -176,7 +176,7 @@ static void test_serialization_roundtrip(void **state) {
                      EDGE_OK);
 
     assert_int_equal(mc_restored.motor_type, mc_orig.motor_type);
-    assert_true(fabsf(mc_restored.current_max - 75.5f) < 0.02f);
+    assert_true(fabsf(mc_restored.l_current_max - 75.5f) < 0.02f);
     assert_true(fabsf(mc_restored.foc_current_kp - 0.045f) < 1e-4f);
     assert_int_equal(app_restored.controller_id, 42);
 
@@ -218,7 +218,7 @@ static void test_module_lifecycle_and_storage(void **state) {
 
     /* Update a parameter */
     mc_configuration_t new_mc = *motor_config_get_mc(config);
-    new_mc.current_max = 90.0f;
+    new_mc.l_current_max = 90.0f;
     assert_int_equal(motor_config_update_mc(config, &new_mc), EDGE_OK);
 
     /* Polling flushes dirty config to flash */
@@ -233,7 +233,7 @@ static void test_module_lifecycle_and_storage(void **state) {
 
     const mc_configuration_t *loaded_mc = motor_config_get_mc(config2);
     assert_non_null(loaded_mc);
-    assert_true(fabsf(loaded_mc->current_max - 90.0f) < 0.02f);
+    assert_true(fabsf(loaded_mc->l_current_max - 90.0f) < 0.02f);
 }
 
 /*

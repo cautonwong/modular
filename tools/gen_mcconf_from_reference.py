@@ -55,6 +55,13 @@ PLAIN_TYPES = {
     "int32_t",
 }
 
+# Types the port already declares in an app it cannot depend on. app/foc_core's
+# foc_math.h owns the observer enum (same constants, same order), and apps do not
+# include each other, so the generated struct carries the wire byte as uint8_t instead
+# of redeclaring a colliding enum. Byte-identical on the wire, and the real fix - one
+# shared types header below both apps - is recorded in docs/adr-conformance.md.
+PORT_OWNED_TYPES = {"mc_foc_observer_type": "uint8_t"}
+
 MEMBER_RE = re.compile(
     r"^([A-Za-z_][A-Za-z_0-9 *]*?)\s+([a-zA-Z_][a-zA-Z_0-9]*)(\[([0-9]+)\])?;$"
 )
@@ -107,6 +114,14 @@ def struct_body(text, name, tail):
     return text[i + 1 : end]
 
 
+def to_int(text, default):
+    """Parse a captured number, falling back to default rather than raising."""
+    try:
+        return int(text)
+    except (TypeError, ValueError):
+        return default
+
+
 def parse_members(body):
     members = {}
     order = []
@@ -117,7 +132,7 @@ def parse_members(body):
         m = MEMBER_RE.match(line)
         if not m:
             continue
-        members[m.group(2)] = (m.group(1).strip(), int(m.group(4) or 1))
+        members[m.group(2)] = (m.group(1).strip(), to_int(m.group(4), 1))
         order.append(m.group(2))
     return members, order
 
@@ -284,7 +299,13 @@ def main():
                 raise SystemExit(f"unknown wire kind {kind}")
             wire_len += size * KIND_SIZE[kind]
 
-    enums = sorted({t for t, _ in members.values() if t not in PLAIN_TYPES and t != "bms_config"})
+    enums = sorted(
+        {
+            t
+            for t, _ in members.values()
+            if t not in PLAIN_TYPES and t != "bms_config" and t not in PORT_OWNED_TYPES
+        }
+    )
     enums += ["BMS_TYPE", "BMS_FWD_CAN_MODE"]
     enum_blocks = []
     for t in sorted(set(enums)):
@@ -379,10 +400,34 @@ def main():
     if missing:
         raise SystemExit("defaults without a reference macro: " + ", ".join(missing))
 
+    # 4. the struct itself. It cannot come from MCCONF_FIELDS(X): a row knows its array
+    # size as a number, and a macro cannot turn 1 into "no brackets". The declaration
+    # order is the reference's datatypes.h order here, not the wire order, and nothing
+    # observable depends on it - the manifest is what the wire follows.
+    struct_path = os.path.join(args.out, "include", "motor_config", "mcconf_struct.h")
+    struct_text = stamp
+    struct_text += (
+        "\n/*\n"
+        " * mc_configuration_t, generated from the reference's datatypes.h so the port cannot\n"
+        " * drift from it field by field. Member order follows datatypes.h; the *wire* order\n"
+        " * is the one in mcconf_manifest.h, and they differ.\n"
+        " */\n\n"
+        "#ifndef MCCONF_STRUCT_H\n#define MCCONF_STRUCT_H\n\n"
+        '#include "motor_config/mcconf_enums.h"\n\n'
+        "typedef struct {\n"
+    )
+    for name in decl_order:
+        ctype, size = members[name]
+        ctype = PORT_OWNED_TYPES.get(ctype, ctype)
+        suffix = f"[{size}]" if size > 1 else ""
+        struct_text += f"    {ctype} {name}{suffix};\n"
+    struct_text += "} mc_configuration_t;\n\n#endif /* MCCONF_STRUCT_H */\n"
+    write_text(struct_path, struct_text)
+
     print(f"members={len(members)} wire items={len(wire)} rows={len(rows)}")
     print(f"enums={len(enum_blocks)} bms fields={len(bms_wire)} defaults macros={len(used)}")
     print(f"computed wire length={wire_len} (the reference's is 488)")
-    for path in (enum_path, manifest_path, defaults_path):
+    for path in (enum_path, manifest_path, defaults_path, struct_path):
         format_in_place(path)
     return 0 if wire_len == 488 else 1
 
