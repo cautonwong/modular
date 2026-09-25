@@ -146,6 +146,27 @@ clang-format --dry-run     # 格式
 
 ### 阶段 C — 配置与持久化
 
+#### C2 进展：mc_configuration 流已逐字节对齐原版
+
+`tools/gen_mcconf_from_reference.py` 从参考树机械生成头文件，与结构体合起来构成单一事实源：
+
+| 生成物 | 内容 |
+| --- | --- |
+| `mcconf_enums.h` | 成员用到的枚举体 + `bms_config` |
+| `mcconf_struct.h` | `mc_configuration_t`（177 个成员，按 `datatypes.h` 顺序） |
+| `mcconf_manifest.h` | `MCCONF_WIRE(X)`：207 行线上项（含数组元素与 `bms.*` 子字段，按原版**序列化顺序**）、`MCCONF_SIGNATURE`、每种 kind 的长度 |
+| `mcconf_defaults.h` | 202 个 `MCCONF_*` 宏，每个注明它在 `mcconf_default.h` 的行号 |
+
+写、读、默认值都展开同一份 `MCCONF_WIRE(X)`，所以不可能互相矛盾；`MCCONF_WIRE_LEN` 静态断言为
+原版的 **488**，测试用「默认配置 → 编解码」与**原版序列化器的输出逐字节比对**
+（向量在 `docs/bldc-mcconf-format.md`）。生成器遇到无法解析的序列化语句就拒绝输出，
+因此原版一变就会在这里炸——它已抓到我两个错：观测器默认值是 **3**（MXLEMMING_LAMBDA_COMP）
+而不是 0；`l_abs_current_max` 其实有全局默认 **130 A**（宏名是 `MCCONF_L_MAX_ABS_CURRENT`，
+我先前搜错名字才误记为“待板级”）。
+
+仍待办：`app_configuration` 流仍是端口自己的小编码（A7 的另一半）；flash 信封
+（signature + version + length + CRC，原版没有）归 C3 定夺。
+
 > **A7 与 C1 必须先合并做，且 C1 的字段集决定 A7 的字节流。** 原版
 > `confgenerator.c` 是**唯一**的配置字节流：`COMM_GET_MCCONF` 回的就是它，
 > 落 flash 存的也是它。本仓库现在的 `app/motor_config/src/serialization.c` 是

@@ -6,203 +6,236 @@
  */
 
 /*
- * One row per mc_configuration member, in the reference's *serialisation* order:
+ * One row per byte-stream item, in the reference's own order, array elements
+ * included (the reference writes hall_table[0]..[7] one at a time, and gives
+ * each its own MCCONF_HALL_TAB_n default):
  *
- *   X(<c type>, <name>, <array size>, <wire kind>, <scale>, <default>)
+ *   X(<wire kind>, <expression>, <scale>, <default>)
  *
  * Kinds: U8/U16/U32/I32 integers, F16 (2 bytes, value * scale), F32 (4 bytes,
  * fixed point, value * scale), F32A (4 bytes, IEEE float, subnormals zeroed),
- * BMS (the nested bms_config, via the same order as the reference writes it) and
- * NONE for a runtime value the reference does not serialise.
+ * BMS rows are the nested bms_config's own fields, written by the reference
+ * one at a time; NONE marks a runtime value the reference does not serialise.
  *
- * If this list changes, MCCONF_WIRE_LEN changes with it and the static assert
- * below fires - which is the point: the wire layout is the reference's, so a
- * silent edit here would be a protocol change.
+ * The same list drives the writer, the reader and the defaults, so those three
+ * cannot disagree; and MCCONF_WIRE_LEN is asserted to be the reference's 488.
  */
 
 #ifndef MCCONF_MANIFEST_H
 #define MCCONF_MANIFEST_H
 
-#define MCCONF_FIELDS(X)                                                                           \
-    X(mc_pwm_mode, pwm_mode, 1, U8, 0, MCCONF_PWM_MODE)                                            \
-    X(mc_comm_mode, comm_mode, 1, U8, 0, MCCONF_COMM_MODE)                                         \
-    X(mc_motor_type, motor_type, 1, U8, 0, MCCONF_DEFAULT_MOTOR_TYPE)                              \
-    X(mc_sensor_mode, sensor_mode, 1, U8, 0, MCCONF_SENSOR_MODE)                                   \
-    X(float, l_current_max, 1, F32A, 0, MCCONF_L_CURRENT_MAX)                                      \
-    X(float, l_current_min, 1, F32A, 0, MCCONF_L_CURRENT_MIN)                                      \
-    X(float, l_in_current_max, 1, F32A, 0, MCCONF_L_IN_CURRENT_MAX)                                \
-    X(float, l_in_current_min, 1, F32A, 0, MCCONF_L_IN_CURRENT_MIN)                                \
-    X(float, l_in_current_map_start, 1, F16, 10000, MCCONF_L_IN_CURRENT_MAP_START)                 \
-    X(float, l_in_current_map_filter, 1, F16, 10000, MCCONF_L_IN_CURRENT_MAP_FILTER)               \
-    X(float, l_abs_current_max, 1, F32A, 0, MCCONF_L_MAX_ABS_CURRENT)                              \
-    X(float, l_min_erpm, 1, F32A, 0, MCCONF_L_RPM_MIN)                                             \
-    X(float, l_max_erpm, 1, F32A, 0, MCCONF_L_RPM_MAX)                                             \
-    X(float, l_erpm_start, 1, F16, 10000, MCCONF_L_RPM_START)                                      \
-    X(float, l_max_erpm_fbrake, 1, F32A, 0, MCCONF_L_CURR_MAX_RPM_FBRAKE)                          \
-    X(float, l_max_erpm_fbrake_cc, 1, F32A, 0, MCCONF_L_CURR_MAX_RPM_FBRAKE_CC)                    \
-    X(float, l_min_vin, 1, F16, 10, MCCONF_L_MIN_VOLTAGE)                                          \
-    X(float, l_max_vin, 1, F16, 10, MCCONF_L_MAX_VOLTAGE)                                          \
-    X(float, l_battery_cut_start, 1, F16, 10, MCCONF_L_BATTERY_CUT_START)                          \
-    X(float, l_battery_cut_end, 1, F16, 10, MCCONF_L_BATTERY_CUT_END)                              \
-    X(float, l_battery_regen_cut_start, 1, F16, 10, MCCONF_L_BATTERY_REGEN_CUT_START)              \
-    X(float, l_battery_regen_cut_end, 1, F16, 10, MCCONF_L_BATTERY_REGEN_CUT_END)                  \
-    X(bool, l_slow_abs_current, 1, U8, 0, MCCONF_L_SLOW_ABS_OVERCURRENT)                           \
-    X(float, l_temp_fet_start, 1, U8, 0, MCCONF_L_LIM_TEMP_FET_START)                              \
-    X(float, l_temp_fet_end, 1, U8, 0, MCCONF_L_LIM_TEMP_FET_END)                                  \
-    X(float, l_temp_motor_start, 1, U8, 0, MCCONF_L_LIM_TEMP_MOTOR_START)                          \
-    X(float, l_temp_motor_end, 1, U8, 0, MCCONF_L_LIM_TEMP_MOTOR_END)                              \
-    X(float, l_temp_accel_dec, 1, F16, 10000, MCCONF_L_LIM_TEMP_ACCEL_DEC)                         \
-    X(float, l_min_duty, 1, F16, 10000, MCCONF_L_MIN_DUTY)                                         \
-    X(float, l_max_duty, 1, F16, 10000, MCCONF_L_MAX_DUTY)                                         \
-    X(float, l_watt_max, 1, F32A, 0, MCCONF_L_WATT_MAX)                                            \
-    X(float, l_watt_min, 1, F32A, 0, MCCONF_L_WATT_MIN)                                            \
-    X(float, l_current_max_scale, 1, F16, 10000, MCCONF_L_CURRENT_MAX_SCALE)                       \
-    X(float, l_current_min_scale, 1, F16, 10000, MCCONF_L_CURRENT_MIN_SCALE)                       \
-    X(float, l_duty_start, 1, F16, 10000, MCCONF_L_DUTY_START)                                     \
-    X(uint8_t, l_additional_faults, 1, U8, 0, MCCONF_L_ADDITIONAL_FAULTS)                          \
-    X(float, sl_min_erpm, 1, F32A, 0, MCCONF_SL_MIN_RPM)                                           \
-    X(float, sl_min_erpm_cycle_int_limit, 1, F32A, 0, MCCONF_SL_MIN_ERPM_CYCLE_INT_LIMIT)          \
-    X(float, sl_max_fullbreak_current_dir_change, 1, F32A, 0, MCCONF_SL_MAX_FB_CURR_DIR_CHANGE)    \
-    X(float, sl_cycle_int_limit, 1, F16, 10, MCCONF_SL_CYCLE_INT_LIMIT)                            \
-    X(float, sl_phase_advance_at_br, 1, F16, 10000, MCCONF_SL_PHASE_ADVANCE_AT_BR)                 \
-    X(float, sl_cycle_int_rpm_br, 1, F32A, 0, MCCONF_SL_CYCLE_INT_BR)                              \
-    X(float, sl_bemf_coupling_k, 1, F32A, 0, MCCONF_SL_BEMF_COUPLING_K)                            \
-    X(int8_t, hall_table, 8, U8, 0, 0)                                                             \
-    X(float, hall_sl_erpm, 1, F32A, 0, MCCONF_HALL_ERPM)                                           \
-    X(float, foc_current_kp, 1, F32A, 0, MCCONF_FOC_CURRENT_KP)                                    \
-    X(float, foc_current_ki, 1, F32A, 0, MCCONF_FOC_CURRENT_KI)                                    \
-    X(float, foc_f_zv, 1, F32A, 0, MCCONF_FOC_F_ZV)                                                \
-    X(float, foc_dt_us, 1, F32A, 0, MCCONF_FOC_DT_US)                                              \
-    X(bool, foc_encoder_inverted, 1, U8, 0, MCCONF_FOC_ENCODER_INVERTED)                           \
-    X(float, foc_encoder_offset, 1, F32A, 0, MCCONF_FOC_ENCODER_OFFSET)                            \
-    X(float, foc_encoder_ratio, 1, F32A, 0, MCCONF_FOC_ENCODER_RATIO)                              \
-    X(mc_foc_sensor_mode, foc_sensor_mode, 1, U8, 0, MCCONF_FOC_SENSOR_MODE)                       \
-    X(float, foc_pll_kp, 1, F32A, 0, MCCONF_FOC_PLL_KP)                                            \
-    X(float, foc_pll_ki, 1, F32A, 0, MCCONF_FOC_PLL_KI)                                            \
-    X(float, foc_motor_l, 1, F32A, 0, MCCONF_FOC_MOTOR_L)                                          \
-    X(float, foc_motor_ld_lq_diff, 1, F32A, 0, MCCONF_FOC_MOTOR_LD_LQ_DIFF)                        \
-    X(float, foc_motor_r, 1, F32A, 0, MCCONF_FOC_MOTOR_R)                                          \
-    X(float, foc_motor_flux_linkage, 1, F32A, 0, MCCONF_FOC_MOTOR_FLUX_LINKAGE)                    \
-    X(float, foc_observer_gain, 1, F32A, 0, MCCONF_FOC_OBSERVER_GAIN)                              \
-    X(float, foc_observer_gain_slow, 1, F32A, 0, MCCONF_FOC_OBSERVER_GAIN_SLOW)                    \
-    X(float, foc_observer_offset, 1, F16, 1000, MCCONF_FOC_OBSERVER_OFFSET)                        \
-    X(float, foc_duty_dowmramp_kp, 1, F32A, 0, MCCONF_FOC_DUTY_DOWNRAMP_KP)                        \
-    X(float, foc_duty_dowmramp_ki, 1, F32A, 0, MCCONF_FOC_DUTY_DOWNRAMP_KI)                        \
-    X(float, foc_start_curr_dec, 1, F16, 10000, MCCONF_FOC_START_CURR_DEC)                         \
-    X(float, foc_start_curr_dec_rpm, 1, F32A, 0, MCCONF_FOC_START_CURR_DEC_RPM)                    \
-    X(float, foc_openloop_rpm, 1, F32A, 0, MCCONF_FOC_OPENLOOP_RPM)                                \
-    X(float, foc_openloop_rpm_low, 1, F16, 1000, MCCONF_FOC_OPENLOOP_RPM_LOW)                      \
-    X(float, foc_sl_openloop_hyst, 1, F16, 100, MCCONF_FOC_SL_OPENLOOP_HYST)                       \
-    X(float, foc_sl_openloop_time_lock, 1, F16, 100, MCCONF_FOC_SL_OPENLOOP_T_LOCK)                \
-    X(float, foc_sl_openloop_time_ramp, 1, F16, 100, MCCONF_FOC_SL_OPENLOOP_T_RAMP)                \
-    X(float, foc_sl_openloop_time, 1, F16, 100, MCCONF_FOC_SL_OPENLOOP_TIME)                       \
-    X(float, foc_sl_openloop_boost_q, 1, F16, 100, MCCONF_FOC_SL_OPENLOOP_BOOST_Q)                 \
-    X(float, foc_sl_openloop_max_q, 1, F16, 100, MCCONF_FOC_SL_OPENLOOP_MAX_Q)                     \
-    X(uint8_t, foc_hall_table, 8, U8, 0, 0)                                                        \
-    X(float, foc_hall_interp_erpm, 1, F32A, 0, MCCONF_FOC_HALL_INTERP_ERPM)                        \
-    X(float, foc_sl_erpm_start, 1, F32A, 0, MCCONF_FOC_SL_ERPM_START)                              \
-    X(float, foc_sl_erpm, 1, F32A, 0, MCCONF_FOC_SL_ERPM)                                          \
-    X(mc_foc_control_sample_mode, foc_control_sample_mode, 1, U8, 0,                               \
-      MCCONF_FOC_CONTROL_SAMPLE_MODE)                                                              \
-    X(mc_foc_current_sample_mode, foc_current_sample_mode, 1, U8, 0,                               \
-      MCCONF_FOC_CURRENT_SAMPLE_MODE)                                                              \
-    X(SAT_COMP_MODE, foc_sat_comp_mode, 1, U8, 0, MCCONF_FOC_SAT_COMP_MODE)                        \
-    X(float, foc_sat_comp, 1, F16, 1000, MCCONF_FOC_SAT_COMP)                                      \
-    X(bool, foc_temp_comp, 1, U8, 0, MCCONF_FOC_TEMP_COMP)                                         \
-    X(float, foc_temp_comp_base_temp, 1, F16, 100, MCCONF_FOC_TEMP_COMP_BASE_TEMP)                 \
-    X(float, foc_current_filter_const, 1, F16, 10000, MCCONF_FOC_CURRENT_FILTER_CONST)             \
-    X(mc_foc_cc_decoupling_mode, foc_cc_decoupling, 1, U8, 0, MCCONF_FOC_CC_DECOUPLING)            \
-    X(mc_foc_observer_type, foc_observer_type, 1, U8, 0, MCCONF_FOC_OBSERVER_TYPE)                 \
-    X(mc_foc_hfi_amb_mode, foc_hfi_amb_mode, 1, U8, 0, MCCONF_FOC_HFI_AMB_MODE)                    \
-    X(float, foc_hfi_amb_current, 1, F16, 10, MCCONF_FOC_HFI_AMB_CURRENT)                          \
-    X(uint8_t, foc_hfi_amb_tres, 1, U8, 0, MCCONF_FOC_HFI_AMB_TRES)                                \
-    X(float, foc_hfi_voltage_start, 1, F16, 10, MCCONF_FOC_HFI_VOLTAGE_START)                      \
-    X(float, foc_hfi_voltage_run, 1, F16, 10, MCCONF_FOC_HFI_VOLTAGE_RUN)                          \
-    X(float, foc_hfi_voltage_max, 1, F16, 10, MCCONF_FOC_HFI_VOLTAGE_MAX)                          \
-    X(float, foc_hfi_gain, 1, F16, 1000, MCCONF_FOC_HFI_GAIN)                                      \
-    X(float, foc_hfi_max_err, 1, F16, 1000, MCCONF_FOC_HFI_MAX_ERR)                                \
-    X(float, foc_hfi_hyst, 1, F16, 100, MCCONF_FOC_HFI_HYST)                                       \
-    X(float, foc_sl_erpm_hfi, 1, F32A, 0, MCCONF_FOC_SL_ERPM_HFI)                                  \
-    X(float, foc_hfi_reset_erpm, 1, F32A, 0, MCCONF_FOC_HFI_RESET_ERPM)                            \
-    X(uint16_t, foc_hfi_start_samples, 1, U16, 0, MCCONF_FOC_HFI_START_SAMPLES)                    \
-    X(float, foc_hfi_obs_ovr_sec, 1, F32A, 0, MCCONF_FOC_HFI_OBS_OVR_SEC)                          \
-    X(foc_hfi_samples, foc_hfi_samples, 1, U8, 0, MCCONF_FOC_HFI_SAMPLES)                          \
-    X(uint8_t, foc_offsets_cal_mode, 1, U8, 0, MCCONF_FOC_OFFSETS_CAL_MODE)                        \
-    X(float, foc_offsets_current, 3, F32A, 0, 0)                                                   \
-    X(float, foc_offsets_voltage, 3, F16, 10000, 0)                                                \
-    X(float, foc_offsets_voltage_undriven, 3, F16, 10000, 0)                                       \
-    X(bool, foc_phase_filter_enable, 1, U8, 0, MCCONF_FOC_PHASE_FILTER_ENABLE)                     \
-    X(bool, foc_phase_filter_disable_fault, 1, U8, 0, MCCONF_FOC_PHASE_FILTER_DISABLE_FAULT)       \
-    X(float, foc_phase_filter_max_erpm, 1, F32A, 0, MCCONF_FOC_PHASE_FILTER_MAX_ERPM)              \
-    X(MTPA_MODE, foc_mtpa_mode, 1, U8, 0, MCCONF_FOC_MTPA_MODE)                                    \
-    X(float, foc_fw_current_max, 1, F32A, 0, MCCONF_FOC_FW_CURRENT_MAX)                            \
-    X(float, foc_fw_duty_start, 1, F16, 10000, MCCONF_FOC_FW_DUTY_START)                           \
-    X(float, foc_fw_ramp_time, 1, F16, 1000, MCCONF_FOC_FW_RAMP_TIME)                              \
-    X(float, foc_fw_q_current_factor, 1, F16, 10000, MCCONF_FOC_FW_Q_CURRENT_FACTOR)               \
-    X(float, foc_fw_backoff, 1, F16, 1000, MCCONF_FOC_FW_BACKOFF)                                  \
-    X(FOC_SPEED_SRC, foc_speed_soure, 1, U8, 0, MCCONF_FOC_SPEED_SOURCE)                           \
-    X(bool, foc_short_ls_on_zero_duty, 1, U8, 0, MCCONF_FOC_SHORT_LS_ON_ZERO_DUTY)                 \
-    X(float, foc_overmod_factor, 1, F16, 10000, MCCONF_FOC_OVERMOD_FACTOR)                         \
-    X(float, foc_mag_vd_max, 1, F16, 10000, MCCONF_FOC_MAG_VD_MAX)                                 \
-    X(PID_RATE, sp_pid_loop_rate, 1, U8, 0, MCCONF_SP_PID_LOOP_RATE)                               \
-    X(float, s_pid_kp, 1, F32A, 0, MCCONF_S_PID_KP)                                                \
-    X(float, s_pid_ki, 1, F32A, 0, MCCONF_S_PID_KI)                                                \
-    X(float, s_pid_kd, 1, F32A, 0, MCCONF_S_PID_KD)                                                \
-    X(float, s_pid_kd_filter, 1, F16, 10000, MCCONF_S_PID_KD_FILTER)                               \
-    X(float, s_pid_min_erpm, 1, F32A, 0, MCCONF_S_PID_MIN_RPM)                                     \
-    X(bool, s_pid_allow_braking, 1, U8, 0, MCCONF_S_PID_ALLOW_BRAKING)                             \
-    X(float, s_pid_ramp_erpms_s, 1, F32A, 0, MCCONF_S_PID_RAMP_ERPMS_S)                            \
-    X(S_PID_SPEED_SRC, s_pid_speed_source, 1, U8, 0, MCCONF_S_PID_SPEED_SOURCE)                    \
-    X(float, p_pid_kp, 1, F32A, 0, MCCONF_P_PID_KP)                                                \
-    X(float, p_pid_ki, 1, F32A, 0, MCCONF_P_PID_KI)                                                \
-    X(float, p_pid_kd, 1, F32A, 0, MCCONF_P_PID_KD)                                                \
-    X(float, p_pid_kd_proc, 1, F32A, 0, MCCONF_P_PID_KD_PROC)                                      \
-    X(float, p_pid_kd_filter, 1, F16, 10000, MCCONF_P_PID_KD_FILTER)                               \
-    X(float, p_pid_ang_div, 1, F32A, 0, MCCONF_P_PID_ANG_DIV)                                      \
-    X(float, p_pid_gain_dec_angle, 1, F16, 10, MCCONF_P_PID_GAIN_DEC_ANGLE)                        \
-    X(float, p_pid_offset, 1, F32A, 0, MCCONF_P_PID_OFFSET)                                        \
-    X(float, cc_startup_boost_duty, 1, F16, 10000, MCCONF_CC_STARTUP_BOOST_DUTY)                   \
-    X(float, cc_min_current, 1, F32A, 0, MCCONF_CC_MIN_CURRENT)                                    \
-    X(float, cc_gain, 1, F32A, 0, MCCONF_CC_GAIN)                                                  \
-    X(float, cc_ramp_step_max, 1, F16, 10000, MCCONF_CC_RAMP_STEP)                                 \
-    X(int32_t, m_fault_stop_time_ms, 1, I32, 0, MCCONF_M_FAULT_STOP_TIME)                          \
-    X(float, m_duty_ramp_step, 1, F16, 10000, MCCONF_M_RAMP_STEP)                                  \
-    X(float, m_current_backoff_gain, 1, F32A, 0, MCCONF_M_CURRENT_BACKOFF_GAIN)                    \
-    X(uint32_t, m_encoder_counts, 1, U32, 0, MCCONF_M_ENCODER_COUNTS)                              \
-    X(float, m_encoder_sin_amp, 1, F16, 1000, MCCONF_M_ENCODER_SIN_AMP)                            \
-    X(float, m_encoder_cos_amp, 1, F16, 1000, MCCONF_M_ENCODER_COS_AMP)                            \
-    X(float, m_encoder_sin_offset, 1, F16, 1000, MCCONF_M_ENCODER_SIN_OFFSET)                      \
-    X(float, m_encoder_cos_offset, 1, F16, 1000, MCCONF_M_ENCODER_COS_OFFSET)                      \
-    X(float, m_encoder_sincos_filter_constant, 1, F16, 1000, MCCONF_M_ENCODER_SINCOS_FILTER)       \
-    X(float, m_encoder_sincos_phase_correction, 1, F16, 1000, MCCONF_M_ENCODER_SINCOS_PHASE)       \
-    X(sensor_port_mode, m_sensor_port_mode, 1, U8, 0, MCCONF_M_SENSOR_PORT_MODE)                   \
-    X(bool, m_invert_direction, 1, U8, 0, MCCONF_M_INVERT_DIRECTION)                               \
-    X(drv8301_oc_mode, m_drv8301_oc_mode, 1, U8, 0, MCCONF_M_DRV8301_OC_MODE)                      \
-    X(int, m_drv8301_oc_adj, 1, U8, 0, MCCONF_M_DRV8301_OC_ADJ)                                    \
-    X(float, m_bldc_f_sw_min, 1, F32A, 0, MCCONF_M_BLDC_F_SW_MIN)                                  \
-    X(float, m_bldc_f_sw_max, 1, F32A, 0, MCCONF_M_BLDC_F_SW_MAX)                                  \
-    X(float, m_dc_f_sw, 1, F32A, 0, MCCONF_M_DC_F_SW)                                              \
-    X(float, m_ntc_motor_beta, 1, F32A, 0, MCCONF_M_NTC_MOTOR_BETA)                                \
-    X(out_aux_mode, m_out_aux_mode, 1, U8, 0, MCCONF_M_OUT_AUX_MODE)                               \
-    X(temp_sensor_type, m_motor_temp_sens_type, 1, U8, 0, MCCONF_M_MOTOR_TEMP_SENS_TYPE)           \
-    X(float, m_ptc_motor_coeff, 1, F32A, 0, MCCONF_M_PTC_MOTOR_COEFF)                              \
-    X(float, m_ntcx_ptcx_res, 1, F16, 0.1, MCCONF_M_NTCX_PTCX_RES)                                 \
-    X(float, m_ntcx_ptcx_temp_base, 1, F16, 10, MCCONF_M_NTCX_PTCX_BASE_TEMP)                      \
-    X(int, m_hall_extra_samples, 1, U8, 0, MCCONF_M_HALL_EXTRA_SAMPLES)                            \
-    X(int, m_batt_filter_const, 1, U8, 0, MCCONF_M_BATT_FILTER_CONST)                              \
-    X(uint8_t, si_motor_poles, 1, U8, 0, MCCONF_SI_MOTOR_POLES)                                    \
-    X(float, si_gear_ratio, 1, F32A, 0, MCCONF_SI_GEAR_RATIO)                                      \
-    X(float, si_wheel_diameter, 1, F32A, 0, MCCONF_SI_WHEEL_DIAMETER)                              \
-    X(BATTERY_TYPE, si_battery_type, 1, U8, 0, MCCONF_SI_BATTERY_TYPE)                             \
-    X(int, si_battery_cells, 1, U8, 0, MCCONF_SI_BATTERY_CELLS)                                    \
-    X(float, si_battery_ah, 1, F32A, 0, MCCONF_SI_BATTERY_AH)                                      \
-    X(float, si_motor_nl_current, 1, F32A, 0, MCCONF_SI_MOTOR_NL_CURRENT)                          \
-    X(float, lo_current_max, 1, NONE, 0, 0)                                                        \
-    X(float, lo_current_min, 1, NONE, 0, 0)                                                        \
-    X(float, lo_in_current_max, 1, NONE, 0, 0)                                                     \
-    X(float, lo_in_current_min, 1, NONE, 0, 0)                                                     \
-    X(bms_config, bms, 1, BMS, 0, 0)                                                               \
-    X(uint16_t, crc, 1, NONE, 0, 0)
+/* confgenerator.h: the signature the stream starts with. */
+#define MCCONF_SIGNATURE 3154770096u
+#define APPCONF_SIGNATURE 296593100u
+
+#define MCCONF_WIRE(X)                                                                             \
+    X(U8, pwm_mode, 0, MCCONF_PWM_MODE)                                                            \
+    X(U8, comm_mode, 0, MCCONF_COMM_MODE)                                                          \
+    X(U8, motor_type, 0, MCCONF_DEFAULT_MOTOR_TYPE)                                                \
+    X(U8, sensor_mode, 0, MCCONF_SENSOR_MODE)                                                      \
+    X(F32A, l_current_max, 0, MCCONF_L_CURRENT_MAX)                                                \
+    X(F32A, l_current_min, 0, MCCONF_L_CURRENT_MIN)                                                \
+    X(F32A, l_in_current_max, 0, MCCONF_L_IN_CURRENT_MAX)                                          \
+    X(F32A, l_in_current_min, 0, MCCONF_L_IN_CURRENT_MIN)                                          \
+    X(F16, l_in_current_map_start, 10000, MCCONF_L_IN_CURRENT_MAP_START)                           \
+    X(F16, l_in_current_map_filter, 10000, MCCONF_L_IN_CURRENT_MAP_FILTER)                         \
+    X(F32A, l_abs_current_max, 0, MCCONF_L_MAX_ABS_CURRENT)                                        \
+    X(F32A, l_min_erpm, 0, MCCONF_L_RPM_MIN)                                                       \
+    X(F32A, l_max_erpm, 0, MCCONF_L_RPM_MAX)                                                       \
+    X(F16, l_erpm_start, 10000, MCCONF_L_RPM_START)                                                \
+    X(F32A, l_max_erpm_fbrake, 0, MCCONF_L_CURR_MAX_RPM_FBRAKE)                                    \
+    X(F32A, l_max_erpm_fbrake_cc, 0, MCCONF_L_CURR_MAX_RPM_FBRAKE_CC)                              \
+    X(F16, l_min_vin, 10, MCCONF_L_MIN_VOLTAGE)                                                    \
+    X(F16, l_max_vin, 10, MCCONF_L_MAX_VOLTAGE)                                                    \
+    X(F16, l_battery_cut_start, 10, MCCONF_L_BATTERY_CUT_START)                                    \
+    X(F16, l_battery_cut_end, 10, MCCONF_L_BATTERY_CUT_END)                                        \
+    X(F16, l_battery_regen_cut_start, 10, MCCONF_L_BATTERY_REGEN_CUT_START)                        \
+    X(F16, l_battery_regen_cut_end, 10, MCCONF_L_BATTERY_REGEN_CUT_END)                            \
+    X(U8, l_slow_abs_current, 0, MCCONF_L_SLOW_ABS_OVERCURRENT)                                    \
+    X(U8, l_temp_fet_start, 0, MCCONF_L_LIM_TEMP_FET_START)                                        \
+    X(U8, l_temp_fet_end, 0, MCCONF_L_LIM_TEMP_FET_END)                                            \
+    X(U8, l_temp_motor_start, 0, MCCONF_L_LIM_TEMP_MOTOR_START)                                    \
+    X(U8, l_temp_motor_end, 0, MCCONF_L_LIM_TEMP_MOTOR_END)                                        \
+    X(F16, l_temp_accel_dec, 10000, MCCONF_L_LIM_TEMP_ACCEL_DEC)                                   \
+    X(F16, l_min_duty, 10000, MCCONF_L_MIN_DUTY)                                                   \
+    X(F16, l_max_duty, 10000, MCCONF_L_MAX_DUTY)                                                   \
+    X(F32A, l_watt_max, 0, MCCONF_L_WATT_MAX)                                                      \
+    X(F32A, l_watt_min, 0, MCCONF_L_WATT_MIN)                                                      \
+    X(F16, l_current_max_scale, 10000, MCCONF_L_CURRENT_MAX_SCALE)                                 \
+    X(F16, l_current_min_scale, 10000, MCCONF_L_CURRENT_MIN_SCALE)                                 \
+    X(F16, l_duty_start, 10000, MCCONF_L_DUTY_START)                                               \
+    X(U8, l_additional_faults, 0, MCCONF_L_ADDITIONAL_FAULTS)                                      \
+    X(F32A, sl_min_erpm, 0, MCCONF_SL_MIN_RPM)                                                     \
+    X(F32A, sl_min_erpm_cycle_int_limit, 0, MCCONF_SL_MIN_ERPM_CYCLE_INT_LIMIT)                    \
+    X(F32A, sl_max_fullbreak_current_dir_change, 0, MCCONF_SL_MAX_FB_CURR_DIR_CHANGE)              \
+    X(F16, sl_cycle_int_limit, 10, MCCONF_SL_CYCLE_INT_LIMIT)                                      \
+    X(F16, sl_phase_advance_at_br, 10000, MCCONF_SL_PHASE_ADVANCE_AT_BR)                           \
+    X(F32A, sl_cycle_int_rpm_br, 0, MCCONF_SL_CYCLE_INT_BR)                                        \
+    X(F32A, sl_bemf_coupling_k, 0, MCCONF_SL_BEMF_COUPLING_K)                                      \
+    X(U8, hall_table[0], 0, MCCONF_HALL_TAB_0)                                                     \
+    X(U8, hall_table[1], 0, MCCONF_HALL_TAB_1)                                                     \
+    X(U8, hall_table[2], 0, MCCONF_HALL_TAB_2)                                                     \
+    X(U8, hall_table[3], 0, MCCONF_HALL_TAB_3)                                                     \
+    X(U8, hall_table[4], 0, MCCONF_HALL_TAB_4)                                                     \
+    X(U8, hall_table[5], 0, MCCONF_HALL_TAB_5)                                                     \
+    X(U8, hall_table[6], 0, MCCONF_HALL_TAB_6)                                                     \
+    X(U8, hall_table[7], 0, MCCONF_HALL_TAB_7)                                                     \
+    X(F32A, hall_sl_erpm, 0, MCCONF_HALL_ERPM)                                                     \
+    X(F32A, foc_current_kp, 0, MCCONF_FOC_CURRENT_KP)                                              \
+    X(F32A, foc_current_ki, 0, MCCONF_FOC_CURRENT_KI)                                              \
+    X(F32A, foc_f_zv, 0, MCCONF_FOC_F_ZV)                                                          \
+    X(F32A, foc_dt_us, 0, MCCONF_FOC_DT_US)                                                        \
+    X(U8, foc_encoder_inverted, 0, MCCONF_FOC_ENCODER_INVERTED)                                    \
+    X(F32A, foc_encoder_offset, 0, MCCONF_FOC_ENCODER_OFFSET)                                      \
+    X(F32A, foc_encoder_ratio, 0, MCCONF_FOC_ENCODER_RATIO)                                        \
+    X(U8, foc_sensor_mode, 0, MCCONF_FOC_SENSOR_MODE)                                              \
+    X(F32A, foc_pll_kp, 0, MCCONF_FOC_PLL_KP)                                                      \
+    X(F32A, foc_pll_ki, 0, MCCONF_FOC_PLL_KI)                                                      \
+    X(F32A, foc_motor_l, 0, MCCONF_FOC_MOTOR_L)                                                    \
+    X(F32A, foc_motor_ld_lq_diff, 0, MCCONF_FOC_MOTOR_LD_LQ_DIFF)                                  \
+    X(F32A, foc_motor_r, 0, MCCONF_FOC_MOTOR_R)                                                    \
+    X(F32A, foc_motor_flux_linkage, 0, MCCONF_FOC_MOTOR_FLUX_LINKAGE)                              \
+    X(F32A, foc_observer_gain, 0, MCCONF_FOC_OBSERVER_GAIN)                                        \
+    X(F32A, foc_observer_gain_slow, 0, MCCONF_FOC_OBSERVER_GAIN_SLOW)                              \
+    X(F16, foc_observer_offset, 1000, MCCONF_FOC_OBSERVER_OFFSET)                                  \
+    X(F32A, foc_duty_dowmramp_kp, 0, MCCONF_FOC_DUTY_DOWNRAMP_KP)                                  \
+    X(F32A, foc_duty_dowmramp_ki, 0, MCCONF_FOC_DUTY_DOWNRAMP_KI)                                  \
+    X(F16, foc_start_curr_dec, 10000, MCCONF_FOC_START_CURR_DEC)                                   \
+    X(F32A, foc_start_curr_dec_rpm, 0, MCCONF_FOC_START_CURR_DEC_RPM)                              \
+    X(F32A, foc_openloop_rpm, 0, MCCONF_FOC_OPENLOOP_RPM)                                          \
+    X(F16, foc_openloop_rpm_low, 1000, MCCONF_FOC_OPENLOOP_RPM_LOW)                                \
+    X(F16, foc_sl_openloop_hyst, 100, MCCONF_FOC_SL_OPENLOOP_HYST)                                 \
+    X(F16, foc_sl_openloop_time_lock, 100, MCCONF_FOC_SL_OPENLOOP_T_LOCK)                          \
+    X(F16, foc_sl_openloop_time_ramp, 100, MCCONF_FOC_SL_OPENLOOP_T_RAMP)                          \
+    X(F16, foc_sl_openloop_time, 100, MCCONF_FOC_SL_OPENLOOP_TIME)                                 \
+    X(F16, foc_sl_openloop_boost_q, 100, MCCONF_FOC_SL_OPENLOOP_BOOST_Q)                           \
+    X(F16, foc_sl_openloop_max_q, 100, MCCONF_FOC_SL_OPENLOOP_MAX_Q)                               \
+    X(U8, foc_hall_table[0], 0, MCCONF_FOC_HALL_TAB_0)                                             \
+    X(U8, foc_hall_table[1], 0, MCCONF_FOC_HALL_TAB_1)                                             \
+    X(U8, foc_hall_table[2], 0, MCCONF_FOC_HALL_TAB_2)                                             \
+    X(U8, foc_hall_table[3], 0, MCCONF_FOC_HALL_TAB_3)                                             \
+    X(U8, foc_hall_table[4], 0, MCCONF_FOC_HALL_TAB_4)                                             \
+    X(U8, foc_hall_table[5], 0, MCCONF_FOC_HALL_TAB_5)                                             \
+    X(U8, foc_hall_table[6], 0, MCCONF_FOC_HALL_TAB_6)                                             \
+    X(U8, foc_hall_table[7], 0, MCCONF_FOC_HALL_TAB_7)                                             \
+    X(F32A, foc_hall_interp_erpm, 0, MCCONF_FOC_HALL_INTERP_ERPM)                                  \
+    X(F32A, foc_sl_erpm_start, 0, MCCONF_FOC_SL_ERPM_START)                                        \
+    X(F32A, foc_sl_erpm, 0, MCCONF_FOC_SL_ERPM)                                                    \
+    X(U8, foc_control_sample_mode, 0, MCCONF_FOC_CONTROL_SAMPLE_MODE)                              \
+    X(U8, foc_current_sample_mode, 0, MCCONF_FOC_CURRENT_SAMPLE_MODE)                              \
+    X(U8, foc_sat_comp_mode, 0, MCCONF_FOC_SAT_COMP_MODE)                                          \
+    X(F16, foc_sat_comp, 1000, MCCONF_FOC_SAT_COMP)                                                \
+    X(U8, foc_temp_comp, 0, MCCONF_FOC_TEMP_COMP)                                                  \
+    X(F16, foc_temp_comp_base_temp, 100, MCCONF_FOC_TEMP_COMP_BASE_TEMP)                           \
+    X(F16, foc_current_filter_const, 10000, MCCONF_FOC_CURRENT_FILTER_CONST)                       \
+    X(U8, foc_cc_decoupling, 0, MCCONF_FOC_CC_DECOUPLING)                                          \
+    X(U8, foc_observer_type, 0, MCCONF_FOC_OBSERVER_TYPE)                                          \
+    X(U8, foc_hfi_amb_mode, 0, MCCONF_FOC_HFI_AMB_MODE)                                            \
+    X(F16, foc_hfi_amb_current, 10, MCCONF_FOC_HFI_AMB_CURRENT)                                    \
+    X(U8, foc_hfi_amb_tres, 0, MCCONF_FOC_HFI_AMB_TRES)                                            \
+    X(F16, foc_hfi_voltage_start, 10, MCCONF_FOC_HFI_VOLTAGE_START)                                \
+    X(F16, foc_hfi_voltage_run, 10, MCCONF_FOC_HFI_VOLTAGE_RUN)                                    \
+    X(F16, foc_hfi_voltage_max, 10, MCCONF_FOC_HFI_VOLTAGE_MAX)                                    \
+    X(F16, foc_hfi_gain, 1000, MCCONF_FOC_HFI_GAIN)                                                \
+    X(F16, foc_hfi_max_err, 1000, MCCONF_FOC_HFI_MAX_ERR)                                          \
+    X(F16, foc_hfi_hyst, 100, MCCONF_FOC_HFI_HYST)                                                 \
+    X(F32A, foc_sl_erpm_hfi, 0, MCCONF_FOC_SL_ERPM_HFI)                                            \
+    X(F32A, foc_hfi_reset_erpm, 0, MCCONF_FOC_HFI_RESET_ERPM)                                      \
+    X(U16, foc_hfi_start_samples, 0, MCCONF_FOC_HFI_START_SAMPLES)                                 \
+    X(F32A, foc_hfi_obs_ovr_sec, 0, MCCONF_FOC_HFI_OBS_OVR_SEC)                                    \
+    X(U8, foc_hfi_samples, 0, MCCONF_FOC_HFI_SAMPLES)                                              \
+    X(U8, foc_offsets_cal_mode, 0, MCCONF_FOC_OFFSETS_CAL_MODE)                                    \
+    X(F32A, foc_offsets_current[0], 0, MCCONF_FOC_OFFSETS_CURRENT_0)                               \
+    X(F32A, foc_offsets_current[1], 0, MCCONF_FOC_OFFSETS_CURRENT_1)                               \
+    X(F32A, foc_offsets_current[2], 0, MCCONF_FOC_OFFSETS_CURRENT_2)                               \
+    X(F16, foc_offsets_voltage[0], 10000, MCCONF_FOC_OFFSETS_VOLTAGE_0)                            \
+    X(F16, foc_offsets_voltage[1], 10000, MCCONF_FOC_OFFSETS_VOLTAGE_1)                            \
+    X(F16, foc_offsets_voltage[2], 10000, MCCONF_FOC_OFFSETS_VOLTAGE_2)                            \
+    X(F16, foc_offsets_voltage_undriven[0], 10000, MCCONF_FOC_OFFSETS_VOLTAGE_UNDRIVEN_0)          \
+    X(F16, foc_offsets_voltage_undriven[1], 10000, MCCONF_FOC_OFFSETS_VOLTAGE_UNDRIVEN_1)          \
+    X(F16, foc_offsets_voltage_undriven[2], 10000, MCCONF_FOC_OFFSETS_VOLTAGE_UNDRIVEN_2)          \
+    X(U8, foc_phase_filter_enable, 0, MCCONF_FOC_PHASE_FILTER_ENABLE)                              \
+    X(U8, foc_phase_filter_disable_fault, 0, MCCONF_FOC_PHASE_FILTER_DISABLE_FAULT)                \
+    X(F32A, foc_phase_filter_max_erpm, 0, MCCONF_FOC_PHASE_FILTER_MAX_ERPM)                        \
+    X(U8, foc_mtpa_mode, 0, MCCONF_FOC_MTPA_MODE)                                                  \
+    X(F32A, foc_fw_current_max, 0, MCCONF_FOC_FW_CURRENT_MAX)                                      \
+    X(F16, foc_fw_duty_start, 10000, MCCONF_FOC_FW_DUTY_START)                                     \
+    X(F16, foc_fw_ramp_time, 1000, MCCONF_FOC_FW_RAMP_TIME)                                        \
+    X(F16, foc_fw_q_current_factor, 10000, MCCONF_FOC_FW_Q_CURRENT_FACTOR)                         \
+    X(F16, foc_fw_backoff, 1000, MCCONF_FOC_FW_BACKOFF)                                            \
+    X(U8, foc_speed_soure, 0, MCCONF_FOC_SPEED_SOURCE)                                             \
+    X(U8, foc_short_ls_on_zero_duty, 0, MCCONF_FOC_SHORT_LS_ON_ZERO_DUTY)                          \
+    X(F16, foc_overmod_factor, 10000, MCCONF_FOC_OVERMOD_FACTOR)                                   \
+    X(F16, foc_mag_vd_max, 10000, MCCONF_FOC_MAG_VD_MAX)                                           \
+    X(U8, sp_pid_loop_rate, 0, MCCONF_SP_PID_LOOP_RATE)                                            \
+    X(F32A, s_pid_kp, 0, MCCONF_S_PID_KP)                                                          \
+    X(F32A, s_pid_ki, 0, MCCONF_S_PID_KI)                                                          \
+    X(F32A, s_pid_kd, 0, MCCONF_S_PID_KD)                                                          \
+    X(F16, s_pid_kd_filter, 10000, MCCONF_S_PID_KD_FILTER)                                         \
+    X(F32A, s_pid_min_erpm, 0, MCCONF_S_PID_MIN_RPM)                                               \
+    X(U8, s_pid_allow_braking, 0, MCCONF_S_PID_ALLOW_BRAKING)                                      \
+    X(F32A, s_pid_ramp_erpms_s, 0, MCCONF_S_PID_RAMP_ERPMS_S)                                      \
+    X(U8, s_pid_speed_source, 0, MCCONF_S_PID_SPEED_SOURCE)                                        \
+    X(F32A, p_pid_kp, 0, MCCONF_P_PID_KP)                                                          \
+    X(F32A, p_pid_ki, 0, MCCONF_P_PID_KI)                                                          \
+    X(F32A, p_pid_kd, 0, MCCONF_P_PID_KD)                                                          \
+    X(F32A, p_pid_kd_proc, 0, MCCONF_P_PID_KD_PROC)                                                \
+    X(F16, p_pid_kd_filter, 10000, MCCONF_P_PID_KD_FILTER)                                         \
+    X(F32A, p_pid_ang_div, 0, MCCONF_P_PID_ANG_DIV)                                                \
+    X(F16, p_pid_gain_dec_angle, 10, MCCONF_P_PID_GAIN_DEC_ANGLE)                                  \
+    X(F32A, p_pid_offset, 0, MCCONF_P_PID_OFFSET)                                                  \
+    X(F16, cc_startup_boost_duty, 10000, MCCONF_CC_STARTUP_BOOST_DUTY)                             \
+    X(F32A, cc_min_current, 0, MCCONF_CC_MIN_CURRENT)                                              \
+    X(F32A, cc_gain, 0, MCCONF_CC_GAIN)                                                            \
+    X(F16, cc_ramp_step_max, 10000, MCCONF_CC_RAMP_STEP)                                           \
+    X(I32, m_fault_stop_time_ms, 0, MCCONF_M_FAULT_STOP_TIME)                                      \
+    X(F16, m_duty_ramp_step, 10000, MCCONF_M_RAMP_STEP)                                            \
+    X(F32A, m_current_backoff_gain, 0, MCCONF_M_CURRENT_BACKOFF_GAIN)                              \
+    X(U32, m_encoder_counts, 0, MCCONF_M_ENCODER_COUNTS)                                           \
+    X(F16, m_encoder_sin_amp, 1000, MCCONF_M_ENCODER_SIN_AMP)                                      \
+    X(F16, m_encoder_cos_amp, 1000, MCCONF_M_ENCODER_COS_AMP)                                      \
+    X(F16, m_encoder_sin_offset, 1000, MCCONF_M_ENCODER_SIN_OFFSET)                                \
+    X(F16, m_encoder_cos_offset, 1000, MCCONF_M_ENCODER_COS_OFFSET)                                \
+    X(F16, m_encoder_sincos_filter_constant, 1000, MCCONF_M_ENCODER_SINCOS_FILTER)                 \
+    X(F16, m_encoder_sincos_phase_correction, 1000, MCCONF_M_ENCODER_SINCOS_PHASE)                 \
+    X(U8, m_sensor_port_mode, 0, MCCONF_M_SENSOR_PORT_MODE)                                        \
+    X(U8, m_invert_direction, 0, MCCONF_M_INVERT_DIRECTION)                                        \
+    X(U8, m_drv8301_oc_mode, 0, MCCONF_M_DRV8301_OC_MODE)                                          \
+    X(U8, m_drv8301_oc_adj, 0, MCCONF_M_DRV8301_OC_ADJ)                                            \
+    X(F32A, m_bldc_f_sw_min, 0, MCCONF_M_BLDC_F_SW_MIN)                                            \
+    X(F32A, m_bldc_f_sw_max, 0, MCCONF_M_BLDC_F_SW_MAX)                                            \
+    X(F32A, m_dc_f_sw, 0, MCCONF_M_DC_F_SW)                                                        \
+    X(F32A, m_ntc_motor_beta, 0, MCCONF_M_NTC_MOTOR_BETA)                                          \
+    X(U8, m_out_aux_mode, 0, MCCONF_M_OUT_AUX_MODE)                                                \
+    X(U8, m_motor_temp_sens_type, 0, MCCONF_M_MOTOR_TEMP_SENS_TYPE)                                \
+    X(F32A, m_ptc_motor_coeff, 0, MCCONF_M_PTC_MOTOR_COEFF)                                        \
+    X(F16, m_ntcx_ptcx_res, 0.1, MCCONF_M_NTCX_PTCX_RES)                                           \
+    X(F16, m_ntcx_ptcx_temp_base, 10, MCCONF_M_NTCX_PTCX_BASE_TEMP)                                \
+    X(U8, m_hall_extra_samples, 0, MCCONF_M_HALL_EXTRA_SAMPLES)                                    \
+    X(U8, m_batt_filter_const, 0, MCCONF_M_BATT_FILTER_CONST)                                      \
+    X(U8, si_motor_poles, 0, MCCONF_SI_MOTOR_POLES)                                                \
+    X(F32A, si_gear_ratio, 0, MCCONF_SI_GEAR_RATIO)                                                \
+    X(F32A, si_wheel_diameter, 0, MCCONF_SI_WHEEL_DIAMETER)                                        \
+    X(U8, si_battery_type, 0, MCCONF_SI_BATTERY_TYPE)                                              \
+    X(U8, si_battery_cells, 0, MCCONF_SI_BATTERY_CELLS)                                            \
+    X(F32A, si_battery_ah, 0, MCCONF_SI_BATTERY_AH)                                                \
+    X(F32A, si_motor_nl_current, 0, MCCONF_SI_MOTOR_NL_CURRENT)                                    \
+    X(U8, bms.type, 0, MCCONF_BMS_TYPE)                                                            \
+    X(U8, bms.limit_mode, 0, MCCONF_BMS_LIMIT_MODE)                                                \
+    X(U8, bms.t_limit_start, 0, MCCONF_BMS_T_LIMIT_START)                                          \
+    X(U8, bms.t_limit_end, 0, MCCONF_BMS_T_LIMIT_END)                                              \
+    X(F16, bms.soc_limit_start, 1000, MCCONF_BMS_SOC_LIMIT_START)                                  \
+    X(F16, bms.soc_limit_end, 1000, MCCONF_BMS_SOC_LIMIT_END)                                      \
+    X(F16, bms.vmin_limit_start, 1000, MCCONF_BMS_VMIN_LIMIT_START)                                \
+    X(F16, bms.vmin_limit_end, 1000, MCCONF_BMS_VMIN_LIMIT_END)                                    \
+    X(F16, bms.vmax_limit_start, 1000, MCCONF_BMS_VMAX_LIMIT_START)                                \
+    X(F16, bms.vmax_limit_end, 1000, MCCONF_BMS_VMAX_LIMIT_END)                                    \
+    X(U8, bms.fwd_can_mode, 0, MCCONF_BMS_FWD_CAN_MODE)                                            \
+    X(NONE, lo_current_max, 0, 0)                                                                  \
+    X(NONE, lo_current_min, 0, 0)                                                                  \
+    X(NONE, lo_in_current_max, 0, 0)                                                               \
+    X(NONE, lo_in_current_min, 0, 0)                                                               \
+    X(NONE, crc, 0, 0)
 
 #define MCCONF_KIND_LEN_U8 1
 #define MCCONF_KIND_LEN_U16 2
@@ -212,8 +245,7 @@
 #define MCCONF_KIND_LEN_F32 4
 #define MCCONF_KIND_LEN_F32A 4
 #define MCCONF_KIND_LEN_NONE 0
-#define MCCONF_KIND_LEN_BMS 17
-#define MCCONF_WIRE_LEN_ONE(ct, name, n, kind, scale, def) +(n)*MCCONF_KIND_LEN_##kind
-#define MCCONF_WIRE_LEN (4 MCCONF_FIELDS(MCCONF_WIRE_LEN_ONE))
+#define MCCONF_WIRE_LEN_ONE(kind, expr, scale, def) +MCCONF_KIND_LEN_##kind
+#define MCCONF_WIRE_LEN (4 MCCONF_WIRE(MCCONF_WIRE_LEN_ONE))
 
 #endif /* MCCONF_MANIFEST_H */
