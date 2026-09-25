@@ -143,6 +143,9 @@ int main(void) {
         .fw_q_current_factor = mc->foc_fw_q_current_factor,
         .mtpa_mode = (uint8_t)mc->foc_mtpa_mode,
         .cc_min_current = mc->cc_min_current,
+        .si_battery_type = (uint8_t)mc->si_battery_type,
+        .si_battery_cells = mc->si_battery_cells,
+        .si_battery_ah = mc->si_battery_ah,
     };
 
     foc_core_t foc;

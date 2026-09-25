@@ -78,9 +78,9 @@ clang-format --dry-run     # 格式
 - BMS 闪写类（`COMM_BM_*`）与 `COMM_GET_IMU_CALIBRATION`、`COMM_CAN_UPDATE_BAUD_ALL`、
   `COMM_PING_CAN` 分别需要 BMS / IMU / CAN 的**写入（或探测）路径**，目前端口没有，属于
   各自模块的后续；
-- `COMM_GET_VALUES_SETUP` / `_SELECTIVE`（VESC Tool 的 setup 页会问）：**线格式已探明**，
-  `comm/commands.c:797-885`。回包 = 命令 id + 字段序列；`_SELECTIVE` 变体以 **uint32 mask**
-  开头（回包同样回显该 mask）。逐位含义（编码已核对）：
+- `COMM_GET_VALUES_SETUP` / `_SELECTIVE`（VESC Tool 的 setup 页会问）：**已实现**（线格式与
+  bit 表见下），`comm/commands.c:797-885`。回包 = 命令 id + 字段序列；`_SELECTIVE` 变体以
+  **uint32 mask** 开头（回包同样回显该 mask）。逐位含义（编码已核对）：
   bit0/1 `temp_fet`/`temp_motor` **float16×1e1**；bit2/3 `current_tot`/`current_in_tot` **float32×1e2**；
   bit4 `duty` **float16×1e3**；bit5 `rpm` **float32×1e0**；bit6 `speed` **float32×1e3**；
   bit7 `v_in` **float16×1e1**；bit8 `battery_level` **float16×1e3**；bit9-12 `ah_tot`/`ah_charge_tot`/
@@ -93,10 +93,15 @@ clang-format --dry-run     # 格式
   字段但无公式）、`num_vescs`（参考是把 CAN 状态帧里未过期的 `current/ah/wh` **累加**上去，
   端口需先有 CAN 状态接收路径）、以及**里程计本身**（uint64 米，`mc_interface_get_odometer()`；
   线格式上 bit13/14 是它的浮点视图、bit20 是 uint32 视图）。**注意**：参考的里程计**累加点尚未
-  定位**——我读到的 `mc_interface.c:2570` 是 CAN 侧在累加**别的** VESC 的里程计，真正按本机速度
-  累加的地方还需再找，不要凭空实现（否则就是一个编出来的数字）。非易失存储用 C3 刚落地的
-  EEPROM 仿真（它存 u16 变量，里程计需按 hi/lo 拆分），或参考的 flash 存储；两者取舍需先看清
-  参考实际用哪个。
+  定位**——我读到的 `mc_interface.c:2570` 是 CAN 侧在累加**别的** VESC 的里程计。**已解决的部分**：
+  距离（bit13/14）**不需要累加器**——它是 `tachometer × (si_wheel_diameter·π)/(3·si_motor_poles·
+  si_gear_ratio)`，端口已有的 tachometer 与全部 si_* 字段就够；电量（bit8/19）的公式也读全了
+  （含 LiIon 的五阶多项式拟合），已落为 `foc_batt_liion_norm_v_to_capacity` / `foc_battery_level`
+  并在适配器里接上。**仍无源的字段**按字段返回 0 并写明理由：`temp_motor`（无电机 NTC）、
+  `odometer_m`（需非易失计数，而参考自身按本机速度累加的位置**仍未定位**，不编数字）、
+  `uptime_ms`（本模块未被赋予时钟）；`num_vescs` 固定 1（参考聚合未过期的 CAN 状态帧，本产品没有
+  CAN 状态接收路径）；`controller_id` 暂为 1；电量用总线电压，而参考滤的是更慢的输入电压
+  （端口无该滤波）。以上已登记到 `adr-conformance.md`。
 
 至此 A8 点名的两个命令均已实现，其余 id 逐条列明去向（B5 / 各自模块 / C3），符合本任务
 「仍无法实现的 id 必须在 docs/bldc-migration.md 列明原因」的判据。

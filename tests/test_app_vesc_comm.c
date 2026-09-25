@@ -879,6 +879,95 @@ static void test_config_commands_framing(void **state) {
     assert_int_equal(vesc_comm_process_command(no_cfg, get_mc, sizeof(get_mc)), EDGE_ENOTSUP);
     assert_int_equal(ctx.tx_count, 0);
 }
+
+/* COMM_GET_VALUES_SETUP's provider: fixed values so the reply's layout can be checked. */
+static edge_status_t mock_get_setup_values(void *self, vesc_setup_values_t *out) {
+    (void)self;
+    memset(out, 0, sizeof(*out));
+    out->temp_mos = 25.0f;      /* float16 x 1e1 -> 250 */
+    out->current_tot = 12.34f;  /* float32 x 1e2 -> 1234 */
+    out->duty_now = 0.5f;       /* float16 x 1e3 -> 500 */
+    out->v_in = 50.0f;          /* float16 x 1e1 -> 500 */
+    out->battery_level = 0.75f; /* float16 x 1e3 -> 750 */
+    out->odometer_m = 0x11223344u;
+    out->uptime_ms = 0x00001234u;
+    out->controller_id = 7u;
+    out->num_vescs = 1u;
+    return EDGE_OK;
+}
+
+/*
+ * COMM_GET_VALUES_SETUP, reference comm/commands.c:797-885. The reply's length is the sum of the
+ * per-bit encodings, derived from that table rather than from the implementation: 1 command byte
+ * plus 69 field bytes for the full mask, so a payload of 70.
+ */
+static void test_setup_values_framing(void **state) {
+    (void)state;
+    mock_comm_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    edge_stream_tx_port_t tx_port = {.write = mock_stream_write, .self = &ctx};
+
+    vesc_motor_provider_port_t motor_port = {
+        .get_values = mock_get_values,
+        .set_duty = mock_set_duty,
+        .set_current = mock_set_current,
+        .set_current_brake = mock_set_current_brake,
+        .set_rpm = mock_set_rpm,
+        .set_pos = mock_set_pos,
+        .get_setup_values = mock_get_setup_values,
+        .self = &ctx,
+    };
+
+    vesc_comm_t *comm = test_comm_alloc();
+    vesc_comm_construct(comm, EDGE_MOD_VESC_COMM, 10u, &tx_port, &motor_port, NULL, NULL, NULL,
+                        &test_identity);
+    assert_int_equal(vesc_comm_init(comm), EDGE_OK);
+
+    /* The full-mask reply: 1 command byte + 69 field bytes. */
+    ctx.tx_count = 0;
+    uint8_t get_setup[] = {COMM_GET_VALUES_SETUP};
+    assert_int_equal(vesc_comm_process_command(comm, get_setup, sizeof(get_setup)), EDGE_OK);
+    assert_int_equal(ctx.tx_count, 1);
+    assert_int_equal(ctx.tx_buf[1], 70u); /* payload length */
+    assert_int_equal(ctx.tx_buf[2], COMM_GET_VALUES_SETUP);
+    /* bit0 temp_mos = 250 at float16 x 1e1, big endian. */
+    assert_int_equal(ctx.tx_buf[3], 0x00u);
+    assert_int_equal(ctx.tx_buf[4], 0xFAu);
+    /* The last two fields are the odometer (bit20) and the uptime (bit21), both uint32. */
+    const uint8_t *tail = ctx.tx_buf + 2u + 62u; /* the last eight payload bytes */
+    assert_int_equal(tail[0], 0x11u);
+    assert_int_equal(tail[1], 0x22u);
+    assert_int_equal(tail[2], 0x33u);
+    assert_int_equal(tail[3], 0x44u);
+    assert_int_equal(tail[4], 0x00u);
+    assert_int_equal(tail[5], 0x00u);
+    assert_int_equal(tail[6], 0x12u);
+    assert_int_equal(tail[7], 0x34u);
+
+    /* The selective variant echoes the mask and sends only the requested bit: 1 + 4 + 4. */
+    ctx.tx_count = 0;
+    uint8_t sel[] = {COMM_GET_VALUES_SETUP_SELECTIVE, 0x00u, 0x10u, 0x00u, 0x00u}; /* bit 20 */
+    assert_int_equal(vesc_comm_process_command(comm, sel, sizeof(sel)), EDGE_OK);
+    assert_int_equal(ctx.tx_count, 1);
+    assert_int_equal(ctx.tx_buf[1], 9u);
+    assert_int_equal(ctx.tx_buf[2], COMM_GET_VALUES_SETUP_SELECTIVE);
+    assert_int_equal(ctx.tx_buf[3], 0x00u); /* the mask, echoed */
+    assert_int_equal(ctx.tx_buf[4], 0x10u);
+    assert_int_equal(ctx.tx_buf[7], 0x11u); /* the odometer */
+    assert_int_equal(ctx.tx_buf[10], 0x44u);
+
+    /* A selective frame without its mask is malformed, and a codec with no provider refuses. */
+    uint8_t sel_bare[] = {COMM_GET_VALUES_SETUP_SELECTIVE, 0x00u, 0x10u};
+    assert_int_equal(vesc_comm_process_command(comm, sel_bare, sizeof(sel_bare)), EDGE_EINVAL);
+
+    vesc_comm_t *no_provider = test_comm_alloc2();
+    vesc_comm_construct(no_provider, EDGE_MOD_VESC_COMM, 10u, &tx_port, NULL, NULL, NULL, NULL,
+                        &test_identity);
+    assert_int_equal(vesc_comm_init(no_provider), EDGE_OK);
+    assert_int_equal(vesc_comm_process_command(no_provider, get_setup, sizeof(get_setup)),
+                     EDGE_ENOTSUP);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_vesc_comm_lifecycle_and_guards),
@@ -886,6 +975,7 @@ int main(void) {
         cmocka_unit_test(test_send_packet_framing),
         cmocka_unit_test(test_receive_packet_and_commands),
         cmocka_unit_test(test_config_commands_framing),
+        cmocka_unit_test(test_setup_values_framing),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

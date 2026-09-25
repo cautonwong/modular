@@ -277,6 +277,36 @@ typedef struct vesc_app_status_port {
     void *self;
 } vesc_app_status_port_t;
 
+/*
+ * COMM_GET_VALUES_SETUP's payload (reference comm/commands.c:797-885). The provider fills all of
+ * it, because a field this port has no source for has to be a named zero rather than a missing
+ * one: odometer_m and uptime_ms are the two, and the docs say why.
+ */
+typedef struct vesc_setup_values {
+    float temp_mos;
+    float temp_motor;
+    float current_tot;
+    float current_in_tot;
+    float duty_now;
+    float rpm;
+    float speed_m_s;
+    float v_in;
+    float battery_level; /* ampere-hours left over total */
+    float ah_tot;
+    float ah_charge_tot;
+    float wh_tot;
+    float wh_charge_tot;
+    float distance_m;
+    float distance_abs_m;
+    float pid_pos_deg;
+    uint8_t fault;
+    uint8_t controller_id;
+    uint8_t num_vescs;
+    float wh_batt_left;
+    uint32_t odometer_m;
+    uint32_t uptime_ms;
+} vesc_setup_values_t;
+
 typedef struct vesc_motor_provider_port {
     /*
      * Fill out_val for the fields `mask` selects. The fields the reference serves
@@ -295,6 +325,13 @@ typedef struct vesc_motor_provider_port {
     /* Handbrake: a mode of its own, not a current command - the motor side forces the
      * electrical phase to zero in it (reference mcpwm_foc_set_handbrake). */
     edge_status_t (*set_handbrake)(void *self, float current);
+    /*
+     * COMM_GET_VALUES_SETUP's source: the reference's mc_interface_get_setup_values() plus the
+     * two values it computes alongside (battery level and remaining watt-hours). The provider
+     * fills all of it, because a field with no source has to be a named zero rather than a
+     * missing one.
+     */
+    edge_status_t (*get_setup_values)(void *self, vesc_setup_values_t *out);
     edge_status_t (*set_rpm)(void *self, float rpm);
     edge_status_t (*set_pos)(void *self, float pos);
     edge_status_t (*get_stats)(void *self, vesc_stats_t *out_val);

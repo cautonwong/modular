@@ -733,3 +733,76 @@ void foc_apply_mtpa(uint8_t mtpa_mode, float ld_lq_diff, float lambda, float iq_
     *id_set = (lambda - sqrtf(SQ(lambda) + 8.0 * SQ(ld_lq_diff * iq_ref))) / (4.0 * ld_lq_diff);
     *iq_set = foc_sign(*iq_set) * sqrtf(SQ(*iq_set) - SQ(*id_set));
 }
+
+/*
+ * Reference util/utils_math.c utils_batt_liion_norm_v_to_capacity: a five-term polynomial fit
+ * of a lithium-ion cell's state of charge against its normalised voltage. The reference declares
+ * the coefficients as a const float array, so they are float here too - writing them as doubles
+ * would change the last bits.
+ */
+float foc_batt_liion_norm_v_to_capacity(float norm_v) {
+    static const float li_p[5] = {-2.979767f, 5.487810f, -3.501286f, 1.675683f, 0.317147f};
+
+    foc_truncate_number(&norm_v, 0.0f, 1.0f);
+    const float v2 = norm_v * norm_v;
+    const float v3 = v2 * norm_v;
+    const float v4 = v3 * norm_v;
+    const float v5 = v4 * norm_v;
+    return li_p[0] * v5 + li_p[1] * v4 + li_p[2] * v3 + li_p[3] * v2 + li_p[4] * norm_v;
+}
+
+/*
+ * Reference mc_interface_get_battery_level() (motor/mc_interface.c): per chemistry, an average
+ * pack voltage and a "voltage left" average, then ampere-hours left from how far the cell
+ * voltage has fallen across the chemistry's range. Returns ampere-hours-left over
+ * ampere-hours-total, which is the same ratio the reference returns - including its 0/0 when
+ * the chemistry is unknown, which is not a slip to paper over.
+ */
+float foc_battery_level(uint8_t battery_type, int cells, float battery_ah, float v_in,
+                        float *wh_left) {
+    float battery_avg_voltage = 0.0f;
+    float battery_avg_voltage_left = 0.0f;
+    float ah_left = 0.0f;
+    float ah_tot = battery_ah;
+
+    switch (battery_type) {
+    case FOC_BATTERY_TYPE_LIION_3_0__4_2: {
+        const float cells_f = (float)cells;
+        battery_avg_voltage = ((3.2f + 4.2f) / 2.0f) * cells_f;
+        battery_avg_voltage_left = ((3.2f * cells_f + v_in) / 2.0f);
+        float batt_left = FOC_MAP(v_in / cells_f, 3.2f, 4.2f, 0.0f, 1.0f);
+        batt_left = foc_batt_liion_norm_v_to_capacity(batt_left);
+        /* 0.85 because the pack is not fully depleted at 3.2 V per cell. */
+        ah_tot *= 0.85f;
+        ah_left = batt_left * ah_tot;
+        break;
+    }
+    case FOC_BATTERY_TYPE_LIIRON_2_6__3_6: {
+        const float cells_f = (float)cells;
+        battery_avg_voltage = ((2.8f + 3.6f) / 2.0f) * cells_f;
+        battery_avg_voltage_left = ((2.8f * cells_f + v_in) / 2.0f);
+        ah_left = FOC_MAP(v_in / cells_f, 2.6f, 3.6f, 0.0f, battery_ah);
+        break;
+    }
+    case FOC_BATTERY_TYPE_LEAD_ACID: {
+        const float cells_f = (float)cells;
+        /* The reference's own comment: this does not really work for lead-acid, and it is kept
+         * as it is rather than improved. */
+        battery_avg_voltage = ((2.1f + 2.36f) / 2.0f) * cells_f;
+        battery_avg_voltage_left = ((2.1f * cells_f + v_in) / 2.0f);
+        ah_left = FOC_MAP(v_in / cells_f, 2.1f, 2.36f, 0.0f, battery_ah);
+        break;
+    }
+    default:
+        break;
+    }
+
+    const float wh_batt_tot = ah_tot * battery_avg_voltage;
+    const float wh_batt_left = ah_left * battery_avg_voltage_left;
+
+    if (wh_left != (void *)0) {
+        *wh_left = wh_batt_left;
+    }
+
+    return wh_batt_left / wh_batt_tot;
+}

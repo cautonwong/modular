@@ -167,6 +167,23 @@ void foc_run_fw(foc_fw_state_t *state, const foc_fw_params_t *params, bool mode_
 void foc_apply_mtpa(uint8_t mtpa_mode, float ld_lq_diff, float lambda, float iq_filter,
                     float *iq_set, float *id_set);
 
+/*
+ * Battery state of charge and remaining watt-hours, reference mc_interface_get_battery_level()
+ * (motor/mc_interface.c) and utils_batt_liion_norm_v_to_capacity (util/utils_math.c). The
+ * battery types are the reference's enum order (datatypes.h BATTERY_TYPE); they live here
+ * rather than in a consumer's header because app/foc_core does not depend on other apps.
+ */
+#define FOC_BATTERY_TYPE_LIION_3_0__4_2 0u
+#define FOC_BATTERY_TYPE_LIIRON_2_6__3_6 1u
+#define FOC_BATTERY_TYPE_LEAD_ACID 2u
+
+float foc_batt_liion_norm_v_to_capacity(float norm_v);
+
+/* Returns ampere-hours left over ampere-hours total, and writes the remaining watt-hours
+ * through wh_left when it is not NULL (the reference's own output pair). */
+float foc_battery_level(uint8_t battery_type, int cells, float battery_ah, float v_in,
+                        float *wh_left);
+
 /* Ortega flux observer state */
 typedef struct foc_observer {
     float x1;
