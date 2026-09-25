@@ -92,16 +92,16 @@ edge_status_t motor_config_load(motor_config_t *self) {
         return EDGE_EINVAL;
     }
 
-    uint8_t buffer[MOTOR_CONFIG_BUFFER_SIZE];
+    uint8_t *buffer = self->scratch;
     edge_status_t status =
-        self->storage->read(self->storage->self, self->flash_offset, buffer, sizeof(buffer));
+        self->storage->read(self->storage->self, self->flash_offset, buffer, sizeof(self->scratch));
     if (status != EDGE_OK) {
         return status;
     }
 
     mc_configuration_t mc;
     app_configuration_t app;
-    status = motor_config_deserialize(&mc, &app, buffer, sizeof(buffer));
+    status = motor_config_deserialize(&mc, &app, buffer, sizeof(self->scratch));
     if (status != EDGE_OK) {
         return status;
     }
@@ -117,24 +117,26 @@ edge_status_t motor_config_save(motor_config_t *self) {
         return EDGE_EINVAL;
     }
 
-    uint8_t buffer[MOTOR_CONFIG_BUFFER_SIZE];
-    memset(buffer, 0xFF, sizeof(buffer));
+    uint8_t *buffer = self->scratch;
+    memset(buffer, 0xFF, sizeof(self->scratch));
     size_t out_len = 0;
 
-    edge_status_t status =
-        motor_config_serialize(&self->mcconf, &self->appconf, buffer, sizeof(buffer), &out_len);
+    edge_status_t status = motor_config_serialize(&self->mcconf, &self->appconf, buffer,
+                                                  sizeof(self->scratch), &out_len);
     if (status != EDGE_OK) {
         return status;
     }
 
     if (self->storage->erase != (void *)0) {
-        status = self->storage->erase(self->storage->self, self->flash_offset, sizeof(buffer));
+        status =
+            self->storage->erase(self->storage->self, self->flash_offset, sizeof(self->scratch));
         if (status != EDGE_OK) {
             return status;
         }
     }
 
-    status = self->storage->write(self->storage->self, self->flash_offset, buffer, sizeof(buffer));
+    status = self->storage->write(self->storage->self, self->flash_offset, buffer,
+                                  sizeof(self->scratch));
     if (status == EDGE_OK) {
         self->is_dirty = false;
     }

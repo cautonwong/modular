@@ -91,6 +91,13 @@ typedef struct motor_config {
     /* Flash Offset */
     uint32_t flash_offset;
     bool is_dirty;
+    /*
+     * Serialisation scratch for load/save. Kept here rather than in those
+     * functions' frames: it is MOTOR_CONFIG_BUFFER_SIZE (256) bytes, the caller
+     * already owns this struct, and this architecture's rule is that buffers are
+     * provided by the composition root rather than hidden in a deep frame.
+     */
+    uint8_t scratch[MOTOR_CONFIG_BUFFER_SIZE];
 } motor_config_t;
 
 void motor_config_set_defaults(mc_configuration_t *mcconf, app_configuration_t *appconf);
