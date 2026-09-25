@@ -5,6 +5,16 @@
 #include <math.h>
 #include <string.h>
 
+/*
+ * Reference util/utils_math.h:58: SIGN(x) = ((x) < 0.0) ? -1.0 : 1.0. Note the
+ * x == 0 case - it is +1.0, not 0 - and the current-command branch in
+ * foc_core_set_current_rel depends on that, so this is not replaceable by a plain
+ * comparison against zero.
+ */
+static float foc_core_sign(float x) {
+    return (x < 0.0f) ? -1.0f : 1.0f;
+}
+
 static edge_status_t foc_core_poll(edge_module_t *module) {
     foc_core_t *self = (foc_core_t *)edge_module_data(module);
     if (self == (void *)0) {
@@ -183,6 +193,7 @@ void foc_core_construct(foc_core_t *self, uint32_t module_id, uint32_t priority,
     self->iq_integral = 0.0f;
     self->v_d = 0.0f;
     self->v_q = 0.0f;
+    self->duty_now = 0.0f;
     self->v_alpha = 0.0f;
     self->v_beta = 0.0f;
     self->duty_a = 0.5f;
@@ -523,6 +534,22 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
     self->v_d = vd;
     self->v_q = vq;
 
+    /*
+     * Duty cycle, reference mcpwm_foc.c:3818-3820:
+     *   duty_now = SIGN(vq) * NORM2_f(mod_d, mod_q) * p_duty_norm
+     * where mod = v * 1.5 / v_bus (mcpwm_foc.c:3806-3811) and
+     * p_duty_norm = TWO_BY_SQRT3 / foc_overmod_factor. foc_overmod_factor defaults
+     * to 1.0 in the reference (mcconf_default.h:512) and is not a field of this
+     * configuration yet, so the constant stands in for p_duty_norm here; when the
+     * field arrives, divide by it at this line.
+     *
+     * The unfiltered mod values are used, as the reference does - mod_q_filter is a
+     * separate quantity it keeps alongside for other consumers.
+     */
+    const float mod_d = vd * (1.5f / v_bus);
+    const float mod_q = vq * (1.5f / v_bus);
+    self->duty_now = foc_core_sign(vq) * NORM2_f(mod_d, mod_q) * TWO_BY_SQRT3;
+
     /* 9. Inverse Park Transform */
     float v_alpha = 0.0f, v_beta = 0.0f;
     foc_inv_park_transform(vd, vq, sin_th, cos_th, &v_alpha, &v_beta);
@@ -747,7 +774,8 @@ void foc_core_get_telemetry(const foc_core_t *self, foc_telemetry_t *out_telem) 
     out_telem->current_d = self->last_id;
     out_telem->current_q = self->last_iq;
     out_telem->current_abs = sqrtf(SQ(self->last_id) + SQ(self->last_iq));
-    out_telem->duty_now = self->duty_a;
+    /* Reference mcpwm_foc.c:3818; NOT duty_a, which is a phase duty. */
+    out_telem->duty_now = self->duty_now;
     out_telem->rotor_angle_rad = self->last_angle_rad;
     out_telem->speed_rpm = self->last_rpm;
     out_telem->fet_temp_c = self->fet_temp_c;

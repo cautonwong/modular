@@ -300,6 +300,66 @@ static edge_status_t sim_read_angle(void *self, float *angle_rad, float *rpm) {
     return EDGE_OK;
 }
 
+/*
+ * The duty the protocol reports - and the one foc_core_set_current_rel reads - is
+ * not a phase duty. The reference derives it from the commanded voltages as
+ *   duty_now = SIGN(vq) * NORM2_f(mod_d, mod_q) * p_duty_norm
+ * (mcpwm_foc.c:3818-3820) with mod = v * 1.5 / v_bus and p_duty_norm = TWO_BY_SQRT3
+ * for the default overmodulation factor of 1.0. In duty mode vq = d * v_bus * 2/3
+ * and vd = 0, so mod_q collapses to exactly d and the expected value is d times
+ * TWO_BY_SQRT3 - worked out from the reference's formula, not from the port.
+ */
+static void test_foc_core_duty_now_is_a_modulation_magnitude(void **state) {
+    (void)state;
+
+    sim_context_t sim;
+    sim.v_bus = 24.0f;
+    sim.inv.enabled = false;
+    foc_virtual_motor_init(&sim.vm, 0.05f, 0.00005f, 0.005f, 7, 0.0005f);
+
+    foc_inverter_port_t inv_port = {
+        .set_duty = sim_set_duty, .set_phase_state = sim_set_phase_state, .self = &sim};
+    foc_current_port_t cs_port = {
+        .read_currents = sim_read_currents, .read_vbus = sim_read_vbus, .self = &sim};
+    foc_rotor_port_t rs_port = {.read_angle = sim_read_angle, .self = &sim};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = 300.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = false};
+
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    foc_telemetry_t t;
+
+    assert_int_equal(foc_core_set_duty(&foc, 0.5f), EDGE_OK);
+    assert_int_equal(foc_core_fast_loop(&foc, 0.001f), EDGE_OK);
+    foc_core_get_telemetry(&foc, &t);
+    assert_float_equal(t.duty_now, 0.5f * TWO_BY_SQRT3, 1e-5f);
+
+    /* Signed, not a magnitude: a reverse command reports a negative duty while the
+     * phase duties stay non-negative. */
+    assert_int_equal(foc_core_set_duty(&foc, -0.5f), EDGE_OK);
+    assert_int_equal(foc_core_fast_loop(&foc, 0.001f), EDGE_OK);
+    foc_core_get_telemetry(&foc, &t);
+    assert_float_equal(t.duty_now, -0.5f * TWO_BY_SQRT3, 1e-5f);
+    /* The phase duty (internal, not in the telemetry snapshot) stays non-negative. */
+    assert_true(foc.duty_a >= 0.0f);
+}
+
 /* Test 6: Closed-loop Current Control with Virtual Motor */
 static void test_foc_core_closed_loop_virtual_motor(void **state) {
     (void)state;
@@ -1007,6 +1067,7 @@ int main(void) {
         cmocka_unit_test(test_foc_pll_tracks_phase_rate),
         cmocka_unit_test(test_foc_run_pid_speed),
         cmocka_unit_test(test_foc_core_modes),
+        cmocka_unit_test(test_foc_core_duty_now_is_a_modulation_magnitude),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
