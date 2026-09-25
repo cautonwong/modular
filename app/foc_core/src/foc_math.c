@@ -275,6 +275,67 @@ void foc_svpwm(float v_alpha, float v_beta, float v_bus, float duty_max, float *
     *duty_c = dc;
 }
 
+/*
+ * Reference: the block at the top of foc_observer_update, motor/foc_math.c:34-76.
+ * Literals keep the reference's types (0.1 and 2.0 are doubles there), because
+ * narrowing them moves the result in the last bits - the same lesson as sincos and
+ * atan2.
+ */
+void foc_observer_adjust_params(float r_ohm, float l_henry, float lambda_wb, float ld_lq_diff,
+                                float id, float iq, float i_abs_filter, float l_current_max,
+                                float lambda_est, float sat_comp, foc_sat_comp_mode_t sat_mode,
+                                float r_temp_comp, bool temp_comp, foc_observer_type_t type,
+                                float *r_out, float *l_out, float *lambda_out) {
+    float r = r_ohm;
+    float l = l_henry;
+    float lambda = lambda_wb;
+
+    /* The reference's condition is a chain of >= tests over the ordered observer
+     * enum, where the first term already covers the rest; written once here. */
+    bool lambda_tracking = (type >= FOC_OBSERVER_ORTEGA_LAMBDA_COMP);
+
+    switch (sat_mode) {
+    case FOC_SAT_COMP_LAMBDA:
+        if (lambda_tracking) {
+            l = l * (lambda_est / lambda);
+        }
+        break;
+
+    case FOC_SAT_COMP_FACTOR: {
+        const float comp_fact = sat_comp * (i_abs_filter / l_current_max);
+        l -= l * comp_fact;
+        lambda -= lambda * comp_fact;
+        break;
+    }
+
+    case FOC_SAT_COMP_LAMBDA_AND_FACTOR: {
+        if (lambda_tracking) {
+            l = l * (lambda_est / lambda);
+        }
+        const float comp_fact = sat_comp * (i_abs_filter / l_current_max);
+        l -= l * comp_fact;
+        break;
+    }
+
+    default:
+        break;
+    }
+
+    /* Temperature compensation: the resistance comes from the temperature model. */
+    if (temp_comp) {
+        r = r_temp_comp;
+    }
+
+    /* Adjust inductance for saliency. */
+    if (fabsf(id) > 0.1 || fabsf(iq) > 0.1) {
+        l = l - ld_lq_diff / 2.0 + ld_lq_diff * SQ(iq) / (SQ(id) + SQ(iq));
+    }
+
+    *r_out = r;
+    *l_out = l;
+    *lambda_out = lambda;
+}
+
 void foc_observer_init(foc_observer_t *obs, float initial_lambda) {
     obs->x1 = initial_lambda;
     obs->x2 = 0.0f;

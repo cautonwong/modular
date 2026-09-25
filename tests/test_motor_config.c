@@ -177,10 +177,10 @@ static void test_module_lifecycle_and_storage(void **state) {
     };
 
     /* Caller-provided storage: two instances, so two blocks. */
-    static alignas(MOTOR_CONFIG_STORAGE_ALIGN)
-        unsigned char config_storage[MOTOR_CONFIG_STORAGE_SIZE];
-    static alignas(MOTOR_CONFIG_STORAGE_ALIGN)
-        unsigned char config2_storage[MOTOR_CONFIG_STORAGE_SIZE];
+    static alignas(
+        MOTOR_CONFIG_STORAGE_ALIGN) unsigned char config_storage[MOTOR_CONFIG_STORAGE_SIZE];
+    static alignas(
+        MOTOR_CONFIG_STORAGE_ALIGN) unsigned char config2_storage[MOTOR_CONFIG_STORAGE_SIZE];
     motor_config_t *config = (motor_config_t *)config_storage;
     memset(config_storage, 0, sizeof(config_storage));
     memset(config2_storage, 0, sizeof(config2_storage));

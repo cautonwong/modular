@@ -29,6 +29,17 @@ void foc_fast_sincos(float angle_rad, float *sin_out, float *cos_out);
 float foc_fast_atan2(float y, float x);
 
 /*
+ * Saturation compensation mode, same order and meaning as the reference's
+ * SAT_COMP_MODE (datatypes.h).
+ */
+typedef enum {
+    FOC_SAT_COMP_DISABLED = 0,
+    FOC_SAT_COMP_FACTOR,
+    FOC_SAT_COMP_LAMBDA,
+    FOC_SAT_COMP_LAMBDA_AND_FACTOR,
+} foc_sat_comp_mode_t;
+
+/*
  * Phase-locked loop, reference util/... foc_math.c foc_pll_run (motor/foc_math.c:225).
  * The observer gives an angle; the PLL turns it into the electrical speed the
  * control path actually uses. This port previously differentiated the observer
@@ -80,6 +91,24 @@ typedef struct foc_observer {
 } foc_observer_t;
 
 void foc_observer_init(foc_observer_t *obs, float initial_lambda);
+/*
+ * The electrical-parameter compensation the reference performs at the top of
+ * foc_observer_update (motor/foc_math.c:34-76), extracted here as a pure function:
+ * the observer keeps taking explicit R/L/lambda, and whoever calls it owns the
+ * decision about how the machine's parameters change with load and heat.
+ *
+ * Inputs mirror the reference's sources: `ld_lq_diff`/`l_current_max`/`sat_comp`
+ * come from the configuration, `i_abs_filter`/`id`/`iq` from the measured state,
+ * `lambda_est` from the observer's own flux estimate, `r_temp_comp` from the
+ * temperature model. `type` matters because the lambda-scaled branch only applies
+ * to the observers that track a flux estimate.
+ */
+void foc_observer_adjust_params(float r_ohm, float l_henry, float lambda_wb, float ld_lq_diff,
+                                float id, float iq, float i_abs_filter, float l_current_max,
+                                float lambda_est, float sat_comp, foc_sat_comp_mode_t sat_mode,
+                                float r_temp_comp, bool temp_comp, foc_observer_type_t type,
+                                float *r_out, float *l_out, float *lambda_out);
+
 void foc_observer_update(foc_observer_t *obs, float v_alpha, float v_beta, float i_alpha,
                          float i_beta, float dt, float r_ohm, float l_henry, float lambda_wb,
                          float gamma, foc_observer_type_t type);
