@@ -283,3 +283,94 @@ bool motor_config_is_dirty(const motor_config_t *self) {
      */
     return (self != (void *)0) && self->is_dirty;
 }
+
+/*
+ * Reference util/crc.c crc16(): CRC-16/CCITT-FALSE with a zero initial value, computed bitwise
+ * rather than with the reference's 256-entry table. vesc_can carries a copy of this for the same
+ * layering reason (an app may not depend on infra, and D30 decided against a shared util); the
+ * tests cross-check this one against the codec's table-driven vesc_crc16 so the copies agree.
+ */
+static uint16_t config_crc16(const uint8_t *buf, size_t len) {
+    uint16_t cksum = 0u;
+    for (size_t i = 0u; i < len; i++) {
+        cksum ^= (uint16_t)((uint16_t)buf[i] << 8);
+        for (int b = 0; b < 8; b++) {
+            cksum = (cksum & 0x8000u) ? (uint16_t)((uint16_t)(cksum << 1) ^ 0x1021u)
+                                      : (uint16_t)(cksum << 1);
+        }
+    }
+    return cksum;
+}
+
+uint16_t motor_config_config_crc(mc_configuration_t *mcconf) {
+    if (mcconf == (void *)0) {
+        return 0u;
+    }
+
+    /* In place, as the reference does: a struct copy's padding need not be copied, and the
+     * padding is part of the CRC's input. */
+    const uint16_t saved = mcconf->crc;
+    mcconf->crc = 0u;
+    const uint16_t crc = config_crc16((const uint8_t *)mcconf, sizeof(*mcconf));
+    mcconf->crc = saved;
+    return crc;
+}
+
+edge_status_t motor_config_store_to_vars(motor_config_t *self,
+                                         const motor_config_var_port_t *port) {
+    if (self == (void *)0 || port == (void *)0 || port->write == (void *)0) {
+        return EDGE_EINVAL;
+    }
+
+    /* The reference computes the CRC into the struct's own field first, then writes the whole
+     * struct out as variables, so the stored image includes the CRC it was built with. */
+    self->mcconf.crc = motor_config_config_crc(&self->mcconf);
+
+    const uint8_t *bytes = (const uint8_t *)&self->mcconf;
+    const size_t count = sizeof(self->mcconf) / 2u;
+    for (size_t i = 0u; i < count; i++) {
+        const uint16_t value =
+            (uint16_t)(((uint16_t)bytes[2u * i] << 8) | (uint16_t)bytes[2u * i + 1u]);
+        edge_status_t status = port->write(port->self, (uint16_t)i, value);
+        if (status != EDGE_OK) {
+            return status;
+        }
+    }
+
+    self->is_dirty = false;
+    return EDGE_OK;
+}
+
+edge_status_t motor_config_load_from_vars(motor_config_t *self,
+                                          const motor_config_var_port_t *port) {
+    if (self == (void *)0 || port == (void *)0 || port->read == (void *)0) {
+        return EDGE_EINVAL;
+    }
+
+    /*
+     * Read into the staging copy so a failed read cannot half-overwrite the running
+     * configuration, then check the struct's own CRC exactly as conf_general_read_mc_configuration
+     * does: a missing variable or a mismatch falls back to the defaults.
+     */
+    uint8_t *bytes = (uint8_t *)&self->staging_mc;
+    const size_t count = sizeof(self->staging_mc) / 2u;
+    for (size_t i = 0u; i < count; i++) {
+        uint16_t value = 0u;
+        edge_status_t status = port->read(port->self, (uint16_t)i, &value);
+        if (status != EDGE_OK) {
+            motor_config_set_defaults(&self->mcconf, &self->appconf);
+            return status;
+        }
+        bytes[2u * i] = (uint8_t)(value >> 8);
+        bytes[2u * i + 1u] = (uint8_t)(value & 0xFFu);
+    }
+
+    if (self->staging_mc.crc != motor_config_config_crc(&self->staging_mc)) {
+        motor_config_set_defaults(&self->mcconf, &self->appconf);
+        return EDGE_EINVAL;
+    }
+
+    self->mcconf = self->staging_mc;
+    self->is_dirty = false;
+    return EDGE_OK;
+}

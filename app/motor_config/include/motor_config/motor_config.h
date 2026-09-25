@@ -27,12 +27,41 @@ extern "C" {
 /*
  * Consumer-Defined Storage Port (Rules: void *self; callbacks take void *self)
  */
+typedef struct motor_config motor_config_t;
+
 typedef struct motor_config_storage_port {
     edge_status_t (*read)(void *self, uint32_t offset, uint8_t *buf, size_t len);
     edge_status_t (*write)(void *self, uint32_t offset, const uint8_t *buf, size_t len);
     edge_status_t (*erase)(void *self, uint32_t offset, size_t len);
     void *self;
 } motor_config_storage_port_t;
+
+/*
+ * The variable store the reference actually persists a configuration in: EE_WriteVariable /
+ * EE_ReadVariable, one uint16 variable per two bytes of mc_configuration, at virtual address
+ * EEPROM_BASE_MCCONF + i (conf_general.c:436-520). Keys here are the logical index i; the base is
+ * the consumer's business, which keeps the reference's address layout out of this module.
+ */
+typedef struct motor_config_var_port {
+    edge_status_t (*read)(void *self, uint16_t index, uint16_t *value);
+    edge_status_t (*write)(void *self, uint16_t index, uint16_t value);
+    void *self;
+} motor_config_var_port_t;
+
+/*
+ * The reference's mc_interface_calc_crc (motor/mc_interface.c:3067): the struct's own crc member
+ * is zeroed, crc16 runs over the whole sizeof(mc_configuration) - padding included - and the field
+ * is restored. Because padding is part of the input, the value only means anything against a
+ * struct whose padding is deterministic, so this takes a mutable pointer rather than working on a
+ * copy: use the aggregate's own memset configuration, never a stack temporary.
+ */
+uint16_t motor_config_config_crc(mc_configuration_t *mcconf);
+
+/* Store/load through the variable store, with the reference's own failure behaviour: a missing
+ * variable or a CRC mismatch falls back to the defaults and reports the failure. */
+edge_status_t motor_config_store_to_vars(motor_config_t *self, const motor_config_var_port_t *port);
+edge_status_t motor_config_load_from_vars(motor_config_t *self,
+                                          const motor_config_var_port_t *port);
 
 /*
  * Opaque, caller-provided memory. The definition and its size/alignment
@@ -54,8 +83,6 @@ typedef struct motor_config_storage_port {
  */
 #define MOTOR_CONFIG_STORAGE_SIZE 3576u
 #define MOTOR_CONFIG_STORAGE_ALIGN alignof(max_align_t)
-
-typedef struct motor_config motor_config_t;
 
 void motor_config_set_defaults(mc_configuration_t *mcconf, app_configuration_t *appconf);
 
