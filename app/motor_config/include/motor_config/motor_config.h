@@ -63,8 +63,8 @@ typedef struct mc_configuration {
     /* Saturation and saliency compensation, reference defaults: disabled, factor
      * 0.0, ld_lq_diff 0.0 (mcconf_default.h). Temperature compensation is NOT
      * carried: its model needs a motor temperature this port has no source for. */
-    uint8_t foc_sat_comp_mode; /* 0 - SAT_COMP_DISABLED */
-    float foc_sat_comp;        /* 0.0 */
+    uint8_t foc_sat_comp_mode;  /* 0 - SAT_COMP_DISABLED */
+    float foc_sat_comp;         /* 0.0 */
     float foc_motor_ld_lq_diff; /* 0.0 */
 } mc_configuration_t;
 

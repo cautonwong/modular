@@ -351,14 +351,12 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
         float r_eff = self->config.r_ohm;
         float l_eff = self->config.l_henry;
         float lambda_eff = self->config.lambda_wb;
-        foc_observer_adjust_params(self->config.r_ohm, self->config.l_henry,
-                                   self->config.lambda_wb, self->config.ld_lq_diff,
-                                   self->last_id, self->last_iq, self->i_abs_filter,
-                                   self->config.current_max_a, self->observer.lambda_est,
-                                   self->config.sat_comp,
-                                   (foc_sat_comp_mode_t)self->config.sat_comp_mode,
-                                   self->config.r_ohm, false, self->config.observer_type, &r_eff,
-                                   &l_eff, &lambda_eff);
+        foc_observer_adjust_params(
+            self->config.r_ohm, self->config.l_henry, self->config.lambda_wb,
+            self->config.ld_lq_diff, self->last_id, self->last_iq, self->i_abs_filter,
+            self->config.current_max_a, self->observer.lambda_est, self->config.sat_comp,
+            (foc_sat_comp_mode_t)self->config.sat_comp_mode, self->config.r_ohm, false,
+            self->config.observer_type, &r_eff, &l_eff, &lambda_eff);
 
         foc_observer_update(&self->observer, self->v_alpha, self->v_beta, i_alpha, i_beta, dt,
                             r_eff, l_eff, lambda_eff, self->config.observer_gamma,
