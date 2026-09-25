@@ -133,21 +133,12 @@ clang-format --dry-run     # 格式
 
 ## 5. 已知语义偏差（登记去向）
 
-本文不列偏差。下面三类偏差必须写进 [`adr-conformance.md`](adr-conformance.md)，
-在该文档登记之前，它们属于**未收口**状态：
+偏差清单**不在这里**。`adr.md` 是唯一决策源，`adr-conformance.md` 是唯一差异视图；
+本文件只负责计划与判据。BLDC 族的偏差已登记在
+[`adr-conformance.md`](adr-conformance.md) 的「BLDC / VESC port」一节。
 
-1. 均值累加器的采样时机：原版采样器与控制环解耦且停机时仍累加（复用上次 vd/vq），
-   本仓库在 `foc_core` 的周期 poll 中累加、停机时不累加 vd/vq。
-1b. 电量累加器（amp/watt hours）的累加节拍：原版在周期性 MC 定时器 ISR 里用该定时器的
-   `dt` 累加（`mc_interface.c:2036`），本仓库在快环里用环路 `dt` 累加。被积量同为
-   ∫i dt，但采样率不同（此处更密）。
-1c. 统计量的输入侧差异：功率统计用**未滤波**的母线电压（原版用滤波后的），速度统计
-   （bit 0/1）与 `count_time`（bit 10）返回 0 —— 前者需要 `si_motor_poles` /
-   `si_wheel_diameter` / `si_gear_ratio`（见阶段 C1），后者需要一个时钟。
-   电机温度统计因无电机 NTC 而停在 `-300` 种子值（与原版 `stat_reset` 同种子的语义一致）。
-2. 无数据源的字段（电机 NTC、输入电流、三路 MOS 温度）在协议层返回 0，
-   原版返回真实测量值。
-3. `soc/stm32f4` 与 `board/vesc6` 目前是纯算术适配，不含寄存器级驱动。
-4. 配置持久化是自造格式（见阶段 C 的说明），不是 `confgenerator.c` 的字节流；
-   在 C2 之前，`COMM_GET_MCCONF` 无法做到与上位机兼容。
-5. 极对数有两份真相（`foc_config_t.pole_pairs` 与配置里的 `si_motor_poles`）。
+已被修掉、不再属于偏差的前提（留作记录）：
+
+- 极对数曾有两份真相（`foc_config_t.pole_pairs` 与 `si_motor_poles`）—— 已收敛为 `si_motor_poles`。
+- 速度统计曾返回 0（缺 `si_*` 字段）—— 已打通。
+- `tachometer` 曾被认为需要霍尔/编码器步进源 —— 读原版后否证，见阶段 A 的更正。

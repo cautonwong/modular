@@ -206,7 +206,7 @@ jobs:
           cmake --build build --parallel
       - name: Run host products
         run: |
-          for product in example meter_host meter_mps2 meter_gateway_host; do
+          for product in example meter_host meter_mps2 meter_gateway_host vesc_host; do
             echo "running $product"
             ./build/$product
           done

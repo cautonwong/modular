@@ -304,5 +304,21 @@ int main(void) {
     printf("VESC Host Simulation Finished. RPM: %.1f, Current Q: %.2f A, Errors: %u\n",
            (double)telem.speed_rpm, (double)telem.current_q, telem.faults);
 
+    /*
+     * The run asserts itself, so CI can use the exit code instead of grepping
+     * stdout: a closed loop that ends in a fault, or that did not spin the motor,
+     * exits non-zero. Before this the product printed its state and returned 0
+     * whatever happened, which is how it spent a while reporting a diverged
+     * d-axis current and an over-current fault unnoticed.
+     */
+    if (telem.faults != 0u) {
+        printf("FAIL: the loop ended in fault 0x%x\n", telem.faults);
+        return 30;
+    }
+    if (telem.speed_rpm < 100.0f) {
+        printf("FAIL: closed loop did not spin the motor (%.1f rpm)\n", (double)telem.speed_rpm);
+        return 31;
+    }
+
     return 0;
 }

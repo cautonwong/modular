@@ -79,6 +79,36 @@ Legend: ✅ implemented · 🟡 partial · ❌ not implemented · ⛔ contradict
 | D34/D35/D76 | Distribution, compliance, OTA | ❌ | Separate workstreams, out of scope by decision |
 | D88 | Every area directory declares its own build target; the top-level file only discovers areas and composes products | ✅ | `cmake/EdgeTargets.cmake` defines the module shape once; `app/*`, `infra/*`, `board/*`, `soc/*`, `sys/*`, `pal/*` each carry a `CMakeLists.txt`; host tests name their own dependencies; enforced by `check_area_registration.py` with both fixtures, and `check_cmake_apps.py` / `check_product_board_binding.py` were re-pointed at the area files |
 
+## BLDC / VESC port (phases A-E, in progress)
+
+The `bldc` family ports `vendor/bldc` (VESC) into this architecture. Plan, the six
+completion criteria and the phase route: [`bldc-migration.md`](bldc-migration.md).
+This table is the drift view required by that plan, not a second plan. A decision
+number for the family is deliberately left to the maintainer.
+
+Porting rule applied throughout: the reference source is the only authority, and a
+claim of "1:1" is only made where a differential harness compiles the reference and
+compares it (14/14 in the util harness, 8/8 in the motor harness at the time of
+writing).
+
+| Area | Status | Evidence / divergence |
+|---|---|---|
+| FOC math (Clarke/Park/SVPWM, sincos, atan2) | ✅ | Differential: `foc_svm` matches over 6561 vectors (max duty difference 1.5 integer counts, the reference's own rounding). The earlier `v/(v_bus*sqrt(3)/2)` normalisation was a sqrt(3) error, fixed in `cf5baaf` |
+| Observer family (7 types) | ✅ | Differential: bit-identical to `foc_observer_update` for all seven (max abs phase and state delta 0.000000 over 4000 steps each) |
+| PLL | ✅ | Differential: bit-identical to `foc_pll_run`; the non-reference phase differencing it replaced is deleted |
+| Decoded app inputs, statistics, energy counters, tachometer | ✅ | Wire bytes pinned per command; reset/read-reset semantics covered by tests |
+| Average sampler tick | 🟡 | The reference samples on a dedicated periodic thread and keeps summing while the motor is idle (reusing the last vd/vq); this port accumulates in `foc_core`'s periodic `poll` and adds nothing to vd/vq while idle |
+| Energy counter tick | 🟡 | Reference accumulates in the MC timer ISR with that timer's dt (`mc_interface.c:2036`); this port accumulates in the FOC loop with the loop dt. Same integral, finer sampling |
+| Statistics inputs | 🟡 | Power statistic uses the unfiltered bus voltage; `count_time` returns 0 (needs a clock this module is not given); motor-temperature statistics stay at the reference's `-300` seed because no motor NTC is wired |
+| Fields with no source | 🟡 | Motor NTC, three MOSFET temperatures and the timeout/kill-switch status return 0. Input current is the reference's power-balance estimate, not a DC measurement |
+| Speed and position control loops | ❌ | The reference runs `foc_run_pid_control_speed` / `_pos` with `s_pid_*` / `p_pid_*` configuration; this port uses fixed gains (`iq_cmd = err_rpm * 0.01f`). B6 |
+| Field weakening, HFI, saturation/temperature compensation, motor detection | ❌ | Not ported. B2-B5 |
+| Configuration byte stream | ❌ | This port's `motor_config` flash format is its own framing (signature + version + length + CRC), not `confgenerator.c`'s stream, so `COMM_GET_MCCONF` is not peer-compatible yet. The reference's field table is extracted in [`bldc-mcconf-format.md`](bldc-mcconf-format.md). A7 + C1/C2 |
+| Commands not yet handled | 🟡 | 160 ids are declared; the handled set is listed in `vesc_comm_process_command`. Unhandled ids answer nothing, as an unknown command does in the reference |
+| `soc/stm32f4`, `board/vesc6` | ❌ | Arithmetic adapters only (scaling, deadtime encoding); no register-level PWM/ADC drivers. D2 |
+| `product/vesc6_stm32f4` | ❌ | Does not exist, though issue #203 claimed Phase 4 delivered it. D1 |
+| Boards with no product | 🟡 | `board/vesc4` and `board/vesc_unity` build but no product binds them. E4 |
+
 ## Open conflicts
 
 1. **D65 (multi-SPSC)**: the implementation deliberately uses one queue plus an
