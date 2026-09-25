@@ -119,7 +119,7 @@ edge_status_t vesc_terminal_execute(vesc_terminal_app_t *app, const char *cmd) {
         return EDGE_EINVAL;
     }
 
-    char out_buf[128];
+    char *out_buf = app->cmd_scratch;
     size_t pos = 0;
     out_buf[0] = '\0';
 
@@ -140,17 +140,17 @@ edge_status_t vesc_terminal_execute(vesc_terminal_app_t *app, const char *cmd) {
         uint32_t faults = 0;
         app->sys_port.get_stats(app->sys_port.self, &rpm, &iq, &v_bus, &temp, &faults);
 
-        append_str(out_buf, sizeof(out_buf), &pos, "RPM: ");
-        append_float(out_buf, sizeof(out_buf), &pos, rpm, 1);
-        append_str(out_buf, sizeof(out_buf), &pos, ", Current: ");
-        append_float(out_buf, sizeof(out_buf), &pos, iq, 2);
-        append_str(out_buf, sizeof(out_buf), &pos, " A, Vbus: ");
-        append_float(out_buf, sizeof(out_buf), &pos, v_bus, 1);
-        append_str(out_buf, sizeof(out_buf), &pos, " V, Temp: ");
-        append_float(out_buf, sizeof(out_buf), &pos, temp, 1);
-        append_str(out_buf, sizeof(out_buf), &pos, " C, Faults: ");
-        append_uint(out_buf, sizeof(out_buf), &pos, faults);
-        append_str(out_buf, sizeof(out_buf), &pos, "\r\n");
+        append_str(out_buf, sizeof(app->cmd_scratch), &pos, "RPM: ");
+        append_float(out_buf, sizeof(app->cmd_scratch), &pos, rpm, 1);
+        append_str(out_buf, sizeof(app->cmd_scratch), &pos, ", Current: ");
+        append_float(out_buf, sizeof(app->cmd_scratch), &pos, iq, 2);
+        append_str(out_buf, sizeof(app->cmd_scratch), &pos, " A, Vbus: ");
+        append_float(out_buf, sizeof(app->cmd_scratch), &pos, v_bus, 1);
+        append_str(out_buf, sizeof(app->cmd_scratch), &pos, " V, Temp: ");
+        append_float(out_buf, sizeof(app->cmd_scratch), &pos, temp, 1);
+        append_str(out_buf, sizeof(app->cmd_scratch), &pos, " C, Faults: ");
+        append_uint(out_buf, sizeof(app->cmd_scratch), &pos, faults);
+        append_str(out_buf, sizeof(app->cmd_scratch), &pos, "\r\n");
         return app->stream_port.write_string(app->stream_port.self, out_buf);
     }
 
@@ -165,15 +165,15 @@ edge_status_t vesc_terminal_execute(vesc_terminal_app_t *app, const char *cmd) {
         if (faults == 0) {
             return app->stream_port.write_string(app->stream_port.self, "No faults\r\n");
         }
-        append_str(out_buf, sizeof(out_buf), &pos, "Fault code: ");
-        append_hex32(out_buf, sizeof(out_buf), &pos, faults);
-        append_str(out_buf, sizeof(out_buf), &pos, "\r\n");
+        append_str(out_buf, sizeof(app->cmd_scratch), &pos, "Fault code: ");
+        append_hex32(out_buf, sizeof(app->cmd_scratch), &pos, faults);
+        append_str(out_buf, sizeof(app->cmd_scratch), &pos, "\r\n");
         return app->stream_port.write_string(app->stream_port.self, out_buf);
     }
 
-    append_str(out_buf, sizeof(out_buf), &pos, "Unknown command: ");
-    append_str(out_buf, sizeof(out_buf), &pos, cmd);
-    append_str(out_buf, sizeof(out_buf), &pos, "\r\n");
+    append_str(out_buf, sizeof(app->cmd_scratch), &pos, "Unknown command: ");
+    append_str(out_buf, sizeof(app->cmd_scratch), &pos, cmd);
+    append_str(out_buf, sizeof(app->cmd_scratch), &pos, "\r\n");
     return app->stream_port.write_string(app->stream_port.self, out_buf);
 }
 

@@ -27,6 +27,11 @@ typedef struct vesc_terminal_app {
     edge_module_t module;
     terminal_stream_port_t stream_port;
     terminal_system_port_t sys_port;
+    /*
+     * Scratch for whichever command is being formatted. Caller-provided with the
+     * rest of the struct rather than 128 bytes of a deep frame per command.
+     */
+    char cmd_scratch[128];
 } vesc_terminal_app_t;
 
 void vesc_terminal_construct(vesc_terminal_app_t *app, uint32_t module_id, uint32_t priority,
