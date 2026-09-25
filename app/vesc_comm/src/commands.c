@@ -369,6 +369,53 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
         return vesc_comm_send_packet(self, resp, 1u);
     }
 
+    case COMM_GET_DECODED_PPM: {
+        if (self->app_status == (void *)0 || self->app_status->get_decoded_ppm == (void *)0) {
+            return EDGE_EINVAL;
+        }
+        float level = 0.0f;
+        float pulse_us = 0.0f;
+        edge_status_t st =
+            self->app_status->get_decoded_ppm(self->app_status->self, &level, &pulse_us);
+        if (st != EDGE_OK) {
+            return st;
+        }
+
+        uint8_t resp[16];
+        size_t resp_len = 0;
+        resp[resp_len++] = COMM_GET_DECODED_PPM;
+        /* Reference: decoded level and pulse length, int32 scaled by 1e6. */
+        buffer_append_int32(resp, (int32_t)(level * 1000000.0), &resp_len);
+        buffer_append_int32(resp, (int32_t)(pulse_us * 1000000.0), &resp_len);
+
+        return vesc_comm_send_packet(self, resp, resp_len);
+    }
+
+    case COMM_GET_DECODED_ADC: {
+        if (self->app_status == (void *)0 || self->app_status->get_decoded_adc == (void *)0) {
+            return EDGE_EINVAL;
+        }
+        float level = 0.0f;
+        float voltage = 0.0f;
+        float level2 = 0.0f;
+        float voltage2 = 0.0f;
+        edge_status_t st = self->app_status->get_decoded_adc(self->app_status->self, &level,
+                                                             &voltage, &level2, &voltage2);
+        if (st != EDGE_OK) {
+            return st;
+        }
+
+        uint8_t resp[24];
+        size_t resp_len = 0;
+        resp[resp_len++] = COMM_GET_DECODED_ADC;
+        buffer_append_int32(resp, (int32_t)(level * 1000000.0), &resp_len);
+        buffer_append_int32(resp, (int32_t)(voltage * 1000000.0), &resp_len);
+        buffer_append_int32(resp, (int32_t)(level2 * 1000000.0), &resp_len);
+        buffer_append_int32(resp, (int32_t)(voltage2 * 1000000.0), &resp_len);
+
+        return vesc_comm_send_packet(self, resp, resp_len);
+    }
+
     case COMM_ALIVE:
         return EDGE_OK;
 

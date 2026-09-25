@@ -33,6 +33,11 @@ typedef struct vesc_host_glue_state {
     uint8_t last_can_data[8];
     uint8_t last_can_len;
     char terminal_tx_buf[256];
+
+    /* The decoded-input adapters read through the apps, not through the raw glue
+     * fields; the composition root points these at the constructed apps. */
+    const ppm_app_t *ppm;
+    const adc_input_app_t *adc;
 } vesc_host_glue_state_t;
 
 void vesc_host_make_storage_port(motor_config_storage_port_t *out, vesc_host_glue_state_t *state);
@@ -43,6 +48,7 @@ void vesc_host_make_current_port(foc_current_port_t *out, vesc_host_glue_state_t
 void vesc_host_make_rotor_port(foc_rotor_port_t *out, vesc_host_glue_state_t *state);
 void vesc_host_make_ppm_port(ppm_receiver_port_t *out, vesc_host_glue_state_t *state);
 void vesc_host_make_adc_port(adc_input_port_t *out, vesc_host_glue_state_t *state);
+void vesc_host_make_app_status_port(vesc_app_status_port_t *out, vesc_host_glue_state_t *state);
 void vesc_host_make_can_port(vesc_can_port_t *out, vesc_host_glue_state_t *state);
 void vesc_host_make_motor_id_measure_port(motor_id_measure_port_t *out,
                                           vesc_host_glue_state_t *state);

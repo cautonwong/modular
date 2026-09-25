@@ -65,7 +65,7 @@ clang-format --dry-run     # 格式
 | A4b | 电流低通链（`foc_current_filter_const` → `id_filter`/`iq_filter` → `i_abs_filter`） | 已完成 ✓（A4 的前置，读原版才发现的依赖） |
 | A4c | `tachometer`（bit 13/14）：原版计的是**霍尔/编码器步进差分**，不是角度；需要转子端口暴露步进源 | 待办（阻塞于端口形状） |
 | A5 | `GET_STATS` / `RESET_STATS`（请求掩码 16 位、回包掩码 32 位；ack 才回） | 已完成 ✓ |
-| A6 | `GET_DECODED_ADC` / `GET_DECODED_PPM`（需要 `adc_input`、`ppm` 端口） | 待办 |
+| A6 | `GET_DECODED_ADC` / `GET_DECODED_PPM`（原版从 app_adc/app_ppm 直读；此处经 `vesc_app_status_port_t`） | 已完成 ✓ |
 | A7 | `GET_MCCONF`/`GET_APPCONF` + `SET` 版（需要配置序列化器，见阶段 C） | 待办 |
 | A8 | `COMM_FORWARD_CAN`、`COMM_TERMINAL_CMD`，其余按 VESC Tool 实际调用序列补齐 | 待办 |
 

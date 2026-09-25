@@ -54,6 +54,8 @@ void ppm_construct(ppm_app_t *app, uint32_t module_id, uint32_t priority,
 edge_status_t ppm_init(ppm_app_t *app);
 edge_status_t ppm_update(ppm_app_t *app, float dt);
 float ppm_get_output(const ppm_app_t *app);
+/* Last accepted pulse width in microseconds (reference: servodec_get_last_pulse_len). */
+float ppm_get_last_pulse_us(const ppm_app_t *app);
 bool ppm_is_safe(const ppm_app_t *app);
 edge_module_t *ppm_module(ppm_app_t *app);
 
