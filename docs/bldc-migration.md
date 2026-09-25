@@ -117,13 +117,22 @@ clang-format --dry-run     # 格式
   与弱磁）。端口原先在 `foc_core_set_current` 里夹紧到 `[current_min_a, current_max_a]`
   （原版没有）且未乘 `DIR_MULT`；今已去夹紧，`DIR_MULT` 按原版**逐命令**在 glue 施加
   （current / brake / duty / pid_speed 有，**handbrake 特意没有**）。
-- **刹车仍缺控制模式**：原版刹车是 `CONTROL_MODE_CURRENT_BRAKE` +
-  `m_iq_set = DIR_MULT * current`（**不取反**，mcpwm_foc.c:828），端口没有刹车模式，
-  用负电流近似 —— 保留该符号不自行翻转，因为缺了模式符号就没有意义（已记入
-  `adr-conformance.md`）。
-- `set_current_off_delay` 的唯一消费者是弱磁的调制延长逻辑（`mcpwm_foc.c:3953` 衰减、
-  `:3970` 判 `m_current_off_delay < dt`），所以 B3 之前即使调它也不可观测；接线时再补，
-  并在 `adr-conformance.md` 标为“待 B3”。
+- **刹车仍缺控制模式（已定位到具体环内语义，待 B3）**：原版刹车是
+  `CONTROL_MODE_CURRENT_BRAKE` + `m_iq_set = DIR_MULT * current`（**不取反**，
+  mcpwm_foc.c:828）。模式本身的含义分布在环内四处，**不可用“负电流”近似替代**：
+  `mcpwm_foc.c:3450` `iq_set_tmp = -SIGN(speed_fast_now) * fabsf(iq_set_tmp)`（刹车电流
+  逆着转速）；`:3328` `utils_truncate_number_abs(&iq_set_tmp, -conf_now->lo_current_min)`
+  （幅度上限）；`:3391` `current_max_for_duty = fabsf(lo_current_min)`（按 duty 的限流基数
+  换成正限）；`:4091` 刹车模式下清零 min-rpm 迟滞。真正的大头是 `:3350` 的**主动刹车状态机**
+  —— “把三相一直短接（duty=0）直到刹车电流达到设定或上限，再回到电流控制，且至少停留
+  10 个周期”（用到 `m_br_speed_before` / `m_br_vq_before` / `m_br_no_duty_samples` /
+  `m_duty_filtered`），并且 `foc_math.c:722` 说明弱磁在刹车模式下也参与。所以它与 B3 共用
+  一套状态，端口目前的 `-current` 近似**保留不动**，不自行翻转符号。
+- 原计划把两项列入 B6，读原版后**归属应改正**：
+  `utils_step_towards(&m_iq_set, ...)` 的斜坡在 `mcpwm_foc_measure_resistance()` 里
+  （mcpwm_foc.c:1818），属于 **B5 检测**；`utils_map(fabsf(duty_now), 0, 40/v_bus,
+  0, foc_observer_gain)`（mcpwm_foc.c:4150）是**观测器增益随 duty/v_bus 缩放**，属于
+  **B4**，且它正是 `duty_now` 的消费者之一（duty_now 已修正）。
 
 ### 阶段 C — 配置与持久化
 
