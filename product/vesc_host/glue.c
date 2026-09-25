@@ -190,6 +190,37 @@ static edge_status_t motor_set_pos(void *self, float pos) {
     return foc_core_set_pos((foc_core_t *)self, pos);
 }
 
+static edge_status_t motor_get_stats(void *self, vesc_stats_t *out_val) {
+    foc_core_t *foc = (foc_core_t *)self;
+    if (!foc || !out_val) {
+        return EDGE_EINVAL;
+    }
+
+    foc_stats_t st;
+    foc_core_get_stats(foc, &st);
+    memset(out_val, 0, sizeof(*out_val));
+
+    out_val->power_avg = st.power_avg;
+    out_val->power_max = st.power_max;
+    out_val->current_avg = st.current_avg;
+    out_val->current_max = st.current_max;
+    out_val->temp_mos_avg = st.temp_mos_avg;
+    out_val->temp_mos_max = st.temp_mos_max;
+    out_val->temp_motor_avg = st.temp_motor_avg;
+    out_val->temp_motor_max = st.temp_motor_max;
+    /*
+     * Left 0, not faked: the speed statistics need si_motor_poles /
+     * si_wheel_diameter / si_gear_ratio from the configuration (C1 in
+     * docs/bldc-migration.md), and count_time needs a clock.
+     */
+    return EDGE_OK;
+}
+
+static edge_status_t motor_reset_stats(void *self) {
+    foc_core_stats_reset((foc_core_t *)self);
+    return EDGE_OK;
+}
+
 void vesc_host_make_motor_provider_port(vesc_motor_provider_port_t *out, foc_core_t *foc) {
     if (!out || !foc) {
         return;
@@ -201,6 +232,8 @@ void vesc_host_make_motor_provider_port(vesc_motor_provider_port_t *out, foc_cor
         .set_current_brake = motor_set_current_brake,
         .set_rpm = motor_set_rpm,
         .set_pos = motor_set_pos,
+        .get_stats = motor_get_stats,
+        .reset_stats = motor_reset_stats,
         .self = foc,
     };
 }

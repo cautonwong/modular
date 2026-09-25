@@ -64,7 +64,7 @@ clang-format --dry-run     # 格式
 | A4 | 输入电流估计 + 电量累加器（打通 bit 3、9-12） | 已完成 ✓ |
 | A4b | 电流低通链（`foc_current_filter_const` → `id_filter`/`iq_filter` → `i_abs_filter`） | 已完成 ✓（A4 的前置，读原版才发现的依赖） |
 | A4c | `tachometer`（bit 13/14）：原版计的是**霍尔/编码器步进差分**，不是角度；需要转子端口暴露步进源 | 待办（阻塞于端口形状） |
-| A5 | `GET_STATS` / `RESET_STATS` | 待办 |
+| A5 | `GET_STATS` / `RESET_STATS`（请求掩码 16 位、回包掩码 32 位；ack 才回） | 已完成 ✓ |
 | A6 | `GET_DECODED_ADC` / `GET_DECODED_PPM`（需要 `adc_input`、`ppm` 端口） | 待办 |
 | A7 | `GET_MCCONF`/`GET_APPCONF` + `SET` 版（需要配置序列化器，见阶段 C） | 待办 |
 | A8 | `COMM_FORWARD_CAN`、`COMM_TERMINAL_CMD`，其余按 VESC Tool 实际调用序列补齐 | 待办 |
@@ -125,6 +125,10 @@ clang-format --dry-run     # 格式
 1b. 电量累加器（amp/watt hours）的累加节拍：原版在周期性 MC 定时器 ISR 里用该定时器的
    `dt` 累加（`mc_interface.c:2036`），本仓库在快环里用环路 `dt` 累加。被积量同为
    ∫i dt，但采样率不同（此处更密）。
+1c. 统计量的输入侧差异：功率统计用**未滤波**的母线电压（原版用滤波后的），速度统计
+   （bit 0/1）与 `count_time`（bit 10）返回 0 —— 前者需要 `si_motor_poles` /
+   `si_wheel_diameter` / `si_gear_ratio`（见阶段 C1），后者需要一个时钟。
+   电机温度统计因无电机 NTC 而停在 `-300` 种子值（与原版 `stat_reset` 同种子的语义一致）。
 2. 无数据源的字段（电机 NTC、输入电流、三路 MOS 温度）在协议层返回 0，
    原版返回真实测量值。
 3. `soc/stm32f4` 与 `board/vesc6` 目前是纯算术适配，不含寄存器级驱动。

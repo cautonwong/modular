@@ -25,6 +25,9 @@ typedef struct mock_comm_ctx {
     float set_pos_val;
     uint32_t last_mask;
     int get_values_calls;
+    vesc_stats_t stats;
+    int stats_calls;
+    int stats_resets;
 } mock_comm_ctx_t;
 
 /*
@@ -96,6 +99,20 @@ static edge_status_t mock_set_current_brake(void *self, float current) {
     return EDGE_OK;
 }
 
+static edge_status_t mock_get_stats(void *self, vesc_stats_t *out_val) {
+    mock_comm_ctx_t *ctx = (mock_comm_ctx_t *)self;
+    ctx->stats_calls++;
+    *out_val = ctx->stats;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_reset_stats(void *self) {
+    mock_comm_ctx_t *ctx = (mock_comm_ctx_t *)self;
+    ctx->stats_resets++;
+    ctx->stats = (vesc_stats_t){0};
+    return EDGE_OK;
+}
+
 static edge_status_t mock_set_rpm(void *self, float rpm) {
     mock_comm_ctx_t *ctx = (mock_comm_ctx_t *)self;
     ctx->set_rpm_val = rpm;
@@ -162,6 +179,8 @@ static void test_receive_packet_and_commands(void **state) {
 
     vesc_motor_provider_port_t motor_port = {
         .get_values = mock_get_values,
+        .get_stats = mock_get_stats,
+        .reset_stats = mock_reset_stats,
         .set_duty = mock_set_duty,
         .set_current = mock_set_current,
         .set_current_brake = mock_set_current_brake,
@@ -327,6 +346,70 @@ static void test_receive_packet_and_commands(void **state) {
     uint8_t cmd_short[1] = {COMM_GET_VALUES_SELECTIVE};
     assert_int_equal(vesc_comm_process_command(&comm, cmd_short, sizeof(cmd_short)), EDGE_EINVAL);
     assert_int_equal(ctx.tx_count, 0);
+
+    /*
+     * Test 4b: COMM_GET_STATS. The request mask is 16 bits and the reply echoes it
+     * as 32; the fields go out as float32_auto, which is the IEEE-754 bit pattern
+     * (the reference's encoding), so the expected bytes are readable at a glance.
+     * The stats themselves are mock input - the wire contract is what is pinned.
+     */
+    ctx.tx_count = 0;
+    ctx.stats_calls = 0;
+    ctx.stats_resets = 0;
+    ctx.stats = (vesc_stats_t){0};
+    ctx.stats.power_avg = 24.0f;  /* 0x41C00000 */
+    ctx.stats.current_avg = 8.0f; /* 0x41000000 */
+
+    uint8_t cmd_stats[3] = {COMM_GET_STATS, 0x00u, 0x30u}; /* bits 4 and 5 */
+    crc = vesc_crc16(cmd_stats, sizeof(cmd_stats));
+    f_idx = 0;
+    frame[f_idx++] = 2;
+    frame[f_idx++] = (uint8_t)sizeof(cmd_stats);
+    for (size_t i = 0; i < sizeof(cmd_stats); i++) {
+        frame[f_idx++] = cmd_stats[i];
+    }
+    frame[f_idx++] = (uint8_t)(crc >> 8);
+    frame[f_idx++] = (uint8_t)(crc & 0xFFu);
+    frame[f_idx++] = 3;
+
+    for (size_t i = 0; i < f_idx; i++) {
+        vesc_comm_process_byte(&comm, frame[i]);
+    }
+
+    assert_int_equal(ctx.tx_count, 1);
+    assert_int_equal(ctx.stats_calls, 1);
+    /* id(1) + mask(4) + current_avg(4) + current_max(4) = 13 bytes */
+    assert_int_equal(ctx.tx_buf[1], 13u);
+    const uint8_t *sp = ctx.tx_buf + 2;
+    assert_int_equal(sp[0], COMM_GET_STATS);
+    assert_int_equal(sp[1], 0x00u); /* the uint16 request mask, widened to 32 */
+    assert_int_equal(sp[2], 0x00u);
+    assert_int_equal(sp[3], 0x00u);
+    assert_int_equal(sp[4], 0x30u);
+    assert_int_equal(sp[5], 0x41u); /* current_avg = 8.0f */
+    assert_int_equal(sp[6], 0x00u);
+    assert_int_equal(sp[7], 0x00u);
+    assert_int_equal(sp[8], 0x00u);
+    for (int i = 9; i < 13; i++) {
+        assert_int_equal(sp[i], 0x00u); /* current_max, left at 0 by the mock */
+    }
+
+    /* COMM_RESET_STATS replies only when its ack byte is set. */
+    uint8_t cmd_reset_quiet[1] = {COMM_RESET_STATS};
+    ctx.tx_count = 0;
+    assert_int_equal(vesc_comm_process_command(&comm, cmd_reset_quiet, sizeof(cmd_reset_quiet)),
+                     EDGE_OK);
+    assert_int_equal(ctx.stats_resets, 1);
+    assert_int_equal(ctx.tx_count, 0);
+
+    uint8_t cmd_reset_ack[2] = {COMM_RESET_STATS, 0x01u};
+    ctx.tx_count = 0;
+    assert_int_equal(vesc_comm_process_command(&comm, cmd_reset_ack, sizeof(cmd_reset_ack)),
+                     EDGE_OK);
+    assert_int_equal(ctx.stats_resets, 2);
+    assert_int_equal(ctx.tx_count, 1);
+    assert_int_equal(ctx.tx_buf[1], 1u); /* id only */
+    assert_int_equal(ctx.tx_buf[2], COMM_RESET_STATS);
 
     /* Test 4: Corrupted CRC */
     frame[f_idx - 2] ^= 0xFF; /* Corrupt CRC */
