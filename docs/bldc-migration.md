@@ -103,6 +103,20 @@ clang-format --dry-run     # 格式
   控制模式、写的是 d 轴、也没有 `cc_min_current` 分支。要对比需新增控制模式 +
   `cc_min_current`，并继续读完 `mcpwm_foc_set_handbrake`（`MC_STATE_RUNNING` 之后的
   `else` 分支尚未读）。
+- **`duty_now` 不是相占空比**（已修）：原版 `mcpwm_foc.c:3818` 定义
+  `duty_now = SIGN(vq) * NORM2_f(mod_d, mod_q) * p_duty_norm`（`mod = v * 1.5 / v_bus`，
+  `p_duty_norm = TWO_BY_SQRT3 / foc_overmod_factor`，overmod 默认 1.0）。端口原先写的
+  `duty_a`（A 相占空比）是完全无关的量，而它正是 `COMM_GET_VALUES` 的线上 duty 字段、
+  按 duty 降流的输入、以及 `COMM_SET_CURRENT_REL` 的分支判据。
+- **命令环不夹紧，且有方向乘子**：`mc_interface_set_current()` 只做
+  `SHUTDOWN_RESET()`（|current|>0.001）、`mc_interface_try_input()` 门控（为真直接 return）、
+  `mcpwm_foc_set_current(DIR_MULT * current)` 和 `events_add("set_current", current)`，
+  **不做任何限幅**（限幅在 app 层与弱磁）。端口现在在 `foc_core_set_current` 里夹紧到
+  `[current_min_a, current_max_a]`（原版没有），且未乘 `DIR_MULT`（= `m_invert_direction`）
+  —— 两者都待修。
+- `set_current_off_delay` 的唯一消费者是弱磁的调制延长逻辑（`mcpwm_foc.c:3953` 衰减、
+  `:3970` 判 `m_current_off_delay < dt`），所以 B3 之前即使调它也不可观测；接线时再补，
+  并在 `adr-conformance.md` 标为“待 B3”。
 
 ### 阶段 C — 配置与持久化
 

@@ -160,6 +160,15 @@ typedef struct foc_core {
     float duty_a;
     float duty_b;
     float duty_c;
+
+    /*
+     * Reference mcpwm_foc.c:3818-3820. This is a signed modulation magnitude
+     * (SIGN(vq) * |mod| * p_duty_norm), NOT the phase-A duty in duty_a above; the
+     * two are unrelated quantities that only look alike. The wire's duty field
+     * (COMM_GET_VALUES) and the current-command branch in foc_core_set_current_rel
+     * both read this one.
+     */
+    float duty_now;
     uint32_t svm_sector;
 
     /* Observer & Feedback */

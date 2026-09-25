@@ -18,6 +18,9 @@ extern "C" {
 #define TWO_BY_SQRT3 1.1547005383792515f
 #define SQ(x) ((x) * (x))
 
+/* Reference: util/utils_math.h:65. */
+#define NORM2_f(x, y) (sqrtf(SQ(x) + SQ(y)))
+
 /* Fast trigonometric utilities */
 void foc_fast_sincos(float angle_rad, float *sin_out, float *cos_out);
 
