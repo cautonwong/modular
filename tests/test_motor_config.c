@@ -92,6 +92,11 @@ static void test_controller_fields_have_reference_defaults(void **state) {
     assert_int_equal(mc.foc_sat_comp_mode, 0u); /* SAT_COMP_DISABLED */
     assert_float_equal(mc.foc_sat_comp, 0.0f, 1e-6f);
     assert_float_equal(mc.foc_motor_ld_lq_diff, 0.0f, 1e-6f);
+    /* cc_min_current has a global reference default; the lo_* limits do not - they
+     * are board-calibrated, and a 0 here means "pending the board". */
+    assert_float_equal(mc.cc_min_current, 0.05f, 1e-6f);
+    assert_float_equal(mc.l_abs_current_max, 0.0f, 1e-6f);
+    assert_float_equal(mc.lo_current_min, 0.0f, 1e-6f);
 
     /* And the bounds the serialiser enforces on them. */
     mc.l_max_duty = 1.5f;
@@ -122,6 +127,9 @@ static void test_controller_fields_survive_a_round_trip(void **state) {
     mc_orig.foc_sat_comp_mode = 3u; /* SAT_COMP_LAMBDA_AND_FACTOR */
     mc_orig.foc_sat_comp = 0.25f;
     mc_orig.foc_motor_ld_lq_diff = 2.5e-6f;
+    mc_orig.l_abs_current_max = 130.0f;
+    mc_orig.lo_current_min = -45.5f;
+    mc_orig.cc_min_current = 0.07f;
 
     uint8_t buffer[MOTOR_CONFIG_BUFFER_SIZE];
     size_t out_len = 0;
@@ -138,6 +146,9 @@ static void test_controller_fields_survive_a_round_trip(void **state) {
     assert_int_equal(mc_restored.foc_sat_comp_mode, 3u);
     assert_float_equal(mc_restored.foc_sat_comp, 0.25f, 1e-4f);
     assert_float_equal(mc_restored.foc_motor_ld_lq_diff, 2.5e-6f, 1e-10f);
+    assert_float_equal(mc_restored.l_abs_current_max, 130.0f, 1e-2f);
+    assert_float_equal(mc_restored.lo_current_min, -45.5f, 1e-2f);
+    assert_float_equal(mc_restored.cc_min_current, 0.07f, 1e-4f);
 }
 
 static void test_serialization_roundtrip(void **state) {
