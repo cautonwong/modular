@@ -1,4 +1,5 @@
 #include "timeout_guard/timeout_guard.h"
+#include "timeout_guard_internal.h"
 #include <string.h>
 
 static edge_status_t timeout_guard_poll(edge_module_t *module) {
