@@ -169,18 +169,32 @@ static void test_vesc_host_glue(void **state) {
     vesc_host_glue_state_t glue_state;
     memset(&glue_state, 0, sizeof(glue_state));
 
-    motor_config_storage_port_t storage;
-    vesc_host_make_storage_port(&storage, &glue_state);
-    assert_non_null(storage.read);
-    assert_non_null(storage.write);
-    assert_non_null(storage.erase);
+    /* Erased flash reads as ones, and the sector port programmes half-words into it. */
+    memset(glue_state.flash_mem, 0xFF, sizeof(glue_state.flash_mem));
+    flash_sector_port_t sectors;
+    vesc_host_make_flash_sector_port(&sectors, &glue_state);
+    assert_non_null(sectors.read);
+    assert_non_null(sectors.write_halfword);
+    assert_non_null(sectors.erase_sector);
+
+    assert_int_equal(sectors.write_halfword(sectors.self, 0u, 0x1234u), EDGE_OK);
+    uint8_t read_buf[2] = {0};
+    assert_int_equal(sectors.read(sectors.self, 0u, read_buf, sizeof(read_buf)), EDGE_OK);
+    assert_int_equal(read_buf[0], 0x34u); /* little-endian, as the reference's image is */
+    assert_int_equal(read_buf[1], 0x12u);
+
+    /* Flash can only clear bits: programming over a written half-word is refused, while
+     * clearing bits is legal - which is what the page markers rely on. */
+    assert_int_equal(sectors.write_halfword(sectors.self, 0u, 0xFFFFu), EDGE_EBUSY);
+    assert_int_equal(sectors.write_halfword(sectors.self, 0u, 0x1200u), EDGE_OK);
+
+    /* Erasure is whole sectors. */
+    assert_int_equal(sectors.erase_sector(sectors.self, 0u, FLASH_EMUL_PAGE_SIZE), EDGE_OK);
+    assert_int_equal(sectors.read(sectors.self, 0u, read_buf, sizeof(read_buf)), EDGE_OK);
+    assert_int_equal(read_buf[0], 0xFFu);
+    assert_int_equal(read_buf[1], 0xFFu);
 
     uint8_t dummy_buf[16] = {1, 2, 3, 4};
-    assert_int_equal(storage.write(storage.self, 0, dummy_buf, sizeof(dummy_buf)), EDGE_OK);
-    uint8_t read_buf[16] = {0};
-    assert_int_equal(storage.read(storage.self, 0, read_buf, sizeof(read_buf)), EDGE_OK);
-    assert_memory_equal(dummy_buf, read_buf, sizeof(dummy_buf));
-
     edge_stream_tx_port_t stream_tx;
     vesc_host_make_stream_tx_port(&stream_tx, &glue_state);
     assert_non_null(stream_tx.write);
@@ -653,13 +667,24 @@ static void test_vesc_host_simulated_adapters(void **state) {
     assert_int_equal(glue_state.last_can_id, 0x77u);
     assert_int_equal(glue_state.last_can_len, 8u);
 
-    /* Storage bounds: writing past the fake flash is refused, not clamped. */
-    motor_config_storage_port_t storage;
-    vesc_host_make_storage_port(&storage, &glue_state);
+    /* Flash sector bounds: a read or a half-word write past the fake flash is refused rather
+     * than clamped, and erasure is whole sectors only. */
+    flash_sector_port_t sectors;
+    vesc_host_make_flash_sector_port(&sectors, &glue_state);
     uint8_t one[1] = {0};
-    assert_int_equal(storage.write(storage.self, sizeof(glue_state.flash_mem), one, 1u),
+    assert_int_equal(sectors.read(sectors.self, sizeof(glue_state.flash_mem), one, 1u),
                      EDGE_EINVAL);
-    assert_int_equal(storage.erase(storage.self, sizeof(glue_state.flash_mem), 1u), EDGE_EINVAL);
+    assert_int_equal(sectors.write_halfword(sectors.self, sizeof(glue_state.flash_mem), 0u),
+                     EDGE_EINVAL);
+    assert_int_equal(sectors.erase_sector(sectors.self, 0u, 1u), EDGE_EINVAL);
+    assert_int_equal(
+        sectors.erase_sector(sectors.self, sizeof(glue_state.flash_mem), FLASH_EMUL_PAGE_SIZE),
+        EDGE_EINVAL);
+
+    /* The factory refuses a NULL output instead of writing through it. */
+    flash_sector_port_t untouched = {0};
+    vesc_host_make_flash_sector_port(&untouched, NULL);
+    assert_null(untouched.read);
 
     /* Stream TX bounds. */
     edge_stream_tx_port_t stream_tx;

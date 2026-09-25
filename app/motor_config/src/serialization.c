@@ -10,9 +10,8 @@
  * compares this output byte for byte against the reference's own serialiser.
  *
  * The reference's stream has no version, length or CRC of its own - just the signature
- * and the fields. The port keeps a small envelope around it for the flash path (see the
- * bottom of this file), which is this port's own convention and is documented as such;
- * the stream handed to the protocol is the bare one.
+ * and the fields. There is no envelope here either: the stored configuration is the
+ * variable table motor_config keeps, not an image this file frames.
  */
 #include "appconf_defaults.h"
 #include "mcconf_defaults.h"
@@ -335,116 +334,4 @@ edge_status_t motor_config_deserialize_mc(mc_configuration_t *mcconf, const uint
     MCCONF_WIRE(MCCONF_READ)
 
     return EDGE_OK;
-}
-
-/*
- * The port's flash envelope. This is this port's convention, not the reference's: the
- * reference stores the bare stream and leaves integrity to the EEPROM layer. The payload
- * is the reference's stream followed by the app configuration, and the envelope keeps the
- * port's own signature, version and CRC so a stored blob cannot be half-read. C3 owns
- * what the flash semantics should finally be.
- */
-static uint16_t calc_crc(const uint8_t *buf, size_t len) {
-    uint16_t crc = 0xFFFFu;
-    for (size_t i = 0; i < len; i++) {
-        crc ^= (uint16_t)buf[i] << 8;
-        for (int b = 0; b < 8; b++) {
-            crc = (crc & 0x8000u) ? (uint16_t)((crc << 1) ^ 0x1021u) : (uint16_t)(crc << 1);
-        }
-    }
-    return crc;
-}
-
-edge_status_t motor_config_serialize(const mc_configuration_t *mcconf,
-                                     const app_configuration_t *appconf, uint8_t *buffer,
-                                     size_t buf_size, size_t *out_len) {
-    if (mcconf == (void *)0 || appconf == (void *)0 || buffer == (void *)0 ||
-        out_len == (void *)0) {
-        return EDGE_EINVAL;
-    }
-
-    edge_status_t status = motor_config_validate(mcconf, appconf);
-    if (status != EDGE_OK) {
-        return status;
-    }
-
-    if (buf_size < MOTOR_CONFIG_BUFFER_SIZE) {
-        return EDGE_ENOSPC;
-    }
-
-    size_t idx = 0;
-    buffer[idx++] = 0x56u; /* "VESC" */
-    buffer[idx++] = 0x45u;
-    buffer[idx++] = 0x53u;
-    buffer[idx++] = 0x43u;
-    buffer[idx++] = (uint8_t)MOTOR_CONFIG_SCHEMA_VER;
-    size_t len_idx = idx;
-    idx += 2;
-    size_t crc_idx = idx;
-    idx += 2;
-
-    size_t payload_start = idx;
-    size_t mc_len = 0;
-    status = motor_config_serialize_mc(mcconf, buffer + idx, buf_size - idx, &mc_len);
-    if (status != EDGE_OK) {
-        return status;
-    }
-    idx += mc_len;
-    size_t app_len = 0;
-    status = motor_config_serialize_app(appconf, buffer + idx, buf_size - idx, &app_len);
-    if (status != EDGE_OK) {
-        return status;
-    }
-    idx += app_len;
-
-    size_t payload_len = idx - payload_start;
-    buffer[len_idx] = (uint8_t)(payload_len >> 8);
-    buffer[len_idx + 1] = (uint8_t)payload_len;
-    uint16_t crc = calc_crc(buffer + payload_start, payload_len);
-    buffer[crc_idx] = (uint8_t)(crc >> 8);
-    buffer[crc_idx + 1] = (uint8_t)crc;
-
-    *out_len = idx;
-    return EDGE_OK;
-}
-
-edge_status_t motor_config_deserialize(mc_configuration_t *mcconf, app_configuration_t *appconf,
-                                       const uint8_t *buffer, size_t len) {
-    if (mcconf == (void *)0 || appconf == (void *)0 || buffer == (void *)0) {
-        return EDGE_EINVAL;
-    }
-
-    if (len < 10 || buffer[0] != 0x56u || buffer[1] != 0x45u || buffer[2] != 0x53u ||
-        buffer[3] != 0x43u) {
-        return EDGE_EINVAL;
-    }
-    if ((uint16_t)buffer[4] != MOTOR_CONFIG_SCHEMA_VER) {
-        return EDGE_EINVAL;
-    }
-
-    size_t idx = 5;
-    size_t payload_len = ((size_t)buffer[idx] << 8) | (size_t)buffer[idx + 1];
-    idx += 2;
-    uint16_t stored_crc = ((uint16_t)buffer[idx] << 8) | (uint16_t)buffer[idx + 1];
-    idx += 2;
-
-    if (idx + payload_len > len) {
-        return EDGE_EINVAL;
-    }
-    if (calc_crc(buffer + idx, payload_len) != stored_crc) {
-        return EDGE_EINVAL;
-    }
-
-    edge_status_t status = motor_config_deserialize_mc(mcconf, buffer + idx, payload_len);
-    if (status != EDGE_OK) {
-        return status;
-    }
-    idx += (size_t)MCCONF_WIRE_LEN;
-    status =
-        motor_config_deserialize_app(appconf, buffer + idx, payload_len - (size_t)MCCONF_WIRE_LEN);
-    if (status != EDGE_OK) {
-        return status;
-    }
-
-    return motor_config_validate(mcconf, appconf);
 }

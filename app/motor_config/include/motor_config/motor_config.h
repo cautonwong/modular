@@ -17,24 +17,15 @@
 extern "C" {
 #endif
 
-#define MOTOR_CONFIG_SIGNATURE 0x56455343u /* "VESC" */
-/* 2: added the fields foc_core consumes (filter constant, PLL gains, max duty,
- * observer type). A stored blob from version 1 is rejected rather than parsed. */
-#define MOTOR_CONFIG_SCHEMA_VER 6u
-/* The reference's streams are 488 and 290 bytes; the envelope adds its own framing. */
+/* The reference's streams are 488 and 290 bytes. This is the buffer they need, with room to
+ * spare; it is all a byte buffer is used for now, since the stored configuration is a
+ * variable table rather than an image. */
 #define MOTOR_CONFIG_BUFFER_SIZE 1024u
 
 /*
  * Consumer-Defined Storage Port (Rules: void *self; callbacks take void *self)
  */
 typedef struct motor_config motor_config_t;
-
-typedef struct motor_config_storage_port {
-    edge_status_t (*read)(void *self, uint32_t offset, uint8_t *buf, size_t len);
-    edge_status_t (*write)(void *self, uint32_t offset, const uint8_t *buf, size_t len);
-    edge_status_t (*erase)(void *self, uint32_t offset, size_t len);
-    void *self;
-} motor_config_storage_port_t;
 
 /*
  * The variable store the reference actually persists a configuration in: EE_WriteVariable /
@@ -57,12 +48,6 @@ typedef struct motor_config_var_port {
  */
 uint16_t motor_config_config_crc(mc_configuration_t *mcconf);
 
-/* Store/load through the variable store, with the reference's own failure behaviour: a missing
- * variable or a CRC mismatch falls back to the defaults and reports the failure. */
-edge_status_t motor_config_store_to_vars(motor_config_t *self, const motor_config_var_port_t *port);
-edge_status_t motor_config_load_from_vars(motor_config_t *self,
-                                          const motor_config_var_port_t *port);
-
 /*
  * Opaque, caller-provided memory. The definition and its size/alignment
  * assertions live in src/motor_config_internal.h:
@@ -75,13 +60,13 @@ edge_status_t motor_config_load_from_vars(motor_config_t *self,
  * so the caller never needs the layout to use the module.
  */
 /*
- * The caller's storage contract: sizeof(struct motor_config) is 1408 with the generated
+ * The caller's storage contract: sizeof(struct motor_config) is 2552 with the generated
  * 177-member mc_configuration_t (776 of those bytes). Measured under this module's own
  * -std=c11, which lays the same aggregate out 256 bytes larger than -std=gnu11 does.
  * The assert in src/motor_config_internal.h turns a stale value into a build error rather
  * than an under-allocating caller.
  */
-#define MOTOR_CONFIG_STORAGE_SIZE 3576u
+#define MOTOR_CONFIG_STORAGE_SIZE 2552u
 #define MOTOR_CONFIG_STORAGE_ALIGN alignof(max_align_t)
 
 void motor_config_set_defaults(mc_configuration_t *mcconf, app_configuration_t *appconf);
@@ -89,15 +74,11 @@ void motor_config_set_defaults(mc_configuration_t *mcconf, app_configuration_t *
 edge_status_t motor_config_validate(const mc_configuration_t *mcconf,
                                     const app_configuration_t *appconf);
 
-edge_status_t motor_config_serialize(const mc_configuration_t *mcconf,
-                                     const app_configuration_t *appconf, uint8_t *buffer,
-                                     size_t buf_size, size_t *out_len);
-
 /*
  * The reference's own mc_configuration stream - confgenerator_serialize_mcconf(): 488
- * bytes including the signature, with no version, length or CRC of its own, which is why
- * these two are separate from the flash envelope above. This is what COMM_GET_MCCONF
- * hands out and what the tests compare byte for byte against the reference's serialiser.
+ * bytes including the signature, with no version, length or CRC of its own. This is what
+ * COMM_GET_MCCONF hands out, what COMM_SET_MCCONF decodes, and what the tests compare byte
+ * for byte against the reference's own serialiser.
  */
 size_t motor_config_stream_len(void);
 edge_status_t motor_config_serialize_mc(const mc_configuration_t *mcconf, uint8_t *buffer,
@@ -113,11 +94,8 @@ edge_status_t motor_config_serialize_app(const app_configuration_t *appconf, uin
 edge_status_t motor_config_deserialize_app(app_configuration_t *appconf, const uint8_t *buffer,
                                            size_t len);
 
-edge_status_t motor_config_deserialize(mc_configuration_t *mcconf, app_configuration_t *appconf,
-                                       const uint8_t *buffer, size_t len);
-
 void motor_config_construct(motor_config_t *self, uint32_t module_id, uint32_t priority,
-                            const motor_config_storage_port_t *storage, uint32_t flash_offset);
+                            const motor_config_var_port_t *vars);
 
 edge_status_t motor_config_init(motor_config_t *self);
 edge_status_t motor_config_deinit(motor_config_t *self);

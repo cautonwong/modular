@@ -15,8 +15,12 @@
 struct motor_config {
     edge_module_t module;
 
-    /* Injected Storage Port */
-    const motor_config_storage_port_t *storage;
+    /*
+     * Injected variable-store port. The reference persists a configuration as one uint16
+     * variable per two bytes of mc_configuration (conf_general.c:436-520), so this - not a
+     * byte range inside a flash image - is what a store is made of here.
+     */
+    const motor_config_var_port_t *vars;
 
     /* Active Configurations */
     mc_configuration_t mcconf;
@@ -31,11 +35,7 @@ struct motor_config {
     mc_configuration_t staging_mc;
     app_configuration_t staging_app;
 
-    /* Flash Offset */
-    uint32_t flash_offset;
     bool is_dirty;
-    /* Serialisation scratch for load/save; see the public header's note. */
-    uint8_t scratch[MOTOR_CONFIG_BUFFER_SIZE];
 };
 
 _Static_assert(sizeof(struct motor_config) <= MOTOR_CONFIG_STORAGE_SIZE,
