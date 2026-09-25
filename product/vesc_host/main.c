@@ -177,8 +177,11 @@ int main(void) {
     vesc_app_status_port_t app_status_port;
     vesc_host_make_app_status_port(&app_status_port, &glue_state);
 
+    vesc_config_provider_port_t config_port;
+    vesc_host_make_config_port(&config_port, motor_cfg);
+
     vesc_comm_construct(comm, EDGE_MOD_VESC_COMM, 20u, &stream_tx_port, &motor_port,
-                        &app_status_port, &comm_identity);
+                        &app_status_port, &config_port, &comm_identity);
     if (vesc_comm_init(comm) < 0) {
         return 12;
     }

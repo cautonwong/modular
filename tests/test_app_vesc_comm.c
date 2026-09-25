@@ -64,8 +64,16 @@ static const vesc_identity_t test_identity = {
 };
 
 /* Names long enough that the reply cannot be built without overflowing it. */
-static const char oversized_name[80] =
-    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+/*
+ * Long enough that two of these plus the uuid, flags and fixed bytes cannot fit the reply
+ * scratch, whatever it grows to - the reply buffer went from 128 to 512 for the 489-byte
+ * COMM_GET_MCCONF reply, and an 80-byte name no longer overflowed it.
+ */
+static const char oversized_name[] =
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    "aaaaaaaaaaaaaaaaaa";
 static const vesc_identity_t oversized_identity = {
     .hw_name = oversized_name,
     .fw_name = oversized_name,
@@ -196,14 +204,14 @@ static void test_vesc_comm_lifecycle_and_guards(void **state) {
     /* Null self is refused rather than dereferenced. */
     assert_int_equal(vesc_comm_init(NULL), EDGE_EINVAL);
     assert_int_equal(vesc_comm_deinit(NULL), EDGE_EINVAL);
-    vesc_comm_construct(NULL, EDGE_MOD_VESC_COMM, 10u, NULL, NULL, NULL, NULL);
+    vesc_comm_construct(NULL, EDGE_MOD_VESC_COMM, 10u, NULL, NULL, NULL, NULL, NULL);
 
     mock_comm_ctx_t ctx;
     memset(&ctx, 0, sizeof(ctx));
     edge_stream_tx_port_t tx_port = {.write = mock_stream_write, .self = &ctx};
 
     vesc_comm_t *comm = test_comm_alloc();
-    vesc_comm_construct(comm, EDGE_MOD_VESC_COMM, 10u, &tx_port, NULL, NULL, &test_identity);
+    vesc_comm_construct(comm, EDGE_MOD_VESC_COMM, 10u, &tx_port, NULL, NULL, NULL, &test_identity);
     assert_non_null(vesc_comm_module(comm));
     assert_int_equal(vesc_comm_module(comm)->module_id, EDGE_MOD_VESC_COMM);
     assert_ptr_equal(vesc_comm_module(NULL), NULL);
@@ -238,7 +246,7 @@ static void test_vesc_comm_lifecycle_and_guards(void **state) {
                      EDGE_EINVAL);
 
     vesc_comm_t *no_tx = test_comm_alloc();
-    vesc_comm_construct(no_tx, EDGE_MOD_VESC_COMM, 10u, NULL, NULL, NULL, &test_identity);
+    vesc_comm_construct(no_tx, EDGE_MOD_VESC_COMM, 10u, NULL, NULL, NULL, NULL, &test_identity);
     assert_int_equal(vesc_comm_send_packet(no_tx, payload, sizeof(payload)), EDGE_EINVAL);
 
     /* The module hooks: poll and power_off answer, on_event needs its event. */
@@ -277,7 +285,7 @@ static void test_send_packet_framing(void **state) {
     };
 
     vesc_comm_t *comm = test_comm_alloc();
-    vesc_comm_construct(comm, EDGE_MOD_VESC_COMM, 10, &tx_port, NULL, NULL, &test_identity);
+    vesc_comm_construct(comm, EDGE_MOD_VESC_COMM, 10, &tx_port, NULL, NULL, NULL, &test_identity);
     assert_int_equal(vesc_comm_init(comm), EDGE_OK);
 
     uint8_t payload[] = {0x04, 0x01, 0x02, 0x03};
@@ -329,7 +337,7 @@ static void test_receive_packet_and_commands(void **state) {
     };
 
     vesc_comm_t *comm = test_comm_alloc();
-    vesc_comm_construct(comm, EDGE_MOD_VESC_COMM, 10, &tx_port, &motor_port, &app_status_port,
+    vesc_comm_construct(comm, EDGE_MOD_VESC_COMM, 10, &tx_port, &motor_port, &app_status_port, NULL,
                         &test_identity);
     assert_int_equal(vesc_comm_init(comm), EDGE_OK);
 
@@ -426,7 +434,7 @@ static void test_receive_packet_and_commands(void **state) {
 
     /* Identity that cannot fit is refused rather than truncated or overflowed. */
     vesc_comm_t *oversize_comm = test_comm_alloc2();
-    vesc_comm_construct(oversize_comm, EDGE_MOD_VESC_COMM, 10, &tx_port, NULL, NULL,
+    vesc_comm_construct(oversize_comm, EDGE_MOD_VESC_COMM, 10, &tx_port, NULL, NULL, NULL,
                         &oversized_identity);
     assert_int_equal(vesc_comm_init(oversize_comm), EDGE_OK);
     ctx.tx_count = 0;
@@ -434,7 +442,7 @@ static void test_receive_packet_and_commands(void **state) {
     assert_int_equal(ctx.tx_count, 0);
 
     /* A codec with no identity at all refuses the same way. */
-    vesc_comm_construct(oversize_comm, EDGE_MOD_VESC_COMM, 10, &tx_port, NULL, NULL, NULL);
+    vesc_comm_construct(oversize_comm, EDGE_MOD_VESC_COMM, 10, &tx_port, NULL, NULL, NULL, NULL);
     assert_int_equal(vesc_comm_init(oversize_comm), EDGE_OK);
     assert_int_equal(vesc_comm_process_command(oversize_comm, cmd_fw, sizeof(cmd_fw)), EDGE_EINVAL);
     assert_int_equal(ctx.tx_count, 0);
@@ -640,12 +648,113 @@ static void test_receive_packet_and_commands(void **state) {
     assert_float_equal(ctx.set_handbrake_val, 5.0f, 1e-5f);
 }
 
+/*
+ * A7's framing: the reference's commands_send_mcconf() sends the command id followed by the
+ * configuration stream, and COMM_SET_MCCONF passes the request's stream straight through.
+ * The stream contents themselves are pinned byte for byte in test_motor_config, so what is
+ * checked here is the framing and the plumbing, not the layout.
+ */
+typedef struct mock_config_ctx {
+    uint8_t mc[64];
+    size_t mc_len;
+    uint8_t set_mc[64];
+    size_t set_mc_len;
+    uint8_t app[64];
+    size_t app_len;
+    uint8_t set_app[64];
+    size_t set_app_len;
+} mock_config_ctx_t;
+
+static edge_status_t mock_get_mcconf(void *self, uint8_t *out, size_t buf_size, size_t *out_len) {
+    mock_config_ctx_t *c = (mock_config_ctx_t *)self;
+    if (c->mc_len > buf_size) {
+        return EDGE_ENOSPC;
+    }
+    memcpy(out, c->mc, c->mc_len);
+    *out_len = c->mc_len;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_set_mcconf(void *self, const uint8_t *in, size_t len) {
+    mock_config_ctx_t *c = (mock_config_ctx_t *)self;
+    if (len > sizeof(c->set_mc)) {
+        return EDGE_ENOSPC;
+    }
+    memcpy(c->set_mc, in, len);
+    c->set_mc_len = len;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_get_appconf(void *self, uint8_t *out, size_t buf_size, size_t *out_len) {
+    mock_config_ctx_t *c = (mock_config_ctx_t *)self;
+    if (c->app_len > buf_size) {
+        return EDGE_ENOSPC;
+    }
+    memcpy(out, c->app, c->app_len);
+    *out_len = c->app_len;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_set_appconf(void *self, const uint8_t *in, size_t len) {
+    mock_config_ctx_t *c = (mock_config_ctx_t *)self;
+    if (len > sizeof(c->set_app)) {
+        return EDGE_ENOSPC;
+    }
+    memcpy(c->set_app, in, len);
+    c->set_app_len = len;
+    return EDGE_OK;
+}
+
+static void test_config_commands_framing(void **state) {
+    (void)state;
+    mock_comm_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    mock_config_ctx_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+
+    edge_stream_tx_port_t tx_port = {.write = mock_stream_write, .self = &ctx};
+    vesc_config_provider_port_t config_port = {
+        .get_mcconf = mock_get_mcconf,
+        .set_mcconf = mock_set_mcconf,
+        .get_appconf = mock_get_appconf,
+        .set_appconf = mock_set_appconf,
+        .self = &cfg,
+    };
+
+    vesc_comm_t *comm = test_comm_alloc();
+    vesc_comm_construct(comm, EDGE_MOD_VESC_COMM, 10u, &tx_port, NULL, NULL, &config_port,
+                        &test_identity);
+    assert_int_equal(vesc_comm_init(comm), EDGE_OK);
+
+    /* COMM_GET_MCCONF: the reply is [id][stream], with the stream's own signature first. */
+    cfg.mc[0] = 0xBCu;
+    cfg.mc[1] = 0x09u;
+    cfg.mc[2] = 0xF8u;
+    cfg.mc[3] = 0xB0u;
+    cfg.mc_len = 4u;
+    ctx.tx_count = 0;
+    uint8_t get_mc[] = {COMM_GET_MCCONF};
+    assert_int_equal(vesc_comm_process_command(comm, get_mc, sizeof(get_mc)), EDGE_OK);
+    assert_int_equal(ctx.tx_count, 1);
+    assert_int_equal(ctx.tx_buf[1], 1u + 4u); /* frame length byte: payload size */
+    assert_int_equal(ctx.tx_buf[2], COMM_GET_MCCONF);
+    assert_int_equal(ctx.tx_buf[3], 0xBCu);
+    assert_int_equal(ctx.tx_buf[6], 0xB0u);
+
+    /* COMM_SET_MCCONF: the request's stream reaches the provider byte for byte. */
+    uint8_t set_mc[] = {COMM_SET_MCCONF, 0xBCu, 0x09u, 0xF8u, 0xB0u};
+    assert_int_equal(vesc_comm_process_command(comm, set_mc, sizeof(set_mc)), EDGE_OK);
+    assert_int_equal(cfg.set_mc_len, 4u);
+    assert_int_equal(cfg.set_mc[0], 0xBCu);
+    assert_int_equal(cfg.set_mc[3], 0xB0u);
+}
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_vesc_comm_lifecycle_and_guards),
         cmocka_unit_test(test_crc16_calculation),
         cmocka_unit_test(test_send_packet_framing),
         cmocka_unit_test(test_receive_packet_and_commands),
+        cmocka_unit_test(test_config_commands_framing),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

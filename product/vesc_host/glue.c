@@ -1,4 +1,5 @@
 #include "glue.h"
+#include "motor_config/motor_config.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -254,6 +255,39 @@ static edge_status_t motor_get_stats(void *self, vesc_stats_t *out_val) {
 static edge_status_t motor_reset_stats(void *self) {
     foc_core_stats_reset((foc_core_t *)self);
     return EDGE_OK;
+}
+
+static edge_status_t config_get_mcconf(void *self, uint8_t *out, size_t buf_size, size_t *out_len) {
+    motor_config_t *cfg = (motor_config_t *)self;
+    return motor_config_serialize_mc(motor_config_get_mc(cfg), out, buf_size, out_len);
+}
+
+static edge_status_t config_set_mcconf(void *self, const uint8_t *in, size_t len) {
+    return motor_config_apply_mc_stream((motor_config_t *)self, in, len);
+}
+
+static edge_status_t config_get_appconf(void *self, uint8_t *out, size_t buf_size,
+                                        size_t *out_len) {
+    motor_config_t *cfg = (motor_config_t *)self;
+    return motor_config_serialize_app(motor_config_get_app(cfg), out, buf_size, out_len);
+}
+
+static edge_status_t config_set_appconf(void *self, const uint8_t *in, size_t len) {
+    return motor_config_apply_app_stream((motor_config_t *)self, in, len);
+}
+
+void vesc_host_make_config_port(vesc_config_provider_port_t *out, motor_config_t *cfg) {
+    if (out == (void *)0) {
+        return;
+    }
+
+    *out = (vesc_config_provider_port_t){
+        .get_mcconf = config_get_mcconf,
+        .set_mcconf = config_set_mcconf,
+        .get_appconf = config_get_appconf,
+        .set_appconf = config_set_appconf,
+        .self = cfg,
+    };
 }
 
 void vesc_host_make_motor_provider_port(vesc_motor_provider_port_t *out, foc_core_t *foc) {

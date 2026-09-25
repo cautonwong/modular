@@ -24,6 +24,7 @@ struct vesc_comm {
     const edge_stream_tx_port_t *stream_tx;
     const vesc_motor_provider_port_t *motor;
     const vesc_app_status_port_t *app_status;
+    const vesc_config_provider_port_t *config;
     const vesc_identity_t *identity;
 
     /* Packet RX State */

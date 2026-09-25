@@ -56,6 +56,18 @@ clang-format --dry-run     # 格式
 
 ### 阶段 A — 协议面可用（进行中）
 
+**A7 已实现**：`COMM_GET_MCCONF` / `SET_MCCONF` / `GET_APPCONF` / `SET_APPCONF`。帧格式取自
+原版 `commands_send_mcconf()`：**回包 = 命令 id + 该配置流**（mcconf 489 字节、appconf 291
+字节），不做任何自有封装；SET 则把请求里的流原样交给聚合根，由它**先解码到 staging**
+再更新（对应原版"先拷贝现网配置再解码入拷贝"，坏流不会留下半个配置）。
+
+配置访问走**新增的消费者定义端口** `vesc_config_provider_port_t`（四个回调），产品侧由
+`vesc_host_make_config_port()` 适配到 `motor_config`，因此本模块不知道配置存在哪里。
+
+仍未实现（属于 A8「其余 VESC Tool 实际调用序列」）：`COMM_GET_MCCONF_DEFAULT` /
+`COMM_GET_APPCONF_DEFAULT`（原版在这条路径上会保留旧的 `foc_offsets_*`）与
+`COMM_SET_APPCONF_NO_STORE`，已在命令处注明。
+
 | 切片 | 内容 | 状态 |
 |---|---|---|
 | A1 | packet 层（CRC16、8/16 位帧、解码指针语义） | 已验证 ✓ |

@@ -255,6 +255,57 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
         return EDGE_OK;
     }
 
+    case COMM_GET_MCCONF: {
+        if (self->config == (void *)0 || self->config->get_mcconf == (void *)0) {
+            return EDGE_ENOTSUP;
+        }
+        /*
+         * Reference commands_send_mcconf(): the packet is the command id followed by the
+         * reference's own mc_configuration stream - 488 bytes, no framing of ours. The
+         * reference keeps the old foc_offsets_* when asked for the defaults; this port has
+         * no separate default variant yet (COMM_GET_MCCONF_DEFAULT is still unhandled, see
+         * docs/bldc-migration.md).
+         */
+        size_t stream_len = 0u;
+        edge_status_t st = self->config->get_mcconf(self->config->self, self->cmd_reply_buf + 1u,
+                                                    sizeof(self->cmd_reply_buf) - 1u, &stream_len);
+        if (st != EDGE_OK) {
+            return st;
+        }
+        self->cmd_reply_buf[0] = COMM_GET_MCCONF;
+        return send_reply(self, stream_len + 1u);
+    }
+
+    case COMM_SET_MCCONF: {
+        if (self->config == (void *)0 || self->config->set_mcconf == (void *)0) {
+            return EDGE_ENOTSUP;
+        }
+        /* In this port's codec `data` carries the command id (ind starts at 1), so the
+         * stream begins at data + 1; the reference's `data` excludes it. */
+        return self->config->set_mcconf(self->config->self, data + 1u, len - 1u);
+    }
+
+    case COMM_GET_APPCONF: {
+        if (self->config == (void *)0 || self->config->get_appconf == (void *)0) {
+            return EDGE_ENOTSUP;
+        }
+        size_t stream_len = 0u;
+        edge_status_t st = self->config->get_appconf(self->config->self, self->cmd_reply_buf + 1u,
+                                                     sizeof(self->cmd_reply_buf) - 1u, &stream_len);
+        if (st != EDGE_OK) {
+            return st;
+        }
+        self->cmd_reply_buf[0] = COMM_GET_APPCONF;
+        return send_reply(self, stream_len + 1u);
+    }
+
+    case COMM_SET_APPCONF: {
+        if (self->config == (void *)0 || self->config->set_appconf == (void *)0) {
+            return EDGE_ENOTSUP;
+        }
+        return self->config->set_appconf(self->config->self, data + 1u, len - 1u);
+    }
+
     case COMM_SET_CURRENT: {
         if (len < 5) {
             return EDGE_EINVAL;
