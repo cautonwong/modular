@@ -728,6 +728,39 @@ static void test_foc_observer_family(void **state) {
     assert_true(fabsf(first_phase[0] - first_phase[1]) > 1e-6f);
 }
 
+/*
+ * PLL (reference foc_math.c:225 foc_pll_run). It tracks the phase it is fed and
+ * its speed output is the electrical speed the control path uses; with a phase
+ * advancing at a constant rate the speed must settle on that rate.
+ */
+static void test_foc_pll_tracks_phase_rate(void **state) {
+    (void)state;
+    foc_pll_t pll = {.phase = 0.0f, .speed = 0.0f};
+
+    const float dt = 5e-5f;
+    const float rate = 2.0f * (float)M_PI * 100.0f; /* 100 Hz electrical */
+    float phase = 0.0f;
+
+    for (int n = 0; n < 20000; n++) {
+        phase += rate * dt;
+        while (phase >= (float)M_PI) {
+            phase -= 2.0f * (float)M_PI;
+        }
+        foc_pll_run(&pll, phase, dt, 2000.0f, 30000.0f);
+    }
+
+    assert_float_equal(pll.speed, rate, rate * 0.02f);
+    assert_false(isnan(pll.phase));
+    assert_true(fabsf(pll.phase) <= (float)M_PI);
+
+    /* A NaN on either state is cleared rather than latched. */
+    pll.phase = NAN;
+    pll.speed = NAN;
+    foc_pll_run(&pll, 0.5f, dt, 2000.0f, 30000.0f);
+    assert_false(isnan(pll.phase));
+    assert_false(isnan(pll.speed));
+}
+
 /* Test 7: Speed and Position Control Modes */
 static void test_foc_core_modes(void **state) {
     (void)state;
@@ -824,16 +857,13 @@ static void test_foc_observer_nan_and_flux_floor(void **state) {
     assert_false(isnan(obs.x1));
     assert_false(isnan(obs.x2));
 
-    /* Still usable afterwards: one bad sample is not a latched failure. The phase
-     * recovers on the first valid sample and the derived speed on the second, since
-     * it is a difference against the previous (still poisoned) phase. */
+    /* Still usable afterwards: one bad sample is not a latched failure. */
     foc_observer_update(&obs, 1.0f, 0.0f, 0.1f, 0.0f, 5e-5f, 0.05f, 5e-5f, 0.005f, 1000.0f,
                         FOC_OBSERVER_ORTEGA_ORIGINAL);
     assert_false(isnan(obs.phase));
     foc_observer_update(&obs, 1.0f, 0.0f, 0.1f, 0.0f, 5e-5f, 0.05f, 5e-5f, 0.005f, 1000.0f,
                         FOC_OBSERVER_ORTEGA_ORIGINAL);
     assert_false(isnan(obs.phase));
-    assert_false(isnan(obs.speed_rad_s));
 
     /* Start below half the configured linkage and let the floor lift the vector. */
     foc_observer_init(&obs, 0.001f);
@@ -858,6 +888,7 @@ int main(void) {
         cmocka_unit_test(test_foc_core_stats_and_reset),
         cmocka_unit_test(test_foc_core_tachometer_sectors),
         cmocka_unit_test(test_foc_observer_family),
+        cmocka_unit_test(test_foc_pll_tracks_phase_rate),
         cmocka_unit_test(test_foc_core_modes),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);

@@ -147,6 +147,8 @@ void foc_core_construct(foc_core_t *self, uint32_t module_id, uint32_t priority,
         self->config.sensorless_mode = false;
         self->config.observer_gamma = 9.0e5f;
         self->config.observer_type = FOC_OBSERVER_ORTEGA_ORIGINAL;
+        self->config.pll_kp = 2000.0f;
+        self->config.pll_ki = 30000.0f;
     }
 
     self->state = FOC_STATE_UNINITIALIZED;
@@ -169,6 +171,8 @@ void foc_core_construct(foc_core_t *self, uint32_t module_id, uint32_t priority,
     self->svm_sector = 1u;
 
     foc_observer_init(&self->observer, self->config.lambda_wb);
+    self->pll.phase = 0.0f;
+    self->pll.speed = 0.0f;
 
     self->last_v_bus = 0.0f;
     self->last_ia = 0.0f;
@@ -341,8 +345,13 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
                             self->config.r_ohm, self->config.l_henry, self->config.lambda_wb,
                             self->config.observer_gamma, self->config.observer_type);
         angle_rad = self->observer.phase;
-        rpm = self->observer.speed_rad_s * 60.0f /
-              (2.0f * (float)M_PI * ((float)self->config.si_motor_poles / 2.0f));
+
+        /* Reference: the observer's angle goes through the PLL, and the PLL speed
+         * is what the control path uses. RADPS2RPM_f is electrical rpm, so the pole
+         * pairs convert it to mechanical, as mc_interface_get_speed() does. */
+        foc_pll_run(&self->pll, self->observer.phase, dt, self->config.pll_kp, self->config.pll_ki);
+        rpm = (self->pll.speed * 60.0f / (2.0f * (float)M_PI)) /
+              ((float)self->config.si_motor_poles / 2.0f);
     } else {
         st = self->rotor_sensor->read_angle(self->rotor_sensor->self, &angle_rad, &rpm);
         if (st != EDGE_OK) {

@@ -29,6 +29,19 @@ void foc_fast_sincos(float angle_rad, float *sin_out, float *cos_out);
 float foc_fast_atan2(float y, float x);
 
 /*
+ * Phase-locked loop, reference util/... foc_math.c foc_pll_run (motor/foc_math.c:225).
+ * The observer gives an angle; the PLL turns it into the electrical speed the
+ * control path actually uses. This port previously differentiated the observer
+ * phase instead, which is not what the reference does and is noisier.
+ */
+typedef struct foc_pll {
+    float phase;
+    float speed;
+} foc_pll_t;
+
+void foc_pll_run(foc_pll_t *pll, float phase, float dt, float kp, float ki);
+
+/*
  * Observer selection, same order and names as the reference's mc_foc_observer_type
  * (datatypes.h). Each has a distinct convergence behaviour and a distinct set of
  * states it maintains, so this is a selector over real algorithms, not a hint.
@@ -60,7 +73,6 @@ typedef struct foc_observer {
     float x2;
     float lambda_est;
     float phase;
-    float speed_rad_s;
     /* Last currents, for the observers that integrate the voltage minus the
      * resistive drop (reference: observer_state.i_alpha_last). */
     float i_alpha_last;
