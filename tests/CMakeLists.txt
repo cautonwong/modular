@@ -73,6 +73,7 @@ edge_add_host_test(test_riscv_deadline SOURCES test_riscv_deadline.c DEPS edge_m
 # rest of the board is not.
 target_include_directories(test_riscv_deadline PRIVATE ${EDGE_ROOT}/board/riscv_virt/include)
 edge_add_host_test(test_runner_threads SOURCES test_runner_threads.c DEPS sys_example)
+edge_add_host_test(test_infra_flash_emul SOURCES test_infra_flash_emul.c DEPS infra_flash)
 edge_add_host_test(test_flash_glue SOURCES test_flash_glue.c ../product/example/glue.c
     DEPS app_dlt645 infra_flash)
 
