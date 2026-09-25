@@ -9,12 +9,12 @@
  * the Park transform, so a different sine is a different loop gain.
  */
 void foc_fast_sincos(float angle_rad, float *sin_out, float *cos_out) {
-    /* Always wrap input angle to -PI..PI */
-    while (angle_rad < -(float)M_PI) {
-        angle_rad += 2.0f * (float)M_PI;
+    /* Always wrap input angle to -PI..PI, with the reference's double literals. */
+    while (angle_rad < -M_PI) {
+        angle_rad += 2.0 * M_PI;
     }
-    while (angle_rad > (float)M_PI) {
-        angle_rad -= 2.0f * (float)M_PI;
+    while (angle_rad > M_PI) {
+        angle_rad -= 2.0 * M_PI;
     }
 
     /* Compute sine */
@@ -32,9 +32,9 @@ void foc_fast_sincos(float angle_rad, float *sin_out, float *cos_out) {
     }
 
     /* Compute cosine: sin(x + PI/2) = cos(x) */
-    angle_rad += 0.5f * (float)M_PI;
-    if (angle_rad > (float)M_PI) {
-        angle_rad -= 2.0f * (float)M_PI;
+    angle_rad += 0.5 * M_PI;
+    if (angle_rad > M_PI) {
+        angle_rad -= 2.0 * M_PI;
     }
 
     if (angle_rad < 0.0f) {
@@ -76,18 +76,49 @@ static float obs_truncate_abs(float v, float max) {
     return v;
 }
 
+void foc_pll_run(foc_pll_t *pll, float phase, float dt, float kp, float ki) {
+    pll->phase = (pll->phase != pll->phase) ? 0.0f : pll->phase; /* UTILS_NAN_ZERO */
+
+    float delta_theta = phase - pll->phase;
+    /* utils_norm_angle_rad, literally: the reference's macro uses double literals,
+     * so the wraps are computed in double and rounded back to float. Using float
+     * constants here shifts the speed integrator by ~1e-4 over a few thousand
+     * steps (measured against the reference). */
+    while (delta_theta < -M_PI) {
+        delta_theta += 2.0 * M_PI;
+    }
+    while (delta_theta >= M_PI) {
+        delta_theta -= 2.0 * M_PI;
+    }
+
+    pll->speed = (pll->speed != pll->speed) ? 0.0f : pll->speed;
+
+    pll->phase += (pll->speed + kp * delta_theta) * dt;
+    while (pll->phase < -M_PI) {
+        pll->phase += 2.0 * M_PI;
+    }
+    while (pll->phase >= M_PI) {
+        pll->phase -= 2.0 * M_PI;
+    }
+
+    pll->speed += ki * delta_theta * dt;
+}
+
 float foc_fast_atan2(float y, float x) {
-    float abs_y = fabsf(y) + 1e-20f; /* kludge to prevent 0/0 condition */
+    /* Constants and their types are the reference's: it evaluates this polynomial
+     * in double (util/utils_math.c utils_fast_atan2), and narrowing them to float
+     * changes the result in the last few bits. */
+    float abs_y = fabsf(y) + 1e-20; /* kludge to prevent 0/0 condition */
 
     float angle;
     if (x >= 0.0f) {
         float r = (x - abs_y) / (x + abs_y);
         float rsq = r * r;
-        angle = ((0.1963f * rsq) - 0.9817f) * r + ((float)M_PI / 4.0f);
+        angle = ((0.1963 * rsq) - 0.9817) * r + (M_PI / 4.0);
     } else {
         float r = (x + abs_y) / (abs_y - x);
         float rsq = r * r;
-        angle = ((0.1963f * rsq) - 0.9817f) * r + (3.0f * (float)M_PI / 4.0f);
+        angle = ((0.1963 * rsq) - 0.9817) * r + (3.0 * M_PI / 4.0);
     }
 
     angle = (angle != angle) ? 0.0f : angle; /* UTILS_NAN_ZERO */
@@ -249,7 +280,6 @@ void foc_observer_init(foc_observer_t *obs, float initial_lambda) {
     obs->x2 = 0.0f;
     obs->lambda_est = initial_lambda;
     obs->phase = 0.0f;
-    obs->speed_rad_s = 0.0f;
     /* The MXLEMMING observers integrate L * (i - i_last); leaving these to the
      * caller's stack makes the first sample depend on garbage. */
     obs->i_alpha_last = 0.0f;
@@ -386,20 +416,7 @@ void foc_observer_update(foc_observer_t *obs, float v_alpha, float v_beta, float
     float psi_alpha = obs->x1 - l_ia;
     float psi_beta = obs->x2 - l_ib;
 
-    float last_phase = obs->phase;
     obs->phase = foc_fast_atan2(psi_beta, psi_alpha);
-
-    float d_phase = obs->phase - last_phase;
-    while (d_phase > (float)M_PI) {
-        d_phase -= 2.0f * (float)M_PI;
-    }
-    while (d_phase < -(float)M_PI) {
-        d_phase += 2.0f * (float)M_PI;
-    }
-
-    if (dt > 0.000001f) {
-        obs->speed_rad_s = d_phase / dt;
-    }
 }
 
 void foc_virtual_motor_init(foc_virtual_motor_t *vm, float r_ohm, float l_henry, float lambda_wb,
