@@ -1,5 +1,6 @@
 #include "edge/errors.h"
 #include "vesc_comm/vesc_comm.h"
+#include <math.h>
 #include <string.h>
 
 static void buffer_append_int16(uint8_t *buffer, int16_t number, size_t *index) {
@@ -27,6 +28,36 @@ static void buffer_append_float16(uint8_t *buffer, float number, float scale, si
 
 static void buffer_append_float32(uint8_t *buffer, float number, float scale, size_t *index) {
     buffer_append_int32(buffer, (int32_t)(number * scale), index);
+}
+
+/**
+ * The "auto" encoding: IEEE-754 single precision bit pattern, mantissa normalised
+ * to [0.5, 1) and exponent biased by 126. Copied from the reference's
+ * util/buffer.c; infra/vesc_buffer carries the same algorithm, and
+ * tests/test_app_vesc_comm.c cross-checks the two so they cannot drift apart
+ * (an app may not depend on infra, so this cannot simply be reused).
+ */
+static void buffer_append_float32_auto(uint8_t *buffer, float number, size_t *index) {
+    if (fabsf(number) < 1.5e-38) {
+        number = 0.0f;
+    }
+
+    int e = 0;
+    float sig = frexpf(number, &e);
+    float sig_abs = fabsf(sig);
+    uint32_t sig_i = 0u;
+
+    if (sig_abs >= 0.5f) {
+        sig_i = (uint32_t)((sig_abs - 0.5f) * 2.0f * 8388608.0f);
+        e += 126;
+    }
+
+    uint32_t res = ((uint32_t)(e & 0xFF) << 23) | (sig_i & 0x7FFFFFu);
+    if (sig < 0.0f) {
+        res |= 1u << 31;
+    }
+
+    buffer_append_uint32(buffer, res, index);
 }
 
 static int32_t buffer_get_int32(const uint8_t *buffer, size_t *index) {
@@ -253,6 +284,89 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
             return self->motor->set_pos(self->motor->self, pos);
         }
         return EDGE_OK;
+    }
+
+    case COMM_GET_STATS: {
+        if (len < 3) {
+            return EDGE_EINVAL;
+        }
+        /* The request mask is 16 bits; the reply echoes it as 32 (reference:
+         * comm/commands.c COMM_GET_STATS reads uint16 and appends uint32). */
+        uint16_t mask = (uint16_t)(((uint16_t)data[1] << 8) | (uint16_t)data[2]);
+
+        if (self->motor == (void *)0 || self->motor->get_stats == (void *)0) {
+            return EDGE_EINVAL;
+        }
+        vesc_stats_t st_val;
+        memset(&st_val, 0, sizeof(st_val));
+        edge_status_t st = self->motor->get_stats(self->motor->self, &st_val);
+        if (st != EDGE_OK) {
+            return st;
+        }
+
+        uint8_t resp[80];
+        size_t resp_len = 0;
+        resp[resp_len++] = COMM_GET_STATS;
+        buffer_append_uint32(resp, (uint32_t)mask, &resp_len);
+
+        /* Stats go out float32_auto, not float32: no scale factor. */
+        if (mask & (1u << 0)) {
+            buffer_append_float32_auto(resp, st_val.speed_avg, &resp_len);
+        }
+        if (mask & (1u << 1)) {
+            buffer_append_float32_auto(resp, st_val.speed_max, &resp_len);
+        }
+        if (mask & (1u << 2)) {
+            buffer_append_float32_auto(resp, st_val.power_avg, &resp_len);
+        }
+        if (mask & (1u << 3)) {
+            buffer_append_float32_auto(resp, st_val.power_max, &resp_len);
+        }
+        if (mask & (1u << 4)) {
+            buffer_append_float32_auto(resp, st_val.current_avg, &resp_len);
+        }
+        if (mask & (1u << 5)) {
+            buffer_append_float32_auto(resp, st_val.current_max, &resp_len);
+        }
+        if (mask & (1u << 6)) {
+            buffer_append_float32_auto(resp, st_val.temp_mos_avg, &resp_len);
+        }
+        if (mask & (1u << 7)) {
+            buffer_append_float32_auto(resp, st_val.temp_mos_max, &resp_len);
+        }
+        if (mask & (1u << 8)) {
+            buffer_append_float32_auto(resp, st_val.temp_motor_avg, &resp_len);
+        }
+        if (mask & (1u << 9)) {
+            buffer_append_float32_auto(resp, st_val.temp_motor_max, &resp_len);
+        }
+        if (mask & (1u << 10)) {
+            buffer_append_float32_auto(resp, st_val.count_time, &resp_len);
+        }
+
+        return vesc_comm_send_packet(self, resp, resp_len);
+    }
+
+    case COMM_RESET_STATS: {
+        /* The first payload byte after the id is an "ack" flag; the reply is sent
+         * only when it is set (reference: comm/commands.c COMM_RESET_STATS). */
+        uint8_t ack = (len > 1) ? data[1] : 0u;
+
+        if (self->motor == (void *)0 || self->motor->reset_stats == (void *)0) {
+            return EDGE_EINVAL;
+        }
+        edge_status_t st = self->motor->reset_stats(self->motor->self);
+        if (st != EDGE_OK) {
+            return st;
+        }
+
+        if (ack == 0u) {
+            return EDGE_OK;
+        }
+
+        uint8_t resp[2];
+        resp[0] = COMM_RESET_STATS;
+        return vesc_comm_send_packet(self, resp, 1u);
     }
 
     case COMM_ALIVE:

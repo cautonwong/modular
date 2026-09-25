@@ -24,14 +24,42 @@ static edge_status_t foc_core_poll(edge_module_t *module) {
     self->avg_iq_sum += self->last_iq;
     self->avg_vd_sum += self->v_d;
     self->avg_vq_sum += self->v_q;
-    /* The reference sums a filtered total motor current; this port has no input
-     * current sensor, so that channel stays at 0/0 until one exists. */
-    self->avg_motor_current_sum += sqrtf(SQ(self->last_id) + SQ(self->last_iq));
+    self->avg_motor_current_sum += self->i_abs_filter;
     self->avg_id_iterations += 1.0f;
     self->avg_iq_iterations += 1.0f;
     self->avg_vd_iterations += 1.0f;
     self->avg_vq_iterations += 1.0f;
     self->avg_motor_current_iterations += 1.0f;
+
+    /*
+     * Statistics sampler. Reference: update_stats() in mc_interface.c, driven by a
+     * dedicated thread rather than the control path. Power is input voltage times
+     * the absolute input current (the reference filters that voltage; this port has
+     * no filtered bus voltage), the current term is the RAW motor current
+     * magnitude, and the temperature term the FET temperature. No motor NTC is
+     * wired, so the motor-temperature statistics stay at their -300 seed.
+     */
+    float stat_power = self->last_v_bus * fabsf(self->i_bus);
+    const float stat_temp_motor = 0.0f;
+
+    self->stat_power_sum += stat_power;
+    self->stat_current_sum += self->i_abs;
+    self->stat_temp_mos_sum += self->fet_temp_c;
+    self->stat_temp_motor_sum += stat_temp_motor;
+    self->stat_samples += 1.0f;
+
+    if (stat_power > self->stat_max_power) {
+        self->stat_max_power = stat_power;
+    }
+    if (self->i_abs > self->stat_max_current) {
+        self->stat_max_current = self->i_abs;
+    }
+    if (self->fet_temp_c > self->stat_max_temp_mos) {
+        self->stat_max_temp_mos = self->fet_temp_c;
+    }
+    if (stat_temp_motor > self->stat_max_temp_motor) {
+        self->stat_max_temp_motor = stat_temp_motor;
+    }
 
     /* Background Thermal Protection Check */
     if (self->fet_temp_c > self->config.temp_fet_max_c && self->config.temp_fet_max_c > 1.0f) {
@@ -140,6 +168,18 @@ void foc_core_construct(foc_core_t *self, uint32_t module_id, uint32_t priority,
     self->iq_filter = 0.0f;
     self->i_abs_filter = 0.0f;
     self->i_bus = 0.0f;
+    self->i_abs = 0.0f;
+    self->stat_samples = 0.0f;
+    self->stat_power_sum = 0.0f;
+    self->stat_max_power = 0.0f;
+    self->stat_current_sum = 0.0f;
+    self->stat_max_current = 0.0f;
+    self->stat_temp_mos_sum = 0.0f;
+    self->stat_temp_motor_sum = 0.0f;
+    /* The reference's stat_reset() seeds the temperature maxima below any real
+     * reading, so the first sample becomes the maximum. */
+    self->stat_max_temp_mos = -300.0f;
+    self->stat_max_temp_motor = -300.0f;
     self->amp_seconds = 0.0f;
     self->amp_seconds_charged = 0.0f;
     self->watt_seconds = 0.0f;
@@ -407,6 +447,7 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
      * same (integral of current over time) and the port has no separate timer
      * tick carrying a dt, so it accumulates here with the loop dt.
      */
+    self->i_abs = sqrtf(SQ(id) + SQ(iq));
     self->i_abs_filter = sqrtf(SQ(self->id_filter) + SQ(self->iq_filter));
     if (v_bus > 0.0f) {
         self->i_bus = 1.5f * (vd * id + vq * iq) / v_bus;
@@ -614,6 +655,41 @@ void foc_core_get_telemetry(const foc_core_t *self, foc_telemetry_t *out_telem) 
     out_telem->amp_hours_charged = self->amp_seconds_charged / 3600.0f;
     out_telem->watt_hours = self->watt_seconds / 3600.0f;
     out_telem->watt_hours_charged = self->watt_seconds_charged / 3600.0f;
+}
+
+void foc_core_get_stats(const foc_core_t *self, foc_stats_t *out_stats) {
+    if (self == (void *)0 || out_stats == (void *)0) {
+        return;
+    }
+
+    /* sum/samples, with the reference's 0/0 when nothing was sampled yet. */
+    out_stats->power_avg = self->stat_power_sum / self->stat_samples;
+    out_stats->current_avg = self->stat_current_sum / self->stat_samples;
+    out_stats->temp_mos_avg = self->stat_temp_mos_sum / self->stat_samples;
+    out_stats->temp_motor_avg = self->stat_temp_motor_sum / self->stat_samples;
+
+    out_stats->power_max = self->stat_max_power;
+    out_stats->current_max = self->stat_max_current;
+    out_stats->temp_mos_max = self->stat_max_temp_mos;
+    out_stats->temp_motor_max = self->stat_max_temp_motor;
+}
+
+void foc_core_stats_reset(foc_core_t *self) {
+    if (self == (void *)0) {
+        return;
+    }
+
+    /* Reference: mc_interface_stat_reset() - zero the sums, and put the two
+     * temperature maxima back to -300. */
+    self->stat_samples = 0.0f;
+    self->stat_power_sum = 0.0f;
+    self->stat_max_power = 0.0f;
+    self->stat_current_sum = 0.0f;
+    self->stat_max_current = 0.0f;
+    self->stat_temp_mos_sum = 0.0f;
+    self->stat_temp_motor_sum = 0.0f;
+    self->stat_max_temp_mos = -300.0f;
+    self->stat_max_temp_motor = -300.0f;
 }
 
 void foc_core_set_temperature(foc_core_t *self, float fet_temp_c) {

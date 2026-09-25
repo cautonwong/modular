@@ -221,6 +221,25 @@ typedef struct vesc_values {
 #define VESC_VALUES_MASK_ALL 0xFFFFFFFFu
 
 /*
+ * COMM_GET_STATS payload. The request carries a uint16 mask and the reply echoes
+ * it as a uint32 (reference: comm/commands.c COMM_GET_STATS), the averages are
+ * sum/samples and the maxima are running maxima since the last reset.
+ */
+typedef struct vesc_stats {
+    float speed_avg;
+    float speed_max;
+    float power_avg;
+    float power_max;
+    float current_avg;
+    float current_max;
+    float temp_mos_avg;
+    float temp_mos_max;
+    float temp_motor_avg;
+    float temp_motor_max;
+    float count_time;
+} vesc_stats_t;
+
+/*
  * Consumer-Defined Ports (Rules: must have void *self; callbacks take void *self)
  */
 typedef struct edge_stream_tx_port {
@@ -242,6 +261,8 @@ typedef struct vesc_motor_provider_port {
     edge_status_t (*set_current_brake)(void *self, float current);
     edge_status_t (*set_rpm)(void *self, float rpm);
     edge_status_t (*set_pos)(void *self, float pos);
+    edge_status_t (*get_stats)(void *self, vesc_stats_t *out_val);
+    edge_status_t (*reset_stats)(void *self);
     void *self;
 } vesc_motor_provider_port_t;
 

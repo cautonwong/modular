@@ -486,6 +486,86 @@ static void test_foc_core_energy_counters(void **state) {
     assert_float_equal((telem.amp_hours - before.amp_hours) * 3600.0f, expected_amp_seconds, 1e-3f);
 }
 
+/*
+ * Statistics. Averages are sum/samples, maxima are running maxima since the last
+ * reset, and the reference seeds the two temperature maxima at -300 so an
+ * unupdated stat does not read as a plausible 0 C.
+ */
+static void test_foc_core_stats_and_reset(void **state) {
+    (void)state;
+
+    sim_context_t sim;
+    sim.v_bus = 24.0f;
+    sim.inv.enabled = false;
+    foc_virtual_motor_init(&sim.vm, 0.05f, 0.00005f, 0.005f, 7, 0.0005f);
+
+    foc_inverter_port_t inv_port = {
+        .set_duty = sim_set_duty, .set_phase_state = sim_set_phase_state, .self = &sim};
+    foc_current_port_t cs_port = {
+        .read_currents = sim_read_currents, .read_vbus = sim_read_vbus, .self = &sim};
+    foc_rotor_port_t rs_port = {.read_angle = sim_read_angle, .self = &sim};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .pole_pairs = 7,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = 300.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .current_filter_const = 0.1f,
+                        .sensorless_mode = false};
+
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    foc_core_set_temperature(&foc, 30.0f);
+
+    foc_stats_t st;
+
+    /* Nothing sampled yet: averages are the reference's 0/0, maxima untouched. */
+    foc_core_get_stats(&foc, &st);
+    assert_true(isnan(st.power_avg));
+    assert_float_equal(st.temp_mos_max, -300.0f, 1e-6f);
+    assert_float_equal(st.temp_motor_max, -300.0f, 1e-6f);
+
+    /* Sample with the motor running. */
+    assert_int_equal(foc_core_set_current(&foc, 8.0f, 0.0f), EDGE_OK);
+    for (int step = 0; step < 2000; step++) {
+        assert_int_equal(foc_core_fast_loop(&foc, 0.00005f), EDGE_OK);
+        foc_virtual_motor_step(&sim.vm, foc.v_alpha, foc.v_beta, 0.0f, 0.00005f, 0.05f);
+        assert_int_equal(foc.module.poll(&foc.module), EDGE_OK);
+    }
+
+    foc_core_get_stats(&foc, &st);
+    assert_false(isnan(st.power_avg));
+    assert_true(st.power_avg > 0.0f);
+    assert_true(st.current_avg > 1.0f);
+    assert_true(st.power_max >= st.power_avg);
+    assert_true(st.current_max >= st.current_avg);
+    assert_float_equal(st.temp_mos_avg, 30.0f, 1e-3f); /* constant FET temperature */
+    assert_float_equal(st.temp_mos_max, 30.0f, 1e-3f);
+    /* Feeding a hotter FET raises the maximum but not the average retroactively. */
+    foc_core_set_temperature(&foc, 55.0f);
+    assert_int_equal(foc.module.poll(&foc.module), EDGE_OK);
+    foc_core_get_stats(&foc, &st);
+    assert_float_equal(st.temp_mos_max, 55.0f, 1e-3f);
+    assert_true(st.temp_mos_avg < 55.0f);
+
+    /* Reset puts everything back, temperature maxima included. */
+    foc_core_stats_reset(&foc);
+    foc_core_get_stats(&foc, &st);
+    assert_true(isnan(st.power_avg));
+    assert_float_equal(st.power_max, 0.0f, 1e-9f);
+    assert_float_equal(st.current_max, 0.0f, 1e-9f);
+    assert_float_equal(st.temp_mos_max, -300.0f, 1e-6f);
+    assert_float_equal(st.temp_motor_max, -300.0f, 1e-6f);
+}
+
 /* Test 7: Speed and Position Control Modes */
 static void test_foc_core_modes(void **state) {
     (void)state;
@@ -607,6 +687,7 @@ int main(void) {
         cmocka_unit_test(test_foc_core_closed_loop_virtual_motor),
         cmocka_unit_test(test_foc_core_averages_are_read_reset_and_masked),
         cmocka_unit_test(test_foc_core_energy_counters),
+        cmocka_unit_test(test_foc_core_stats_and_reset),
         cmocka_unit_test(test_foc_core_modes),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);

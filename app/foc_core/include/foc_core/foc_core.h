@@ -162,6 +162,22 @@ typedef struct foc_core {
      * normalised as 1.5/v_bus, i.e. i_bus = 1.5 * (vd*id + vq*iq) / v_bus. */
     float i_bus;
 
+    /* Total motor current magnitude, unfiltered. Reference: state_m->i_abs
+     * (mcpwm_foc.c:4717). The energy counters gate on the FILTERED magnitude, the
+     * statistics below accumulate this raw one - both, as the reference does. */
+    float i_abs;
+
+    /* Statistics, see foc_stats_t. */
+    float stat_samples;
+    float stat_power_sum;
+    float stat_max_power;
+    float stat_current_sum;
+    float stat_max_current;
+    float stat_temp_mos_sum;
+    float stat_max_temp_mos;
+    float stat_temp_motor_sum;
+    float stat_max_temp_motor;
+
     /* Energy counters, amp-seconds / watt-seconds before the /3600. */
     float amp_seconds;
     float amp_seconds_charged;
@@ -192,6 +208,28 @@ typedef struct foc_core {
     uint32_t fast_loop_count;
     uint32_t step_count;
 } foc_core_t;
+
+/*
+ * Running statistics (reference: setup_stats / mc_interface.c update_stats(),
+ * sampled by a dedicated thread; COMM_GET_STATS serves them). Averages are
+ * sum/samples, maxima are running maxima since the last reset, and the two
+ * temperature maxima start at -300 as the reference's stat_reset() does.
+ *
+ * Not carried here, because the inputs do not exist yet: the speed statistics
+ * need mc_configuration's si_motor_poles / si_wheel_diameter / si_gear_ratio
+ * (reference mc_interface_get_speed() converts ERPM to m/s with them), and
+ * count_time needs a clock this module is not given.
+ */
+typedef struct foc_stats {
+    float power_avg;
+    float power_max;
+    float current_avg;
+    float current_max;
+    float temp_mos_avg;
+    float temp_mos_max;
+    float temp_motor_avg;
+    float temp_motor_max;
+} foc_stats_t;
 
 /* One bit per read-and-reset average; only the masked channels are read and reset. */
 typedef enum {
@@ -247,6 +285,9 @@ void foc_core_get_telemetry(const foc_core_t *self, foc_telemetry_t *out_telem);
  */
 void foc_core_read_reset_averages(foc_core_t *self, uint32_t channel_mask, foc_averages_t *out);
 void foc_core_set_temperature(foc_core_t *self, float fet_temp_c);
+
+void foc_core_get_stats(const foc_core_t *self, foc_stats_t *out_stats);
+void foc_core_stats_reset(foc_core_t *self);
 
 #ifdef __cplusplus
 }
