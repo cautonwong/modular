@@ -78,9 +78,25 @@ clang-format --dry-run     # 格式
 - BMS 闪写类（`COMM_BM_*`）与 `COMM_GET_IMU_CALIBRATION`、`COMM_CAN_UPDATE_BAUD_ALL`、
   `COMM_PING_CAN` 分别需要 BMS / IMU / CAN 的**写入（或探测）路径**，目前端口没有，属于
   各自模块的后续；
-- `COMM_GET_VALUES_SETUP`（VESC Tool 的 setup 页会问）：它要比 `GET_VALUES` 多了里程计、
-  `soc`、`wh_left` 等，而里程计在参考里来自 EEPROM 持久化（`mc_interface_get_odometer()`），
-  端口目前没有这种非易失计数源 —— 属于 **C3/闪存**的后续，而不是协议层能凭空填出的字段。
+- `COMM_GET_VALUES_SETUP` / `_SELECTIVE`（VESC Tool 的 setup 页会问）：**线格式已探明**，
+  `comm/commands.c:797-885`。回包 = 命令 id + 字段序列；`_SELECTIVE` 变体以 **uint32 mask**
+  开头（回包同样回显该 mask）。逐位含义（编码已核对）：
+  bit0/1 `temp_fet`/`temp_motor` **float16×1e1**；bit2/3 `current_tot`/`current_in_tot` **float32×1e2**；
+  bit4 `duty` **float16×1e3**；bit5 `rpm` **float32×1e0**；bit6 `speed` **float32×1e3**；
+  bit7 `v_in` **float16×1e1**；bit8 `battery_level` **float16×1e3**；bit9-12 `ah_tot`/`ah_charge_tot`/
+  `wh_tot`/`wh_charge_tot` **float32×1e4**；bit13/14 `distance`/`distance_abs` **float32×1e3**；
+  bit15 `pid_pos` **float32×1e6**；bit16 `fault` **uint8**；bit17 `controller_id` **uint8**；
+  bit18 `num_vescs` **uint8**；bit19 `wh_batt_left` **float32×1e3**；bit20 **odometer uint32**；
+  bit21 uptime **uint32** ms。注意同一命令里有三种浮点编码（float16 定点、float32 定点、
+  float32_auto 也出现在别处）—— 端口已有前两者的本地实现（`serialization.c`）。
+  还要补的依赖：电池电量公式（按 `si_battery_type/cells/ah` 算 SOC 与剩余 Wh，端口已有那些
+  字段但无公式）、`num_vescs`（参考是把 CAN 状态帧里未过期的 `current/ah/wh` **累加**上去，
+  端口需先有 CAN 状态接收路径）、以及**里程计本身**（uint64 米，`mc_interface_get_odometer()`；
+  线格式上 bit13/14 是它的浮点视图、bit20 是 uint32 视图）。**注意**：参考的里程计**累加点尚未
+  定位**——我读到的 `mc_interface.c:2570` 是 CAN 侧在累加**别的** VESC 的里程计，真正按本机速度
+  累加的地方还需再找，不要凭空实现（否则就是一个编出来的数字）。非易失存储用 C3 刚落地的
+  EEPROM 仿真（它存 u16 变量，里程计需按 hi/lo 拆分），或参考的 flash 存储；两者取舍需先看清
+  参考实际用哪个。
 
 至此 A8 点名的两个命令均已实现，其余 id 逐条列明去向（B5 / 各自模块 / C3），符合本任务
 「仍无法实现的 id 必须在 docs/bldc-migration.md 列明原因」的判据。
@@ -246,6 +262,26 @@ C3 的真正目标是 **`driver/eeprom.c`（643 行）**：在 flash 扇区上�
 （这就是判据里「掉电中断后的可恢复性」：切换完成前旧页仍是完整的一份）。
 所以 C3 的形状：把扇区轮换/追加写/页搬移/扫描恢复的**语义**移入 `infra/flash`（配一个
 扇区后端端口，以便在 host 上用 mock 注入掉电），再接上 `motor_config` 的存取路径。
+
+#### C3 已完成（判据三项都有测试）
+
+`infra/flash` 现在有 `flash_emul.c`：AN2594 两页仿真，扇区后端走端口注入，而不是写绝对地址。
+
+- **擦除粒度**：mock 只接受整扇区擦除（并断言长度），仿真也只在两处调用它——格式化与搬移时
+  擦旧页。
+- **写前擦除**：快路径只追加、从不擦；搬移先把新页写全（含按消费者变量表搬运的最新值），
+  再擦旧页。
+- **掉电可恢复**：搬移中途断电时旧页仍是完整有效的一份 → 重启 init 取旧页、读到上次提交值；
+  测试还断言此时**没有**多出擦除——这正是它存活的原因。
+- **如实钉住**参考自身的一处粗糙：它是“先擦旧页、后标 VALID”，两者之间断电会两页皆无效、
+  下次 init 只能格式化（数据丢失）。测试显式覆盖这个窗口，而不是假装不存在。
+- 测试也抓到端口里一个真 bug：`flash_emul_init` 原先用**写侧**判据找页（“我能往哪写”），
+  于是“搬移中断、新页仅 RECEIVE”的半成品镜像会被当成可用、读出一片空；正确判据是**读侧**的
+  “是否存在 VALID 页”（参考 `EE_Init` 的口径）。
+
+**C3 后续（不在本任务判据内，已定位）**：把 `motor_config` 的存/取接到它上面（现在仍是自有信封
+signature + version + length + CRC，参考没有），并按 `conf_general.c` 的 store/load 语义决定何时
+落盘；A8 登记的 `COMM_GET_VALUES_SETUP` 缺的里程计/SOC 源也在这里。
 
 #### C1 验收（有消费者的字段是否都配置驱动）
 
