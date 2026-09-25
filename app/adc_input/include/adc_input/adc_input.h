@@ -48,6 +48,8 @@ typedef struct adc_input_app {
     adc_input_port_t port;
     float throttle_norm; /* -1.0 to 1.0 (or 0.0 to 1.0) */
     float brake_norm;    /* 0.0 to 1.0 */
+    float throttle_v;    /* last measured throttle input voltage */
+    float brake_v;       /* last measured brake input voltage */
     bool fault_wire_disconnected;
     bool safe_start_unlocked;
 } adc_input_app_t;
@@ -58,6 +60,10 @@ edge_status_t adc_input_init(adc_input_app_t *app);
 edge_status_t adc_input_update(adc_input_app_t *app);
 float adc_input_get_throttle(const adc_input_app_t *app);
 float adc_input_get_brake(const adc_input_app_t *app);
+/* Last measured input voltages. The reference reports these alongside the decoded
+ * levels in COMM_GET_DECODED_ADC, so they have to be kept, not just consumed. */
+float adc_input_get_throttle_v(const adc_input_app_t *app);
+float adc_input_get_brake_v(const adc_input_app_t *app);
 bool adc_input_has_fault(const adc_input_app_t *app);
 edge_module_t *adc_input_module(adc_input_app_t *app);
 

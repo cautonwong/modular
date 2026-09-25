@@ -140,8 +140,11 @@ int main(void) {
     };
 
     vesc_comm_t comm;
+    vesc_app_status_port_t app_status_port;
+    vesc_host_make_app_status_port(&app_status_port, &glue_state);
+
     vesc_comm_construct(&comm, EDGE_MOD_VESC_COMM, 20u, &stream_tx_port, &motor_port,
-                        &comm_identity);
+                        &app_status_port, &comm_identity);
     if (vesc_comm_init(&comm) < 0) {
         return 12;
     }
@@ -186,6 +189,8 @@ int main(void) {
     if (adc_input_init(&adc_app) != EDGE_OK) {
         return 16;
     }
+    glue_state.ppm = &ppm;
+    glue_state.adc = &adc_app;
 
     vesc_can_app_t can_app;
     vesc_can_config_t can_cfg = {

@@ -247,6 +247,19 @@ typedef struct edge_stream_tx_port {
     void *self;
 } edge_stream_tx_port_t;
 
+/*
+ * Decoded app inputs, for COMM_GET_DECODED_PPM and COMM_GET_DECODED_ADC. The
+ * reference reads these straight off app_ppm / app_adc (comm/commands.c), so the
+ * codec asks for the same quantities: the decoded normalised level and the raw
+ * input behind it.
+ */
+typedef struct vesc_app_status_port {
+    edge_status_t (*get_decoded_ppm)(void *self, float *level, float *pulse_us);
+    edge_status_t (*get_decoded_adc)(void *self, float *level, float *voltage, float *level2,
+                                     float *voltage2);
+    void *self;
+} vesc_app_status_port_t;
+
 typedef struct vesc_motor_provider_port {
     /*
      * Fill out_val for the fields `mask` selects. The fields the reference serves
@@ -296,6 +309,7 @@ typedef struct vesc_comm {
     /* Injected Ports */
     const edge_stream_tx_port_t *stream_tx;
     const vesc_motor_provider_port_t *motor;
+    const vesc_app_status_port_t *app_status;
     const vesc_identity_t *identity;
 
     /* Packet RX State */
@@ -315,7 +329,8 @@ typedef struct vesc_comm {
 
 void vesc_comm_construct(vesc_comm_t *self, uint32_t module_id, uint32_t priority,
                          const edge_stream_tx_port_t *stream_tx,
-                         const vesc_motor_provider_port_t *motor, const vesc_identity_t *identity);
+                         const vesc_motor_provider_port_t *motor,
+                         const vesc_app_status_port_t *app_status, const vesc_identity_t *identity);
 
 edge_status_t vesc_comm_init(vesc_comm_t *self);
 edge_status_t vesc_comm_deinit(vesc_comm_t *self);

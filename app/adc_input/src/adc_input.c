@@ -19,6 +19,8 @@ static edge_status_t adc_input_power_off(edge_module_t *mod) {
     if (app) {
         app->throttle_norm = 0.0f;
         app->brake_norm = 0.0f;
+        app->throttle_v = 0.0f;
+        app->brake_v = 0.0f;
     }
     return EDGE_OK;
 }
@@ -98,6 +100,7 @@ edge_status_t adc_input_update(adc_input_app_t *app) {
     }
 
     app->fault_wire_disconnected = false;
+    app->throttle_v = v_throttle;
 
     /* Normalize throttle */
     float t_norm = 0.0f;
@@ -117,6 +120,7 @@ edge_status_t adc_input_update(adc_input_app_t *app) {
     if (app->config.use_brake_input && app->port.read_brake_v) {
         float v_brake = 0.0f;
         if (app->port.read_brake_v(app->port.self, &v_brake) == EDGE_OK) {
+            app->brake_v = v_brake;
             if (v_brake > app->config.brake_start) {
                 float b_span = app->config.brake_end - app->config.brake_start;
                 if (b_span > 0.001f) {
@@ -144,6 +148,14 @@ edge_status_t adc_input_update(adc_input_app_t *app) {
     app->brake_norm = b_norm;
 
     return EDGE_OK;
+}
+
+float adc_input_get_throttle_v(const adc_input_app_t *app) {
+    return app != (void *)0 ? app->throttle_v : 0.0f;
+}
+
+float adc_input_get_brake_v(const adc_input_app_t *app) {
+    return app != (void *)0 ? app->brake_v : 0.0f;
 }
 
 float adc_input_get_throttle(const adc_input_app_t *app) {

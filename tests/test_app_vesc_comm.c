@@ -28,6 +28,12 @@ typedef struct mock_comm_ctx {
     vesc_stats_t stats;
     int stats_calls;
     int stats_resets;
+    float ppm_level;
+    float ppm_pulse_us;
+    float adc_level;
+    float adc_voltage;
+    float adc_level2;
+    float adc_voltage2;
 } mock_comm_ctx_t;
 
 /*
@@ -99,6 +105,23 @@ static edge_status_t mock_set_current_brake(void *self, float current) {
     return EDGE_OK;
 }
 
+static edge_status_t mock_get_decoded_ppm(void *self, float *level, float *pulse_us) {
+    mock_comm_ctx_t *ctx = (mock_comm_ctx_t *)self;
+    *level = ctx->ppm_level;
+    *pulse_us = ctx->ppm_pulse_us;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_get_decoded_adc(void *self, float *level, float *voltage, float *level2,
+                                          float *voltage2) {
+    mock_comm_ctx_t *ctx = (mock_comm_ctx_t *)self;
+    *level = ctx->adc_level;
+    *voltage = ctx->adc_voltage;
+    *level2 = ctx->adc_level2;
+    *voltage2 = ctx->adc_voltage2;
+    return EDGE_OK;
+}
+
 static edge_status_t mock_get_stats(void *self, vesc_stats_t *out_val) {
     mock_comm_ctx_t *ctx = (mock_comm_ctx_t *)self;
     ctx->stats_calls++;
@@ -145,7 +168,7 @@ static void test_send_packet_framing(void **state) {
     };
 
     vesc_comm_t comm;
-    vesc_comm_construct(&comm, EDGE_MOD_VESC_COMM, 10, &tx_port, NULL, &test_identity);
+    vesc_comm_construct(&comm, EDGE_MOD_VESC_COMM, 10, &tx_port, NULL, NULL, &test_identity);
     assert_int_equal(vesc_comm_init(&comm), EDGE_OK);
 
     uint8_t payload[] = {0x04, 0x01, 0x02, 0x03};
@@ -177,6 +200,11 @@ static void test_receive_packet_and_commands(void **state) {
         .self = &ctx,
     };
 
+    vesc_app_status_port_t app_status_port = {
+        .get_decoded_ppm = mock_get_decoded_ppm,
+        .get_decoded_adc = mock_get_decoded_adc,
+        .self = &ctx,
+    };
     vesc_motor_provider_port_t motor_port = {
         .get_values = mock_get_values,
         .get_stats = mock_get_stats,
@@ -190,7 +218,8 @@ static void test_receive_packet_and_commands(void **state) {
     };
 
     vesc_comm_t comm;
-    vesc_comm_construct(&comm, EDGE_MOD_VESC_COMM, 10, &tx_port, &motor_port, &test_identity);
+    vesc_comm_construct(&comm, EDGE_MOD_VESC_COMM, 10, &tx_port, &motor_port, &app_status_port,
+                        &test_identity);
     assert_int_equal(vesc_comm_init(&comm), EDGE_OK);
 
     /* Test 1: COMM_SET_DUTY */
@@ -286,7 +315,7 @@ static void test_receive_packet_and_commands(void **state) {
 
     /* Identity that cannot fit is refused rather than truncated or overflowed. */
     vesc_comm_t oversize_comm;
-    vesc_comm_construct(&oversize_comm, EDGE_MOD_VESC_COMM, 10, &tx_port, NULL,
+    vesc_comm_construct(&oversize_comm, EDGE_MOD_VESC_COMM, 10, &tx_port, NULL, NULL,
                         &oversized_identity);
     assert_int_equal(vesc_comm_init(&oversize_comm), EDGE_OK);
     ctx.tx_count = 0;
@@ -295,7 +324,7 @@ static void test_receive_packet_and_commands(void **state) {
     assert_int_equal(ctx.tx_count, 0);
 
     /* A codec with no identity at all refuses the same way. */
-    vesc_comm_construct(&oversize_comm, EDGE_MOD_VESC_COMM, 10, &tx_port, NULL, NULL);
+    vesc_comm_construct(&oversize_comm, EDGE_MOD_VESC_COMM, 10, &tx_port, NULL, NULL, NULL);
     assert_int_equal(vesc_comm_init(&oversize_comm), EDGE_OK);
     assert_int_equal(vesc_comm_process_command(&oversize_comm, cmd_fw, sizeof(cmd_fw)),
                      EDGE_EINVAL);
@@ -410,6 +439,47 @@ static void test_receive_packet_and_commands(void **state) {
     assert_int_equal(ctx.tx_count, 1);
     assert_int_equal(ctx.tx_buf[1], 1u); /* id only */
     assert_int_equal(ctx.tx_buf[2], COMM_RESET_STATS);
+
+    /*
+     * Decoded inputs. Both commands report the decoded level and the raw input
+     * behind it, as int32 scaled by 1e6 (reference: comm/commands.c
+     * COMM_GET_DECODED_PPM / _ADC).
+     */
+    ctx.tx_count = 0;
+    ctx.ppm_level = 0.5f;
+    ctx.ppm_pulse_us = 1500.0f;
+    uint8_t cmd_ppm[1] = {COMM_GET_DECODED_PPM};
+    assert_int_equal(vesc_comm_process_command(&comm, cmd_ppm, sizeof(cmd_ppm)), EDGE_OK);
+    assert_int_equal(ctx.tx_count, 1);
+    assert_int_equal(ctx.tx_buf[1], 9u); /* id + 2 * int32 */
+    assert_int_equal(ctx.tx_buf[2], COMM_GET_DECODED_PPM);
+    assert_int_equal(ctx.tx_buf[3], 0x00u); /* 500000 = 0x0007A120 */
+    assert_int_equal(ctx.tx_buf[4], 0x07u);
+    assert_int_equal(ctx.tx_buf[5], 0xA1u);
+    assert_int_equal(ctx.tx_buf[6], 0x20u);
+    assert_int_equal(ctx.tx_buf[7], 0x59u); /* 1500000000 = 0x59682F00 */
+    assert_int_equal(ctx.tx_buf[8], 0x68u);
+    assert_int_equal(ctx.tx_buf[9], 0x2Fu);
+    assert_int_equal(ctx.tx_buf[10], 0x00u);
+
+    ctx.tx_count = 0;
+    ctx.adc_level = 0.25f;
+    ctx.adc_voltage = 1.5f;
+    ctx.adc_level2 = 0.0f;
+    ctx.adc_voltage2 = 0.0f;
+    uint8_t cmd_adc[1] = {COMM_GET_DECODED_ADC};
+    assert_int_equal(vesc_comm_process_command(&comm, cmd_adc, sizeof(cmd_adc)), EDGE_OK);
+    assert_int_equal(ctx.tx_count, 1);
+    assert_int_equal(ctx.tx_buf[1], 17u); /* id + 4 * int32 */
+    assert_int_equal(ctx.tx_buf[2], COMM_GET_DECODED_ADC);
+    assert_int_equal(ctx.tx_buf[3], 0x00u); /* 250000 = 0x0003D090 */
+    assert_int_equal(ctx.tx_buf[4], 0x03u);
+    assert_int_equal(ctx.tx_buf[5], 0xD0u);
+    assert_int_equal(ctx.tx_buf[6], 0x90u);
+    assert_int_equal(ctx.tx_buf[7], 0x00u); /* 1500000 = 0x0016E360 */
+    assert_int_equal(ctx.tx_buf[8], 0x16u);
+    assert_int_equal(ctx.tx_buf[9], 0xE3u);
+    assert_int_equal(ctx.tx_buf[10], 0x60u);
 
     /* Test 4: Corrupted CRC */
     frame[f_idx - 2] ^= 0xFF; /* Corrupt CRC */

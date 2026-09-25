@@ -148,6 +148,10 @@ edge_status_t ppm_update(ppm_app_t *app, float dt) {
     return EDGE_OK;
 }
 
+float ppm_get_last_pulse_us(const ppm_app_t *app) {
+    return app != (void *)0 ? app->last_pulse_us : 0.0f;
+}
+
 float ppm_get_output(const ppm_app_t *app) {
     if (!app || app->signal_lost) {
         return 0.0f;

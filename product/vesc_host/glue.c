@@ -385,6 +385,55 @@ static edge_status_t can_recv(void *self, uint32_t *can_id, uint8_t *data, uint8
     return EDGE_ENOENT;
 }
 
+/* Decoded app inputs (COMM_GET_DECODED_PPM / _ADC). The reference reads these from
+ * app_ppm and app_adc directly; here the adapter reads the same apps through their
+ * public getters. */
+static edge_status_t app_get_decoded_ppm(void *self, float *level, float *pulse_us) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    if (s == (void *)0 || s->ppm == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    if (level != (void *)0) {
+        *level = ppm_get_output(s->ppm);
+    }
+    if (pulse_us != (void *)0) {
+        *pulse_us = ppm_get_last_pulse_us(s->ppm);
+    }
+    return EDGE_OK;
+}
+
+static edge_status_t app_get_decoded_adc(void *self, float *level, float *voltage, float *level2,
+                                         float *voltage2) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    if (s == (void *)0 || s->adc == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    if (level != (void *)0) {
+        *level = adc_input_get_throttle(s->adc);
+    }
+    if (voltage != (void *)0) {
+        *voltage = adc_input_get_throttle_v(s->adc);
+    }
+    if (level2 != (void *)0) {
+        *level2 = adc_input_get_brake(s->adc);
+    }
+    if (voltage2 != (void *)0) {
+        *voltage2 = adc_input_get_brake_v(s->adc);
+    }
+    return EDGE_OK;
+}
+
+void vesc_host_make_app_status_port(vesc_app_status_port_t *out, vesc_host_glue_state_t *state) {
+    if (!out || !state) {
+        return;
+    }
+    *out = (vesc_app_status_port_t){
+        .get_decoded_ppm = app_get_decoded_ppm,
+        .get_decoded_adc = app_get_decoded_adc,
+        .self = state,
+    };
+}
+
 void vesc_host_make_can_port(vesc_can_port_t *out, vesc_host_glue_state_t *state) {
     if (!out || !state) {
         return;
