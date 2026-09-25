@@ -2,6 +2,7 @@
 #define APP_VESC_COMM_H
 
 #include "edge/module.h"
+#include <stdalign.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -318,32 +319,27 @@ typedef struct vesc_identity {
     uint32_t hw_crc; /* reference: main_calc_hw_crc() */
 } vesc_identity_t;
 
-typedef struct vesc_comm {
-    edge_module_t module;
+/*
+ * Opaque, caller-provided memory:
+ *
+ *   static alignas(VESC_COMM_STORAGE_ALIGN)
+ *       unsigned char storage[VESC_COMM_STORAGE_SIZE];
+ *   vesc_comm_t *comm = (vesc_comm_t *)storage;
+ *
+ * The definition lives in src/vesc_comm_internal.h, which also asserts that the
+ * size and alignment below still cover it. The caller therefore knows how much
+ * memory to provide without knowing a single field, and cannot reach past the
+ * module's own interface to change its state.
+ *
+ * Size is a ceiling for the widest target (64-bit host) rather than an exact
+ * size, so one constant works everywhere; on a 32-bit target the assertions still
+ * hold with room to spare. The reference keeps its equivalent state in a mempool
+ * for the same reason: the memory belongs to the caller, not to the codec.
+ */
+#define VESC_COMM_STORAGE_SIZE 1536u
+#define VESC_COMM_STORAGE_ALIGN alignof(max_align_t)
 
-    /* Injected Ports */
-    const edge_stream_tx_port_t *stream_tx;
-    const vesc_motor_provider_port_t *motor;
-    const vesc_app_status_port_t *app_status;
-    const vesc_identity_t *identity;
-
-    /* Packet RX State */
-    uint8_t rx_buffer[VESC_PACKET_BUF_LEN];
-    size_t rx_write_ptr;
-    size_t rx_read_ptr;
-    int bytes_left;
-
-    /* Packet TX Buffer */
-    uint8_t tx_buffer[VESC_PACKET_BUF_LEN];
-
-    /* Caller-provided reply scratch; see VESC_CMD_REPLY_BUF_LEN. */
-    uint8_t cmd_reply_buf[VESC_CMD_REPLY_BUF_LEN];
-
-    /* Statistics */
-    uint32_t packets_received;
-    uint32_t packets_sent;
-    uint32_t crc_errors;
-} vesc_comm_t;
+typedef struct vesc_comm vesc_comm_t;
 
 void vesc_comm_construct(vesc_comm_t *self, uint32_t module_id, uint32_t priority,
                          const edge_stream_tx_port_t *stream_tx,
@@ -353,6 +349,11 @@ void vesc_comm_construct(vesc_comm_t *self, uint32_t module_id, uint32_t priorit
 edge_status_t vesc_comm_init(vesc_comm_t *self);
 edge_status_t vesc_comm_deinit(vesc_comm_t *self);
 edge_module_t *vesc_comm_module(vesc_comm_t *self);
+
+/* Read-only counters, because the internals are no longer reachable. */
+uint32_t vesc_comm_packets_received(const vesc_comm_t *self);
+uint32_t vesc_comm_packets_sent(const vesc_comm_t *self);
+uint32_t vesc_comm_crc_errors(const vesc_comm_t *self);
 
 /* Packet Processing & Framing */
 void vesc_comm_process_byte(vesc_comm_t *self, uint8_t byte);

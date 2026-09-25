@@ -114,7 +114,9 @@ CASES = [
     ("check_area_registration.py", "tests/guards/area_registration_good", True),
     ("check_area_registration.py", "tests/guards/area_registration_bad", False),
     ("check_consumer_ports.py", "tests/guards/consumer_ports_good", True),
+    ("check_consumer_ports.py", "tests/guards/consumer_ports_good_opaque_storage", True),
     ("check_consumer_ports.py", "tests/guards/consumer_ports_bad_no_self", False),
+    ("check_consumer_ports.py", "tests/guards/consumer_ports_bad_opaque_storage", False),
     ("check_consumer_ports.py", "tests/guards/consumer_ports_bad_malloc", False),
 ]
 
