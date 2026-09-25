@@ -92,6 +92,14 @@ void motor_config_set_defaults(mc_configuration_t *mcconf, app_configuration_t *
         mcconf->foc_sat_comp_mode = 0u; /* SAT_COMP_DISABLED */
         mcconf->foc_sat_comp = 0.0f;
         mcconf->foc_motor_ld_lq_diff = 0.0f;
+        mcconf->s_pid_kp = 0.004f;
+        mcconf->s_pid_ki = 0.004f;
+        mcconf->s_pid_kd = 0.0001f;
+        mcconf->s_pid_kd_filter = 0.2f;
+        mcconf->s_pid_min_erpm = 0.0f;
+        mcconf->s_pid_ramp_erpms_s = 25000.0f;
+        mcconf->s_pid_allow_braking = true;
+        mcconf->m_invert_direction = false;
     }
 
     if (appconf != (void *)0) {
@@ -207,6 +215,14 @@ edge_status_t motor_config_serialize(const mc_configuration_t *mcconf,
     buffer[idx++] = mcconf->foc_sat_comp_mode;
     append_float(buffer, mcconf->foc_sat_comp, 1e4f, &idx);
     append_float(buffer, mcconf->foc_motor_ld_lq_diff, 1e7f, &idx);
+    append_float(buffer, mcconf->s_pid_kp, 1e6f, &idx);
+    append_float(buffer, mcconf->s_pid_ki, 1e6f, &idx);
+    append_float(buffer, mcconf->s_pid_kd, 1e7f, &idx);
+    append_float(buffer, mcconf->s_pid_kd_filter, 1e4f, &idx);
+    append_float(buffer, mcconf->s_pid_min_erpm, 1e0f, &idx);
+    append_float(buffer, mcconf->s_pid_ramp_erpms_s, 1e0f, &idx);
+    buffer[idx++] = mcconf->s_pid_allow_braking ? 1u : 0u;
+    buffer[idx++] = mcconf->m_invert_direction ? 1u : 0u;
 
     /* Serialize App Config */
     buffer[idx++] = appconf->controller_id;
@@ -292,6 +308,14 @@ edge_status_t motor_config_deserialize(mc_configuration_t *mcconf, app_configura
     mcconf->foc_sat_comp_mode = buffer[idx++];
     mcconf->foc_sat_comp = get_float(buffer, 1e4f, &idx);
     mcconf->foc_motor_ld_lq_diff = get_float(buffer, 1e7f, &idx);
+    mcconf->s_pid_kp = get_float(buffer, 1e6f, &idx);
+    mcconf->s_pid_ki = get_float(buffer, 1e6f, &idx);
+    mcconf->s_pid_kd = get_float(buffer, 1e7f, &idx);
+    mcconf->s_pid_kd_filter = get_float(buffer, 1e4f, &idx);
+    mcconf->s_pid_min_erpm = get_float(buffer, 1e0f, &idx);
+    mcconf->s_pid_ramp_erpms_s = get_float(buffer, 1e0f, &idx);
+    mcconf->s_pid_allow_braking = (buffer[idx++] != 0u);
+    mcconf->m_invert_direction = (buffer[idx++] != 0u);
 
     /* Deserialize App Config */
     appconf->controller_id = buffer[idx++];

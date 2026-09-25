@@ -15,7 +15,7 @@ extern "C" {
 #define MOTOR_CONFIG_SIGNATURE 0x56455343u /* "VESC" */
 /* 2: added the fields foc_core consumes (filter constant, PLL gains, max duty,
  * observer type). A stored blob from version 1 is rejected rather than parsed. */
-#define MOTOR_CONFIG_SCHEMA_VER 3u
+#define MOTOR_CONFIG_SCHEMA_VER 4u
 #define MOTOR_CONFIG_BUFFER_SIZE 256u
 
 typedef enum {
@@ -66,6 +66,19 @@ typedef struct mc_configuration {
     uint8_t foc_sat_comp_mode;  /* 0 - SAT_COMP_DISABLED */
     float foc_sat_comp;         /* 0.0 */
     float foc_motor_ld_lq_diff; /* 0.0 */
+    /*
+     * Speed PID, reference defaults from motor/mcconf_default.h: kp 0.004,
+     * ki 0.004, kd 0.0001, kd_filter 0.2, braking allowed, ramp 25000 ERPM/s.
+     * s_pid_min_erpm has no default macro there, so it stays 0.0.
+     */
+    float s_pid_kp;
+    float s_pid_ki;
+    float s_pid_kd;
+    float s_pid_kd_filter;
+    float s_pid_min_erpm;
+    float s_pid_ramp_erpms_s;
+    bool s_pid_allow_braking;
+    bool m_invert_direction;
 } mc_configuration_t;
 
 typedef struct app_configuration {
@@ -96,7 +109,7 @@ typedef struct motor_config_storage_port {
  * The configuration itself is reached through motor_config_get_mc() / _get_app(),
  * so the caller never needs the layout to use the module.
  */
-#define MOTOR_CONFIG_STORAGE_SIZE 512u
+#define MOTOR_CONFIG_STORAGE_SIZE 576u
 #define MOTOR_CONFIG_STORAGE_ALIGN alignof(max_align_t)
 
 typedef struct motor_config motor_config_t;

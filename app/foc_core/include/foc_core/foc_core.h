@@ -93,6 +93,9 @@ typedef struct foc_config {
     float sat_comp;
     float ld_lq_diff;
 
+    /* Speed-loop parameters, handed to foc_run_pid_speed verbatim. */
+    foc_speed_pid_params_t speed_pid;
+
     /* Reference: mcconf foc_pll_kp / foc_pll_ki, defaults 2000 / 30000
      * (motor/mcconf_default.h:284-288). */
     float pll_kp;
@@ -162,6 +165,7 @@ typedef struct foc_core {
     /* Observer & Feedback */
     foc_observer_t observer;
     foc_pll_t pll;
+    foc_speed_pid_t speed_pid;
     float last_v_bus;
     float last_ia;
     float last_ib;
