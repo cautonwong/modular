@@ -70,9 +70,24 @@ static void test_timeout_guard_triggers_after_silence(void **state) {
     assert_true(fabsf(motor_ctx.brake_current - 15.0f) < 1e-3f);
 }
 
+/*
+ * The guard's own edges. `is_timed_out` reports TRUE for a missing guard, which is
+ * the safe reading - a caller that lost its guard has lost its supervision - and
+ * that is worth pinning rather than leaving to whoever reads the ternary next.
+ */
+static void test_timeout_guard_null_guards(void **state) {
+    (void)state;
+    assert_int_equal(timeout_guard_init(NULL), EDGE_EINVAL);
+    assert_int_equal(timeout_guard_deinit(NULL), EDGE_EINVAL);
+    assert_int_equal(timeout_guard_feed(NULL, 0u), EDGE_EINVAL);
+    assert_true(timeout_guard_is_timed_out(NULL));
+    assert_ptr_equal(timeout_guard_module(NULL), NULL);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_timeout_guard_triggers_after_silence),
+        cmocka_unit_test(test_timeout_guard_null_guards),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
