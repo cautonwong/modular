@@ -104,7 +104,13 @@ int main(void) {
         .vbus_ov_threshold = mc->l_max_vin,
         .vbus_uv_threshold = mc->l_min_vin,
         .temp_fet_max_c = mc->l_temp_fet_end,
-        .sensorless_mode = false,
+        /*
+         * The reference chooses the angle source from the configuration's sensor mode
+         * (mcpwm_foc.c switches on FOC_SENSOR_MODE_SENSORLESS), so this is derived rather
+         * than fixed: hardcoding it made the configuration's sensor mode unreadable by the
+         * control path.
+         */
+        .sensorless_mode = (mc->foc_sensor_mode == FOC_SENSOR_MODE_SENSORLESS),
         .observer_gamma = mc->foc_observer_gain,
         .observer_type = (foc_observer_type_t)mc->foc_observer_type,
         .sat_comp_mode = mc->foc_sat_comp_mode,
