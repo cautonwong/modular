@@ -23,6 +23,7 @@ typedef struct mock_comm_ctx {
     vesc_values_t current_values;
     float set_duty_val;
     float set_current_val;
+    float set_current_rel_val;
     float set_rpm_val;
     float set_pos_val;
     uint32_t last_mask;
@@ -125,6 +126,12 @@ static edge_status_t mock_set_current(void *self, float current) {
 static edge_status_t mock_set_current_brake(void *self, float current) {
     mock_comm_ctx_t *ctx = (mock_comm_ctx_t *)self;
     ctx->set_current_val = -current;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_set_current_rel(void *self, float rel) {
+    mock_comm_ctx_t *ctx = (mock_comm_ctx_t *)self;
+    ctx->set_current_rel_val = rel;
     return EDGE_OK;
 }
 
@@ -306,6 +313,7 @@ static void test_receive_packet_and_commands(void **state) {
         .reset_stats = mock_reset_stats,
         .set_duty = mock_set_duty,
         .set_current = mock_set_current,
+        .set_current_rel = mock_set_current_rel,
         .set_current_brake = mock_set_current_brake,
         .set_rpm = mock_set_rpm,
         .set_pos = mock_set_pos,
@@ -580,6 +588,28 @@ static void test_receive_packet_and_commands(void **state) {
         vesc_comm_process_byte(comm, frame[i]);
     }
     assert_int_equal(vesc_comm_crc_errors(comm), 1);
+
+    /* COMM_SET_CURRENT_REL: the reference's float32 is fixed point - an int32 of
+     * value * scale, divided back on read (comm/commands.c:1214 uses 1e5), not an IEEE
+     * float - forwarded to the relative setter. The motor side, not the codec, picks
+     * the limit.
+     * payload: [COMM_SET_CURRENT_REL][0.5 * 1e5 = 50000 = 0x0000C350] */
+    uint8_t cmd_cur_rel[] = {COMM_SET_CURRENT_REL, 0x00u, 0x00u, 0xC3u, 0x50u};
+    const uint32_t packets_before = vesc_comm_packets_received(comm);
+    crc = vesc_crc16(cmd_cur_rel, sizeof(cmd_cur_rel));
+    f_idx = 0;
+    frame[f_idx++] = 2;
+    frame[f_idx++] = (uint8_t)sizeof(cmd_cur_rel);
+    memcpy(frame + f_idx, cmd_cur_rel, sizeof(cmd_cur_rel));
+    f_idx += sizeof(cmd_cur_rel);
+    frame[f_idx++] = (uint8_t)(crc >> 8);
+    frame[f_idx++] = (uint8_t)(crc & 0xFFu);
+    frame[f_idx++] = 3;
+    for (size_t i = 0; i < f_idx; i++) {
+        vesc_comm_process_byte(comm, frame[i]);
+    }
+    assert_int_equal(vesc_comm_packets_received(comm), packets_before + 1u);
+    assert_float_equal(ctx.set_current_rel_val, 0.5f, 1e-5f);
 }
 
 int main(void) {
