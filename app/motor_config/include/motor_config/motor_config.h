@@ -15,7 +15,7 @@ extern "C" {
 #define MOTOR_CONFIG_SIGNATURE 0x56455343u /* "VESC" */
 /* 2: added the fields foc_core consumes (filter constant, PLL gains, max duty,
  * observer type). A stored blob from version 1 is rejected rather than parsed. */
-#define MOTOR_CONFIG_SCHEMA_VER 4u
+#define MOTOR_CONFIG_SCHEMA_VER 5u
 #define MOTOR_CONFIG_BUFFER_SIZE 256u
 
 typedef enum {
@@ -79,6 +79,16 @@ typedef struct mc_configuration {
     float s_pid_ramp_erpms_s;
     bool s_pid_allow_braking;
     bool m_invert_direction;
+    /*
+     * Limits the current-command semantics need (reference datatypes.h:403/431/553).
+     * cc_min_current has a global default (0.05, mcconf_default.h); the two lo_*
+     * values do NOT - they are calibrated per hardware, so they default to 0 here
+     * and are meant to come from board/<board>. A 0 is "pending the board", not the
+     * reference's default.
+     */
+    float l_abs_current_max;
+    float lo_current_min;
+    float cc_min_current;
 } mc_configuration_t;
 
 typedef struct app_configuration {

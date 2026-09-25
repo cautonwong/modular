@@ -100,6 +100,11 @@ void motor_config_set_defaults(mc_configuration_t *mcconf, app_configuration_t *
         mcconf->s_pid_ramp_erpms_s = 25000.0f;
         mcconf->s_pid_allow_braking = true;
         mcconf->m_invert_direction = false;
+        /* Only cc_min_current has a global reference default; the lo_* limits are
+         * board-calibrated and stay 0 until a board supplies them. */
+        mcconf->l_abs_current_max = 0.0f;
+        mcconf->lo_current_min = 0.0f;
+        mcconf->cc_min_current = 0.05f;
     }
 
     if (appconf != (void *)0) {
@@ -148,6 +153,9 @@ edge_status_t motor_config_validate(const mc_configuration_t *mcconf,
         return EDGE_EINVAL;
     }
     if (mcconf->foc_sat_comp < 0.0f) {
+        return EDGE_EINVAL;
+    }
+    if (mcconf->cc_min_current < 0.0f) {
         return EDGE_EINVAL;
     }
 
@@ -223,6 +231,9 @@ edge_status_t motor_config_serialize(const mc_configuration_t *mcconf,
     append_float(buffer, mcconf->s_pid_ramp_erpms_s, 1e0f, &idx);
     buffer[idx++] = mcconf->s_pid_allow_braking ? 1u : 0u;
     buffer[idx++] = mcconf->m_invert_direction ? 1u : 0u;
+    append_float(buffer, mcconf->l_abs_current_max, 1e2f, &idx);
+    append_float(buffer, mcconf->lo_current_min, 1e2f, &idx);
+    append_float(buffer, mcconf->cc_min_current, 1e4f, &idx);
 
     /* Serialize App Config */
     buffer[idx++] = appconf->controller_id;
@@ -316,6 +327,9 @@ edge_status_t motor_config_deserialize(mc_configuration_t *mcconf, app_configura
     mcconf->s_pid_ramp_erpms_s = get_float(buffer, 1e0f, &idx);
     mcconf->s_pid_allow_braking = (buffer[idx++] != 0u);
     mcconf->m_invert_direction = (buffer[idx++] != 0u);
+    mcconf->l_abs_current_max = get_float(buffer, 1e2f, &idx);
+    mcconf->lo_current_min = get_float(buffer, 1e2f, &idx);
+    mcconf->cc_min_current = get_float(buffer, 1e4f, &idx);
 
     /* Deserialize App Config */
     appconf->controller_id = buffer[idx++];
