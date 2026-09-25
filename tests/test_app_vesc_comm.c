@@ -745,6 +745,25 @@ static edge_status_t mock_terminal_cmd(void *self, const char *cmd) {
     return EDGE_OK;
 }
 
+/* COMM_FORWARD_CAN hands the packet to another controller: the first payload byte is the
+ * target id and the rest is forwarded unchanged. */
+static uint8_t mock_forward_last[64];
+static size_t mock_forward_len;
+static uint8_t mock_forward_target;
+static int mock_forward_calls;
+
+static edge_status_t mock_forward_can(void *self, uint8_t target_id, const uint8_t *data,
+                                      size_t len) {
+    (void)self;
+    mock_forward_calls++;
+    mock_forward_target = target_id;
+    mock_forward_len = len;
+    for (size_t i = 0u; i < len && i < sizeof(mock_forward_last); i++) {
+        mock_forward_last[i] = data[i];
+    }
+    return EDGE_OK;
+}
+
 static void test_config_commands_framing(void **state) {
     (void)state;
     mock_comm_ctx_t ctx;
@@ -765,7 +784,11 @@ static void test_config_commands_framing(void **state) {
     };
 
     vesc_comm_t *comm = test_comm_alloc();
-    vesc_comm_ops_port_t ops_port = {.terminal_cmd = mock_terminal_cmd, .self = NULL};
+    vesc_comm_ops_port_t ops_port = {
+        .terminal_cmd = mock_terminal_cmd,
+        .forward_can = mock_forward_can,
+        .self = NULL,
+    };
     vesc_comm_construct(comm, EDGE_MOD_VESC_COMM, 10u, &tx_port, NULL, NULL, &config_port,
                         &ops_port, &test_identity);
     assert_int_equal(vesc_comm_init(comm), EDGE_OK);
@@ -829,6 +852,23 @@ static void test_config_commands_framing(void **state) {
     /* A terminal command with no payload is malformed, not an empty command line. */
     uint8_t term_bare[] = {COMM_TERMINAL_CMD};
     assert_int_equal(vesc_comm_process_command(comm, term_bare, sizeof(term_bare)), EDGE_EINVAL);
+
+    /* COMM_FORWARD_CAN: the first payload byte is the target controller id and the rest is
+     * forwarded, with the codec answering nothing of its own. */
+    mock_forward_calls = 0;
+    ctx.tx_count = 0;
+    uint8_t fwd[] = {COMM_FORWARD_CAN, 42u, 0xDEu, 0xADu, 0xBEu};
+    assert_int_equal(vesc_comm_process_command(comm, fwd, sizeof(fwd)), EDGE_OK);
+    assert_int_equal(mock_forward_calls, 1);
+    assert_int_equal(mock_forward_target, 42u);
+    assert_int_equal(mock_forward_len, 3u);
+    assert_int_equal(mock_forward_last[0], 0xDEu);
+    assert_int_equal(mock_forward_last[2], 0xBEu);
+    assert_int_equal(ctx.tx_count, 0);
+
+    /* A forward with no target id is malformed, not a broadcast. */
+    uint8_t fwd_bare[] = {COMM_FORWARD_CAN};
+    assert_int_equal(vesc_comm_process_command(comm, fwd_bare, sizeof(fwd_bare)), EDGE_EINVAL);
 
     /* A codec with no configuration source refuses rather than answering nonsense. */
     vesc_comm_t *no_cfg = test_comm_alloc2();

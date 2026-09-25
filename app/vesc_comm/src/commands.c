@@ -272,6 +272,23 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
         return self->ops->terminal_cmd(self->ops->self, (const char *)(data + 1u));
     }
 
+    case COMM_FORWARD_CAN: {
+        if (self->ops == (void *)0 || self->ops->forward_can == (void *)0) {
+            return EDGE_ENOTSUP;
+        }
+        /*
+         * Reference: comm_can_send_buffer(data[0], data + 1, len - 1, 0) - the first payload
+         * byte is the target controller id and the rest is what gets forwarded, with `send`
+         * zero. The reference's dual-motor branch selects the second motor's configuration
+         * instead of forwarding; this port has one motor, so the single-motor path is the
+         * whole behaviour here.
+         */
+        if (len < 2u) {
+            return EDGE_EINVAL;
+        }
+        return self->ops->forward_can(self->ops->self, data[1], data + 2u, len - 2u);
+    }
+
     case COMM_GET_MCCONF: {
         if (self->config == (void *)0 || self->config->get_mcconf == (void *)0) {
             return EDGE_ENOTSUP;
