@@ -74,6 +74,9 @@ void motor_config_set_defaults(mc_configuration_t *mcconf, app_configuration_t *
         mcconf->foc_observer_gain = 2.0e6f;
         mcconf->temp_fet_max = 85.0f;
         mcconf->temp_motor_max = 85.0f;
+        mcconf->si_motor_poles = 14u;
+        mcconf->si_gear_ratio = 3.0f;
+        mcconf->si_wheel_diameter = 0.083f;
     }
 
     if (appconf != (void *)0) {
@@ -101,6 +104,12 @@ edge_status_t motor_config_validate(const mc_configuration_t *mcconf,
         return EDGE_EINVAL;
     }
     if (appconf->timeout_msec == 0) {
+        return EDGE_EINVAL;
+    }
+    if (mcconf->si_motor_poles < 2u || (mcconf->si_motor_poles % 2u) != 0u) {
+        return EDGE_EINVAL;
+    }
+    if (mcconf->si_gear_ratio == 0.0f) {
         return EDGE_EINVAL;
     }
 
@@ -157,6 +166,9 @@ edge_status_t motor_config_serialize(const mc_configuration_t *mcconf,
     append_float(buffer, mcconf->foc_observer_gain, 1e-1f, &idx);
     append_float(buffer, mcconf->temp_fet_max, 1e1f, &idx);
     append_float(buffer, mcconf->temp_motor_max, 1e1f, &idx);
+    buffer[idx++] = mcconf->si_motor_poles;
+    append_float(buffer, mcconf->si_gear_ratio, 1e4f, &idx);
+    append_float(buffer, mcconf->si_wheel_diameter, 1e4f, &idx);
 
     /* Serialize App Config */
     buffer[idx++] = appconf->controller_id;
@@ -231,6 +243,9 @@ edge_status_t motor_config_deserialize(mc_configuration_t *mcconf, app_configura
     mcconf->foc_observer_gain = get_float(buffer, 1e-1f, &idx);
     mcconf->temp_fet_max = get_float(buffer, 1e1f, &idx);
     mcconf->temp_motor_max = get_float(buffer, 1e1f, &idx);
+    mcconf->si_motor_poles = buffer[idx++];
+    mcconf->si_gear_ratio = get_float(buffer, 1e4f, &idx);
+    mcconf->si_wheel_diameter = get_float(buffer, 1e4f, &idx);
 
     /* Deserialize App Config */
     appconf->controller_id = buffer[idx++];

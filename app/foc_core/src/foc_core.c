@@ -39,6 +39,15 @@ static edge_status_t foc_core_poll(edge_module_t *module) {
      * magnitude, and the temperature term the FET temperature. No motor NTC is
      * wired, so the motor-temperature statistics stay at their -300 seed.
      */
+    /*
+     * Vehicle speed: reference mc_interface_get_speed(). The reference divides
+     * ERPM by (si_motor_poles / 2) to get mechanical rpm and then scales by the
+     * wheel diameter and gear ratio; the rotor port here already reports
+     * mechanical rpm, so only the scaling part is reproduced.
+     */
+    self->speed_m_s = (self->last_rpm / 60.0f) * self->config.si_wheel_diameter * (float)M_PI /
+                      self->config.si_gear_ratio;
+
     float stat_power = self->last_v_bus * fabsf(self->i_bus);
     const float stat_temp_motor = 0.0f;
 
@@ -46,8 +55,12 @@ static edge_status_t foc_core_poll(edge_module_t *module) {
     self->stat_current_sum += self->i_abs;
     self->stat_temp_mos_sum += self->fet_temp_c;
     self->stat_temp_motor_sum += stat_temp_motor;
+    self->stat_speed_sum += fabsf(self->speed_m_s);
     self->stat_samples += 1.0f;
 
+    if (fabsf(self->speed_m_s) > self->stat_max_speed) {
+        self->stat_max_speed = fabsf(self->speed_m_s);
+    }
     if (stat_power > self->stat_max_power) {
         self->stat_max_power = stat_power;
     }
@@ -119,7 +132,9 @@ void foc_core_construct(foc_core_t *self, uint32_t module_id, uint32_t priority,
         self->config.r_ohm = 0.05f;
         self->config.l_henry = 0.00005f;
         self->config.lambda_wb = 0.005f;
-        self->config.pole_pairs = 7;
+        self->config.si_motor_poles = 14u;
+        self->config.si_gear_ratio = 3.0f;
+        self->config.si_wheel_diameter = 0.083f;
         self->config.current_max_a = 50.0f;
         self->config.current_min_a = -50.0f;
         self->config.duty_max = 0.95f;
@@ -169,6 +184,11 @@ void foc_core_construct(foc_core_t *self, uint32_t module_id, uint32_t priority,
     self->i_abs_filter = 0.0f;
     self->i_bus = 0.0f;
     self->i_abs = 0.0f;
+    self->speed_m_s = 0.0f;
+    self->stat_speed_sum = 0.0f;
+    self->stat_max_speed = 0.0f;
+    self->stat_speed_sum = 0.0f;
+    self->stat_max_speed = 0.0f;
     self->stat_samples = 0.0f;
     self->stat_power_sum = 0.0f;
     self->stat_max_power = 0.0f;
@@ -231,7 +251,7 @@ edge_status_t foc_core_init(foc_core_t *self) {
 
     /* Validate configuration parameters */
     if (self->config.r_ohm <= 0.0f || self->config.l_henry <= 0.0f ||
-        self->config.lambda_wb <= 0.0f || self->config.pole_pairs <= 0 ||
+        self->config.lambda_wb <= 0.0f || self->config.si_motor_poles < 2u ||
         self->config.current_max_a <= 0.0f) {
         self->faults |= FOC_FAULT_INVALID_CONFIG;
         self->state = FOC_STATE_FAULT;
@@ -318,7 +338,7 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
                             self->config.observer_gamma);
         angle_rad = self->observer.phase;
         rpm = self->observer.speed_rad_s * 60.0f /
-              (2.0f * (float)M_PI * (float)self->config.pole_pairs);
+              (2.0f * (float)M_PI * ((float)self->config.si_motor_poles / 2.0f));
     } else {
         st = self->rotor_sensor->read_angle(self->rotor_sensor->self, &angle_rad, &rpm);
         if (st != EDGE_OK) {
@@ -663,6 +683,8 @@ void foc_core_get_stats(const foc_core_t *self, foc_stats_t *out_stats) {
     }
 
     /* sum/samples, with the reference's 0/0 when nothing was sampled yet. */
+    out_stats->speed_avg = self->stat_speed_sum / self->stat_samples;
+    out_stats->speed_max = self->stat_max_speed;
     out_stats->power_avg = self->stat_power_sum / self->stat_samples;
     out_stats->current_avg = self->stat_current_sum / self->stat_samples;
     out_stats->temp_mos_avg = self->stat_temp_mos_sum / self->stat_samples;

@@ -200,6 +200,8 @@ static edge_status_t motor_get_stats(void *self, vesc_stats_t *out_val) {
     foc_core_get_stats(foc, &st);
     memset(out_val, 0, sizeof(*out_val));
 
+    out_val->speed_avg = st.speed_avg;
+    out_val->speed_max = st.speed_max;
     out_val->power_avg = st.power_avg;
     out_val->power_max = st.power_max;
     out_val->current_avg = st.current_avg;
@@ -208,11 +210,7 @@ static edge_status_t motor_get_stats(void *self, vesc_stats_t *out_val) {
     out_val->temp_mos_max = st.temp_mos_max;
     out_val->temp_motor_avg = st.temp_motor_avg;
     out_val->temp_motor_max = st.temp_motor_max;
-    /*
-     * Left 0, not faked: the speed statistics need si_motor_poles /
-     * si_wheel_diameter / si_gear_ratio from the configuration (C1 in
-     * docs/bldc-migration.md), and count_time needs a clock.
-     */
+    /* count_time still needs a clock; foc_core is not given one yet. */
     return EDGE_OK;
 }
 
