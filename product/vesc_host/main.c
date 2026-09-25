@@ -93,7 +93,7 @@ int main(void) {
         .si_wheel_diameter = mc->si_wheel_diameter,
         .current_max_a = mc->current_max,
         .current_min_a = mc->current_min,
-        .duty_max = 0.95f,
+        .duty_max = mc->l_max_duty,
         .current_kp = mc->foc_current_kp,
         .current_ki = mc->foc_current_ki,
         .vbus_ov_threshold = mc->v_in_max,
@@ -101,6 +101,10 @@ int main(void) {
         .temp_fet_max_c = mc->temp_fet_max,
         .sensorless_mode = false,
         .observer_gamma = mc->foc_observer_gain,
+        .observer_type = (foc_observer_type_t)mc->foc_observer_type,
+        .pll_kp = mc->foc_pll_kp,
+        .pll_ki = mc->foc_pll_ki,
+        .current_filter_const = mc->foc_current_filter_const,
     };
 
     foc_core_t foc;
