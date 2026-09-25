@@ -302,9 +302,23 @@ C3 的真正目标是 **`driver/eeprom.c`（643 行）**：在 flash 扇区上�
 因此本端口要做的：把 `motor_config` 现有的**字节存取端口**换成**变量存取端口**
 （`flash_emul` 正好是这个实现，由产品侧 glue 提供——app 不得直接依赖 infra），基址 1000、
 表 = base+i、crc 成员参与校验、失败回落默认值——这就是自有信封（signature + version +
-length + CRC）的替代物。实现前只需再读一处：`mc_interface_calc_crc` 的字节范围（它不在
-mc_interface.c 的普通函数里，需再定位；算法本身是 util/crc.c 的 crc16，端口已在
-`vesc_can` 里有一份位算式副本）。
+length + CRC）的替代物。实现前要读的最后一处——`mc_interface_calc_crc` 的字节范围——**已读**（见下）：算法本身是
+util/crc.c 的 crc16，端口已在 `vesc_can` 里有一份位算式副本。
+
+**已读到（最后一块）：CRC 的范围与它带来的一个陷阱**
+
+`mc_interface_calc_crc`（motor/mc_interface.c:3067）的做法是：把 `conf->crc` 临时清零，
+对**整个 `sizeof(mc_configuration)`** 算 `crc16`，再把 `crc` 原来的值恢复。也就是说
+**结构体的填充字节也参与校验**（不是“到最后一个字段为止”）。含义有两条，都要写进实现：
+
+- **填充字节必须是确定的**：端口生成的结构体有填充，堆栈上的临时对象其填充是垃圾，
+  同一份配置会算出不同的 CRC。所以校验必须对**长期存活、且在 `motor_config_set_defaults`
+  里被 `memset` 过**的那一份（聚合根里的 `self->mcconf`，或同构的 staging）做，不要对
+  一次性的栈对象做。
+- 因为含填充，这个 CRC 只在 **同一份结构体镜像（同一 ABI）** 内可复现——这正是原版的
+  行为，不是缺陷，但也意味着它不能当跨版本校验用。
+- 因此本端口又要一份 crc16 副本（app 不得依赖 infra，而仓库的 D30 决定不建共享 util），
+  与 `vesc_can` 里那份同理，用测试交叉校验即可。
 
 #### C1 验收（有消费者的字段是否都配置驱动）
 
