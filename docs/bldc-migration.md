@@ -352,7 +352,7 @@ signature + version + length + CRC，参考没有），并按 `conf_general.c` �
 |---|---|
 | D1 | `product/vesc6_stm32f4`（ticket #203 声称已交付，实际不存在） |
 | D2 | `soc/stm32f4`：TIM1/TIM8 互补 PWM、三路 ADC 注入采样、IRQ 转发（现为 31 行纯算术） |
-| D3 | `board/vesc6` 绑定到真实产品（现在 `EDGE_LEGAL_FAMILY_BOARD` 允许 `bldc:vesc6`，但**没有任何产品用**） |
+| D3 | board 处置：`board/vesc4`/`board/vesc_unity` 已登记为「保留但不绑定」，`board/vesc6` 登记为「保留并指向 D1」（带触发条件）——均在下方处置表中 |
 | D4 | 实时预算：原版 15µs @168MHz 的快环节拍；目前仓库内无任何基准工程 |
 
 ### 阶段 E — 收口
@@ -369,7 +369,8 @@ signature + version + length + CRC，参考没有），并按 `conf_general.c` �
 | 对象 | 结论 | 理由 |
 |---|---|---|
 | `board/vesc4`、`board/vesc_unity` | **保留但不绑定产品** | 两者在 `EDGE_LEGAL_FAMILY_BOARD` 里是合法组合、可交叉编译；绑定留给真正的 vesc4/unity 产品。当前无产品使用是**有意保留**，不是遗忘 |
-| `soc/stm32f4`、`board/vesc6` | **登记偏差** | 目前是纯算术适配；寄存器级驱动归 D2 |
+| `soc/stm32f4` | **登记偏差** | 目前是纯算术适配；寄存器级驱动归 D2 |
+| `board/vesc6` | **保留并指向 D1** | 它是 `product/vesc6_stm32f4` 的预期 board（两者同在 `EDGE_LEGAL_FAMILY_BOARD` 里），在 D1 落地前保持可交叉编译但不被任何产品绑定；**触发条件**：若 D1 被放弃，vesc6 与 vesc4/vesc_unity 同一处置（保留为端口参考）。三块 board 目前都**没有被 CI 逐个构建**——它们只是合法组合，矩阵枚举是 D39 的🟡项，所以 D3 走的是「登记处置决定」这条分支，不是「被产品绑定且被 CI 构建」 |
 | 未实现的 `COMM_*` | **登记偏差 + 指明归属阶段** | 160 个 id 已全表声明；实际处理集见 `vesc_comm_process_command`。缺口归 A7（配置流）与 A8（转发/终端/其余） |
 | `product/vesc6_stm32f4` | **实现** | ticket #203 声称已交付但不存在，归 D1 |
 
