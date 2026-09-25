@@ -93,6 +93,12 @@ typedef struct foc_config {
     float sat_comp;
     float ld_lq_diff;
 
+    /* Reference mcconf m_invert_direction. It has two consumers: the speed PID reads
+     * it inside foc_run_pid_control_speed (foc_math.c:511), and the command layer uses
+     * it as DIR_MULT (mc_interface.c:52). The PID gets its own copy through speed_pid
+     * because that is what its signature takes; this is the motor-level view. */
+    bool m_invert_direction;
+
     /* Speed-loop parameters, handed to foc_run_pid_speed verbatim. */
     foc_speed_pid_params_t speed_pid;
 

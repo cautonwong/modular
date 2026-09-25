@@ -97,6 +97,7 @@ int main(void) {
         .si_wheel_diameter = mc->si_wheel_diameter,
         .current_max_a = mc->current_max,
         .current_min_a = mc->current_min,
+        .m_invert_direction = mc->m_invert_direction,
         .duty_max = mc->l_max_duty,
         .current_kp = mc->foc_current_kp,
         .current_ki = mc->foc_current_ki,

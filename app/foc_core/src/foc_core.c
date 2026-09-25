@@ -645,12 +645,19 @@ edge_status_t foc_core_set_current(foc_core_t *self, float iq_target, float id_t
         return EDGE_EBUSY;
     }
 
-    /* Bound checking (Domain Invariants) */
-    if (iq_target > self->config.current_max_a)
-        iq_target = self->config.current_max_a;
-    if (iq_target < self->config.current_min_a)
-        iq_target = self->config.current_min_a;
-
+    /*
+     * No clamp, deliberately. The reference does not limit here: mc_interface_set_current
+     * only runs SHUTDOWN_RESET, the input gate, DIR_MULT and events_add, and
+     * mcpwm_foc_set_current stores the value as given (mcpwm_foc.c:800-816). Limiting
+     * happens in the apps and in field weakening, and this port used to clamp to
+     * [current_min_a, current_max_a], which the reference never does - a 60 A
+     * configuration commanded to 100 A holds 100 A there, not 60 A.
+     *
+     * The reference also has a cc_min_current guard in the same function, but it only
+     * skips the MC-state transition and the m_motor_released clear, both of which are
+     * field-weakening concerns; the control mode and the setpoints are written before
+     * it. Here the state field IS the control mode, so that guard has no counterpart.
+     */
     self->target_iq = iq_target;
     self->target_id = id_target;
     self->state = FOC_STATE_RUNNING_CURRENT;
