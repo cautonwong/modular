@@ -14,6 +14,21 @@ extern "C" {
 #define VESC_PACKET_BUF_LEN (VESC_PACKET_MAX_PL_LEN + 8)
 
 /*
+ * Scratch for building one command reply. Owned by the caller inside vesc_comm_t
+ * rather than living on the handler's stack: the reference pools this memory
+ * (util/mempools.c mempools_get_packet_buffer) for the same reason, and this
+ * architecture's rule is that buffers are provided by the composition root, never
+ * allocated and never hidden in a deep frame. The largest reply the reference
+ * defines is COMM_GET_VALUES at 74 bytes.
+ */
+#define VESC_CMD_REPLY_BUF_LEN 128u
+
+/* COMM_GET_VALUES is the largest reply the reference defines (74 bytes); keep the
+ * scratch above it so the send-path bound is a backstop rather than the normal
+ * case, and so a field added later trips the compiler instead of the wire. */
+_Static_assert(VESC_CMD_REPLY_BUF_LEN >= 96u, "reply scratch too small for GET_VALUES");
+
+/*
  * The whole COMM_PACKET_ID table, copied from the reference's datatypes.h so the
  * wire ids cannot drift. Declaring the full table is load-bearing: a hand-picked
  * subset previously carried three wrong values (DECODED_ADC, DECODED_PPM,
@@ -320,6 +335,9 @@ typedef struct vesc_comm {
 
     /* Packet TX Buffer */
     uint8_t tx_buffer[VESC_PACKET_BUF_LEN];
+
+    /* Caller-provided reply scratch; see VESC_CMD_REPLY_BUF_LEN. */
+    uint8_t cmd_reply_buf[VESC_CMD_REPLY_BUF_LEN];
 
     /* Statistics */
     uint32_t packets_received;
