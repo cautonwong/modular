@@ -8,6 +8,7 @@
 #include <cmocka.h>
 
 #include "dlt645/dlt645.h"
+#include "flash/flash.h"
 #include "gateway.h"
 #include "glue.h"
 #include "gpio/gpio.h"
@@ -668,6 +669,88 @@ static void test_vesc_host_simulated_adapters(void **state) {
     assert_int_equal(glue_state.stream_tx_len, sizeof(small));
 }
 
+/*
+ * The configuration's variable store over the EEPROM emulation: what the product hands
+ * motor_config. A small NOR mock is enough to prove the wiring - whole-sector erasure and
+ * bit-clearing writes only, as flash is - and that the port lands the value at the reference's
+ * virtual address base rather than at index 0.
+ */
+#define GLUE_NOR_PAGES 2u
+
+typedef struct glue_nor {
+    uint8_t bytes[GLUE_NOR_PAGES * FLASH_EMUL_PAGE_SIZE];
+} glue_nor_t;
+
+static edge_status_t glue_nor_read(void *self, uint32_t offset, uint8_t *buf, size_t len) {
+    glue_nor_t *nor = (glue_nor_t *)self;
+    if (offset + len > sizeof(nor->bytes)) {
+        return EDGE_EINVAL;
+    }
+    memcpy(buf, nor->bytes + offset, len);
+    return EDGE_OK;
+}
+
+static edge_status_t glue_nor_write(void *self, uint32_t offset, uint16_t value) {
+    glue_nor_t *nor = (glue_nor_t *)self;
+    if (offset + 2u > sizeof(nor->bytes)) {
+        return EDGE_EINVAL;
+    }
+    const uint16_t existing =
+        (uint16_t)((uint16_t)nor->bytes[offset] | ((uint16_t)nor->bytes[offset + 1u] << 8));
+    if ((value & existing) != value) {
+        return EDGE_EBUSY; /* flash only clears bits */
+    }
+    nor->bytes[offset] = (uint8_t)(value & 0xFFu);
+    nor->bytes[offset + 1u] = (uint8_t)(value >> 8);
+    return EDGE_OK;
+}
+
+static edge_status_t glue_nor_erase(void *self, uint32_t offset, size_t len) {
+    glue_nor_t *nor = (glue_nor_t *)self;
+    if (len != FLASH_EMUL_PAGE_SIZE || offset + len > sizeof(nor->bytes)) {
+        return EDGE_EINVAL;
+    }
+    memset(nor->bytes + offset, 0xFF, len);
+    return EDGE_OK;
+}
+
+static void test_vesc_host_var_port(void **state) {
+    (void)state;
+    static glue_nor_t nor;
+    static uint16_t table[VESC_HOST_MCCONF_VARS];
+    memset(&nor, 0xFF, sizeof(nor));
+    for (size_t i = 0u; i < VESC_HOST_MCCONF_VARS; i++) {
+        table[i] = (uint16_t)(VESC_HOST_MCCONF_BASE + i);
+    }
+
+    flash_sector_port_t sectors = {.read = glue_nor_read,
+                                   .write_halfword = glue_nor_write,
+                                   .erase_sector = glue_nor_erase,
+                                   .self = &nor};
+    flash_emul_t emul;
+    flash_emul_construct(
+        &emul, &sectors,
+        (flash_var_table_t){.virtual_addresses = table, .count = VESC_HOST_MCCONF_VARS}, 0u);
+    assert_int_equal(flash_emul_init(&emul), EDGE_OK);
+
+    motor_config_var_port_t port;
+    vesc_host_make_var_port(&port, &emul);
+    assert_non_null(port.read);
+    assert_non_null(port.write);
+
+    /* Write and read back through the port. */
+    assert_int_equal(port.write(port.self, 0u, 0x1234u), EDGE_OK);
+    uint16_t value = 0u;
+    assert_int_equal(port.read(port.self, 0u, &value), EDGE_OK);
+    assert_int_equal(value, 0x1234u);
+
+    /* A key that was never written answers as missing rather than as zero. */
+    assert_int_equal(port.read(port.self, 5u, &value), EDGE_ENOENT);
+
+    /* The factory refuses a NULL output instead of writing through it. */
+    vesc_host_make_var_port(NULL, &emul);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_meter_host_glue),
@@ -679,6 +762,7 @@ int main(void) {
         cmocka_unit_test(test_vesc_host_glue),
         cmocka_unit_test(test_vesc_host_motor_provider_semantics),
         cmocka_unit_test(test_vesc_host_dir_mult),
+        cmocka_unit_test(test_vesc_host_var_port),
         cmocka_unit_test(test_vesc_host_app_status_adapters),
         cmocka_unit_test(test_vesc_host_simulated_adapters),
     };

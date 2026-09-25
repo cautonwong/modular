@@ -1,4 +1,5 @@
 #include "glue.h"
+#include "flash/flash.h"
 #include "motor_config/motor_config.h"
 #include "vesc_can/vesc_can.h"
 #include "vesc_terminal/vesc_terminal.h"
@@ -363,6 +364,28 @@ void vesc_host_make_config_port(vesc_config_provider_port_t *out, motor_config_t
         .get_appconf_default = config_get_appconf_default,
         .set_appconf_nostore = config_set_appconf_nostore,
         .self = cfg,
+    };
+}
+
+static edge_status_t var_read(void *self, uint16_t index, uint16_t *value) {
+    flash_emul_t *emul = (flash_emul_t *)self;
+    return flash_emul_read(emul, (uint16_t)(VESC_HOST_MCCONF_BASE + index), value);
+}
+
+static edge_status_t var_write(void *self, uint16_t index, uint16_t value) {
+    flash_emul_t *emul = (flash_emul_t *)self;
+    return flash_emul_write(emul, (uint16_t)(VESC_HOST_MCCONF_BASE + index), value);
+}
+
+void vesc_host_make_var_port(motor_config_var_port_t *out, flash_emul_t *emul) {
+    if (out == (void *)0) {
+        return;
+    }
+
+    *out = (motor_config_var_port_t){
+        .read = var_read,
+        .write = var_write,
+        .self = emul,
     };
 }
 
