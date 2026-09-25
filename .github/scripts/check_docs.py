@@ -18,7 +18,9 @@ import re
 import sys
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[2]
-EXCLUDED_PARTS = ("tests/guards",)
+# tests/guards holds deliberate negative fixtures; .pi holds agent goal state,
+# which is not repository documentation and is written by tooling we do not own.
+EXCLUDED_PARTS = ("tests/guards", ".pi")
 FENCE = re.compile(r"^```.*?^```", re.M | re.S)
 LINK = re.compile(r"\[[^\]]*\]\(\s*<?([^)\s>]+)>?[^)]*\)")
 EXTERNAL = ("http://", "https://", "mailto:", "tel:", "#")
