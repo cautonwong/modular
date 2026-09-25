@@ -176,30 +176,37 @@ static void test_module_lifecycle_and_storage(void **state) {
         .self = &ctx,
     };
 
-    motor_config_t config;
-    motor_config_construct(&config, EDGE_MOD_MOTOR_CONFIG, 20, &storage_port, 0x100);
+    /* Caller-provided storage: two instances, so two blocks. */
+    static alignas(MOTOR_CONFIG_STORAGE_ALIGN)
+        unsigned char config_storage[MOTOR_CONFIG_STORAGE_SIZE];
+    static alignas(MOTOR_CONFIG_STORAGE_ALIGN)
+        unsigned char config2_storage[MOTOR_CONFIG_STORAGE_SIZE];
+    motor_config_t *config = (motor_config_t *)config_storage;
+    memset(config_storage, 0, sizeof(config_storage));
+    memset(config2_storage, 0, sizeof(config2_storage));
+    motor_config_construct(config, EDGE_MOD_MOTOR_CONFIG, 20, &storage_port, 0x100);
 
     /* Init on clean/empty flash should auto-save defaults */
-    assert_int_equal(motor_config_init(&config), EDGE_OK);
+    assert_int_equal(motor_config_init(config), EDGE_OK);
     assert_true(ctx.read_count >= 1);
     assert_true(ctx.write_count >= 1);
 
     /* Update a parameter */
-    mc_configuration_t new_mc = *motor_config_get_mc(&config);
+    mc_configuration_t new_mc = *motor_config_get_mc(config);
     new_mc.current_max = 90.0f;
-    assert_int_equal(motor_config_update_mc(&config, &new_mc), EDGE_OK);
+    assert_int_equal(motor_config_update_mc(config, &new_mc), EDGE_OK);
 
     /* Polling flushes dirty config to flash */
-    edge_module_t *mod = motor_config_module(&config);
+    edge_module_t *mod = motor_config_module(config);
     assert_non_null(mod);
     assert_int_equal(mod->poll(mod), EDGE_OK);
 
     /* Create new instance and load from the same mock flash */
-    motor_config_t config2;
-    motor_config_construct(&config2, EDGE_MOD_MOTOR_CONFIG, 20, &storage_port, 0x100);
-    assert_int_equal(motor_config_init(&config2), EDGE_OK);
+    motor_config_t *config2 = (motor_config_t *)config2_storage;
+    motor_config_construct(config2, EDGE_MOD_MOTOR_CONFIG, 20, &storage_port, 0x100);
+    assert_int_equal(motor_config_init(config2), EDGE_OK);
 
-    const mc_configuration_t *loaded_mc = motor_config_get_mc(&config2);
+    const mc_configuration_t *loaded_mc = motor_config_get_mc(config2);
     assert_non_null(loaded_mc);
     assert_true(fabsf(loaded_mc->current_max - 90.0f) < 0.02f);
 }

@@ -14,7 +14,6 @@
 
 #include "edge/module.h"
 #include "vesc_comm/vesc_comm.h"
-#include <assert.h>
 #include <stdalign.h>
 #include <stddef.h>
 
@@ -45,9 +44,9 @@ struct vesc_comm {
     uint32_t crc_errors;
 };
 
-static_assert(sizeof(struct vesc_comm) <= VESC_COMM_STORAGE_SIZE,
-              "VESC_COMM_STORAGE_SIZE is stale: the caller would under-allocate");
-static_assert(alignof(struct vesc_comm) <= VESC_COMM_STORAGE_ALIGN,
-              "VESC_COMM_STORAGE_ALIGN is stale: the caller would under-align");
+_Static_assert(sizeof(struct vesc_comm) <= VESC_COMM_STORAGE_SIZE,
+               "VESC_COMM_STORAGE_SIZE is stale: the caller would under-allocate");
+_Static_assert(alignof(struct vesc_comm) <= VESC_COMM_STORAGE_ALIGN,
+               "VESC_COMM_STORAGE_ALIGN is stale: the caller would under-align");
 
 #endif /* APP_VESC_COMM_INTERNAL_H */

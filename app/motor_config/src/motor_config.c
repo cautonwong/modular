@@ -1,4 +1,5 @@
 #include "motor_config/motor_config.h"
+#include "motor_config_internal.h"
 #include <string.h>
 
 static edge_status_t motor_config_poll(edge_module_t *module) {
