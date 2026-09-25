@@ -1171,6 +1171,140 @@ static void test_foc_run_pid_speed(void **state) {
     assert_true(iq < 0.0f);
 }
 
+/*
+ * Field weakening against the reference's own output. The vectors come from compiling
+ * motor/foc_math.c's foc_run_fw in the harness described in docs/bldc-migration.md and
+ * feeding it these exact inputs, so they are the reference's numbers and not this port's.
+ */
+static void test_foc_run_fw_matches_reference(void **state) {
+    (void)state;
+    const foc_fw_params_t p = {.current_max = 30.0f,
+                               .duty_start = 0.8f,
+                               .backoff = 2.0f,
+                               .ramp_time = 0.5f,
+                               .l_max_duty = 0.95f,
+                               .cc_min_current = 0.05f};
+    foc_fw_state_t st = {.duty_abs_filtered = 0.5f,
+                         .iq = 5.0f,
+                         .iq_target = 5.0f,
+                         .speed_erpm = 1000.0f,
+                         .i_fw_set = 0.0f};
+
+    /* Below duty_start * l_max_duty (0.76): nothing happens. */
+    foc_run_fw(&st, &p, true, 0.001f);
+    assert_float_equal(st.i_fw_set, 0.0f, 1e-6f);
+
+    /* Just above it: the ramp moves by dt / ramp_time * current_max = 0.06. */
+    st.duty_abs_filtered = 0.77f;
+    foc_run_fw(&st, &p, true, 0.001f);
+    assert_float_equal(st.i_fw_set, 0.060000002f, 1e-6f);
+
+    /* Well above it, with iq equal to its target: the same step. */
+    st.duty_abs_filtered = 0.9f;
+    st.i_fw_set = 0.0f;
+    foc_run_fw(&st, &p, true, 0.001f);
+    assert_float_equal(st.i_fw_set, 0.060000002f, 1e-6f);
+
+    /* iq overshooting its target collapses the map's upper end, so the step lands on 0. */
+    st.iq = 20.0f;
+    st.iq_target = 5.0f;
+    st.i_fw_set = 0.0f;
+    foc_run_fw(&st, &p, true, 0.001f);
+    assert_float_equal(st.i_fw_set, 0.0f, 1e-6f);
+
+    /* Negative speed flips the backoff's sign, so no backoff is applied here. */
+    st.speed_erpm = -1000.0f;
+    foc_run_fw(&st, &p, true, 0.001f);
+    assert_float_equal(st.i_fw_set, 0.060000002f, 1e-6f);
+
+    /* A dt longer than the ramp time snaps to the mapped value instead of stepping:
+     * duty 0.9 between 0.76 and 0.95 maps to 30 * 0.14 / 0.19. */
+    st.speed_erpm = 1000.0f;
+    st.iq = 5.0f;
+    st.i_fw_set = 0.0f;
+    foc_run_fw(&st, &p, true, 0.6f);
+    assert_float_equal(st.i_fw_set, 22.105262756f, 1e-5f);
+
+    /* From a live setpoint it steps towards that value. */
+    st.i_fw_set = 10.0f;
+    foc_run_fw(&st, &p, true, 0.001f);
+    assert_float_equal(st.i_fw_set, 10.060000420f, 1e-5f);
+
+    /* With FW configured off the function returns before touching the setpoint. */
+    foc_fw_params_t off = p;
+    off.current_max = 0.0f;
+    st.i_fw_set = 0.0f;
+    foc_run_fw(&st, &off, true, 0.001f);
+    assert_float_equal(st.i_fw_set, 0.0f, 1e-6f);
+
+    /* The mode gate: outside the FW modes it only continues while a setpoint is live, so a
+     * mode change cannot strand one. */
+    st.duty_abs_filtered = 0.9f;
+    st.i_fw_set = 0.0f;
+    foc_run_fw(&st, &p, false, 0.001f);
+    assert_float_equal(st.i_fw_set, 0.0f, 1e-6f);
+
+    st.i_fw_set = 1.0f;
+    foc_run_fw(&st, &p, false, 0.001f);
+    assert_true(st.i_fw_set > 1.0f);
+}
+
+/*
+ * MTPA, reference mcpwm_foc.c:3627-3639. The block is inline in the reference rather than a
+ * function, so this is a transcription checked by reading plus the invariants below: the
+ * d-axis setpoint goes negative for a positive q demand, the q setpoint shrinks, the
+ * relation between the two holds, and iq_ref comes from the measured filtered current in the
+ * measured mode. The 8.0/4.0 literals are doubles in the reference and stay doubles here.
+ */
+static void test_foc_apply_mtpa(void **state) {
+    (void)state;
+    const float lambda = 0.00245f;
+    const float ld_lq_diff = 1.0e-5f;
+
+    /* Mode off, and no saliency: nothing is touched. */
+    float iq = 10.0f;
+    float id = 0.5f;
+    foc_apply_mtpa(FOC_MTPA_MODE_OFF, ld_lq_diff, lambda, 10.0f, &iq, &id);
+    assert_float_equal(id, 0.5f, 1e-9f);
+    assert_float_equal(iq, 10.0f, 1e-9f);
+
+    foc_apply_mtpa(FOC_MTPA_MODE_IQ_TARGET, 0.0f, lambda, 10.0f, &iq, &id);
+    assert_float_equal(id, 0.5f, 1e-9f);
+    assert_float_equal(iq, 10.0f, 1e-9f);
+
+    /* iq target mode. */
+    iq = 10.0f;
+    id = 0.0f;
+    foc_apply_mtpa(FOC_MTPA_MODE_IQ_TARGET, ld_lq_diff, lambda, 3.0f, &iq, &id);
+    assert_true(id < 0.0f);
+    assert_true(iq > 0.0f);
+    assert_true(iq < 10.0f);
+    /* The MTPA relation the reference's formula encodes. */
+    const float expected_id =
+        (lambda - sqrtf(lambda * lambda + 8.0 * (ld_lq_diff * 10.0f) * (ld_lq_diff * 10.0f))) /
+        (4.0 * ld_lq_diff);
+    assert_float_equal(id, expected_id, 1e-6f);
+
+    /* Measured mode uses the filtered current when it is the smaller magnitude. */
+    float iq_m = 10.0f;
+    float id_m = 0.0f;
+    float iq_t = 10.0f;
+    float id_t = 0.0f;
+    foc_apply_mtpa(FOC_MTPA_MODE_IQ_MEASURED, ld_lq_diff, lambda, 4.0f, &iq_m, &id_m);
+    foc_apply_mtpa(FOC_MTPA_MODE_IQ_TARGET, ld_lq_diff, lambda, 4.0f, &iq_t, &id_t);
+    assert_true(id_m > id_t); /* |iq_ref| is 4 instead of 10, so less d-axis is needed */
+    assert_float_equal(
+        id_t,
+        (lambda - sqrtf(lambda * lambda + 8.0 * (ld_lq_diff * 10.0f) * (ld_lq_diff * 10.0f))) /
+            (4.0 * ld_lq_diff),
+        1e-6f);
+    assert_float_equal(
+        id_m,
+        (lambda - sqrtf(lambda * lambda + 8.0 * (ld_lq_diff * 4.0f) * (ld_lq_diff * 4.0f))) /
+            (4.0 * ld_lq_diff),
+        1e-6f);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_foc_math_transforms),
@@ -1189,6 +1323,8 @@ int main(void) {
         cmocka_unit_test(test_foc_observer_adjust_params),
         cmocka_unit_test(test_foc_pll_tracks_phase_rate),
         cmocka_unit_test(test_foc_run_pid_speed),
+        cmocka_unit_test(test_foc_run_fw_matches_reference),
+        cmocka_unit_test(test_foc_apply_mtpa),
         cmocka_unit_test(test_foc_core_modes),
         cmocka_unit_test(test_foc_core_duty_now_is_a_modulation_magnitude),
         cmocka_unit_test(test_foc_core_set_current_rel_picks_its_limit_from_the_duty),

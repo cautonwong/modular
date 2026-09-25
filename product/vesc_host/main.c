@@ -128,6 +128,15 @@ int main(void) {
         .pll_kp = mc->foc_pll_kp,
         .pll_ki = mc->foc_pll_ki,
         .current_filter_const = mc->foc_current_filter_const,
+        /* Field weakening and MTPA; the reference's own defaults are disabled FW and MTPA
+         * off, so a configuration that never touches them behaves as before. */
+        .fw_current_max = mc->foc_fw_current_max,
+        .fw_duty_start = mc->foc_fw_duty_start,
+        .fw_backoff = mc->foc_fw_backoff,
+        .fw_ramp_time = mc->foc_fw_ramp_time,
+        .fw_q_current_factor = mc->foc_fw_q_current_factor,
+        .mtpa_mode = (uint8_t)mc->foc_mtpa_mode,
+        .cc_min_current = mc->cc_min_current,
     };
 
     foc_core_t foc;

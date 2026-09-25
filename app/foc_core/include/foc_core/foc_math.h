@@ -117,6 +117,56 @@ void foc_inv_park_transform(float vd, float vq, float sin_th, float cos_th, floa
 void foc_svpwm(float v_alpha, float v_beta, float v_bus, float duty_max, float *duty_a,
                float *duty_b, float *duty_c, uint32_t *sector_out);
 
+/* Reference: util/utils_math.h:206 - the reference's own map, not a re-derivation. */
+#define FOC_MAP(x, in_min, in_max, out_min, out_max)                                               \
+    (((x) - (in_min)) * ((out_max) - (out_min)) / ((in_max) - (in_min)) + (out_min))
+
+float foc_sign(float x);
+void foc_step_towards(float *value, float goal, float step);
+void foc_truncate_number(float *number, float min, float max);
+void foc_truncate_number_abs(float *number, float max);
+float foc_min_abs(float va, float vb);
+float foc_max_abs(float va, float vb);
+
+/*
+ * Field weakening, reference motor/foc_math.c:708-762. The reference reads this out of
+ * motor_all_state_t and mc_configuration; here it is a pure function over exactly the fields
+ * it touches, so its output can be compared with the reference's own. One side effect is
+ * deliberately absent: the reference also sets m_current_off_delay = 1.0, whose only reader
+ * is the modulation-extension block (mcpwm_foc.c:3953-3990). That block is not ported yet, so
+ * the field would be dead state; it arrives with the block.
+ */
+typedef struct foc_fw_params {
+    float current_max; /* foc_fw_current_max */
+    float duty_start;  /* foc_fw_duty_start */
+    float backoff;     /* foc_fw_backoff */
+    float ramp_time;   /* foc_fw_ramp_time */
+    float l_max_duty;  /* l_max_duty */
+    float cc_min_current;
+} foc_fw_params_t;
+
+typedef struct foc_fw_state {
+    float duty_abs_filtered; /* m_duty_abs_filtered */
+    float iq;                /* motor state iq */
+    float iq_target;         /* motor state iq_target */
+    float speed_erpm;        /* m_speed_est_fast; only its sign is used */
+    float i_fw_set;          /* in and out */
+} foc_fw_state_t;
+
+void foc_run_fw(foc_fw_state_t *state, const foc_fw_params_t *params, bool mode_allows, float dt);
+
+/*
+ * MTPA, reference mcpwm_foc.c:3627-3640, where it is an inline block rather than a function:
+ * maximum-torque-per-ampere reprojection of the q setpoint onto both axes. The mode values
+ * are the reference's MTPA_MODE enum (datatypes.h:372-375).
+ */
+#define FOC_MTPA_MODE_OFF 0u
+#define FOC_MTPA_MODE_IQ_TARGET 1u
+#define FOC_MTPA_MODE_IQ_MEASURED 2u
+
+void foc_apply_mtpa(uint8_t mtpa_mode, float ld_lq_diff, float lambda, float iq_filter,
+                    float *iq_set, float *id_set);
+
 /* Ortega flux observer state */
 typedef struct foc_observer {
     float x1;
