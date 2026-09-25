@@ -108,12 +108,16 @@ clang-format --dry-run     # 格式
   `p_duty_norm = TWO_BY_SQRT3 / foc_overmod_factor`，overmod 默认 1.0）。端口原先写的
   `duty_a`（A 相占空比）是完全无关的量，而它正是 `COMM_GET_VALUES` 的线上 duty 字段、
   按 duty 降流的输入、以及 `COMM_SET_CURRENT_REL` 的分支判据。
-- **命令环不夹紧，且有方向乘子**：`mc_interface_set_current()` 只做
-  `SHUTDOWN_RESET()`（|current|>0.001）、`mc_interface_try_input()` 门控（为真直接 return）、
-  `mcpwm_foc_set_current(DIR_MULT * current)` 和 `events_add("set_current", current)`，
-  **不做任何限幅**（限幅在 app 层与弱磁）。端口现在在 `foc_core_set_current` 里夹紧到
-  `[current_min_a, current_max_a]`（原版没有），且未乘 `DIR_MULT`（= `m_invert_direction`）
-  —— 两者都待修。
+- **命令环不夹紧，且有方向乘子**（已修）：`mc_interface_set_current()` 只做
+  `SHUTDOWN_RESET()`（|current|>0.001）、`mc_interface_try_input()` 门控、
+  `mcpwm_foc_set_current(DIR_MULT * current)` 与 `events_add`，**不做限幅**（限幅在 app 层
+  与弱磁）。端口原先在 `foc_core_set_current` 里夹紧到 `[current_min_a, current_max_a]`
+  （原版没有）且未乘 `DIR_MULT`；今已去夹紧，`DIR_MULT` 按原版**逐命令**在 glue 施加
+  （current / brake / duty / pid_speed 有，**handbrake 特意没有**）。
+- **刹车与手刹仍缺控制模式**：原版刹车是 `CONTROL_MODE_CURRENT_BRAKE` +
+  `m_iq_set = DIR_MULT * current`（**不取反**，mcpwm_foc.c:828），端口没有刹车模式，
+  用负电流近似 —— 保留该符号不自行翻转，因为缺了模式符号就没有意义（已记入
+  `adr-conformance.md`）。
 - `set_current_off_delay` 的唯一消费者是弱磁的调制延长逻辑（`mcpwm_foc.c:3953` 衰减、
   `:3970` 判 `m_current_off_delay < dt`），所以 B3 之前即使调它也不可观测；接线时再补，
   并在 `adr-conformance.md` 标为“待 B3”。

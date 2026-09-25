@@ -367,6 +367,62 @@ static void test_vesc_host_motor_provider_semantics(void **state) {
     assert_float_equal(st.temp_mos_max, -300.0f, 1e-6f); /* reference's seed */
 }
 
+/*
+ * DIR_MULT, reference mc_interface.c:52: DIR_MULT = m_invert_direction ? -1 : 1. The
+ * reference multiplies per command at the mc_interface_set_* entry points - current,
+ * brake, duty and pid_speed - which in this product are the glue's adapters. What
+ * matters is that the setpoint reaching the aggregate is flipped, not merely that the
+ * call returns OK.
+ */
+static void test_vesc_host_dir_mult(void **state) {
+    (void)state;
+
+    foc_inverter_port_t inverter = {
+        .set_duty = gp_set_duty, .set_phase_state = gp_set_phase, .self = NULL};
+    foc_current_port_t current = {
+        .read_currents = gp_read_currents, .read_vbus = gp_read_vbus, .self = NULL};
+    foc_rotor_port_t rotor = {.read_angle = gp_read_angle, .self = NULL};
+
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 5e-5f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.1f,
+                        .current_ki = 50.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 8.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = false};
+
+    foc_core_t foc;
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &cfg, &inverter, &current, &rotor);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    vesc_motor_provider_port_t port;
+    vesc_host_make_motor_provider_port(&port, &foc);
+
+    assert_int_equal(port.set_current(port.self, 7.0f), EDGE_OK);
+    assert_float_equal(foc.target_iq, 7.0f, 1e-6f);
+    assert_int_equal(port.set_rpm(port.self, 3000.0f), EDGE_OK);
+    assert_float_equal(foc.target_rpm, 3000.0f, 1e-6f);
+    assert_int_equal(port.set_duty(port.self, 0.3f), EDGE_OK);
+    assert_float_equal(foc.target_duty, 0.3f, 1e-6f);
+
+    foc.config.m_invert_direction = true;
+
+    assert_int_equal(port.set_current(port.self, 7.0f), EDGE_OK);
+    assert_float_equal(foc.target_iq, -7.0f, 1e-6f);
+    assert_int_equal(port.set_rpm(port.self, 3000.0f), EDGE_OK);
+    assert_float_equal(foc.target_rpm, -3000.0f, 1e-6f);
+    assert_int_equal(port.set_duty(port.self, 0.3f), EDGE_OK);
+    assert_float_equal(foc.target_duty, -0.3f, 1e-6f);
+}
+
 /* Mock inputs for the decoded-input adapters. */
 static float gp_ppm_pulse = 1600.0f;
 static float gp_throttle_v = 1.5f;
@@ -622,6 +678,7 @@ int main(void) {
         cmocka_unit_test(test_water_meter_host_glue),
         cmocka_unit_test(test_vesc_host_glue),
         cmocka_unit_test(test_vesc_host_motor_provider_semantics),
+        cmocka_unit_test(test_vesc_host_dir_mult),
         cmocka_unit_test(test_vesc_host_app_status_adapters),
         cmocka_unit_test(test_vesc_host_simulated_adapters),
     };

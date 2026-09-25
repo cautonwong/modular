@@ -171,23 +171,43 @@ static edge_status_t motor_get_values(void *self, uint32_t mask, vesc_values_t *
     return EDGE_OK;
 }
 
+/*
+ * DIR_MULT, reference mc_interface.c:52. The reference applies it per command at the
+ * mc_interface_set_* entry points - set_current, set_brake_current, set_duty,
+ * set_pid_speed and the internal position setpoint all multiply by it, while
+ * set_handbrake deliberately does not - so it belongs at this layer, once per
+ * adapter, rather than inside foc_core.
+ */
+static float motor_dir_mult(const foc_core_t *foc) {
+    return foc->config.m_invert_direction ? -1.0f : 1.0f;
+}
+
 static edge_status_t motor_set_duty(void *self, float duty) {
     foc_core_t *foc = (foc_core_t *)self;
-    return foc_core_set_duty(foc, duty);
+    return foc_core_set_duty(foc, motor_dir_mult(foc) * duty);
 }
 
 static edge_status_t motor_set_current(void *self, float current) {
     foc_core_t *foc = (foc_core_t *)self;
-    return foc_core_set_current(foc, current, 0.0f);
+    return foc_core_set_current(foc, motor_dir_mult(foc) * current, 0.0f);
 }
 
 static edge_status_t motor_set_current_brake(void *self, float current) {
     foc_core_t *foc = (foc_core_t *)self;
+    /*
+     * Known divergence, recorded rather than guessed at: the reference's brake command
+     * does NOT negate - it sets CONTROL_MODE_CURRENT_BRAKE and stores DIR_MULT * current
+     * (mcpwm_foc.c:828-834). This port has no brake control mode (its FOC_STATE_* is the
+     * control mode), so braking is approximated with a negative current. Flipping only
+     * the sign here would change how the product brakes without the mode that gives that
+     * sign its meaning.
+     */
     return foc_core_set_current(foc, -current, 0.0f);
 }
 
 static edge_status_t motor_set_rpm(void *self, float rpm) {
-    return foc_core_set_rpm((foc_core_t *)self, rpm);
+    foc_core_t *foc = (foc_core_t *)self;
+    return foc_core_set_rpm(foc, motor_dir_mult(foc) * rpm);
 }
 
 static edge_status_t motor_set_pos(void *self, float pos) {
