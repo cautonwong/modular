@@ -14,7 +14,9 @@
  * bottom of this file), which is this port's own convention and is documented as such;
  * the stream handed to the protocol is the bare one.
  */
+#include "appconf_defaults.h"
 #include "mcconf_defaults.h"
+#include "motor_config/appconf_manifest.h"
 #include "motor_config/mcconf_manifest.h"
 #include "motor_config/motor_config.h"
 #include <math.h>
@@ -49,10 +51,6 @@ static void buffer_append_int32(uint8_t *buffer, int32_t number, int32_t *index)
 
 static void buffer_append_float16(uint8_t *buffer, float number, float scale, int32_t *index) {
     buffer_append_uint16(buffer, (uint16_t)(int16_t)(number * scale), index);
-}
-
-static void buffer_append_float32(uint8_t *buffer, float number, float scale, int32_t *index) {
-    buffer_append_int32(buffer, (int32_t)(number * scale), index);
 }
 
 static void buffer_append_float32_auto(uint8_t *buffer, float number, int32_t *index) {
@@ -105,10 +103,6 @@ static float buffer_get_float16(const uint8_t *buffer, float scale, int32_t *ind
     return (float)buffer_get_int16(buffer, index) / scale;
 }
 
-static float buffer_get_float32(const uint8_t *buffer, float scale, int32_t *index) {
-    return (float)buffer_get_int32(buffer, index) / scale;
-}
-
 /*
  * The reference's reader, arithmetic included: the mantissa is rebuilt in double
  * precision and scaled with ldexpf, not powf, and an all-zero encoding short-circuits to
@@ -140,7 +134,6 @@ static float buffer_get_float32_auto(const uint8_t *buffer, int32_t *index) {
 #define MCCONF_WRITE_U32(expr, scale) buffer_append_uint32(buffer, mcconf->expr, &idx);
 #define MCCONF_WRITE_I32(expr, scale) buffer_append_int32(buffer, mcconf->expr, &idx);
 #define MCCONF_WRITE_F16(expr, scale) buffer_append_float16(buffer, mcconf->expr, scale, &idx);
-#define MCCONF_WRITE_F32(expr, scale) buffer_append_float32(buffer, mcconf->expr, scale, &idx);
 #define MCCONF_WRITE_F32A(expr, scale) buffer_append_float32_auto(buffer, mcconf->expr, &idx);
 #define MCCONF_WRITE_NONE(expr, scale)
 
@@ -150,7 +143,6 @@ static float buffer_get_float32_auto(const uint8_t *buffer, int32_t *index) {
 #define MCCONF_READ_U32(expr, scale) mcconf->expr = buffer_get_uint32(buffer, &idx);
 #define MCCONF_READ_I32(expr, scale) mcconf->expr = buffer_get_int32(buffer, &idx);
 #define MCCONF_READ_F16(expr, scale) mcconf->expr = buffer_get_float16(buffer, scale, &idx);
-#define MCCONF_READ_F32(expr, scale) mcconf->expr = buffer_get_float32(buffer, scale, &idx);
 #define MCCONF_READ_F32A(expr, scale) mcconf->expr = buffer_get_float32_auto(buffer, &idx);
 #define MCCONF_READ_NONE(expr, scale)
 
@@ -163,6 +155,77 @@ static float buffer_get_float32_auto(const uint8_t *buffer, int32_t *index) {
 #define MCCONF_SET_DEFAULT_F32(expr, scale, def) mcconf->expr = (def);
 #define MCCONF_SET_DEFAULT_F32A(expr, scale, def) mcconf->expr = (def);
 #define MCCONF_SET_DEFAULT_NONE(expr, scale, def) mcconf->expr = (def);
+
+/*
+ * The app configuration stream, the reference's confgenerator_serialize_appconf(): the
+ * same kinds and the same three expansions as the mc stream above, against appconf.
+ */
+#define APPCONF_WRITE(kind, expr, scale, def) APPCONF_WRITE_##kind(expr, scale)
+#define APPCONF_WRITE_U8(expr, scale) buffer[idx++] = (uint8_t)appconf->expr;
+#define APPCONF_WRITE_U16(expr, scale) buffer_append_uint16(buffer, appconf->expr, &idx);
+#define APPCONF_WRITE_U32(expr, scale) buffer_append_uint32(buffer, appconf->expr, &idx);
+#define APPCONF_WRITE_I32(expr, scale) buffer_append_int32(buffer, appconf->expr, &idx);
+#define APPCONF_WRITE_F16(expr, scale) buffer_append_float16(buffer, appconf->expr, scale, &idx);
+#define APPCONF_WRITE_F32A(expr, scale) buffer_append_float32_auto(buffer, appconf->expr, &idx);
+#define APPCONF_WRITE_NONE(expr, scale)
+
+#define APPCONF_READ(kind, expr, scale, def) APPCONF_READ_##kind(expr, scale)
+#define APPCONF_READ_U8(expr, scale) appconf->expr = buffer[idx++];
+#define APPCONF_READ_U16(expr, scale) appconf->expr = buffer_get_uint16(buffer, &idx);
+#define APPCONF_READ_U32(expr, scale) appconf->expr = buffer_get_uint32(buffer, &idx);
+#define APPCONF_READ_I32(expr, scale) appconf->expr = buffer_get_int32(buffer, &idx);
+#define APPCONF_READ_F16(expr, scale) appconf->expr = buffer_get_float16(buffer, scale, &idx);
+#define APPCONF_READ_F32A(expr, scale) appconf->expr = buffer_get_float32_auto(buffer, &idx);
+#define APPCONF_READ_NONE(expr, scale)
+
+#define APPCONF_SET_DEFAULT(kind, expr, scale, def) APPCONF_SET_DEFAULT_##kind(expr, scale, def)
+#define APPCONF_SET_DEFAULT_U8(expr, scale, def) appconf->expr = (def);
+#define APPCONF_SET_DEFAULT_U16(expr, scale, def) appconf->expr = (def);
+#define APPCONF_SET_DEFAULT_U32(expr, scale, def) appconf->expr = (def);
+#define APPCONF_SET_DEFAULT_I32(expr, scale, def) appconf->expr = (def);
+#define APPCONF_SET_DEFAULT_F16(expr, scale, def) appconf->expr = (def);
+#define APPCONF_SET_DEFAULT_F32(expr, scale, def) appconf->expr = (def);
+#define APPCONF_SET_DEFAULT_F32A(expr, scale, def) appconf->expr = (def);
+#define APPCONF_SET_DEFAULT_NONE(expr, scale, def) appconf->expr = (def);
+
+size_t motor_config_app_stream_len(void) {
+    return (size_t)APPCONF_WIRE_LEN;
+}
+
+edge_status_t motor_config_serialize_app(const app_configuration_t *appconf, uint8_t *buffer,
+                                         size_t buf_size, size_t *out_len) {
+    if (appconf == (void *)0 || buffer == (void *)0 || out_len == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    if (buf_size < (size_t)APPCONF_WIRE_LEN) {
+        return EDGE_ENOSPC;
+    }
+
+    int32_t idx = 0;
+    buffer_append_uint32(buffer, APPCONF_SIGNATURE, &idx);
+    APPCONF_WIRE(APPCONF_WRITE)
+
+    *out_len = (size_t)idx;
+    return EDGE_OK;
+}
+
+edge_status_t motor_config_deserialize_app(app_configuration_t *appconf, const uint8_t *buffer,
+                                           size_t len) {
+    if (appconf == (void *)0 || buffer == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    if (len < (size_t)APPCONF_WIRE_LEN) {
+        return EDGE_EINVAL;
+    }
+
+    int32_t idx = 0;
+    if (buffer_get_uint32(buffer, &idx) != APPCONF_SIGNATURE) {
+        return EDGE_EINVAL;
+    }
+    APPCONF_WIRE(APPCONF_READ)
+
+    return EDGE_OK;
+}
 
 void motor_config_set_defaults(mc_configuration_t *mcconf, app_configuration_t *appconf) {
     if (mcconf != (void *)0) {
@@ -179,10 +242,7 @@ void motor_config_set_defaults(mc_configuration_t *mcconf, app_configuration_t *
     }
     if (appconf != (void *)0) {
         memset(appconf, 0, sizeof(*appconf));
-        appconf->controller_id = 1;
-        appconf->timeout_msec = 1000;
-        appconf->timeout_brake_current = 0.0f;
-        appconf->can_baud_rate = 500000;
+        APPCONF_WIRE(APPCONF_SET_DEFAULT)
     }
 }
 
@@ -295,38 +355,6 @@ static uint16_t calc_crc(const uint8_t *buf, size_t len) {
     return crc;
 }
 
-static size_t appconf_encode(const app_configuration_t *appconf, uint8_t *buffer) {
-    size_t idx = 0;
-    buffer[idx++] = appconf->controller_id;
-    buffer[idx++] = (uint8_t)(appconf->timeout_msec >> 24);
-    buffer[idx++] = (uint8_t)(appconf->timeout_msec >> 16);
-    buffer[idx++] = (uint8_t)(appconf->timeout_msec >> 8);
-    buffer[idx++] = (uint8_t)appconf->timeout_msec;
-    int32_t i = 0;
-    buffer_append_float32(buffer + idx, appconf->timeout_brake_current, 1e2f, &i);
-    idx += (size_t)i;
-    buffer[idx++] = (uint8_t)(appconf->can_baud_rate >> 24);
-    buffer[idx++] = (uint8_t)(appconf->can_baud_rate >> 16);
-    buffer[idx++] = (uint8_t)(appconf->can_baud_rate >> 8);
-    buffer[idx++] = (uint8_t)appconf->can_baud_rate;
-    return idx;
-}
-
-static size_t appconf_decode(app_configuration_t *appconf, const uint8_t *buffer) {
-    size_t idx = 0;
-    appconf->controller_id = buffer[idx++];
-    appconf->timeout_msec = ((uint32_t)buffer[idx] << 24) | ((uint32_t)buffer[idx + 1] << 16) |
-                            ((uint32_t)buffer[idx + 2] << 8) | (uint32_t)buffer[idx + 3];
-    idx += 4;
-    int32_t i = 0;
-    appconf->timeout_brake_current = buffer_get_float32(buffer + idx, 1e2f, &i);
-    idx += (size_t)i;
-    appconf->can_baud_rate = ((uint32_t)buffer[idx] << 24) | ((uint32_t)buffer[idx + 1] << 16) |
-                             ((uint32_t)buffer[idx + 2] << 8) | (uint32_t)buffer[idx + 3];
-    idx += 4;
-    return idx;
-}
-
 edge_status_t motor_config_serialize(const mc_configuration_t *mcconf,
                                      const app_configuration_t *appconf, uint8_t *buffer,
                                      size_t buf_size, size_t *out_len) {
@@ -362,7 +390,12 @@ edge_status_t motor_config_serialize(const mc_configuration_t *mcconf,
         return status;
     }
     idx += mc_len;
-    idx += appconf_encode(appconf, buffer + idx);
+    size_t app_len = 0;
+    status = motor_config_serialize_app(appconf, buffer + idx, buf_size - idx, &app_len);
+    if (status != EDGE_OK) {
+        return status;
+    }
+    idx += app_len;
 
     size_t payload_len = idx - payload_start;
     buffer[len_idx] = (uint8_t)(payload_len >> 8);
@@ -407,8 +440,10 @@ edge_status_t motor_config_deserialize(mc_configuration_t *mcconf, app_configura
         return status;
     }
     idx += (size_t)MCCONF_WIRE_LEN;
-    if (appconf_decode(appconf, buffer + idx) > payload_len - (size_t)MCCONF_WIRE_LEN) {
-        return EDGE_EINVAL;
+    status =
+        motor_config_deserialize_app(appconf, buffer + idx, payload_len - (size_t)MCCONF_WIRE_LEN);
+    if (status != EDGE_OK) {
+        return status;
     }
 
     return motor_config_validate(mcconf, appconf);
