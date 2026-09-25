@@ -66,7 +66,7 @@ clang-format --dry-run     # 格式
 | A4c | `tachometer`（bit 13/14）：原版计的是**霍尔/编码器步进差分**，不是角度；需要转子端口暴露步进源 | 待办（阻塞于端口形状） |
 | A5 | `GET_STATS` / `RESET_STATS`（请求掩码 16 位、回包掩码 32 位；ack 才回） | 已完成 ✓ |
 | A6 | `GET_DECODED_ADC` / `GET_DECODED_PPM`（原版从 app_adc/app_ppm 直读；此处经 `vesc_app_status_port_t`） | 已完成 ✓ |
-| A7 | `GET_MCCONF`/`GET_APPCONF` + `SET` 版（需要配置序列化器，见阶段 C） | 待办 |
+| A7 | `GET_MCCONF`/`GET_APPCONF` + `SET` 版，**与 C1 合并推进**（见下方修正） | 待办 |
 | A8 | `COMM_FORWARD_CAN`、`COMM_TERMINAL_CMD`，其余按 VESC Tool 实际调用序列补齐 | 待办 |
 
 ### 阶段 B — 控制面补全
@@ -82,11 +82,22 @@ clang-format --dry-run     # 格式
 
 ### 阶段 C — 配置与持久化
 
+> **A7 与 C1 必须先合并做，且 C1 的字段集决定 A7 的字节流。** 原版
+> `confgenerator.c` 是**唯一**的配置字节流：`COMM_GET_MCCONF` 回的就是它，
+> 落 flash 存的也是它。本仓库现在的 `app/motor_config/src/serialization.c` 是
+> **另一套自造格式**（自带 `MOTOR_CONFIG_SIGNATURE` + `MOTOR_CONFIG_SCHEMA_VER`
+> + payload_len + CRC16 框），内部用没问题，但**与协议要的字节流不是一回事**。
+
 | 切片 | 内容 |
 |---|---|
-| C1 | `mc_configuration` / `app_configuration` 字段级 1:1（含 `throttle_exp*` 等目前缺失字段） |
-| C2 | 配置序列化：对应原版 `confgenerator.c`，**含跨版本迁移语义**（旧配置升级不是可选项） |
+| C1 | 字段级 1:1：`si_motor_poles`/`si_gear_ratio`/`si_wheel_diameter`、`throttle_exp*`、`foc_current_filter_const`、`foc_dt_us`/`foc_f_zv`、`foc_motor_ld_lq_diff`、`foc_temp_comp*`、`foc_observer_*`、`foc_hfi_*`、`l_*` 等（按阶段 B 的消费者逐个补齐，不做无消费者的字段） |
+| C2 | 按 `confgenerator.c` 的字段顺序/缩放写序列化器，**flash 与协议共用同一份字节流**；含跨版本迁移语义 |
 | C3 | `infra/flash` 的扇区/擦写语义（`flash_helper`） |
+
+**C1 的第一个发现：极对数有两份真相。** 原版没有独立的极对数字段，FOC、虚拟电机、
+速度换算全部取自 `si_motor_poles / 2`（`virtual_motor.c:126`、`mc_interface.c:1626`）。
+本仓库 `foc_config_t.pole_pairs` 是第二份真相，没有任何机制保证两者一致 —— C1 应当
+把它收敛成 `si_motor_poles`。
 
 ### 阶段 D — 组合根与真实硬件
 
@@ -132,3 +143,6 @@ clang-format --dry-run     # 格式
 2. 无数据源的字段（电机 NTC、输入电流、三路 MOS 温度）在协议层返回 0，
    原版返回真实测量值。
 3. `soc/stm32f4` 与 `board/vesc6` 目前是纯算术适配，不含寄存器级驱动。
+4. 配置持久化是自造格式（见阶段 C 的说明），不是 `confgenerator.c` 的字节流；
+   在 C2 之前，`COMM_GET_MCCONF` 无法做到与上位机兼容。
+5. 极对数有两份真相（`foc_config_t.pole_pairs` 与配置里的 `si_motor_poles`）。
