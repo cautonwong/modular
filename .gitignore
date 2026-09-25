@@ -21,6 +21,7 @@ coverage.html
 coverage/
 
 # Tooling
+.pi/
 compile_commands.json
 .cache/
 ccache/

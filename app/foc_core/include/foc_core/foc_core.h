@@ -103,6 +103,8 @@ typedef struct foc_telemetry {
      * snapshot is the whole contract. Units are hours, as the protocol sends them
      * (the accumulators are in amp-seconds / watt-seconds and divided by 3600).
      */
+    int32_t tachometer;
+    int32_t tachometer_abs;
     float current_in;
     float amp_hours;
     float amp_hours_charged;
@@ -175,6 +177,16 @@ typedef struct foc_core {
      * (mcpwm_foc.c:4717). The energy counters gate on the FILTERED magnitude, the
      * statistics below accumulate this raw one - both, as the reference does. */
     float i_abs;
+
+    /*
+     * Tachometer. The reference does NOT need a hall sensor or an encoder for this:
+     * it quantises the phase the FOC already has into six 60-degree sectors and
+     * counts the sector deltas, with the wrap correction below
+     * (mcpwm_foc.c:3866-3881, "resolution = 60 deg as for BLDC").
+     */
+    int32_t tacho_step_last;
+    int32_t tachometer;
+    int32_t tachometer_abs;
 
     /* Vehicle speed in m/s, reference mc_interface_get_speed(). */
     float speed_m_s;

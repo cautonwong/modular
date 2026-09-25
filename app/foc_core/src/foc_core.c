@@ -185,6 +185,9 @@ void foc_core_construct(foc_core_t *self, uint32_t module_id, uint32_t priority,
     self->i_bus = 0.0f;
     self->i_abs = 0.0f;
     self->speed_m_s = 0.0f;
+    self->tacho_step_last = 0;
+    self->tachometer = 0;
+    self->tachometer_abs = 0;
     self->stat_speed_sum = 0.0f;
     self->stat_max_speed = 0.0f;
     self->stat_speed_sum = 0.0f;
@@ -351,6 +354,35 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
 
     self->last_angle_rad = angle_rad;
     self->last_rpm = rpm;
+
+    /* Tachometer, reference mcpwm_foc.c:3866-3881. Phase normalised to [-pi, pi),
+     * quantised to six 60-degree sectors, differenced against the previous sector.
+     * The two corrections are the sector-wrap fixups: going 5 -> 0 is one step
+     * forward, not five back. */
+    float ph_tmp = angle_rad;
+    while (ph_tmp < -(float)M_PI) {
+        ph_tmp += 2.0f * (float)M_PI;
+    }
+    while (ph_tmp >= (float)M_PI) {
+        ph_tmp -= 2.0f * (float)M_PI;
+    }
+    int step = (int)floorf((ph_tmp + (float)M_PI) / (2.0f * (float)M_PI) * 6.0f);
+    if (step > 5) {
+        step = 5;
+    } else if (step < 0) {
+        step = 0;
+    }
+    int diff = step - self->tacho_step_last;
+    self->tacho_step_last = step;
+
+    if (diff > 3) {
+        diff -= 6;
+    } else if (diff < -2) {
+        diff += 6;
+    }
+
+    self->tachometer += diff;
+    self->tachometer_abs += (diff < 0) ? -diff : diff;
 
     /* 5. Park Transform */
     float sin_th = 0.0f, cos_th = 0.0f;
@@ -670,6 +702,8 @@ void foc_core_get_telemetry(const foc_core_t *self, foc_telemetry_t *out_telem) 
     out_telem->rotor_angle_rad = self->last_angle_rad;
     out_telem->speed_rpm = self->last_rpm;
     out_telem->fet_temp_c = self->fet_temp_c;
+    out_telem->tachometer = self->tachometer;
+    out_telem->tachometer_abs = self->tachometer_abs;
     out_telem->current_in = self->i_bus;
     out_telem->amp_hours = self->amp_seconds / 3600.0f;
     out_telem->amp_hours_charged = self->amp_seconds_charged / 3600.0f;

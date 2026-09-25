@@ -142,6 +142,12 @@ static edge_status_t motor_get_values(void *self, uint32_t mask, vesc_values_t *
     if (mask & (1u << 8)) {
         out_val->v_in = telem.v_bus;
     }
+    if (mask & (1u << 13)) {
+        out_val->tachometer = telem.tachometer;
+    }
+    if (mask & (1u << 14)) {
+        out_val->tachometer_abs = telem.tachometer_abs;
+    }
     if (mask & (1u << 15)) {
         out_val->fault_code = telem.faults;
     }
@@ -158,11 +164,9 @@ static edge_status_t motor_get_values(void *self, uint32_t mask, vesc_values_t *
         out_val->vq = avg.vq;
     }
     /*
-     * Not filled, and not silently faked: bits 13/14 (tachometer) need a hall or
-     * encoder step source the rotor port does not expose (the reference counts
-     * step deltas, not angles), bit 18 (three MOSFET temperatures) has no NTC
-     * source, and bit 21 (timeout / kill switch) belongs to apps this product does
-     * not wire. They stay 0.
+     * Not filled, and not silently faked: bit 18 (three MOSFET temperatures) has no
+     * NTC source, and bit 21 (timeout / kill switch) belongs to apps this product
+     * does not wire. They stay 0.
      */
     return EDGE_OK;
 }

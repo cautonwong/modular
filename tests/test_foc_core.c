@@ -590,6 +590,71 @@ static void test_foc_core_stats_and_reset(void **state) {
     assert_float_equal(st.temp_motor_max, -300.0f, 1e-6f);
 }
 
+/*
+ * Tachometer. Counted from the phase the FOC already has, in six 60-degree
+ * sectors (reference mcpwm_foc.c:3866), so a full forward revolution is six
+ * steps and the 5 -> 0 wrap is one step forward rather than five back.
+ */
+static void test_foc_core_tachometer_sectors(void **state) {
+    (void)state;
+    mock_inverter_t inv_mock = {0};
+    foc_inverter_port_t inv_port = {
+        .set_duty = mock_set_duty, .set_phase_state = mock_set_phase_state, .self = &inv_mock};
+    mock_current_sensor_t cs_mock = {.v_bus = 24.0f};
+    foc_current_port_t cs_port = {
+        .read_currents = mock_read_currents, .read_vbus = mock_read_vbus, .self = &cs_mock};
+    mock_rotor_sensor_t rs_mock = {0};
+    foc_rotor_port_t rs_port = {.read_angle = mock_read_angle, .self = &rs_mock};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = 300.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = false};
+
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    foc_core_set_temperature(&foc, 25.0f);
+
+    /*
+     * One angle in the middle of each sector: sector s spans
+     * [-pi + s*2pi/6, -pi + (s+1)*2pi/6), so the centre is -pi + (s+0.5)*2pi/6.
+     */
+    const float sector_centre[6] = {-2.618f, -1.571f, -0.524f, 0.524f, 1.571f, 2.618f};
+    for (int i = 0; i < 6; i++) {
+        rs_mock.angle_rad = sector_centre[i];
+        assert_int_equal(foc_core_fast_loop(&foc, 0.00005f), EDGE_OK);
+    }
+    /* and one more sample crossing 5 -> 0, which must count as +1, not -5 */
+    rs_mock.angle_rad = sector_centre[0];
+    assert_int_equal(foc_core_fast_loop(&foc, 0.00005f), EDGE_OK);
+
+    foc_telemetry_t telem;
+    foc_core_get_telemetry(&foc, &telem);
+    assert_int_equal(telem.tachometer, 6);
+    assert_int_equal(telem.tachometer_abs, 6);
+
+    /* Reverse through the same sectors: sign flips, absolute value keeps counting. */
+    for (int i = 5; i >= 0; i--) {
+        rs_mock.angle_rad = sector_centre[i];
+        assert_int_equal(foc_core_fast_loop(&foc, 0.00005f), EDGE_OK);
+    }
+    foc_core_get_telemetry(&foc, &telem);
+    assert_int_equal(telem.tachometer, 0);
+    assert_int_equal(telem.tachometer_abs, 12);
+}
+
 /* Test 7: Speed and Position Control Modes */
 static void test_foc_core_modes(void **state) {
     (void)state;
@@ -714,6 +779,7 @@ int main(void) {
         cmocka_unit_test(test_foc_core_averages_are_read_reset_and_masked),
         cmocka_unit_test(test_foc_core_energy_counters),
         cmocka_unit_test(test_foc_core_stats_and_reset),
+        cmocka_unit_test(test_foc_core_tachometer_sectors),
         cmocka_unit_test(test_foc_core_modes),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
