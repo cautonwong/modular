@@ -84,6 +84,11 @@ void motor_config_set_defaults(mc_configuration_t *mcconf, app_configuration_t *
         mcconf->si_motor_poles = 14u;
         mcconf->si_gear_ratio = 3.0f;
         mcconf->si_wheel_diameter = 0.083f;
+        mcconf->foc_current_filter_const = 0.1f;
+        mcconf->foc_pll_kp = 2000.0f;
+        mcconf->foc_pll_ki = 30000.0f;
+        mcconf->l_max_duty = 0.95f;
+        mcconf->foc_observer_type = 0u; /* FOC_OBSERVER_ORTEGA_ORIGINAL */
     }
 
     if (appconf != (void *)0) {
@@ -117,6 +122,15 @@ edge_status_t motor_config_validate(const mc_configuration_t *mcconf,
         return EDGE_EINVAL;
     }
     if (mcconf->si_gear_ratio == 0.0f) {
+        return EDGE_EINVAL;
+    }
+    if (mcconf->l_max_duty <= 0.0f || mcconf->l_max_duty > 1.0f) {
+        return EDGE_EINVAL;
+    }
+    if (mcconf->foc_current_filter_const < 0.0f || mcconf->foc_current_filter_const > 1.0f) {
+        return EDGE_EINVAL;
+    }
+    if (mcconf->foc_observer_type > 6u) { /* FOC_OBSERVER_MXV_LAMBDA_COMP_LIN */
         return EDGE_EINVAL;
     }
 
@@ -176,6 +190,11 @@ edge_status_t motor_config_serialize(const mc_configuration_t *mcconf,
     buffer[idx++] = mcconf->si_motor_poles;
     append_float(buffer, mcconf->si_gear_ratio, 1e4f, &idx);
     append_float(buffer, mcconf->si_wheel_diameter, 1e4f, &idx);
+    append_float(buffer, mcconf->foc_current_filter_const, 1e4f, &idx);
+    append_float(buffer, mcconf->foc_pll_kp, 1e0f, &idx);
+    append_float(buffer, mcconf->foc_pll_ki, 1e0f, &idx);
+    append_float(buffer, mcconf->l_max_duty, 1e4f, &idx);
+    buffer[idx++] = mcconf->foc_observer_type;
 
     /* Serialize App Config */
     buffer[idx++] = appconf->controller_id;
@@ -253,6 +272,11 @@ edge_status_t motor_config_deserialize(mc_configuration_t *mcconf, app_configura
     mcconf->si_motor_poles = buffer[idx++];
     mcconf->si_gear_ratio = get_float(buffer, 1e4f, &idx);
     mcconf->si_wheel_diameter = get_float(buffer, 1e4f, &idx);
+    mcconf->foc_current_filter_const = get_float(buffer, 1e4f, &idx);
+    mcconf->foc_pll_kp = get_float(buffer, 1e0f, &idx);
+    mcconf->foc_pll_ki = get_float(buffer, 1e0f, &idx);
+    mcconf->l_max_duty = get_float(buffer, 1e4f, &idx);
+    mcconf->foc_observer_type = buffer[idx++];
 
     /* Deserialize App Config */
     appconf->controller_id = buffer[idx++];

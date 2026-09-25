@@ -12,7 +12,9 @@ extern "C" {
 #endif
 
 #define MOTOR_CONFIG_SIGNATURE 0x56455343u /* "VESC" */
-#define MOTOR_CONFIG_SCHEMA_VER 1u
+/* 2: added the fields foc_core consumes (filter constant, PLL gains, max duty,
+ * observer type). A stored blob from version 1 is rejected rather than parsed. */
+#define MOTOR_CONFIG_SCHEMA_VER 2u
 #define MOTOR_CONFIG_BUFFER_SIZE 256u
 
 typedef enum {
@@ -47,6 +49,16 @@ typedef struct mc_configuration {
     uint8_t si_motor_poles;
     float si_gear_ratio;
     float si_wheel_diameter;
+    /*
+     * Fields foc_core actually consumes, with the reference's defaults, so the
+     * configuration reaches the controller instead of the controller running on
+     * compile-time constants. Defaults: mcconf_default.h (notes per field).
+     */
+    float foc_current_filter_const; /* 0.1   - MCCONF_FOC_CURRENT_FILTER_CONST */
+    float foc_pll_kp;               /* 2000  - MCCONF_FOC_PLL_KP */
+    float foc_pll_ki;               /* 30000 - MCCONF_FOC_PLL_KI */
+    float l_max_duty;               /* 0.95  - MCCONF_L_MAX_DUTY */
+    uint8_t foc_observer_type;      /* 0     - FOC_OBSERVER_ORTEGA_ORIGINAL */
 } mc_configuration_t;
 
 typedef struct app_configuration {
