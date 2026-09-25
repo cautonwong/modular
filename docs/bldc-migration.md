@@ -224,6 +224,22 @@ clang-format --dry-run     # 格式
 
 ### 阶段 C — 配置与持久化
 
+#### C3 定界（先读再动；更正上一轮自己的指向）
+
+上一轮把 C3 指向 `flash_helper.c`，**那是错的**：`flash_helper.c`（534 行）与它的头只做
+**固件镜像/引导**——`flash_helper_erase_new_app` / `write_new_app_data` / `code_data` /
+`jump_to_bootloader`、STM32 扇区地址表（SECTOR_0..11，16K/64K/128K）——与配置持久化无关。
+
+C3 的真正目标是 **`driver/eeprom.c`（643 行）**：在 flash 扇区上做 EEPROM 仿真，带**扇区轮换**
+与备份，正好对应判据那三项——**擦除粒度**（整扇区）、**写前擦除**（先写另一扇区、校验后再标记）、
+**掉电中断后的可恢复性**（旧扇区在切换完成前仍是完整的一份）。它上层的配置读写是
+`conf_general.c`（2279 行）里的 store/load。
+
+端口现状：`infra/flash` 只有 30 行（基本是端口声明）；`motor_config` 目前用自有信封
+（signature + version + length + CRC，原版没有）落盘。所以 C3 的形状是：把扇区轮换/备份/
+恢复的**语义**移入 `infra/flash`（配一个 mock 后端以在 host 上做掉电测试），再接上
+`motor_config` 的存取路径。
+
 #### C1 验收（有消费者的字段是否都配置驱动）
 
 机械核对的结果（脚本对比 `foc_config_t` 的字段与 main.c 的 `mc->` 映射）：
