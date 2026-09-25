@@ -21,6 +21,28 @@ extern "C" {
 /* Fast trigonometric utilities */
 void foc_fast_sincos(float angle_rad, float *sin_out, float *cos_out);
 
+/*
+ * Reference: util/utils_math.c utils_fast_atan2 - a polynomial approximation, not
+ * atan2f. The observer feeds this angle straight into the Park transform, so the
+ * approximation error (up to ~0.003 rad) is part of the reference behaviour.
+ */
+float foc_fast_atan2(float y, float x);
+
+/*
+ * Observer selection, same order and names as the reference's mc_foc_observer_type
+ * (datatypes.h). Each has a distinct convergence behaviour and a distinct set of
+ * states it maintains, so this is a selector over real algorithms, not a hint.
+ */
+typedef enum {
+    FOC_OBSERVER_ORTEGA_ORIGINAL = 0,
+    FOC_OBSERVER_MXLEMMING,
+    FOC_OBSERVER_ORTEGA_LAMBDA_COMP,
+    FOC_OBSERVER_MXLEMMING_LAMBDA_COMP,
+    FOC_OBSERVER_MXV,
+    FOC_OBSERVER_MXV_LAMBDA_COMP,
+    FOC_OBSERVER_MXV_LAMBDA_COMP_LIN,
+} foc_observer_type_t;
+
 /* Vector transformations */
 void foc_clarke_transform(float ia, float ib, float ic, float *i_alpha, float *i_beta);
 void foc_park_transform(float i_alpha, float i_beta, float sin_th, float cos_th, float *id,
@@ -39,12 +61,16 @@ typedef struct foc_observer {
     float lambda_est;
     float phase;
     float speed_rad_s;
+    /* Last currents, for the observers that integrate the voltage minus the
+     * resistive drop (reference: observer_state.i_alpha_last). */
+    float i_alpha_last;
+    float i_beta_last;
 } foc_observer_t;
 
 void foc_observer_init(foc_observer_t *obs, float initial_lambda);
 void foc_observer_update(foc_observer_t *obs, float v_alpha, float v_beta, float i_alpha,
                          float i_beta, float dt, float r_ohm, float l_henry, float lambda_wb,
-                         float gamma);
+                         float gamma, foc_observer_type_t type);
 
 /* Virtual motor physical simulation state */
 typedef struct foc_virtual_motor {

@@ -83,6 +83,8 @@ typedef struct foc_config {
 
     bool sensorless_mode;
     float observer_gamma;
+    /* Reference: mcconf foc_observer_type (datatypes.h). */
+    foc_observer_type_t observer_type;
 } foc_config_t;
 
 typedef struct foc_telemetry {

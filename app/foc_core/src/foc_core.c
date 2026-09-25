@@ -145,7 +145,8 @@ void foc_core_construct(foc_core_t *self, uint32_t module_id, uint32_t priority,
         self->config.temp_fet_max_c = 100.0f;
         self->config.current_filter_const = 0.1f;
         self->config.sensorless_mode = false;
-        self->config.observer_gamma = 1000.0f;
+        self->config.observer_gamma = 9.0e5f;
+        self->config.observer_type = FOC_OBSERVER_ORTEGA_ORIGINAL;
     }
 
     self->state = FOC_STATE_UNINITIALIZED;
@@ -338,7 +339,7 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
     if (self->config.sensorless_mode) {
         foc_observer_update(&self->observer, self->v_alpha, self->v_beta, i_alpha, i_beta, dt,
                             self->config.r_ohm, self->config.l_henry, self->config.lambda_wb,
-                            self->config.observer_gamma);
+                            self->config.observer_gamma, self->config.observer_type);
         angle_rad = self->observer.phase;
         rpm = self->observer.speed_rad_s * 60.0f /
               (2.0f * (float)M_PI * ((float)self->config.si_motor_poles / 2.0f));
