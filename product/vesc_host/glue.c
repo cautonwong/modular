@@ -1,5 +1,6 @@
 #include "glue.h"
 #include "motor_config/motor_config.h"
+#include "vesc_can/vesc_can.h"
 #include "vesc_terminal/vesc_terminal.h"
 #include <stdio.h>
 #include <string.h>
@@ -310,17 +311,32 @@ void vesc_host_make_config_port(vesc_config_provider_port_t *out, motor_config_t
 }
 
 static edge_status_t ops_terminal_cmd(void *self, const char *cmd) {
-    return vesc_terminal_execute((vesc_terminal_app_t *)self, cmd);
+    vesc_host_ops_ctx_t *ctx = (vesc_host_ops_ctx_t *)self;
+    if (ctx->term == (void *)0) {
+        return EDGE_ENOTSUP;
+    }
+    return vesc_terminal_execute(ctx->term, cmd);
 }
 
-void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_terminal_app_t *term) {
+static edge_status_t ops_forward_can(void *self, uint8_t target_id, const uint8_t *data,
+                                     size_t len) {
+    vesc_host_ops_ctx_t *ctx = (vesc_host_ops_ctx_t *)self;
+    if (ctx->can == (void *)0) {
+        return EDGE_ENOTSUP;
+    }
+    /* `send` is zero, as the reference passes it on the forward path. */
+    return vesc_can_send_buffer(ctx->can, target_id, data, len, 0u);
+}
+
+void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_host_ops_ctx_t *ctx) {
     if (out == (void *)0) {
         return;
     }
 
     *out = (vesc_comm_ops_port_t){
         .terminal_cmd = ops_terminal_cmd,
-        .self = term,
+        .forward_can = ops_forward_can,
+        .self = ctx,
     };
 }
 

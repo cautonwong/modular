@@ -195,8 +195,22 @@ int main(void) {
         return 22;
     }
 
+    /* COMM_FORWARD_CAN needs the CAN bus and COMM_TERMINAL_CMD the terminal, so both are
+     * built before the codec and handed over through the ops context. */
+    vesc_can_app_t can_app;
+    vesc_can_config_t can_cfg = {
+        .controller_id = 1,
+        .baudrate = 500000,
+        .status_rate_hz = 50.0f,
+    };
+    vesc_can_construct(&can_app, EDGE_MOD_VESC_CAN, 20u, &can_cfg, &can_port);
+    if (vesc_can_init(&can_app) != EDGE_OK) {
+        return 17;
+    }
+
+    vesc_host_ops_ctx_t ops_ctx = {.term = &term_app, .can = &can_app};
     vesc_comm_ops_port_t ops_port;
-    vesc_host_make_ops_port(&ops_port, &term_app);
+    vesc_host_make_ops_port(&ops_port, &ops_ctx);
 
     vesc_comm_construct(comm, EDGE_MOD_VESC_COMM, 20u, &stream_tx_port, &motor_port,
                         &app_status_port, &config_port, &ops_port, &comm_identity);
@@ -249,17 +263,6 @@ int main(void) {
     }
     glue_state.ppm = &ppm;
     glue_state.adc = &adc_app;
-
-    vesc_can_app_t can_app;
-    vesc_can_config_t can_cfg = {
-        .controller_id = 1,
-        .baudrate = 500000,
-        .status_rate_hz = 50.0f,
-    };
-    vesc_can_construct(&can_app, EDGE_MOD_VESC_CAN, 20u, &can_cfg, &can_port);
-    if (vesc_can_init(&can_app) != EDGE_OK) {
-        return 17;
-    }
 
     motor_id_app_t motor_id;
     motor_id_config_t id_cfg = {

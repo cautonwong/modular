@@ -373,6 +373,9 @@ typedef struct vesc_config_provider_port {
  */
 typedef struct vesc_comm_ops_port {
     edge_status_t (*terminal_cmd)(void *self, const char *cmd);
+    /* COMM_FORWARD_CAN: hand a whole packet to another controller over CAN. `data` is the
+     * payload after the target id, which the codec has already peeled off. */
+    edge_status_t (*forward_can)(void *self, uint8_t target_id, const uint8_t *data, size_t len);
     void *self;
 } vesc_comm_ops_port_t;
 

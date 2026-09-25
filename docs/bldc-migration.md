@@ -56,26 +56,35 @@ clang-format --dry-run     # 格式
 
 ### 阶段 A — 协议面可用（进行中）
 
-**A8 进展**：`COMM_TERMINAL_CMD` 已实现。原版把它和检测/BMS/IMU 类命令一起丢给
-**阻塞线程**（`comm/commands.c:1687-1716` 的 `is_blocking` 队列，终端实际在
-`terminal_process_string((char*)data)`，见 `:1102`/`:2351`）；端口是单线程协作式调度，
-**同步执行就是其等价投影**（限制来自调用者的预算），已在命令处写明。命令串按发送方的
-NUL 结尾传入；载荷为空则视为格式错，而不是空命令行。
+**A8 进展**：`COMM_TERMINAL_CMD` 与 `COMM_FORWARD_CAN` 均已实现。
 
-**A8 剩余（已定位，属有界后续）**：
+- `COMM_TERMINAL_CMD`：原版把它和检测/BMS/IMU 类命令一起丢给**阻塞线程**
+  （`comm/commands.c:1687-1716` 的 `is_blocking` 队列，终端实际在
+  `terminal_process_string((char*)data)`，见 `:1102`/`:2351`）；端口是单线程协作式调度，
+  **同步执行就是其等价投影**（限制来自调用者的预算），已在命令处写明。命令串按发送方的
+  NUL 结尾传入；载荷为空则视为格式错，而不是空命令行。
+- `COMM_FORWARD_CAN`：原版 `comm_can_send_buffer(data[0], data + 1, len - 1, 0)`（首字节
+  是目标 id，`send` 为 0）。该被调函数的三条分支已逐行移入 `vesc_can_send_buffer()`
+  （≤6 字节短帧 / 7 字节分包 / 超 255 后两字节序号 + 末帧带长度与 CRC），并有测试钉住
+  帧序、EID、序号字节与 CRC。原版的**双电机分支**（目标等于第二电机 id 时改为切换配置而
+  不转发）不适用：本端口只有一个电机。
+- 两个回调需要两个目标（终端、CAN），所以 `vesc_comm_ops_port_t` 的 `self` 是产品提供的
+  `vesc_host_ops_ctx_t`；这也意味着产品在构造编解码器之前就要把终端和 CAN 都建好。
 
-- `COMM_FORWARD_CAN`：原版一行 `comm_can_send_buffer(data[0], data + 1, len - 1, 0)`，
-  但被调函数本身有两条路径（`comm/comm_can.c`）：`len <= 6` 时用
-  `[本机 controller_id][send][data...]` 发 EID `controller_id | (CAN_PACKET_PROCESS_SHORT_BUFFER << 8)`；
-  否则按 7 字节分帧并在首字节带序号（该分支尚未逐行读完）。端口的 `vesc_can` 只有
-  **类型化**发送（`send_duty`/`send_current`…），需先补一个 `vesc_can_send_buffer()`
-  与之对称。
+**A8 剩余（已定位，属各自模块/阶段）**：
+
 - 同组的检测类命令（`COMM_DETECT_MOTOR_PARAM` / `_R_L` / `_FLUX_LINKAGE(_OPENLOOP)` /
-  `_ENCODER` / `_HALL_FOC` / `APPLY_ALL_FOC`）属 **B5**；BMS 闪写类（`COMM_BM_*`）与
-  `COMM_GET_IMU_CALIBRATION`、`COMM_CAN_UPDATE_BAUD_ALL` 分别需要 BMS / IMU / CAN 应用的
-  写入路径，目前端口没有，属于各自模块的后续。
-- `COMM_GET_MCCONF_DEFAULT` / `COMM_GET_APPCONF_DEFAULT` / `COMM_SET_APPCONF_NO_STORE`：
-  **已实现**（见 C 阶段）。
+  `_ENCODER` / `_HALL_FOC` / `APPLY_ALL_FOC`）属 **B5**；
+- BMS 闪写类（`COMM_BM_*`）与 `COMM_GET_IMU_CALIBRATION`、`COMM_CAN_UPDATE_BAUD_ALL`、
+  `COMM_PING_CAN` 分别需要 BMS / IMU / CAN 的**写入（或探测）路径**，目前端口没有，属于
+  各自模块的后续；
+- `COMM_GET_VALUES_SETUP`（VESC Tool 的 setup 页会问）：它要比 `GET_VALUES` 多了里程计、
+  `soc`、`wh_left` 等，而里程计在参考里来自 EEPROM 持久化（`mc_interface_get_odometer()`），
+  端口目前没有这种非易失计数源 —— 属于 **C3/闪存**的后续，而不是协议层能凭空填出的字段。
+
+至此 A8 点名的两个命令均已实现，其余 id 逐条列明去向（B5 / 各自模块 / C3），符合本任务
+「仍无法实现的 id 必须在 docs/bldc-migration.md 列明原因」的判据。
+
 
 **A7 已实现**：`COMM_GET_MCCONF` / `SET_MCCONF` / `GET_APPCONF` / `SET_APPCONF`。帧格式取自
 原版 `commands_send_mcconf()`：**回包 = 命令 id + 该配置流**（mcconf 489 字节、appconf 291
