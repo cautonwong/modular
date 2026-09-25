@@ -192,6 +192,13 @@ static edge_status_t motor_set_current(void *self, float current) {
     return foc_core_set_current(foc, motor_dir_mult(foc) * current, 0.0f);
 }
 
+static edge_status_t motor_set_current_rel(void *self, float rel) {
+    foc_core_t *foc = (foc_core_t *)self;
+    /* DIR_MULT applies because the reference routes this through
+     * mc_interface_set_current (mc_interface.c:746). */
+    return foc_core_set_current_rel(foc, motor_dir_mult(foc) * rel);
+}
+
 static edge_status_t motor_set_current_brake(void *self, float current) {
     foc_core_t *foc = (foc_core_t *)self;
     /*
@@ -251,6 +258,7 @@ void vesc_host_make_motor_provider_port(vesc_motor_provider_port_t *out, foc_cor
         .get_values = motor_get_values,
         .set_duty = motor_set_duty,
         .set_current = motor_set_current,
+        .set_current_rel = motor_set_current_rel,
         .set_current_brake = motor_set_current_brake,
         .set_rpm = motor_set_rpm,
         .set_pos = motor_set_pos,

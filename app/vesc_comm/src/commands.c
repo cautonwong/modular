@@ -266,6 +266,21 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
         return EDGE_OK;
     }
 
+    case COMM_SET_CURRENT_REL: {
+        if (len < 5) {
+            return EDGE_EINVAL;
+        }
+        /* Reference comm/commands.c:1212: float32 scaled by 1e5, forwarded to
+         * mc_interface_set_current_rel. The reference also calls timeout_reset() here
+         * (and in every other command handler); this module has no comm watchdog yet,
+         * so that side effect is not reproduced. */
+        float rel = buffer_get_float32(data, 1e5f, &ind);
+        if (self->motor && self->motor->set_current_rel) {
+            return self->motor->set_current_rel(self->motor->self, rel);
+        }
+        return EDGE_OK;
+    }
+
     case COMM_SET_CURRENT_BRAKE: {
         if (len < 5) {
             return EDGE_EINVAL;

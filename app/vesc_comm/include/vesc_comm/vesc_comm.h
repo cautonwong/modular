@@ -288,6 +288,9 @@ typedef struct vesc_motor_provider_port {
     edge_status_t (*set_duty)(void *self, float duty);
     edge_status_t (*set_current)(void *self, float current);
     edge_status_t (*set_current_brake)(void *self, float current);
+    /* Relative current: scaled by a limit the motor side picks from the duty's sign
+     * (reference mc_interface_set_current_rel). */
+    edge_status_t (*set_current_rel)(void *self, float rel);
     edge_status_t (*set_rpm)(void *self, float rpm);
     edge_status_t (*set_pos)(void *self, float pos);
     edge_status_t (*get_stats)(void *self, vesc_stats_t *out_val);

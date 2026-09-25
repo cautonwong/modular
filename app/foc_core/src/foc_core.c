@@ -665,6 +665,35 @@ edge_status_t foc_core_set_current(foc_core_t *self, float iq_target, float id_t
     return EDGE_OK;
 }
 
+edge_status_t foc_core_set_current_rel(foc_core_t *self, float rel) {
+    if (self == (void *)0) {
+        return EDGE_EINVAL;
+    }
+
+    /*
+     * Reference mc_interface_set_current_rel (mc_interface.c:733-749). The limit base
+     * depends on the duty's sign: as long as the machine is near standstill
+     * (|duty| < 0.02) or the setpoint pushes the same way as the duty, the positive
+     * limit applies, otherwise the negative one. SIGN is +1.0 at exactly zero, so a
+     * zero setpoint against a negative duty picks the negative limit - the reference's
+     * behaviour, not an accident to fix.
+     */
+    const float base =
+        (fabsf(self->duty_now) < 0.02f || foc_core_sign(rel) == foc_core_sign(self->duty_now))
+            ? self->config.current_max_a
+            : fabsf(self->config.current_min_a);
+
+    /*
+     * The reference then calls mc_interface_set_current(), so DIR_MULT and the rest of
+     * that path apply - DIR_MULT is the glue's job here. Its trailing
+     * set_current_off_delay(0.1), gated by l_abs_current_max and cc_min_current, only
+     * feeds the field-weakening modulation extension (mcpwm_foc.c:3953/3970 read
+     * m_current_off_delay, and m_motor_released with it); nothing reads such a delay
+     * here, so it is recorded as pending B3 rather than carried as dead state.
+     */
+    return foc_core_set_current(self, rel * base, 0.0f);
+}
+
 edge_status_t foc_core_set_rpm(foc_core_t *self, float rpm_target) {
     if (self == (void *)0) {
         return EDGE_EINVAL;

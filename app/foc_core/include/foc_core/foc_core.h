@@ -327,6 +327,13 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt);
 
 /* Domain Commands & Setpoints */
 edge_status_t foc_core_set_current(foc_core_t *self, float iq_target, float id_target);
+
+/*
+ * Reference mc_interface_set_current_rel: the relative setpoint is scaled by a limit
+ * chosen from the duty's sign, so this needs the last cycle's duty and cannot be
+ * resolved in the codec. The result goes through the same path as set_current.
+ */
+edge_status_t foc_core_set_current_rel(foc_core_t *self, float rel);
 edge_status_t foc_core_set_duty(foc_core_t *self, float duty_target);
 edge_status_t foc_core_set_rpm(foc_core_t *self, float rpm_target);
 edge_status_t foc_core_set_pos(foc_core_t *self, float pos_target_deg);

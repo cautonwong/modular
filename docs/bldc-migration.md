@@ -82,12 +82,15 @@ clang-format --dry-run     # 格式
 
 **B6 剩余项的实测依赖（读原版后记录，避免下轮重新推导）**
 
-- `COMM_SET_CURRENT_REL`：线格式是 float32 × 1e5，但语义在
+- `COMM_SET_CURRENT_REL`（**已实现**）：线格式是 float32 × 1e5（原版用的是**定点**
+  惯例：存 int32 = 值× scale，读取时除回去，不是 IEEE 浮点），语义在
   `mc_interface_set_current_rel()`（mc_interface.c:733）：按 `duty` 的符号选限幅基数 ——
   `|duty| < 0.02` 或 `SIGN(val) == SIGN(duty)` 时用 `lo_current_max`，否则用
-  `|lo_current_min|`；末尾还有一个由 `l_abs_current_max` / `cc_min_current` 门控的
-  `set_current_off_delay(0.1)` 副作用。所以它需要本端口尚未携带的三项
-  （`lo_current_min`、`l_abs_current_max`、`cc_min_current`）以及 `current_off_delay` 状态。
+  `|lo_current_min|`（`SIGN(0)` 是 **+1.0**，所以零设定值配负 duty 会选负限）。因此它
+  必须在电机侧而不能在编解码层，因为编解码层没有 duty。结果再走
+  `mc_interface_set_current`（DIR_MULT 在 glue 施加）。
+  末尾仍有一个由 `l_abs_current_max` / `cc_min_current` 门控的
+  `set_current_off_delay(0.1)` 副作用待接（见下）。
 - 上述三个字段的**默认值来源不同，别当成一类**：`cc_min_current` 在
   `mcconf_default.h` 有全局默认 `0.05`；而 `lo_current_min` 与 `l_abs_current_max`
   **没有全局默认**（`lo_*` 系列是按硬件标定的）。所以前者可以直接写进
