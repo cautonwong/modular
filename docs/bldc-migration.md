@@ -235,10 +235,17 @@ C3 的真正目标是 **`driver/eeprom.c`（643 行）**：在 flash 扇区上�
 **掉电中断后的可恢复性**（旧扇区在切换完成前仍是完整的一份）。它上层的配置读写是
 `conf_general.c`（2279 行）里的 store/load。
 
-端口现状：`infra/flash` 只有 30 行（基本是端口声明）；`motor_config` 目前用自有信封
-（signature + version + length + CRC，原版没有）落盘。所以 C3 的形状是：把扇区轮换/备份/
-恢复的**语义**移入 `infra/flash`（配一个 mock 后端以在 host 上做掉电测试），再接上
-`motor_config` 的存取路径。
+端口现状：`infra/flash` 是个 **host 侧假实现**（自述 "deliberately trivial host-side fake"，
+按 key 直接 memcpy），只有 `flash_read/flash_write` 两个函数；`motor_config` 目前用自有信封
+（signature + version + length + CRC，原版没有）落盘。
+
+**C3 要复现的设计（读参考后确认）**：`driver/eeprom.c` 用的是经典的 **AN2594 两页仿真**——
+`PAGE0_BASE_ADDRESS`/`PAGE1_BASE_ADDRESS` 由 `EEPROM_START_ADDRESS` 切出，运行期只认一个
+`ValidPage`；每条记录是「虚拟地址 + 数据 + 校验」的头（所以写入不改动旧记录，只是追加），
+当前页写满时把**有效记录搬到另一页**再标记新页有效；初始化/恢复靠**扫描两页**找出有效页
+（这就是判据里「掉电中断后的可恢复性」：切换完成前旧页仍是完整的一份）。
+所以 C3 的形状：把扇区轮换/追加写/页搬移/扫描恢复的**语义**移入 `infra/flash`（配一个
+扇区后端端口，以便在 host 上用 mock 注入掉电），再接上 `motor_config` 的存取路径。
 
 #### C1 验收（有消费者的字段是否都配置驱动）
 
