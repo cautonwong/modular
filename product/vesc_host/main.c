@@ -78,13 +78,16 @@ int main(void) {
     vesc_host_make_terminal_stream_port(&term_stream_port, &glue_state);
 
     /* Construct Apps */
-    motor_config_t motor_cfg;
-    motor_config_construct(&motor_cfg, EDGE_MOD_MOTOR_CONFIG, 30u, &storage_port, 0x00u);
-    if (motor_config_init(&motor_cfg) < 0) {
+    /* The configuration module's memory is the composition root's to provide. */
+    static alignas(MOTOR_CONFIG_STORAGE_ALIGN)
+        unsigned char motor_cfg_storage[MOTOR_CONFIG_STORAGE_SIZE];
+    motor_config_t *motor_cfg = (motor_config_t *)motor_cfg_storage;
+    motor_config_construct(motor_cfg, EDGE_MOD_MOTOR_CONFIG, 30u, &storage_port, 0x00u);
+    if (motor_config_init(motor_cfg) < 0) {
         return 10;
     }
 
-    const mc_configuration_t *mc = motor_config_get_mc(&motor_cfg);
+    const mc_configuration_t *mc = motor_config_get_mc(motor_cfg);
     foc_config_t foc_cfg = {
         .r_ohm = mc->foc_motor_r,
         .l_henry = mc->foc_motor_l,
@@ -273,7 +276,7 @@ int main(void) {
     edge_module_t *apps[14];
     apps[0] = foc_core_module(&foc);
     apps[1] = vesc_comm_module(comm);
-    apps[2] = motor_config_module(&motor_cfg);
+    apps[2] = motor_config_module(motor_cfg);
     apps[3] = timeout_guard_module(guard);
     apps[4] = throttle_module(&throttle);
     apps[5] = ppm_module(&ppm);

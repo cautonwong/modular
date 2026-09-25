@@ -10,7 +10,6 @@
 
 #include "edge/module.h"
 #include "timeout_guard/timeout_guard.h"
-#include <assert.h>
 #include <stdalign.h>
 #include <stddef.h>
 
@@ -31,9 +30,9 @@ struct timeout_guard {
     uint32_t timeout_count;
 };
 
-static_assert(sizeof(struct timeout_guard) <= TIMEOUT_GUARD_STORAGE_SIZE,
-              "TIMEOUT_GUARD_STORAGE_SIZE is stale: the caller would under-allocate");
-static_assert(alignof(struct timeout_guard) <= TIMEOUT_GUARD_STORAGE_ALIGN,
-              "TIMEOUT_GUARD_STORAGE_ALIGN is stale: the caller would under-align");
+_Static_assert(sizeof(struct timeout_guard) <= TIMEOUT_GUARD_STORAGE_SIZE,
+               "TIMEOUT_GUARD_STORAGE_SIZE is stale: the caller would under-allocate");
+_Static_assert(alignof(struct timeout_guard) <= TIMEOUT_GUARD_STORAGE_ALIGN,
+               "TIMEOUT_GUARD_STORAGE_ALIGN is stale: the caller would under-align");
 
 #endif /* APP_TIMEOUT_GUARD_INTERNAL_H */

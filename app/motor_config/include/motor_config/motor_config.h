@@ -3,6 +3,7 @@
 
 #include "edge/errors.h"
 #include "edge/module.h"
+#include <stdalign.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -78,27 +79,21 @@ typedef struct motor_config_storage_port {
     void *self;
 } motor_config_storage_port_t;
 
-typedef struct motor_config {
-    edge_module_t module;
+/*
+ * Opaque, caller-provided memory. The definition and its size/alignment
+ * assertions live in src/motor_config_internal.h:
+ *
+ *   static alignas(MOTOR_CONFIG_STORAGE_ALIGN)
+ *       unsigned char storage[MOTOR_CONFIG_STORAGE_SIZE];
+ *   motor_config_t *cfg = (motor_config_t *)storage;
+ *
+ * The configuration itself is reached through motor_config_get_mc() / _get_app(),
+ * so the caller never needs the layout to use the module.
+ */
+#define MOTOR_CONFIG_STORAGE_SIZE 512u
+#define MOTOR_CONFIG_STORAGE_ALIGN alignof(max_align_t)
 
-    /* Injected Storage Port */
-    const motor_config_storage_port_t *storage;
-
-    /* Active Configurations */
-    mc_configuration_t mcconf;
-    app_configuration_t appconf;
-
-    /* Flash Offset */
-    uint32_t flash_offset;
-    bool is_dirty;
-    /*
-     * Serialisation scratch for load/save. Kept here rather than in those
-     * functions' frames: it is MOTOR_CONFIG_BUFFER_SIZE (256) bytes, the caller
-     * already owns this struct, and this architecture's rule is that buffers are
-     * provided by the composition root rather than hidden in a deep frame.
-     */
-    uint8_t scratch[MOTOR_CONFIG_BUFFER_SIZE];
-} motor_config_t;
+typedef struct motor_config motor_config_t;
 
 void motor_config_set_defaults(mc_configuration_t *mcconf, app_configuration_t *appconf);
 
