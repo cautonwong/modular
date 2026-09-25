@@ -6,27 +6,26 @@
  */
 
 /*
- * One row per byte-stream item, in the reference's own order, array elements
- * included (the reference writes hall_table[0]..[7] one at a time, and gives
- * each its own MCCONF_HALL_TAB_n default):
+ * One row per byte-stream item, in the reference's own order: array elements and
+ * nested struct fields are rows of their own, exactly as the reference writes
+ * them.
  *
  *   X(<wire kind>, <expression>, <scale>, <default>)
  *
  * Kinds: U8/U16/U32/I32 integers, F16 (2 bytes, value * scale), F32 (4 bytes,
  * fixed point, value * scale), F32A (4 bytes, IEEE float, subnormals zeroed),
- * BMS rows are the nested bms_config's own fields, written by the reference
- * one at a time; NONE marks a runtime value the reference does not serialise.
+ * NONE for a runtime value the reference does not serialise.
  *
  * The same list drives the writer, the reader and the defaults, so those three
- * cannot disagree; and MCCONF_WIRE_LEN is asserted to be the reference's 488.
+ * cannot disagree, and MCCONF_WIRE_LEN is asserted to be the reference's
+ * 488 bytes.
  */
 
 #ifndef MCCONF_MANIFEST_H
 #define MCCONF_MANIFEST_H
 
-/* confgenerator.h: the signature the stream starts with. */
+/* confgenerator.h: the signature this stream starts with. */
 #define MCCONF_SIGNATURE 3154770096u
-#define APPCONF_SIGNATURE 296593100u
 
 #define MCCONF_WIRE(X)                                                                             \
     X(U8, pwm_mode, 0, MCCONF_PWM_MODE)                                                            \
@@ -236,7 +235,6 @@
     X(NONE, lo_in_current_max, 0, 0)                                                               \
     X(NONE, lo_in_current_min, 0, 0)                                                               \
     X(NONE, crc, 0, 0)
-
 #define MCCONF_KIND_LEN_U8 1
 #define MCCONF_KIND_LEN_U16 2
 #define MCCONF_KIND_LEN_U32 4

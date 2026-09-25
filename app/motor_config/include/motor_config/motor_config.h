@@ -7,7 +7,7 @@
  * mc_configuration_t, bms_config and the enums come from the generator: they are the
  * reference's own datatypes.h, emitted by tools/gen_mcconf_from_reference.py.
  */
-#include "motor_config/mcconf_struct.h"
+#include "motor_config/config_structs.h"
 #include <stdalign.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -21,17 +21,8 @@ extern "C" {
 /* 2: added the fields foc_core consumes (filter constant, PLL gains, max duty,
  * observer type). A stored blob from version 1 is rejected rather than parsed. */
 #define MOTOR_CONFIG_SCHEMA_VER 6u
-/* The reference's mc_configuration stream is 488 bytes (4 signature + 484 fields,
- * docs/bldc-mcconf-format.md); this port's own framing is smaller, but the buffer has
- * to fit the reference's when the codec is rewritten to it. */
-#define MOTOR_CONFIG_BUFFER_SIZE 512u
-
-typedef struct app_configuration {
-    uint8_t controller_id;
-    uint32_t timeout_msec;
-    float timeout_brake_current;
-    uint32_t can_baud_rate;
-} app_configuration_t;
+/* The reference's streams are 488 and 290 bytes; the envelope adds its own framing. */
+#define MOTOR_CONFIG_BUFFER_SIZE 1024u
 
 /*
  * Consumer-Defined Storage Port (Rules: void *self; callbacks take void *self)
@@ -61,7 +52,7 @@ typedef struct motor_config_storage_port {
  * The assert in src/motor_config_internal.h turns a stale value into a build error rather
  * than an under-allocating caller.
  */
-#define MOTOR_CONFIG_STORAGE_SIZE 1408u
+#define MOTOR_CONFIG_STORAGE_SIZE 2352u
 #define MOTOR_CONFIG_STORAGE_ALIGN alignof(max_align_t)
 
 typedef struct motor_config motor_config_t;
@@ -86,6 +77,14 @@ edge_status_t motor_config_serialize_mc(const mc_configuration_t *mcconf, uint8_
                                         size_t buf_size, size_t *out_len);
 edge_status_t motor_config_deserialize_mc(mc_configuration_t *mcconf, const uint8_t *buffer,
                                           size_t len);
+
+/* The same, for the reference's app_configuration stream (confgenerator_serialize_appconf:
+ * 290 bytes including the signature). */
+size_t motor_config_app_stream_len(void);
+edge_status_t motor_config_serialize_app(const app_configuration_t *appconf, uint8_t *buffer,
+                                         size_t buf_size, size_t *out_len);
+edge_status_t motor_config_deserialize_app(app_configuration_t *appconf, const uint8_t *buffer,
+                                           size_t len);
 
 edge_status_t motor_config_deserialize(mc_configuration_t *mcconf, app_configuration_t *appconf,
                                        const uint8_t *buffer, size_t len);

@@ -5,18 +5,13 @@
  *                  ../bldc/motor/mcconf_default.h
  */
 
-/*
- * mc_configuration_t, generated from the reference's datatypes.h so the port cannot
- * drift from it field by field. Member order follows datatypes.h; the *wire* order
- * is the one in mcconf_manifest.h, and they differ.
- */
+#ifndef CONFIG_STRUCTS_H
+#define CONFIG_STRUCTS_H
 
-#ifndef MCCONF_STRUCT_H
-#define MCCONF_STRUCT_H
-
-#include "motor_config/mcconf_enums.h"
+#include "motor_config/vesc_structs.h"
 
 typedef struct {
+    // Limits
     float l_current_max;
     float l_current_min;
     float l_in_current_max;
@@ -49,14 +44,19 @@ typedef struct {
     float l_current_min_scale;
     float l_duty_start;
     uint8_t l_additional_faults;
+    // Overridden limits (Computed during runtime)
     float lo_current_max;
     float lo_current_min;
     float lo_in_current_max;
     float lo_in_current_min;
+
+    // BLDC switching and drive
     mc_pwm_mode pwm_mode;
     mc_comm_mode comm_mode;
     mc_motor_type motor_type;
     mc_sensor_mode sensor_mode;
+
+    // Sensorless (bldc)
     float sl_min_erpm;
     float sl_min_erpm_cycle_int_limit;
     float sl_max_fullbreak_current_dir_change;
@@ -64,8 +64,11 @@ typedef struct {
     float sl_phase_advance_at_br;
     float sl_cycle_int_rpm_br;
     float sl_bemf_coupling_k;
+    // Hall sensor
     int8_t hall_table[8];
     float hall_sl_erpm;
+
+    // FOC
     float foc_current_kp;
     float foc_current_ki;
     float foc_f_zv;
@@ -130,6 +133,7 @@ typedef struct {
     bool foc_phase_filter_disable_fault;
     float foc_phase_filter_max_erpm;
     MTPA_MODE foc_mtpa_mode;
+    // Field Weakening
     float foc_fw_current_max;
     float foc_fw_duty_start;
     float foc_fw_ramp_time;
@@ -139,7 +143,10 @@ typedef struct {
     bool foc_short_ls_on_zero_duty;
     float foc_overmod_factor;
     float foc_mag_vd_max;
+
     PID_RATE sp_pid_loop_rate;
+
+    // Speed PID
     float s_pid_kp;
     float s_pid_ki;
     float s_pid_kd;
@@ -148,6 +155,8 @@ typedef struct {
     bool s_pid_allow_braking;
     float s_pid_ramp_erpms_s;
     S_PID_SPEED_SRC s_pid_speed_source;
+
+    // Pos PID
     float p_pid_kp;
     float p_pid_ki;
     float p_pid_kd;
@@ -156,10 +165,14 @@ typedef struct {
     float p_pid_ang_div;
     float p_pid_gain_dec_angle;
     float p_pid_offset;
+
+    // Current controller
     float cc_startup_boost_duty;
     float cc_min_current;
     float cc_gain;
     float cc_ramp_step_max;
+
+    // Misc
     int32_t m_fault_stop_time_ms;
     float m_duty_ramp_step;
     float m_current_backoff_gain;
@@ -185,6 +198,7 @@ typedef struct {
     int m_batt_filter_const;
     float m_ntcx_ptcx_temp_base;
     float m_ntcx_ptcx_res;
+    // Setup info
     uint8_t si_motor_poles;
     float si_gear_ratio;
     float si_wheel_diameter;
@@ -192,8 +206,63 @@ typedef struct {
     int si_battery_cells;
     float si_battery_ah;
     float si_motor_nl_current;
+
+    // BMS Configuration
     bms_config bms;
+
+    // Protect from flash corruption.
     uint16_t crc;
 } mc_configuration_t;
 
-#endif /* MCCONF_STRUCT_H */
+typedef struct {
+    // Settings
+    uint8_t controller_id;
+    uint32_t timeout_msec;
+    float timeout_brake_current;
+    uint32_t can_status_rate_1;
+    uint8_t can_status_msgs_r1;
+    uint32_t can_status_rate_2;
+    uint8_t can_status_msgs_r2;
+    CAN_BAUD can_baud_rate;
+    bool pairing_done;
+    bool permanent_uart_enabled;
+    SHUTDOWN_MODE shutdown_mode;
+    bool servo_out_enable;
+    KILL_SW_MODE kill_sw_mode;
+
+    // CAN modes
+    CAN_MODE can_mode;
+    uint8_t uavcan_esc_index;
+    UAVCAN_RAW_MODE uavcan_raw_mode;
+    float uavcan_raw_rpm_max;
+    UAVCAN_STATUS_CURRENT_MODE uavcan_status_current_mode;
+
+    // Application to use
+    app_use app_to_use;
+
+    // PPM application settings
+    ppm_config app_ppm_conf;
+
+    // ADC application settings
+    adc_config app_adc_conf;
+
+    // UART application settings
+    uint32_t app_uart_baudrate;
+
+    // Nunchuk application settings
+    chuk_config app_chuk_conf;
+
+    // NRF application settings
+    nrf_config app_nrf_conf;
+
+    // Pedal Assist application settings
+    pas_config app_pas_conf;
+
+    // IMU Settings
+    imu_config imu_conf;
+
+    // Protect from flash corruption
+    uint16_t crc;
+} app_configuration_t;
+
+#endif /* CONFIG_STRUCTS_H */
