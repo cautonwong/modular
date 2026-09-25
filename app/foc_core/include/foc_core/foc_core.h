@@ -55,7 +55,16 @@ typedef struct foc_config {
     float r_ohm;
     float l_henry;
     float lambda_wb;
-    int pole_pairs;
+
+    /*
+     * Motor speed information. The reference has no separate pole-pair field: the
+     * FOC, the virtual motor and the speed conversion all derive it from
+     * si_motor_poles / 2 (motor/virtual_motor.c:126, motor/mc_interface.c:1626), so
+     * this is the single source here too.
+     */
+    uint8_t si_motor_poles;
+    float si_gear_ratio;
+    float si_wheel_diameter;
 
     float current_max_a;
     float current_min_a;
@@ -167,7 +176,12 @@ typedef struct foc_core {
      * statistics below accumulate this raw one - both, as the reference does. */
     float i_abs;
 
+    /* Vehicle speed in m/s, reference mc_interface_get_speed(). */
+    float speed_m_s;
+
     /* Statistics, see foc_stats_t. */
+    float stat_speed_sum;
+    float stat_max_speed;
     float stat_samples;
     float stat_power_sum;
     float stat_max_power;
@@ -221,6 +235,8 @@ typedef struct foc_core {
  * count_time needs a clock this module is not given.
  */
 typedef struct foc_stats {
+    float speed_avg;
+    float speed_max;
     float power_avg;
     float power_max;
     float current_avg;

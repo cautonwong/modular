@@ -165,7 +165,9 @@ static void test_foc_core_voltage_protection(void **state) {
     foc_config_t cfg = {.r_ohm = 0.05f,
                         .l_henry = 0.00005f,
                         .lambda_wb = 0.005f,
-                        .pole_pairs = 7,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
                         .current_max_a = 50.0f,
                         .current_min_a = -50.0f,
                         .duty_max = 0.95f,
@@ -218,7 +220,9 @@ static void test_foc_core_thermal_protection(void **state) {
     foc_config_t cfg = {.r_ohm = 0.05f,
                         .l_henry = 0.00005f,
                         .lambda_wb = 0.005f,
-                        .pole_pairs = 7,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
                         .current_max_a = 50.0f,
                         .current_min_a = -50.0f,
                         .duty_max = 0.95f,
@@ -299,7 +303,9 @@ static void test_foc_core_closed_loop_virtual_motor(void **state) {
     foc_config_t cfg = {.r_ohm = 0.05f,
                         .l_henry = 0.00005f,
                         .lambda_wb = 0.005f,
-                        .pole_pairs = 7,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
                         .current_max_a = 50.0f,
                         .current_min_a = -50.0f,
                         .duty_max = 0.95f,
@@ -363,7 +369,9 @@ static void test_foc_core_averages_are_read_reset_and_masked(void **state) {
     foc_config_t cfg = {.r_ohm = 0.05f,
                         .l_henry = 0.00005f,
                         .lambda_wb = 0.005f,
-                        .pole_pairs = 7,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
                         .current_max_a = 50.0f,
                         .current_min_a = -50.0f,
                         .duty_max = 0.95f,
@@ -425,7 +433,9 @@ static void test_foc_core_energy_counters(void **state) {
     foc_config_t cfg = {.r_ohm = 0.05f,
                         .l_henry = 0.00005f,
                         .lambda_wb = 0.005f,
-                        .pole_pairs = 7,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
                         .current_max_a = 50.0f,
                         .current_min_a = -50.0f,
                         .duty_max = 0.95f,
@@ -509,7 +519,9 @@ static void test_foc_core_stats_and_reset(void **state) {
     foc_config_t cfg = {.r_ohm = 0.05f,
                         .l_henry = 0.00005f,
                         .lambda_wb = 0.005f,
-                        .pole_pairs = 7,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
                         .current_max_a = 50.0f,
                         .current_min_a = -50.0f,
                         .duty_max = 0.95f,
@@ -542,6 +554,18 @@ static void test_foc_core_stats_and_reset(void **state) {
     }
 
     foc_core_get_stats(&foc, &st);
+    assert_false(isnan(st.speed_avg));
+    assert_true(st.speed_avg > 0.0f);
+    assert_true(st.speed_max >= st.speed_avg);
+    /*
+     * Reference speed scaling: mech_rpm/60 * wheel diameter * pi / gear ratio.
+     * Checked on the instantaneous value; the average is a different number by
+     * construction (the motor was accelerating).
+     */
+    assert_float_equal(
+        foc.speed_m_s,
+        (foc.last_rpm / 60.0f) * cfg.si_wheel_diameter * (float)M_PI / cfg.si_gear_ratio, 1e-5f);
+    assert_true(st.speed_avg <= st.speed_max);
     assert_false(isnan(st.power_avg));
     assert_true(st.power_avg > 0.0f);
     assert_true(st.current_avg > 1.0f);
@@ -583,7 +607,9 @@ static void test_foc_core_modes(void **state) {
     foc_config_t cfg = {.r_ohm = 0.05f,
                         .l_henry = 0.00005f,
                         .lambda_wb = 0.005f,
-                        .pole_pairs = 7,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
                         .current_max_a = 50.0f,
                         .current_min_a = -50.0f,
                         .duty_max = 0.95f,

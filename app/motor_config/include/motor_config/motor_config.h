@@ -42,6 +42,11 @@ typedef struct mc_configuration {
     float foc_observer_gain;
     float temp_fet_max;
     float temp_motor_max;
+    /* Speed information, reference types and defaults from datatypes.h:584 and
+     * mcconf_default.h:613-620. si_motor_poles is a pole COUNT, not pole pairs. */
+    uint8_t si_motor_poles;
+    float si_gear_ratio;
+    float si_wheel_diameter;
 } mc_configuration_t;
 
 typedef struct app_configuration {
