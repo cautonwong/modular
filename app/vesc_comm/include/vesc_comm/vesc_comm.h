@@ -22,7 +22,8 @@ extern "C" {
  * allocated and never hidden in a deep frame. The largest reply the reference
  * defines is COMM_GET_VALUES at 74 bytes.
  */
-#define VESC_CMD_REPLY_BUF_LEN 128u
+/* 1 command byte + the reference's 488-byte mc_configuration stream = 489. */
+#define VESC_CMD_REPLY_BUF_LEN 512u
 
 /* COMM_GET_VALUES is the largest reply the reference defines (74 bytes); keep the
  * scratch above it so the send-path bound is a backstop rather than the normal
@@ -342,15 +343,30 @@ typedef struct vesc_identity {
  * hold with room to spare. The reference keeps its equivalent state in a mempool
  * for the same reason: the memory belongs to the caller, not to the codec.
  */
-#define VESC_COMM_STORAGE_SIZE 1536u
+#define VESC_COMM_STORAGE_SIZE 1712u
 #define VESC_COMM_STORAGE_ALIGN alignof(max_align_t)
 
 typedef struct vesc_comm vesc_comm_t;
 
+/*
+ * Configuration access for COMM_GET_MCCONF / SET_MCCONF / GET_APPCONF / SET_APPCONF.
+ * The two streams are the reference's own byte layouts - the same ones the reference's
+ * confgenerator produces - with no framing added: the caller owns where they live.
+ */
+typedef struct vesc_config_provider_port {
+    edge_status_t (*get_mcconf)(void *self, uint8_t *out, size_t buf_size, size_t *out_len);
+    edge_status_t (*set_mcconf)(void *self, const uint8_t *in, size_t len);
+    edge_status_t (*get_appconf)(void *self, uint8_t *out, size_t buf_size, size_t *out_len);
+    edge_status_t (*set_appconf)(void *self, const uint8_t *in, size_t len);
+    void *self;
+} vesc_config_provider_port_t;
+
 void vesc_comm_construct(vesc_comm_t *self, uint32_t module_id, uint32_t priority,
                          const edge_stream_tx_port_t *stream_tx,
                          const vesc_motor_provider_port_t *motor,
-                         const vesc_app_status_port_t *app_status, const vesc_identity_t *identity);
+                         const vesc_app_status_port_t *app_status,
+                         const vesc_config_provider_port_t *config,
+                         const vesc_identity_t *identity);
 
 edge_status_t vesc_comm_init(vesc_comm_t *self);
 edge_status_t vesc_comm_deinit(vesc_comm_t *self);

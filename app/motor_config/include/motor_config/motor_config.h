@@ -52,7 +52,7 @@ typedef struct motor_config_storage_port {
  * The assert in src/motor_config_internal.h turns a stale value into a build error rather
  * than an under-allocating caller.
  */
-#define MOTOR_CONFIG_STORAGE_SIZE 2352u
+#define MOTOR_CONFIG_STORAGE_SIZE 3576u
 #define MOTOR_CONFIG_STORAGE_ALIGN alignof(max_align_t)
 
 typedef struct motor_config motor_config_t;
@@ -102,6 +102,14 @@ const mc_configuration_t *motor_config_get_mc(const motor_config_t *self);
 const app_configuration_t *motor_config_get_app(const motor_config_t *self);
 edge_status_t motor_config_update_mc(motor_config_t *self, const mc_configuration_t *mcconf);
 edge_status_t motor_config_update_app(motor_config_t *self, const app_configuration_t *appconf);
+
+/*
+ * Apply a stream from the peer, in the reference's own byte format. Decoded into a
+ * staging copy first, so a malformed stream cannot leave half a configuration behind -
+ * this is what COMM_SET_MCCONF / COMM_SET_APPCONF call.
+ */
+edge_status_t motor_config_apply_mc_stream(motor_config_t *self, const uint8_t *buf, size_t len);
+edge_status_t motor_config_apply_app_stream(motor_config_t *self, const uint8_t *buf, size_t len);
 
 #ifdef __cplusplus
 }

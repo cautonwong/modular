@@ -43,6 +43,13 @@ typedef struct vesc_host_glue_state {
 void vesc_host_make_storage_port(motor_config_storage_port_t *out, vesc_host_glue_state_t *state);
 void vesc_host_make_stream_tx_port(edge_stream_tx_port_t *out, vesc_host_glue_state_t *state);
 void vesc_host_make_motor_provider_port(vesc_motor_provider_port_t *out, foc_core_t *foc);
+
+/*
+ * COMM_GET/SET_MCCONF and COMM_GET/SET_APPCONF, served from the configuration aggregate.
+ * The streams are the reference's own byte layouts; the aggregate owns the staging copy
+ * that keeps a malformed stream from half-writing the running configuration.
+ */
+void vesc_host_make_config_port(vesc_config_provider_port_t *out, motor_config_t *cfg);
 void vesc_host_make_inverter_port(foc_inverter_port_t *out, vesc_host_glue_state_t *state);
 void vesc_host_make_current_port(foc_current_port_t *out, vesc_host_glue_state_t *state);
 void vesc_host_make_rotor_port(foc_rotor_port_t *out, vesc_host_glue_state_t *state);

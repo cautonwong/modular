@@ -190,3 +190,32 @@ edge_status_t motor_config_update_app(motor_config_t *self, const app_configurat
     self->is_dirty = true;
     return EDGE_OK;
 }
+
+edge_status_t motor_config_apply_mc_stream(motor_config_t *self, const uint8_t *buf, size_t len) {
+    if (self == (void *)0 || buf == (void *)0) {
+        return EDGE_EINVAL;
+    }
+
+    /*
+     * Decoded into the staging copy first, which is the reference's shape: it copies the
+     * live configuration and decodes into the copy, so a malformed stream from the peer
+     * leaves the running configuration alone. Only a complete decode is published.
+     */
+    edge_status_t status = motor_config_deserialize_mc(&self->staging_mc, buf, len);
+    if (status != EDGE_OK) {
+        return status;
+    }
+    return motor_config_update_mc(self, &self->staging_mc);
+}
+
+edge_status_t motor_config_apply_app_stream(motor_config_t *self, const uint8_t *buf, size_t len) {
+    if (self == (void *)0 || buf == (void *)0) {
+        return EDGE_EINVAL;
+    }
+
+    edge_status_t status = motor_config_deserialize_app(&self->staging_app, buf, len);
+    if (status != EDGE_OK) {
+        return status;
+    }
+    return motor_config_update_app(self, &self->staging_app);
+}

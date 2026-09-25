@@ -22,6 +22,15 @@ struct motor_config {
     mc_configuration_t mcconf;
     app_configuration_t appconf;
 
+    /*
+     * Staging copies for a stream arriving from the peer. The reference copies the live
+     * configuration and decodes into the copy, so a malformed stream cannot leave half a
+     * configuration behind; these are that copy, owned here rather than on the stack
+     * because mc_configuration_t is 776 bytes.
+     */
+    mc_configuration_t staging_mc;
+    app_configuration_t staging_app;
+
     /* Flash Offset */
     uint32_t flash_offset;
     bool is_dirty;
