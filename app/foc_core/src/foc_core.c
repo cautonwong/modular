@@ -150,6 +150,23 @@ void foc_core_construct(foc_core_t *self, uint32_t module_id, uint32_t priority,
         self->config.sat_comp_mode = 0u; /* SAT_COMP_DISABLED */
         self->config.sat_comp = 0.0f;
         self->config.ld_lq_diff = 0.0f;
+        /* Reference defaults (mcconf_default.h): 0.004 / 0.004 / 0.0001 / 0.2,
+         * braking allowed, 25000 ERPM/s ramp, min_erpm 0. */
+        self->config.speed_pid = (foc_speed_pid_params_t){
+            .kp = 0.004f,
+            .ki = 0.004f,
+            .kd = 0.0001f,
+            .kd_filter = 0.2f,
+            .ramp_erpms_s = 25000.0f,
+            .min_erpm = 0.0f,
+            .openloop_rpm = 700.0f,
+            .l_min_erpm = -100000.0f,
+            .l_max_erpm = 100000.0f,
+            .lo_current_max = 60.0f,
+            .current_max_scale = 1.0f,
+            .allow_braking = true,
+            .invert_direction = false,
+        };
         self->config.pll_kp = 2000.0f;
         self->config.pll_ki = 30000.0f;
     }
@@ -449,15 +466,17 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
     /* 8. Closed-loop Controllers */
     float vd = 0.0f, vq = 0.0f;
     if (self->state == FOC_STATE_RUNNING_RPM) {
-        /* Speed PID loop to compute target_iq */
-        float err_rpm = self->target_rpm - rpm;
-        float iq_cmd = err_rpm * 0.01f; /* Simple speed gain */
-        if (iq_cmd > self->config.current_max_a) {
-            iq_cmd = self->config.current_max_a;
-        }
-        if (iq_cmd < self->config.current_min_a) {
-            iq_cmd = self->config.current_min_a;
-        }
+        /*
+         * Reference: foc_run_pid_control_speed. It works in ERPM, and COMM_SET_RPM's
+         * setpoint is ERPM too; the rotor/PLL speed here is mechanical, hence the
+         * pole-pair conversion. `index_found` is passed true: the reference uses it
+         * to clamp the setpoint to openloop_rpm only when no encoder index has been
+         * seen, and this port has no index to lose.
+         */
+        float rpm_erpm = rpm * ((float)self->config.si_motor_poles / 2.0f);
+        float iq_cmd = self->target_iq;
+        foc_run_pid_speed(&self->speed_pid, &self->config.speed_pid, true, true, rpm_erpm,
+                          self->target_rpm, dt, &iq_cmd);
         self->target_iq = iq_cmd;
     } else if (self->state == FOC_STATE_RUNNING_POS) {
         /* Position PID loop to compute target_iq */
