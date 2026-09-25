@@ -180,8 +180,26 @@ int main(void) {
     vesc_config_provider_port_t config_port;
     vesc_host_make_config_port(&config_port, motor_cfg);
 
+    /*
+     * The terminal is built before the codec because COMM_TERMINAL_CMD runs through it; the
+     * ops port carries that one callback, keeping "acts on the product" apart from
+     * "configuration access".
+     */
+    terminal_system_port_t term_sys_port;
+    vesc_host_make_terminal_system_port(&term_sys_port, &foc);
+
+    vesc_terminal_app_t term_app;
+    vesc_terminal_construct(&term_app, EDGE_MOD_VESC_TERMINAL, 50u, &term_stream_port,
+                            &term_sys_port);
+    if (vesc_terminal_init(&term_app) != EDGE_OK) {
+        return 22;
+    }
+
+    vesc_comm_ops_port_t ops_port;
+    vesc_host_make_ops_port(&ops_port, &term_app);
+
     vesc_comm_construct(comm, EDGE_MOD_VESC_COMM, 20u, &stream_tx_port, &motor_port,
-                        &app_status_port, &config_port, &comm_identity);
+                        &app_status_port, &config_port, &ops_port, &comm_identity);
     if (vesc_comm_init(comm) < 0) {
         return 12;
     }
@@ -273,16 +291,6 @@ int main(void) {
     balance_construct(&balance_app, EDGE_MOD_BALANCE, 10u, &balance_cfg, &balance_port);
     if (balance_init(&balance_app) != EDGE_OK) {
         return 21;
-    }
-
-    terminal_system_port_t term_sys_port;
-    vesc_host_make_terminal_system_port(&term_sys_port, &foc);
-
-    vesc_terminal_app_t term_app;
-    vesc_terminal_construct(&term_app, EDGE_MOD_VESC_TERMINAL, 50u, &term_stream_port,
-                            &term_sys_port);
-    if (vesc_terminal_init(&term_app) != EDGE_OK) {
-        return 22;
     }
 
     bms_can_port_t bms_can_port;

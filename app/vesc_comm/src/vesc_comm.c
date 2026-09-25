@@ -32,7 +32,7 @@ void vesc_comm_construct(vesc_comm_t *self, uint32_t module_id, uint32_t priorit
                          const edge_stream_tx_port_t *stream_tx,
                          const vesc_motor_provider_port_t *motor,
                          const vesc_app_status_port_t *app_status,
-                         const vesc_config_provider_port_t *config,
+                         const vesc_config_provider_port_t *config, const vesc_comm_ops_port_t *ops,
                          const vesc_identity_t *identity) {
     if (self == (void *)0) {
         return;
@@ -56,6 +56,7 @@ void vesc_comm_construct(vesc_comm_t *self, uint32_t module_id, uint32_t priorit
     self->motor = motor;
     self->app_status = app_status;
     self->config = config;
+    self->ops = ops;
     self->identity = identity;
 }
 

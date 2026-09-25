@@ -255,6 +255,23 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
         return EDGE_OK;
     }
 
+    case COMM_TERMINAL_CMD: {
+        if (self->ops == (void *)0 || self->ops->terminal_cmd == (void *)0) {
+            return EDGE_ENOTSUP;
+        }
+        /*
+         * Reference: terminal_process_string((char *)data), with the payload being the
+         * command line the sender NUL-terminated. The reference runs that on its blocking
+         * thread so the comm path is not stalled; this port is single-threaded and
+         * cooperative, where running it inline is the equivalent and the caller's budget is
+         * what limits it.
+         */
+        if (len < 2u) {
+            return EDGE_EINVAL;
+        }
+        return self->ops->terminal_cmd(self->ops->self, (const char *)(data + 1u));
+    }
+
     case COMM_GET_MCCONF: {
         if (self->config == (void *)0 || self->config->get_mcconf == (void *)0) {
             return EDGE_ENOTSUP;

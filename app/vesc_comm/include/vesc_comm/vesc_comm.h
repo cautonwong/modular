@@ -343,7 +343,7 @@ typedef struct vesc_identity {
  * hold with room to spare. The reference keeps its equivalent state in a mempool
  * for the same reason: the memory belongs to the caller, not to the codec.
  */
-#define VESC_COMM_STORAGE_SIZE 1712u
+#define VESC_COMM_STORAGE_SIZE 1720u
 #define VESC_COMM_STORAGE_ALIGN alignof(max_align_t)
 
 typedef struct vesc_comm vesc_comm_t;
@@ -367,11 +367,20 @@ typedef struct vesc_config_provider_port {
     void *self;
 } vesc_config_provider_port_t;
 
+/*
+ * Commands that act on the product rather than on the motor. Kept apart from the
+ * configuration port because the consumer is a different module: here it is the terminal.
+ */
+typedef struct vesc_comm_ops_port {
+    edge_status_t (*terminal_cmd)(void *self, const char *cmd);
+    void *self;
+} vesc_comm_ops_port_t;
+
 void vesc_comm_construct(vesc_comm_t *self, uint32_t module_id, uint32_t priority,
                          const edge_stream_tx_port_t *stream_tx,
                          const vesc_motor_provider_port_t *motor,
                          const vesc_app_status_port_t *app_status,
-                         const vesc_config_provider_port_t *config,
+                         const vesc_config_provider_port_t *config, const vesc_comm_ops_port_t *ops,
                          const vesc_identity_t *identity);
 
 edge_status_t vesc_comm_init(vesc_comm_t *self);

@@ -56,6 +56,27 @@ clang-format --dry-run     # 格式
 
 ### 阶段 A — 协议面可用（进行中）
 
+**A8 进展**：`COMM_TERMINAL_CMD` 已实现。原版把它和检测/BMS/IMU 类命令一起丢给
+**阻塞线程**（`comm/commands.c:1687-1716` 的 `is_blocking` 队列，终端实际在
+`terminal_process_string((char*)data)`，见 `:1102`/`:2351`）；端口是单线程协作式调度，
+**同步执行就是其等价投影**（限制来自调用者的预算），已在命令处写明。命令串按发送方的
+NUL 结尾传入；载荷为空则视为格式错，而不是空命令行。
+
+**A8 剩余（已定位，属有界后续）**：
+
+- `COMM_FORWARD_CAN`：原版一行 `comm_can_send_buffer(data[0], data + 1, len - 1, 0)`，
+  但被调函数本身有两条路径（`comm/comm_can.c`）：`len <= 6` 时用
+  `[本机 controller_id][send][data...]` 发 EID `controller_id | (CAN_PACKET_PROCESS_SHORT_BUFFER << 8)`；
+  否则按 7 字节分帧并在首字节带序号（该分支尚未逐行读完）。端口的 `vesc_can` 只有
+  **类型化**发送（`send_duty`/`send_current`…），需先补一个 `vesc_can_send_buffer()`
+  与之对称。
+- 同组的检测类命令（`COMM_DETECT_MOTOR_PARAM` / `_R_L` / `_FLUX_LINKAGE(_OPENLOOP)` /
+  `_ENCODER` / `_HALL_FOC` / `APPLY_ALL_FOC`）属 **B5**；BMS 闪写类（`COMM_BM_*`）与
+  `COMM_GET_IMU_CALIBRATION`、`COMM_CAN_UPDATE_BAUD_ALL` 分别需要 BMS / IMU / CAN 应用的
+  写入路径，目前端口没有，属于各自模块的后续。
+- `COMM_GET_MCCONF_DEFAULT` / `COMM_GET_APPCONF_DEFAULT` / `COMM_SET_APPCONF_NO_STORE`：
+  **已实现**（见 C 阶段）。
+
 **A7 已实现**：`COMM_GET_MCCONF` / `SET_MCCONF` / `GET_APPCONF` / `SET_APPCONF`。帧格式取自
 原版 `commands_send_mcconf()`：**回包 = 命令 id + 该配置流**（mcconf 489 字节、appconf 291
 字节），不做任何自有封装；SET 则把请求里的流原样交给聚合根，由它**先解码到 staging**
