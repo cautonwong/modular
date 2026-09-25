@@ -88,8 +88,11 @@ clang-format --dry-run     # 格式
   `|lo_current_min|`；末尾还有一个由 `l_abs_current_max` / `cc_min_current` 门控的
   `set_current_off_delay(0.1)` 副作用。所以它需要本端口尚未携带的三项
   （`lo_current_min`、`l_abs_current_max`、`cc_min_current`）以及 `current_off_delay` 状态。
-- speed PID 本体已逐位验证并接入（提交 `cf8854d` / `26e805c`）；剩下的三项才是
-  上面这一批。
+- 上述三个字段的**默认值来源不同，别当成一类**：`cc_min_current` 在
+  `mcconf_default.h` 有全局默认 `0.05`；而 `lo_current_min` 与 `l_abs_current_max`
+  **没有全局默认**（`lo_*` 系列是按硬件标定的）。所以前者可以直接写进
+  `motor_config_set_defaults`，后者必须由板级（`board/<board>`）提供 —— 若端口先按 0
+  占位，必须写明“待板级提供”，不可当成原版默认值。
 - handbrake：**已核对，本端口当前不等价**。原版链路是
   `COMM_SET_HANDBRAKE`（float32 × 1e3）→ `mc_interface_set_handbrake()`
   （|current|>0.001 时 SHUTDOWN_RESET；`mc_interface_try_input()` 为真则整体 return；
