@@ -421,10 +421,11 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
     self->last_iq = iq;
 
     /* Reference: UTILS_LP_FAST(id_filter, id, foc_current_filter_const) at
-     * mcpwm_foc.c:4628. Telemetry and the energy-counter gate only; the current
-     * controller below keeps using the raw id/iq, as the reference does. */
-    self->id_filter += self->config.current_filter_const * (id - self->id_filter);
-    self->iq_filter += self->config.current_filter_const * (iq - self->iq_filter);
+     * mcpwm_foc.c:4628, which is `value -= c * (value - sample)`. The additive form
+     * is algebraically equal but moves the last bits, and this filter feeds the
+     * energy-counter gate. */
+    self->id_filter -= self->config.current_filter_const * (self->id_filter - id);
+    self->iq_filter -= self->config.current_filter_const * (self->iq_filter - iq);
 
     /* 6. Current Safety Invariant Checks */
     float current_mag = sqrtf(SQ(id) + SQ(iq));
