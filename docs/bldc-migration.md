@@ -96,16 +96,16 @@ clang-format --dry-run     # 格式
   **没有全局默认**（`lo_*` 系列是按硬件标定的）。所以前者可以直接写进
   `motor_config_set_defaults`，后者必须由板级（`board/<board>`）提供 —— 若端口先按 0
   占位，必须写明“待板级提供”，不可当成原版默认值。
-- handbrake：**已核对，本端口当前不等价**。原版链路是
-  `COMM_SET_HANDBRAKE`（float32 × 1e3）→ `mc_interface_set_handbrake()`
-  （|current|>0.001 时 SHUTDOWN_RESET；`mc_interface_try_input()` 为真则整体 return；
-  按 motor_type 分派；最后 `events_add("set_handbrake", current)`）→ FOC 走
-  `mcpwm_foc_set_handbrake()`：它先设 **`CONTROL_MODE_HANDBRAKE`（独立控制模式）**、
-  把电流写进 **iq** 设定值（不是 d 轴），且在 `|current| < cc_min_current` 时提前返回。
-  而本端口的 `foc_core_set_handbrake` 只是 `set_current(0, brake_current)` —— 没有专属
-  控制模式、写的是 d 轴、也没有 `cc_min_current` 分支。要对比需新增控制模式 +
-  `cc_min_current`，并继续读完 `mcpwm_foc_set_handbrake`（`MC_STATE_RUNNING` 之后的
-  `else` 分支尚未读）。
+- handbrake（**已实现**）：原版链路是
+  `COMM_SET_HANDBRAKE`（float32 × 1e3 —— 安培，不是相对命令的 1e5）→
+  `mc_interface_set_handbrake()`（|current|>0.001 时 SHUTDOWN_RESET；`mc_interface_try_input()`
+  为真则整体 return；按 motor_type 分派；最后 `events_add("set_handbrake", current)`）→ FOC 走
+  `mcpwm_foc_set_handbrake()`：设 **`CONTROL_MODE_HANDBRAKE`**、把电流写进 **iq** 设定值、
+  **不取绝对值**、**不乘 DIR_MULT**。模式本身的含义在环内：
+  `mcpwm_foc.c:3602` 强制 `phase = 0`（“让电流简单地把转子锁住”，而不是出力矩）。端口已按
+  此实现：新增 `FOC_STATE_HANDBRAKE`（追加在枚末尾，不重编号）、
+  `foc_core_set_handbrake` 不再取绝对值/不再写 d 轴、快速环在进入该模式时把角度置 0
+  （同时使上报相位与扇区测速跟随该角度），电流 PI 分支纳入该模式。
 - **`duty_now` 不是相占空比**（已修）：原版 `mcpwm_foc.c:3818` 定义
   `duty_now = SIGN(vq) * NORM2_f(mod_d, mod_q) * p_duty_norm`（`mod = v * 1.5 / v_bus`，
   `p_duty_norm = TWO_BY_SQRT3 / foc_overmod_factor`，overmod 默认 1.0）。端口原先写的
@@ -117,7 +117,7 @@ clang-format --dry-run     # 格式
   与弱磁）。端口原先在 `foc_core_set_current` 里夹紧到 `[current_min_a, current_max_a]`
   （原版没有）且未乘 `DIR_MULT`；今已去夹紧，`DIR_MULT` 按原版**逐命令**在 glue 施加
   （current / brake / duty / pid_speed 有，**handbrake 特意没有**）。
-- **刹车与手刹仍缺控制模式**：原版刹车是 `CONTROL_MODE_CURRENT_BRAKE` +
+- **刹车仍缺控制模式**：原版刹车是 `CONTROL_MODE_CURRENT_BRAKE` +
   `m_iq_set = DIR_MULT * current`（**不取反**，mcpwm_foc.c:828），端口没有刹车模式，
   用负电流近似 —— 保留该符号不自行翻转，因为缺了模式符号就没有意义（已记入
   `adr-conformance.md`）。

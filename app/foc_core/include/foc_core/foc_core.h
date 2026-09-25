@@ -38,7 +38,15 @@ typedef enum {
     FOC_STATE_RUNNING_CURRENT,
     FOC_STATE_RUNNING_DUTY,
     FOC_STATE_RUNNING_RPM,
-    FOC_STATE_RUNNING_POS
+    FOC_STATE_RUNNING_POS,
+
+    /*
+     * Reference CONTROL_MODE_HANDBRAKE. It is a mode of its own rather than a current
+     * command: the loop forces the electrical phase to zero so the current locks the
+     * rotor instead of driving it (mcpwm_foc.c:3602). Appended last so that no existing
+     * value is renumbered.
+     */
+    FOC_STATE_HANDBRAKE
 } foc_state_t;
 
 typedef enum {

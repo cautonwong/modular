@@ -291,6 +291,9 @@ typedef struct vesc_motor_provider_port {
     /* Relative current: scaled by a limit the motor side picks from the duty's sign
      * (reference mc_interface_set_current_rel). */
     edge_status_t (*set_current_rel)(void *self, float rel);
+    /* Handbrake: a mode of its own, not a current command - the motor side forces the
+     * electrical phase to zero in it (reference mcpwm_foc_set_handbrake). */
+    edge_status_t (*set_handbrake)(void *self, float current);
     edge_status_t (*set_rpm)(void *self, float rpm);
     edge_status_t (*set_pos)(void *self, float pos);
     edge_status_t (*get_stats)(void *self, vesc_stats_t *out_val);
