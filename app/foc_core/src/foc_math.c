@@ -56,6 +56,45 @@ void foc_fast_sincos(float angle_rad, float *sin_out, float *cos_out) {
     }
 }
 
+static float obs_truncate(float v, float min, float max) {
+    if (v > max) {
+        return max;
+    }
+    if (v < min) {
+        return min;
+    }
+    return v;
+}
+
+static float obs_truncate_abs(float v, float max) {
+    if (v > max) {
+        return max;
+    }
+    if (v < -max) {
+        return -max;
+    }
+    return v;
+}
+
+float foc_fast_atan2(float y, float x) {
+    float abs_y = fabsf(y) + 1e-20f; /* kludge to prevent 0/0 condition */
+
+    float angle;
+    if (x >= 0.0f) {
+        float r = (x - abs_y) / (x + abs_y);
+        float rsq = r * r;
+        angle = ((0.1963f * rsq) - 0.9817f) * r + ((float)M_PI / 4.0f);
+    } else {
+        float r = (x + abs_y) / (abs_y - x);
+        float rsq = r * r;
+        angle = ((0.1963f * rsq) - 0.9817f) * r + (3.0f * (float)M_PI / 4.0f);
+    }
+
+    angle = (angle != angle) ? 0.0f : angle; /* UTILS_NAN_ZERO */
+
+    return (y < 0.0f) ? -angle : angle;
+}
+
 void foc_clarke_transform(float ia, float ib, float ic, float *i_alpha, float *i_beta) {
     (void)ic; /* Satisfies ia + ib + ic = 0 constraint */
     *i_alpha = ia;
@@ -211,35 +250,130 @@ void foc_observer_init(foc_observer_t *obs, float initial_lambda) {
     obs->lambda_est = initial_lambda;
     obs->phase = 0.0f;
     obs->speed_rad_s = 0.0f;
+    /* The MXLEMMING observers integrate L * (i - i_last); leaving these to the
+     * caller's stack makes the first sample depend on garbage. */
+    obs->i_alpha_last = 0.0f;
+    obs->i_beta_last = 0.0f;
 }
 
 void foc_observer_update(foc_observer_t *obs, float v_alpha, float v_beta, float i_alpha,
                          float i_beta, float dt, float r_ohm, float l_henry, float lambda_wb,
-                         float gamma) {
+                         float gamma, foc_observer_type_t type) {
     float l_ia = l_henry * i_alpha;
     float l_ib = l_henry * i_beta;
     float r_ia = r_ohm * i_alpha;
     float r_ib = r_ohm * i_beta;
-
-    float err = SQ(lambda_wb) - (SQ(obs->x1 - l_ia) + SQ(obs->x2 - l_ib));
-    if (err > 0.0f) {
-        err = 0.0f;
-    }
-
     float gamma_half = gamma * 0.5f;
-    float x1_dot = v_alpha - r_ia + gamma_half * (obs->x1 - l_ia) * err;
-    float x2_dot = v_beta - r_ib + gamma_half * (obs->x2 - l_ib) * err;
-
-    obs->x1 += x1_dot * dt;
-    obs->x2 += x2_dot * dt;
 
     /*
-     * Reference firmware: mcpwm_foc.c foc_observer_update(), FOC_OBSERVER_ORTEGA_ORIGINAL.
-     * Both guards are missing in a naive port and both matter: once x1/x2 is NaN it
-     * stays NaN for the lifetime of the observer, and a flux vector that collapses
-     * towards zero makes atan2 jump by half a turn on noise alone.
+     * The reference's branch structure, copied per case (motor/foc_math.c:90-199).
+     * Every observer keeps a different subset of state and has its own convergence
+     * rule, so selecting one over another is not a tuning choice.
      */
-    obs->x1 = (obs->x1 != obs->x1) ? 0.0f : obs->x1;
+    switch (type) {
+    case FOC_OBSERVER_ORTEGA_ORIGINAL: {
+        float err = SQ(lambda_wb) - (SQ(obs->x1 - l_ia) + SQ(obs->x2 - l_ib));
+
+        /* Forcing this term to stay negative helps convergence (reference comment,
+         * see ObserverPermanentMagnet.pdf). */
+        if (err > 0.0f) {
+            err = 0.0f;
+        }
+
+        float x1_dot = v_alpha - r_ia + gamma_half * (obs->x1 - l_ia) * err;
+        float x2_dot = v_beta - r_ib + gamma_half * (obs->x2 - l_ib) * err;
+
+        obs->x1 += x1_dot * dt;
+        obs->x2 += x2_dot * dt;
+        break;
+    }
+
+    case FOC_OBSERVER_MXLEMMING:
+    case FOC_OBSERVER_MXLEMMING_LAMBDA_COMP: {
+        obs->x1 += (v_alpha - r_ia) * dt - l_henry * (i_alpha - obs->i_alpha_last);
+        obs->x2 += (v_beta - r_ib) * dt - l_henry * (i_beta - obs->i_beta_last);
+
+        if (type == FOC_OBSERVER_MXLEMMING_LAMBDA_COMP) {
+            float err = SQ(obs->lambda_est) - (SQ(obs->x1) + SQ(obs->x2));
+            obs->lambda_est += 0.1f * gamma_half * obs->lambda_est * -err * dt;
+            obs->lambda_est = obs_truncate(obs->lambda_est, lambda_wb * 0.3f, lambda_wb * 2.5f);
+
+            obs->x1 = obs_truncate_abs(obs->x1, obs->lambda_est);
+            obs->x2 = obs_truncate_abs(obs->x2, obs->lambda_est);
+        } else {
+            obs->x1 = obs_truncate_abs(obs->x1, lambda_wb);
+            obs->x2 = obs_truncate_abs(obs->x2, lambda_wb);
+        }
+
+        /* Set these to 0 to allow using the same atan2 code as for Ortega. */
+        l_ia = 0.0f;
+        l_ib = 0.0f;
+        break;
+    }
+
+    case FOC_OBSERVER_ORTEGA_LAMBDA_COMP: {
+        float err = SQ(obs->lambda_est) - (SQ(obs->x1 - l_ia) + SQ(obs->x2 - l_ib));
+
+        obs->lambda_est += 0.2f * gamma_half * obs->lambda_est * -err * dt;
+        obs->lambda_est = obs_truncate(obs->lambda_est, lambda_wb * 0.3f, lambda_wb * 2.5f);
+
+        if (err > 0.0f) {
+            err = 0.0f;
+        }
+
+        float x1_dot = v_alpha - r_ia + gamma_half * (obs->x1 - l_ia) * err;
+        float x2_dot = v_beta - r_ib + gamma_half * (obs->x2 - l_ib) * err;
+
+        obs->x1 += x1_dot * dt;
+        obs->x2 += x2_dot * dt;
+        break;
+    }
+
+    case FOC_OBSERVER_MXV:
+    case FOC_OBSERVER_MXV_LAMBDA_COMP:
+    case FOC_OBSERVER_MXV_LAMBDA_COMP_LIN: {
+        obs->x1 += (v_alpha - r_ia) * dt;
+        obs->x2 += (v_beta - r_ib) * dt;
+
+        if (type == FOC_OBSERVER_MXV_LAMBDA_COMP_LIN) {
+            float mag = sqrtf(SQ(obs->x1 - l_ia) + SQ(obs->x2 - l_ib));
+            /* Reference: UTILS_LP_FAST(lambda_est, mag, 0.1 * gamma_half * dt * SQ(lambda_est)) */
+            obs->lambda_est +=
+                (0.1f * gamma_half * dt * SQ(obs->lambda_est)) * (mag - obs->lambda_est);
+            obs->lambda_est = obs_truncate(obs->lambda_est, lambda_wb * 0.3f, lambda_wb * 2.5f);
+
+            if (mag > obs->lambda_est) {
+                obs->x1 = (obs->x1 / mag) * obs->lambda_est;
+                obs->x2 = (obs->x2 / mag) * obs->lambda_est;
+            }
+        } else if (type == FOC_OBSERVER_MXV_LAMBDA_COMP) {
+            float err = SQ(obs->lambda_est) - (SQ(obs->x1 - l_ia) + SQ(obs->x2 - l_ib));
+            obs->lambda_est += 0.2f * gamma_half * obs->lambda_est * -err * dt;
+            obs->lambda_est = obs_truncate(obs->lambda_est, lambda_wb * 0.3f, lambda_wb * 2.5f);
+
+            float mag = sqrtf(SQ(obs->x1 - l_ia) + SQ(obs->x2 - l_ib));
+            if (mag > obs->lambda_est) {
+                obs->x1 = (obs->x1 / mag) * obs->lambda_est;
+                obs->x2 = (obs->x2 / mag) * obs->lambda_est;
+            }
+        } else {
+            float mag = sqrtf(SQ(obs->x1 - l_ia) + SQ(obs->x2 - l_ib));
+            if (mag > lambda_wb) {
+                obs->x1 = (obs->x1 / mag) * lambda_wb;
+                obs->x2 = (obs->x2 / mag) * lambda_wb;
+            }
+        }
+        break;
+    }
+
+    default:
+        break;
+    }
+
+    obs->i_alpha_last = i_alpha;
+    obs->i_beta_last = i_beta;
+
+    obs->x1 = (obs->x1 != obs->x1) ? 0.0f : obs->x1; /* UTILS_NAN_ZERO */
     obs->x2 = (obs->x2 != obs->x2) ? 0.0f : obs->x2;
 
     /* Prevent the magnitude from getting too low, as that makes the angle very unstable. */
@@ -253,13 +387,15 @@ void foc_observer_update(foc_observer_t *obs, float v_alpha, float v_beta, float
     float psi_beta = obs->x2 - l_ib;
 
     float last_phase = obs->phase;
-    obs->phase = atan2f(psi_beta, psi_alpha);
+    obs->phase = foc_fast_atan2(psi_beta, psi_alpha);
 
     float d_phase = obs->phase - last_phase;
-    while (d_phase > (float)M_PI)
+    while (d_phase > (float)M_PI) {
         d_phase -= 2.0f * (float)M_PI;
-    while (d_phase < -(float)M_PI)
+    }
+    while (d_phase < -(float)M_PI) {
         d_phase += 2.0f * (float)M_PI;
+    }
 
     if (dt > 0.000001f) {
         obs->speed_rad_s = d_phase / dt;

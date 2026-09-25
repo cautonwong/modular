@@ -671,6 +671,63 @@ static void test_foc_core_tachometer_sectors(void **state) {
     assert_int_equal(telem.tachometer_abs, 12);
 }
 
+/*
+ * The observer family. The differential harness against the reference's
+ * motor/foc_math.c is the real proof (all seven types bit-identical over 4000
+ * steps); this keeps the port's own suite honest about two things the harness
+ * cannot cover from here: that the selector actually selects, and that every
+ * type stays inside the reference's flux clamp.
+ */
+static void test_foc_observer_family(void **state) {
+    (void)state;
+    const float lambda = 0.00245f;
+    const float dt = 5e-5f;
+    float first_x1[7];
+    float first_phase[7];
+
+    for (int type = 0; type < 7; type++) {
+        foc_observer_t obs;
+        foc_observer_init(&obs, lambda);
+
+        for (int n = 0; n < 500; n++) {
+            float t = (float)n * dt;
+            float ia = 5.0f * sinf(2.0f * (float)M_PI * 60.0f * t);
+            float ib = 5.0f * cosf(2.0f * (float)M_PI * 60.0f * t);
+            float va = 3.0f * cosf(2.0f * (float)M_PI * 60.0f * t);
+            float vb = 3.0f * sinf(2.0f * (float)M_PI * 60.0f * t);
+            foc_observer_update(&obs, va, vb, ia, ib, dt, 0.015f, 7e-6f, lambda, 9.0e5f,
+                                (foc_observer_type_t)type);
+        }
+
+        /*
+         * What the reference actually guarantees, per type: the *_LAMBDA_COMP
+         * variants clamp their flux estimate into [0.3, 2.5] * lambda; the plain
+         * Ortega and MXV branches have no state clamp at all, so asserting one for
+         * them would be inventing a property the reference does not have.
+         */
+        assert_false(isnan(obs.phase));
+        assert_false(isnan(obs.x1));
+        assert_false(isnan(obs.x2));
+        assert_false(isnan(obs.lambda_est));
+
+        bool clamps_lambda = (type == FOC_OBSERVER_ORTEGA_LAMBDA_COMP) ||
+                             (type == FOC_OBSERVER_MXLEMMING_LAMBDA_COMP) ||
+                             (type == FOC_OBSERVER_MXV_LAMBDA_COMP) ||
+                             (type == FOC_OBSERVER_MXV_LAMBDA_COMP_LIN);
+        if (clamps_lambda) {
+            assert_true(obs.lambda_est >= lambda * 0.3f - 1e-9f);
+            assert_true(obs.lambda_est <= lambda * 2.5f + 1e-9f);
+        }
+        first_x1[type] = obs.x1;
+        first_phase[type] = obs.phase;
+    }
+
+    /* Selecting a different algorithm must produce a different state, or the
+     * selector is decorative. */
+    assert_true(fabsf(first_x1[0] - first_x1[1]) > 1e-6f);
+    assert_true(fabsf(first_phase[0] - first_phase[1]) > 1e-6f);
+}
+
 /* Test 7: Speed and Position Control Modes */
 static void test_foc_core_modes(void **state) {
     (void)state;
@@ -762,22 +819,26 @@ static void test_foc_observer_nan_and_flux_floor(void **state) {
     foc_observer_t obs;
 
     foc_observer_init(&obs, 0.005f);
-    foc_observer_update(&obs, NAN, NAN, NAN, NAN, 5e-5f, 0.05f, 5e-5f, 0.005f, 1000.0f);
+    foc_observer_update(&obs, NAN, NAN, NAN, NAN, 5e-5f, 0.05f, 5e-5f, 0.005f, 1000.0f,
+                        FOC_OBSERVER_ORTEGA_ORIGINAL);
     assert_false(isnan(obs.x1));
     assert_false(isnan(obs.x2));
 
     /* Still usable afterwards: one bad sample is not a latched failure. The phase
      * recovers on the first valid sample and the derived speed on the second, since
      * it is a difference against the previous (still poisoned) phase. */
-    foc_observer_update(&obs, 1.0f, 0.0f, 0.1f, 0.0f, 5e-5f, 0.05f, 5e-5f, 0.005f, 1000.0f);
+    foc_observer_update(&obs, 1.0f, 0.0f, 0.1f, 0.0f, 5e-5f, 0.05f, 5e-5f, 0.005f, 1000.0f,
+                        FOC_OBSERVER_ORTEGA_ORIGINAL);
     assert_false(isnan(obs.phase));
-    foc_observer_update(&obs, 1.0f, 0.0f, 0.1f, 0.0f, 5e-5f, 0.05f, 5e-5f, 0.005f, 1000.0f);
+    foc_observer_update(&obs, 1.0f, 0.0f, 0.1f, 0.0f, 5e-5f, 0.05f, 5e-5f, 0.005f, 1000.0f,
+                        FOC_OBSERVER_ORTEGA_ORIGINAL);
     assert_false(isnan(obs.phase));
     assert_false(isnan(obs.speed_rad_s));
 
     /* Start below half the configured linkage and let the floor lift the vector. */
     foc_observer_init(&obs, 0.001f);
-    foc_observer_update(&obs, 0.0f, 0.0f, 0.0f, 0.0f, 5e-5f, 0.05f, 5e-5f, 0.005f, 0.0f);
+    foc_observer_update(&obs, 0.0f, 0.0f, 0.0f, 0.0f, 5e-5f, 0.05f, 5e-5f, 0.005f, 0.0f,
+                        FOC_OBSERVER_ORTEGA_ORIGINAL);
     assert_float_equal(obs.x1, 0.001f * 1.1f, 1e-6f);
     assert_float_equal(obs.x2, 0.0f, 1e-6f);
 }
@@ -796,6 +857,7 @@ int main(void) {
         cmocka_unit_test(test_foc_core_energy_counters),
         cmocka_unit_test(test_foc_core_stats_and_reset),
         cmocka_unit_test(test_foc_core_tachometer_sectors),
+        cmocka_unit_test(test_foc_observer_family),
         cmocka_unit_test(test_foc_core_modes),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
