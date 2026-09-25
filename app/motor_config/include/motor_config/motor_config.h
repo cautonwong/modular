@@ -111,6 +111,23 @@ edge_status_t motor_config_update_app(motor_config_t *self, const app_configurat
 edge_status_t motor_config_apply_mc_stream(motor_config_t *self, const uint8_t *buf, size_t len);
 edge_status_t motor_config_apply_app_stream(motor_config_t *self, const uint8_t *buf, size_t len);
 
+/* COMM_SET_APPCONF_NO_STORE: applied to the running system, kept out of flash. */
+edge_status_t motor_config_apply_app_stream_nostore(motor_config_t *self, const uint8_t *buf,
+                                                    size_t len);
+
+/*
+ * COMM_GET_MCCONF_DEFAULT / COMM_GET_APPCONF_DEFAULT. The mc variant keeps the nine
+ * calibration offsets from the live configuration, as the reference does, so a peer cannot
+ * wipe a motor's measured calibration by asking for the defaults.
+ */
+edge_status_t motor_config_serialize_mc_defaults(motor_config_t *self, uint8_t *out,
+                                                 size_t buf_size, size_t *out_len);
+edge_status_t motor_config_serialize_app_defaults(uint8_t *out, size_t buf_size, size_t *out_len);
+
+/* Whether the configuration has changes waiting to be written to flash. A NO_STORE apply
+ * deliberately leaves this false. */
+bool motor_config_is_dirty(const motor_config_t *self);
+
 #ifdef __cplusplus
 }
 #endif

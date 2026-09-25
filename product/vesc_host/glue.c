@@ -276,6 +276,21 @@ static edge_status_t config_set_appconf(void *self, const uint8_t *in, size_t le
     return motor_config_apply_app_stream((motor_config_t *)self, in, len);
 }
 
+static edge_status_t config_get_mcconf_default(void *self, uint8_t *out, size_t buf_size,
+                                               size_t *out_len) {
+    return motor_config_serialize_mc_defaults((motor_config_t *)self, out, buf_size, out_len);
+}
+
+static edge_status_t config_get_appconf_default(void *self, uint8_t *out, size_t buf_size,
+                                                size_t *out_len) {
+    (void)self;
+    return motor_config_serialize_app_defaults(out, buf_size, out_len);
+}
+
+static edge_status_t config_set_appconf_nostore(void *self, const uint8_t *in, size_t len) {
+    return motor_config_apply_app_stream_nostore((motor_config_t *)self, in, len);
+}
+
 void vesc_host_make_config_port(vesc_config_provider_port_t *out, motor_config_t *cfg) {
     if (out == (void *)0) {
         return;
@@ -286,6 +301,9 @@ void vesc_host_make_config_port(vesc_config_provider_port_t *out, motor_config_t
         .set_mcconf = config_set_mcconf,
         .get_appconf = config_get_appconf,
         .set_appconf = config_set_appconf,
+        .get_mcconf_default = config_get_mcconf_default,
+        .get_appconf_default = config_get_appconf_default,
+        .set_appconf_nostore = config_set_appconf_nostore,
         .self = cfg,
     };
 }

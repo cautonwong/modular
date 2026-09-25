@@ -436,6 +436,100 @@ static void test_motor_config_app_golden_bytes(void **state) {
     assert_float_equal(back.timeout_brake_current, app.timeout_brake_current, 1e-6f);
 }
 
+/*
+ * COMM_GET_MCCONF_DEFAULT: the reference's defaults, except the nine calibration offsets,
+ * which it takes from the live configuration so a peer cannot wipe a motor's measured
+ * calibration by asking for the defaults. A test is the only way to see that, since the
+ * offsets are not visible in the byte layout's field names.
+ */
+static void test_motor_config_defaults_keep_the_calibration_offsets(void **state) {
+    (void)state;
+    mock_storage_ctx_t ctx;
+    memset(&ctx, 0xFF, sizeof(ctx));
+    motor_config_storage_port_t storage_port = {
+        .read = mock_flash_read,
+        .write = mock_flash_write,
+        .erase = mock_flash_erase,
+        .self = &ctx,
+    };
+    static alignas(MOTOR_CONFIG_STORAGE_ALIGN) unsigned char storage[MOTOR_CONFIG_STORAGE_SIZE];
+    memset(storage, 0, sizeof(storage));
+    motor_config_t *cfg = (motor_config_t *)storage;
+    motor_config_construct(cfg, EDGE_MOD_MOTOR_CONFIG, 20u, &storage_port, 0x100u);
+    assert_int_equal(motor_config_init(cfg), EDGE_OK);
+
+    /* Live calibration, plus a non-default current limit to show what is NOT carried over. */
+    mc_configuration_t live = *motor_config_get_mc(cfg);
+    for (size_t i = 0u; i < 3u; i++) {
+        /* The voltage offsets travel as float16 fixed point, whose range is a few volts:
+         * values past it wrap, which is the reference's behaviour too, so the test stays
+         * inside it. Only the "carried over" part is under test here. */
+        live.foc_offsets_current[i] = 0.25f * (float)(i + 1u);
+        live.foc_offsets_voltage[i] = 0.15f * (float)(i + 1u);
+        live.foc_offsets_voltage_undriven[i] = 0.25f * (float)(i + 1u);
+    }
+    live.l_current_max = 42.0f;
+    assert_int_equal(motor_config_update_mc(cfg, &live), EDGE_OK);
+
+    uint8_t buf[MOTOR_CONFIG_BUFFER_SIZE];
+    size_t n = 0;
+    assert_int_equal(motor_config_serialize_mc_defaults(cfg, buf, sizeof(buf), &n), EDGE_OK);
+
+    mc_configuration_t back;
+    memset(&back, 0, sizeof(back));
+    assert_int_equal(motor_config_deserialize_mc(&back, buf, n), EDGE_OK);
+    for (size_t i = 0u; i < 3u; i++) {
+        assert_float_equal(back.foc_offsets_current[i], live.foc_offsets_current[i], 1e-3f);
+        assert_float_equal(back.foc_offsets_voltage[i], live.foc_offsets_voltage[i], 1e-3f);
+        assert_float_equal(back.foc_offsets_voltage_undriven[i],
+                           live.foc_offsets_voltage_undriven[i], 1e-3f);
+    }
+
+    mc_configuration_t mc_defaults;
+    app_configuration_t app_defaults;
+    motor_config_set_defaults(&mc_defaults, &app_defaults);
+    assert_float_equal(back.l_current_max, mc_defaults.l_current_max, 1e-3f);
+    assert_true(back.l_current_max != live.l_current_max);
+}
+
+/*
+ * COMM_SET_APPCONF_NO_STORE applies to the running system and leaves the module clean, so a
+ * later save does not pick it up. The plain SET does mark it dirty - that difference is the
+ * whole point of the variant, so both are asserted here.
+ */
+static void test_motor_config_app_nostore_applies_without_marking_dirty(void **state) {
+    (void)state;
+    mock_storage_ctx_t ctx;
+    memset(&ctx, 0xFF, sizeof(ctx));
+    motor_config_storage_port_t storage_port = {
+        .read = mock_flash_read,
+        .write = mock_flash_write,
+        .erase = mock_flash_erase,
+        .self = &ctx,
+    };
+    static alignas(MOTOR_CONFIG_STORAGE_ALIGN) unsigned char storage[MOTOR_CONFIG_STORAGE_SIZE];
+    memset(storage, 0, sizeof(storage));
+    motor_config_t *cfg = (motor_config_t *)storage;
+    motor_config_construct(cfg, EDGE_MOD_MOTOR_CONFIG, 20u, &storage_port, 0x100u);
+    assert_int_equal(motor_config_init(cfg), EDGE_OK);
+
+    app_configuration_t app = *motor_config_get_app(cfg);
+    app.timeout_msec = 2500u;
+    uint8_t buf[MOTOR_CONFIG_BUFFER_SIZE];
+    size_t n = 0;
+    assert_int_equal(motor_config_serialize_app(&app, buf, sizeof(buf), &n), EDGE_OK);
+
+    assert_int_equal(motor_config_apply_app_stream_nostore(cfg, buf, n), EDGE_OK);
+    assert_int_equal(motor_config_get_app(cfg)->timeout_msec, 2500u);
+    assert_false(motor_config_is_dirty(cfg));
+
+    app.timeout_msec = 3000u;
+    assert_int_equal(motor_config_serialize_app(&app, buf, sizeof(buf), &n), EDGE_OK);
+    assert_int_equal(motor_config_apply_app_stream(cfg, buf, n), EDGE_OK);
+    assert_int_equal(motor_config_get_app(cfg)->timeout_msec, 3000u);
+    assert_true(motor_config_is_dirty(cfg));
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_defaults_and_validation),
@@ -444,6 +538,8 @@ int main(void) {
         cmocka_unit_test(test_motor_config_golden_bytes),
         cmocka_unit_test(test_motor_config_golden_bytes_off_default),
         cmocka_unit_test(test_motor_config_app_golden_bytes),
+        cmocka_unit_test(test_motor_config_defaults_keep_the_calibration_offsets),
+        cmocka_unit_test(test_motor_config_app_nostore_applies_without_marking_dirty),
         cmocka_unit_test(test_serialization_roundtrip),
         cmocka_unit_test(test_module_lifecycle_and_storage),
     };

@@ -219,3 +219,67 @@ edge_status_t motor_config_apply_app_stream(motor_config_t *self, const uint8_t 
     }
     return motor_config_update_app(self, &self->staging_app);
 }
+
+edge_status_t motor_config_apply_app_stream_nostore(motor_config_t *self, const uint8_t *buf,
+                                                    size_t len) {
+    if (self == (void *)0 || buf == (void *)0) {
+        return EDGE_EINVAL;
+    }
+
+    /*
+     * The reference's COMM_SET_APPCONF_NO_STORE: apply it to the running system but keep it
+     * out of flash. Here that means not marking the configuration dirty, since the module
+     * only writes when it is - everything else is the normal path.
+     */
+    edge_status_t status = motor_config_deserialize_app(&self->staging_app, buf, len);
+    if (status != EDGE_OK) {
+        return status;
+    }
+    status = motor_config_validate(&self->mcconf, &self->staging_app);
+    if (status != EDGE_OK) {
+        return status;
+    }
+    self->appconf = self->staging_app;
+    return EDGE_OK;
+}
+
+edge_status_t motor_config_serialize_mc_defaults(motor_config_t *self, uint8_t *out,
+                                                 size_t buf_size, size_t *out_len) {
+    if (self == (void *)0 || out == (void *)0 || out_len == (void *)0) {
+        return EDGE_EINVAL;
+    }
+
+    /*
+     * The reference's COMM_GET_MCCONF_DEFAULT: the reference's own defaults, except the nine
+     * calibration offsets, which it copies from the live configuration so a peer cannot
+     * throw away a motor's measured calibration by asking for the defaults.
+     */
+    motor_config_set_defaults(&self->staging_mc, &self->staging_app);
+    for (size_t i = 0u; i < 3u; i++) {
+        self->staging_mc.foc_offsets_current[i] = self->mcconf.foc_offsets_current[i];
+        self->staging_mc.foc_offsets_voltage[i] = self->mcconf.foc_offsets_voltage[i];
+        self->staging_mc.foc_offsets_voltage_undriven[i] =
+            self->mcconf.foc_offsets_voltage_undriven[i];
+    }
+    return motor_config_serialize_mc(&self->staging_mc, out, buf_size, out_len);
+}
+
+edge_status_t motor_config_serialize_app_defaults(uint8_t *out, size_t buf_size, size_t *out_len) {
+    if (out == (void *)0 || out_len == (void *)0) {
+        return EDGE_EINVAL;
+    }
+
+    /* The reference's COMM_GET_APPCONF_DEFAULT: the defaults, nothing carried over. */
+    mc_configuration_t mc;
+    app_configuration_t app;
+    motor_config_set_defaults(&mc, &app);
+    return motor_config_serialize_app(&app, out, buf_size, out_len);
+}
+
+bool motor_config_is_dirty(const motor_config_t *self) {
+    /*
+     * Observable state, so COMM_SET_APPCONF_NO_STORE's "applied, not stored" is a testable
+     * contract rather than a claim about a private field.
+     */
+    return (self != (void *)0) && self->is_dirty;
+}
