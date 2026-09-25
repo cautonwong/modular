@@ -5,6 +5,7 @@
 
 #include <cmocka.h>
 
+#include "bldc/sys.h"
 #include "edge/event.h"
 #include "edge/events.h"
 #include "example/sys.h"
@@ -340,6 +341,10 @@ static void test_wrapper_and_guards(void **state) {
 
     assert_int_equal(edge_event_queue_init(&queue, storage, 2u), EDGE_OK);
     assert_int_equal(sys_example_init(&sys, apps, 1u, &queue, subs, 1u), EDGE_OK);
+
+    /* sys_bldc is a thin composition-root callee like sys_example; it gets the same
+     * treatment so it is not the one family with no test at all. */
+    assert_int_equal(sys_bldc_init(&sys, apps, 1u, &queue, subs, 1u), EDGE_OK);
     assert_int_equal(edge_sys_start(&sys), EDGE_OK);
     assert_int_equal(edge_sys_bind_event_queue(&sys, &queue, subs, 1u), EDGE_ESTATE);
     assert_int_equal(edge_sys_start(&sys), EDGE_ESTATE);
