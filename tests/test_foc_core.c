@@ -930,6 +930,64 @@ static void test_foc_observer_adjust_params(void **state) {
     assert_float_equal(la, l, 1e-12f);
 }
 
+/*
+ * Speed PID. The differential harness proves it against the reference's
+ * foc_run_pid_control_speed bit-exactly (four configurations, comparing the iq
+ * setpoint and the ramped internal setpoint every step); this keeps the release
+ * path, the ramp rate and the braking clamp individually visible.
+ */
+static void test_foc_run_pid_speed(void **state) {
+    (void)state;
+    foc_speed_pid_t pid = {0};
+    foc_speed_pid_params_t p = {.kp = 0.0048f,
+                                .ki = 0.02f,
+                                .kd = 0.0001f,
+                                .kd_filter = 0.1f,
+                                .ramp_erpms_s = 1000.0f,
+                                .min_erpm = 100.0f,
+                                .openloop_rpm = 700.0f,
+                                .l_min_erpm = -100000.0f,
+                                .l_max_erpm = 100000.0f,
+                                .lo_current_max = 60.0f,
+                                .current_max_scale = 1.0f,
+                                .allow_braking = false,
+                                .invert_direction = false};
+    float iq = 0.0f;
+
+    /* Below the minimum setpoint the loop releases the motor. */
+    foc_run_pid_speed(&pid, &p, true, true, 0.0f, 50.0f, 0.001f, &iq);
+    assert_float_equal(iq, 0.0f, 1e-9f);
+
+    /* Not in speed mode: the setpoint is left alone, the loop state is cleared. */
+    iq = 12.0f;
+    pid.set_rpm = 500.0f;
+    pid.i_term = 0.3f;
+    foc_run_pid_speed(&pid, &p, false, true, 0.0f, 0.0f, 0.001f, &iq);
+    assert_float_equal(iq, 12.0f, 1e-9f);
+    assert_float_equal(pid.i_term, 0.0f, 1e-9f);
+
+    /* The setpoint ramps toward the command at ramp_erpms_s * dt. */
+    pid.set_rpm = 0.0f;
+    foc_run_pid_speed(&pid, &p, true, true, 0.0f, 2000.0f, 0.001f, &iq);
+    assert_float_equal(pid.set_rpm, 1.0f, 1e-5f);
+
+    /* Braking disabled: a negative output while spinning forward is refused. */
+    pid.set_rpm = 700.0f;
+    pid.i_term = 0.0f;
+    pid.prev_error = 0.0f;
+    pid.d_filter = 0.0f;
+    foc_run_pid_speed(&pid, &p, true, true, 1500.0f, 700.0f, 0.001f, &iq);
+    assert_float_equal(iq, 0.0f, 1e-9f);
+
+    /* Same command with braking allowed produces a negative (braking) setpoint. */
+    p.allow_braking = true;
+    pid.i_term = 0.0f;
+    pid.prev_error = 0.0f;
+    pid.d_filter = 0.0f;
+    foc_run_pid_speed(&pid, &p, true, true, 1500.0f, 700.0f, 0.001f, &iq);
+    assert_true(iq < 0.0f);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_foc_math_transforms),
@@ -947,6 +1005,7 @@ int main(void) {
         cmocka_unit_test(test_foc_observer_family),
         cmocka_unit_test(test_foc_observer_adjust_params),
         cmocka_unit_test(test_foc_pll_tracks_phase_rate),
+        cmocka_unit_test(test_foc_run_pid_speed),
         cmocka_unit_test(test_foc_core_modes),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);

@@ -53,6 +53,42 @@ typedef struct foc_pll {
 void foc_pll_run(foc_pll_t *pll, float phase, float dt, float kp, float ki);
 
 /*
+ * Speed PID, reference motor/foc_math.c:492 foc_run_pid_control_speed. State and
+ * configuration are separated here so the loop can be driven and compared on its
+ * own; the reference keeps both inside the motor struct and the configuration.
+ *
+ * `iq_set` is in/out: the reference writes motor->m_iq_set, and when the loop is not
+ * in speed mode it returns leaving the setpoint untouched - which is why this
+ * cannot simply return a value.
+ */
+typedef struct foc_speed_pid {
+    float set_rpm;    /* reference: m_speed_pid_set_rpm, the ramped setpoint */
+    float i_term;     /* m_speed_i_term */
+    float prev_error; /* m_speed_prev_error */
+    float d_filter;   /* m_speed_d_filter */
+} foc_speed_pid_t;
+
+typedef struct foc_speed_pid_params {
+    float kp;
+    float ki;
+    float kd;
+    float kd_filter;
+    float ramp_erpms_s; /* s_pid_ramp_erpms_s */
+    float min_erpm;     /* s_pid_min_erpm */
+    float openloop_rpm; /* foc_openloop_rpm */
+    float l_min_erpm;
+    float l_max_erpm;
+    float lo_current_max; /* the motor current limit the output is scaled to */
+    float current_max_scale;
+    bool allow_braking;
+    bool invert_direction;
+} foc_speed_pid_params_t;
+
+void foc_run_pid_speed(foc_speed_pid_t *pid, const foc_speed_pid_params_t *params,
+                       bool in_speed_mode, bool index_found, float rpm, float rpm_command, float dt,
+                       float *iq_set);
+
+/*
  * Observer selection, same order and names as the reference's mc_foc_observer_type
  * (datatypes.h). Each has a distinct convergence behaviour and a distinct set of
  * states it maintains, so this is a selector over real algorithms, not a hint.

@@ -336,6 +336,85 @@ void foc_observer_adjust_params(float r_ohm, float l_henry, float lambda_wb, flo
     *lambda_out = lambda;
 }
 
+/*
+ * Reference: motor/foc_math.c:492 foc_run_pid_control_speed, copied step for step.
+ * The literals and the filter form are the reference's: `1.0 / 20.0` is a double
+ * there, and UTILS_LP_FAST is `value -= c * (value - sample)`, not the algebraically
+ * equal `value += c * (sample - value)`. Both differences are visible in the last
+ * bits, which is what the differential harness compares.
+ */
+void foc_run_pid_speed(foc_speed_pid_t *pid, const foc_speed_pid_params_t *params,
+                       bool in_speed_mode, bool index_found, float rpm, float rpm_command, float dt,
+                       float *iq_set) {
+    if (!in_speed_mode) {
+        pid->i_term = 0.0f;
+        pid->prev_error = 0.0f;
+        pid->d_filter = 0.0f;
+        return;
+    }
+
+    if (params->ramp_erpms_s > 0.0f) {
+        float step = params->ramp_erpms_s * dt;
+        if (pid->set_rpm < rpm_command) {
+            pid->set_rpm =
+                (pid->set_rpm + step < rpm_command) ? (pid->set_rpm + step) : rpm_command;
+        } else if (pid->set_rpm > rpm_command) {
+            pid->set_rpm =
+                (pid->set_rpm - step > rpm_command) ? (pid->set_rpm - step) : rpm_command;
+        }
+
+        if (!index_found) {
+            pid->set_rpm = obs_truncate_abs(pid->set_rpm, params->openloop_rpm);
+        }
+
+        if (params->invert_direction) {
+            pid->set_rpm = obs_truncate(pid->set_rpm, -params->l_max_erpm, -params->l_min_erpm);
+        } else {
+            pid->set_rpm = obs_truncate(pid->set_rpm, params->l_min_erpm, params->l_max_erpm);
+        }
+    }
+
+    float error = pid->set_rpm - rpm;
+
+    /* Too low a setpoint: reset the loop, release the motor. */
+    if (fabsf(pid->set_rpm) < params->min_erpm) {
+        pid->i_term = 0.0f;
+        pid->prev_error = error;
+        *iq_set = 0.0f;
+        return;
+    }
+
+    float p_term = error * params->kp * (1.0 / 20.0);
+    float d_term = (error - pid->prev_error) * (params->kd / dt) * (1.0 / 20.0);
+
+    pid->d_filter -= params->kd_filter * (pid->d_filter - d_term);
+    d_term = pid->d_filter;
+
+    pid->prev_error = error;
+
+    float output = p_term + pid->i_term + d_term;
+    output = obs_truncate_abs(output, 1.0f);
+
+    /* Integrator wind-up protection. */
+    pid->i_term += error * params->ki * dt * (1.0 / 20.0);
+    pid->i_term = obs_truncate_abs(pid->i_term, 1.0f);
+
+    if (params->ki < 1e-9f) {
+        pid->i_term = 0.0f;
+    }
+
+    if (!params->allow_braking) {
+        if (rpm > 20.0f && output < 0.0f) {
+            output = 0.0f;
+        }
+        if (rpm < -20.0f && output > 0.0f) {
+            output = 0.0f;
+        }
+    }
+
+    *iq_set = output * params->lo_current_max * params->current_max_scale;
+}
+
 void foc_observer_init(foc_observer_t *obs, float initial_lambda) {
     obs->x1 = initial_lambda;
     obs->x2 = 0.0f;
