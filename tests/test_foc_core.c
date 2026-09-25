@@ -104,16 +104,32 @@ static void test_foc_math_svpwm(void **state) {
     uint32_t sector = 0;
 
     /* Zero vector -> 50% duty */
-    foc_svpwm(0.0f, 0.0f, v_bus, &da, &db, &dc, &sector);
-    assert_float_equal(da, 0.5f, 0.01f);
-    assert_float_equal(db, 0.5f, 0.01f);
-    assert_float_equal(dc, 0.5f, 0.01f);
+    foc_svpwm(0.0f, 0.0f, v_bus, 0.95f, &da, &db, &dc, &sector);
+    assert_float_equal(da, 0.5f, 1e-5f);
+    assert_float_equal(db, 0.5f, 1e-5f);
+    assert_float_equal(dc, 0.5f, 1e-5f);
 
-    /* Pure alpha positive voltage -> Sector 1 */
-    foc_svpwm(10.0f, 0.0f, v_bus, &da, &db, &dc, &sector);
+    /*
+     * Pure alpha, reference arithmetic: mod = 1.5 * v / v_bus (mcpwm_foc.c:3808),
+     * sector 1 -> t1 = mod, t2 = 0, da = (1 + t1 + t2)/2, db = da - t1, dc = db.
+     */
+    foc_svpwm(10.0f, 0.0f, v_bus, 0.95f, &da, &db, &dc, &sector);
     assert_int_equal(sector, 1u);
-    assert_true(da > db);
-    assert_true(db >= dc);
+    float mod = 1.5f * 10.0f / v_bus;
+    assert_float_equal(da, (1.0f + mod) * 0.5f, 1e-5f);
+    assert_float_equal(db, (1.0f + mod) * 0.5f - mod, 1e-5f);
+    assert_float_equal(dc, db, 1e-5f);
+
+    /*
+     * Saturation is a PER-PHASE clamp at
+     * t_max = 1 - (1 - duty_max) * 0.5 (motor/foc_math.c:374), not a clamp on the
+     * vector magnitude: the vector is left alone and the phases clip where they land.
+     */
+    foc_svpwm(20.0f, 0.0f, v_bus, 0.95f, &da, &db, &dc, &sector);
+    float t_max = 1.0f - (1.0f - 0.95f) * 0.5f;
+    assert_float_equal(da, t_max, 1e-5f);
+    assert_float_equal(db, 0.0f, 1e-5f);
+    assert_float_equal(dc, 0.0f, 1e-5f);
 }
 
 /* Test 3: Module Construction and Contract */

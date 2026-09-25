@@ -451,7 +451,9 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
         float err_d = self->target_id - id;
         self->id_integral += err_d * self->config.current_ki * dt;
         /* anti-windup clamp */
-        float v_limit = v_bus * SQRT3_BY_2 * self->config.duty_max;
+        /* mod = 1.5 * v / v_bus reaches 1.0 at v = (2/3) * v_bus, which is the
+         * reference's definition of the largest vector the inverter can make. */
+        float v_limit = (2.0f / 3.0f) * v_bus;
         if (self->id_integral > v_limit)
             self->id_integral = v_limit;
         if (self->id_integral < -v_limit)
@@ -468,7 +470,7 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
         vq = err_q * self->config.current_kp + self->iq_integral;
     } else if (self->state == FOC_STATE_RUNNING_DUTY) {
         vd = 0.0f;
-        vq = self->target_duty * v_bus * SQRT3_BY_2;
+        vq = self->target_duty * v_bus * (2.0f / 3.0f);
     }
 
     self->v_d = vd;
@@ -483,7 +485,7 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
     /* 10. Space Vector Modulation (SVPWM) */
     float da = 0.5f, db = 0.5f, dc = 0.5f;
     uint32_t sector = 1u;
-    foc_svpwm(v_alpha, v_beta, v_bus, &da, &db, &dc, &sector);
+    foc_svpwm(v_alpha, v_beta, v_bus, self->config.duty_max, &da, &db, &dc, &sector);
 
     self->duty_a = da;
     self->duty_b = db;

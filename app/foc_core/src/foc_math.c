@@ -74,8 +74,8 @@ void foc_inv_park_transform(float vd, float vq, float sin_th, float cos_th, floa
     *v_beta = vd * sin_th + vq * cos_th;
 }
 
-void foc_svpwm(float v_alpha, float v_beta, float v_bus, float *duty_a, float *duty_b,
-               float *duty_c, uint32_t *sector_out) {
+void foc_svpwm(float v_alpha, float v_beta, float v_bus, float duty_max, float *duty_a,
+               float *duty_b, float *duty_c, uint32_t *sector_out) {
     if (v_bus <= 0.001f) {
         *duty_a = 0.5f;
         *duty_b = 0.5f;
@@ -86,17 +86,15 @@ void foc_svpwm(float v_alpha, float v_beta, float v_bus, float *duty_a, float *d
         return;
     }
 
-    /* Normalize modulation vector */
-    float mod_alpha = v_alpha / (v_bus * SQRT3_BY_2);
-    float mod_beta = v_beta / (v_bus * SQRT3_BY_2);
-
-    /* Clamp modulation index to 1.0 (overmodulation prevention) */
-    float mod_mag_sq = SQ(mod_alpha) + SQ(mod_beta);
-    if (mod_mag_sq > 1.0f) {
-        float inv_mag = 1.0f / sqrtf(mod_mag_sq);
-        mod_alpha *= inv_mag;
-        mod_beta *= inv_mag;
-    }
+    /*
+     * Normalise the voltage vector the way the reference does: mod = 1.5 * v / v_bus,
+     * i.e. 1.0 is the largest vector the inverter can produce (mcpwm_foc.c:3808,
+     * "voltage_normalize = 1/(2/3*V_bus)"). Dividing by (v_bus * sqrt(3)/2) instead,
+     * as this did, scales the modulation by 1/sqrt(3): the motor gets 77% of the
+     * commanded voltage and hits the duty ceiling correspondingly early.
+     */
+    float mod_alpha = v_alpha * 1.5f / v_bus;
+    float mod_beta = v_beta * 1.5f / v_bus;
 
     uint32_t sector = 1u;
     if (mod_beta >= 0.0f) {
@@ -185,19 +183,22 @@ void foc_svpwm(float v_alpha, float v_beta, float v_bus, float *duty_a, float *d
         break;
     }
 
-    /* Clamp duty cycles to [0.0, 1.0] */
+    /* Per-phase clamp, as the reference does it: t_max = top * (1 - (1 - max_mod) * 0.5)
+     * (motor/foc_math.c:374). A magnitude clamp on the vector instead is a different
+     * limiter and produces different duties once saturated. */
+    float t_max = 1.0f - (1.0f - duty_max) * 0.5f;
     if (da < 0.0f)
         da = 0.0f;
-    else if (da > 1.0f)
-        da = 1.0f;
+    else if (da > t_max)
+        da = t_max;
     if (db < 0.0f)
         db = 0.0f;
-    else if (db > 1.0f)
-        db = 1.0f;
+    else if (db > t_max)
+        db = t_max;
     if (dc < 0.0f)
         dc = 0.0f;
-    else if (dc > 1.0f)
-        dc = 1.0f;
+    else if (dc > t_max)
+        dc = t_max;
 
     *duty_a = da;
     *duty_b = db;
