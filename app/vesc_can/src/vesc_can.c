@@ -219,3 +219,98 @@ edge_status_t vesc_can_process_incoming(vesc_can_app_t *app) {
 edge_module_t *vesc_can_module(vesc_can_app_t *app) {
     return app ? &app->module : NULL;
 }
+
+/*
+ * The reference's crc16() (util/crc.c): CRC-16/CCITT-FALSE, zero initial value, computed
+ * bitwise here instead of with its 256-entry table. app/vesc_comm has a table-driven
+ * vesc_crc16 that must agree with this across lengths and payload shapes, and
+ * tests/test_app_vesc_can.c checks exactly that - which is what keeps the two honest
+ * without either module reaching into the other.
+ */
+static uint16_t vesc_can_crc16(const uint8_t *buf, size_t len) {
+    uint16_t cksum = 0u;
+    for (size_t i = 0u; i < len; i++) {
+        cksum ^= (uint16_t)((uint16_t)buf[i] << 8);
+        for (int b = 0; b < 8; b++) {
+            cksum = (cksum & 0x8000u) ? (uint16_t)((uint16_t)(cksum << 1) ^ 0x1021u)
+                                      : (uint16_t)(cksum << 1);
+        }
+    }
+    return cksum;
+}
+
+edge_status_t vesc_can_send_buffer(vesc_can_app_t *app, uint8_t controller_id, const uint8_t *data,
+                                   size_t len, uint8_t send) {
+    if (app == (void *)0 || data == (void *)0) {
+        return EDGE_EINVAL;
+    }
+
+    uint8_t frame[8];
+    const uint8_t own_id = app->config.controller_id;
+
+    /*
+     * Reference comm_can_send_buffer() (comm/comm_can.c), all three branches: six bytes or
+     * less travel in one short-buffer frame; anything longer is split into FILL_RX_BUFFER
+     * frames of a one-byte index plus seven payload bytes, and beyond index 255 the rest
+     * goes in FILL_RX_BUFFER_LONG frames of a two-byte index plus six; a PROCESS_RX_BUFFER
+     * frame then carries the sender, the length and a CRC over the payload.
+     */
+    if (len <= 6u) {
+        frame[0] = own_id;
+        frame[1] = send;
+        memcpy(frame + 2u, data, len);
+        return app->port.send_frame(app->port.self,
+                                    ((uint32_t)CAN_PACKET_PROCESS_SHORT_BUFFER << 8) |
+                                        (uint32_t)controller_id,
+                                    frame, (uint8_t)(len + 2u));
+    }
+
+    size_t end_a = 0u;
+    for (size_t i = 0u; i < len; i += 7u) {
+        if (i > 255u) {
+            break;
+        }
+        end_a = i + 7u;
+
+        frame[0] = (uint8_t)i;
+        size_t n = 7u;
+        if ((i + 7u) > len) {
+            n = len - i;
+        }
+        memcpy(frame + 1u, data + i, n);
+        edge_status_t st = app->port.send_frame(
+            app->port.self, ((uint32_t)CAN_PACKET_FILL_RX_BUFFER << 8) | (uint32_t)controller_id,
+            frame, (uint8_t)(n + 1u));
+        if (st != EDGE_OK) {
+            return st;
+        }
+    }
+
+    for (size_t i = end_a; i < len; i += 6u) {
+        frame[0] = (uint8_t)(i >> 8);
+        frame[1] = (uint8_t)(i & 0xFFu);
+        size_t n = 6u;
+        if ((i + 6u) > len) {
+            n = len - i;
+        }
+        memcpy(frame + 2u, data + i, n);
+        edge_status_t st = app->port.send_frame(app->port.self,
+                                                ((uint32_t)CAN_PACKET_FILL_RX_BUFFER_LONG << 8) |
+                                                    (uint32_t)controller_id,
+                                                frame, (uint8_t)(n + 2u));
+        if (st != EDGE_OK) {
+            return st;
+        }
+    }
+
+    const uint16_t crc = vesc_can_crc16(data, len);
+    frame[0] = own_id;
+    frame[1] = send;
+    frame[2] = (uint8_t)(len >> 8);
+    frame[3] = (uint8_t)(len & 0xFFu);
+    frame[4] = (uint8_t)(crc >> 8);
+    frame[5] = (uint8_t)(crc & 0xFFu);
+    return app->port.send_frame(
+        app->port.self, ((uint32_t)CAN_PACKET_PROCESS_RX_BUFFER << 8) | (uint32_t)controller_id,
+        frame, 6u);
+}
