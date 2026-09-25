@@ -18,6 +18,7 @@
 #include "vesc_can/vesc_can.h"
 #include "vesc_comm/vesc_comm.h"
 #include "vesc_terminal/vesc_terminal.h"
+#include <stdalign.h>
 
 #include <stdint.h>
 #include <stdio.h>
@@ -145,13 +146,18 @@ int main(void) {
         .hw_crc = 0u,
     };
 
-    vesc_comm_t comm;
+    /*
+     * The codec's memory is the composition root's to provide: a block of the
+     * documented size and alignment, with nothing known about the fields inside.
+     */
+    static alignas(VESC_COMM_STORAGE_ALIGN) unsigned char comm_storage[VESC_COMM_STORAGE_SIZE];
+    vesc_comm_t *comm = (vesc_comm_t *)comm_storage;
     vesc_app_status_port_t app_status_port;
     vesc_host_make_app_status_port(&app_status_port, &glue_state);
 
-    vesc_comm_construct(&comm, EDGE_MOD_VESC_COMM, 20u, &stream_tx_port, &motor_port,
+    vesc_comm_construct(comm, EDGE_MOD_VESC_COMM, 20u, &stream_tx_port, &motor_port,
                         &app_status_port, &comm_identity);
-    if (vesc_comm_init(&comm) < 0) {
+    if (vesc_comm_init(comm) < 0) {
         return 12;
     }
 
@@ -263,7 +269,7 @@ int main(void) {
     /* Assemble App List */
     edge_module_t *apps[14];
     apps[0] = foc_core_module(&foc);
-    apps[1] = vesc_comm_module(&comm);
+    apps[1] = vesc_comm_module(comm);
     apps[2] = motor_config_module(&motor_cfg);
     apps[3] = timeout_guard_module(&guard);
     apps[4] = throttle_module(&throttle);

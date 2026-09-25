@@ -5,6 +5,8 @@ Checks:
 1. Consumer-Defined Ports (消费者定义接口):
    - Every port/interface struct in `app/*/include` and `edge/ports.h` (e.g. `*_if_t`, `*_if`, `*_port_t`, `*_storage_t`, `*_battery_t`)
      must declare `void *self;` (manual this-pointer) and all function pointer callbacks must accept `void *` as first parameter.
+   - A header that declares `<X>_STORAGE_SIZE` / `<X>_STORAGE_ALIGN` must keep the
+     type opaque (forward declaration only); the definition belongs in `src/`.
 2. Caller-Owned Memory & Zero Dynamic Allocation (调用方提供内存):
    - Runtime source trees (`app`, `infra`, `sys`, `pal`, `edge_module`, `board`, `soc`) must NOT call dynamic memory functions
      (`malloc`, `calloc`, `realloc`, `free`, `strdup`, `alloca`).
@@ -13,9 +15,9 @@ Checks:
 
 Usage: check_consumer_ports.py [root]
 """
-from pathlib import Path
 import re
 import sys
+from pathlib import Path
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -53,7 +55,7 @@ def check_ports_in_file(path: Path, root: Path) -> list:
             )
 
         # Rule 2: Every callback in port must take `void *self` as first parameter
-        for ret, fn_name, params in fn_ptrs:
+        for _ret, fn_name, params in fn_ptrs:
             param_list = [p.strip() for p in params.split(",") if p.strip()]
             if not param_list or not re.match(r'^(?:const\s+)?void\s*\*', param_list[0]):
                 problems.append(
@@ -84,6 +86,48 @@ def check_allocations_in_dir(scan_dir: Path, root: Path) -> list:
     return problems
 
 
+def check_opaque_storage_in_file(path: Path, root: Path) -> list:
+    """A declared storage contract means the type must stay opaque.
+
+    If a public header promises ``<X>_STORAGE_SIZE`` / ``<X>_STORAGE_ALIGN``, the
+    caller is being told how much memory to hand over without being told what is in
+    it. Leaving the struct's fields in that same header defeats the point: the
+    caller can still read and write the module's state, and the size contract
+    becomes a second, unchecked definition of the same thing. The header must
+    forward-declare the type instead, and the definition (with its static
+    assertions) belongs in ``src/``.
+    """
+    rel = path.relative_to(root)
+    text = path.read_text(encoding="utf-8", errors="replace")
+    problems = []
+
+    for match in re.finditer(r"#define\s+([A-Z0-9_]+)_STORAGE_SIZE\b", text):
+        macro = match.group(1)
+        lineno = text[: match.start()].count("\n") + 1
+        type_name = macro.lower()
+
+        if not re.search(rf"#define\s+{macro}_STORAGE_ALIGN\b", text):
+            problems.append(
+                f"{rel}:{lineno}: {macro}_STORAGE_SIZE without {macro}_STORAGE_ALIGN "
+                f"(a size contract without an alignment is incomplete)"
+            )
+
+        if re.search(rf"\bstruct\s+{type_name}\s*\{{", text):
+            problems.append(
+                f"{rel}:{lineno}: {macro}_STORAGE_SIZE is declared but struct {type_name} "
+                f"is defined in the same public header (opaque-storage rule: move the "
+                f"definition to src/ and forward-declare the type)"
+            )
+        elif not re.search(rf"typedef\s+struct\s+{type_name}\s+[A-Za-z_][A-Za-z0-9_]*\s*;", text):
+            problems.append(
+                f"{rel}:{lineno}: {macro}_STORAGE_SIZE is declared but 'struct {type_name}' "
+                f"is not forward-declared (add 'typedef struct {type_name} <alias>;' so the "
+                f"definition can live in src/)"
+            )
+
+    return problems
+
+
 def check(root: Path) -> list:
     problems = []
 
@@ -92,6 +136,7 @@ def check(root: Path) -> list:
     if app_dir.is_dir():
         for path in sorted(app_dir.rglob("*.h")):
             problems.extend(check_ports_in_file(path, root))
+            problems.extend(check_opaque_storage_in_file(path, root))
 
     edge_ports = root / "edge_module" / "include" / "edge" / "ports.h"
     if edge_ports.is_file():

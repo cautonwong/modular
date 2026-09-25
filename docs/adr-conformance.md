@@ -94,7 +94,7 @@ writing).
 | Area | Status | Evidence / divergence |
 |---|---|---|
 | FOC math (Clarke/Park/SVPWM, sincos, atan2) | ✅ | Differential: `foc_svm` matches over 6561 vectors (max duty difference 1.5 integer counts, the reference's own rounding). The earlier `v/(v_bus*sqrt(3)/2)` normalisation was a sqrt(3) error, fixed in `cf5baaf` |
-| Observer family (7 types) | ✅ | Differential: bit-identical to `foc_observer_update` for all seven (max abs phase and state delta 0.000000 over 4000 steps each) |
+| Observer family (7 types) | 🟡 | Differential: bit-identical to `foc_observer_update` for all seven (max abs phase and state delta 0.000000 over 4000 steps each) - but with the parameter compensation DISABLED: the harness sets `foc_sat_comp = 0`, `foc_motor_ld_lq_diff = 0` and `foc_temp_comp = false`. The saturation, temperature and saliency branches in that same function are not ported (B4) |
 | PLL | ✅ | Differential: bit-identical to `foc_pll_run`; the non-reference phase differencing it replaced is deleted |
 | Decoded app inputs, statistics, energy counters, tachometer | ✅ | Wire bytes pinned per command; reset/read-reset semantics covered by tests |
 | Average sampler tick | 🟡 | The reference samples on a dedicated periodic thread and keeps summing while the motor is idle (reusing the last vd/vq); this port accumulates in `foc_core`'s periodic `poll` and adds nothing to vd/vq while idle |

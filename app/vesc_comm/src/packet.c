@@ -1,5 +1,6 @@
 #include "edge/errors.h"
 #include "vesc_comm/vesc_comm.h"
+#include "vesc_comm_internal.h"
 #include <stdbool.h>
 #include <string.h>
 

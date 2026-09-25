@@ -1,6 +1,7 @@
 #include "vesc_comm/vesc_comm.h"
 #include "edge/errors.h"
 #include "edge/module.h"
+#include "vesc_comm_internal.h"
 #include <string.h>
 
 static edge_status_t vesc_comm_poll(edge_module_t *module) {
@@ -83,4 +84,16 @@ edge_module_t *vesc_comm_module(vesc_comm_t *self) {
         return (void *)0;
     }
     return &self->module;
+}
+
+uint32_t vesc_comm_packets_received(const vesc_comm_t *self) {
+    return (self != (void *)0) ? self->packets_received : 0u;
+}
+
+uint32_t vesc_comm_packets_sent(const vesc_comm_t *self) {
+    return (self != (void *)0) ? self->packets_sent : 0u;
+}
+
+uint32_t vesc_comm_crc_errors(const vesc_comm_t *self) {
+    return (self != (void *)0) ? self->crc_errors : 0u;
 }
