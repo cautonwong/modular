@@ -464,6 +464,154 @@ static void test_vesc_host_app_status_adapters(void **state) {
     assert_int_equal(status.get_decoded_adc(status.self, &level, &v1, &l2, &v2), EDGE_EINVAL);
 }
 
+/*
+ * The remaining vesc_host adapters. Several of them are deliberately constant
+ * sources (a host simulation has no nunchuk, cadence sensor or IMU), which is
+ * worth pinning so a later reader can tell "simulated input" from "unfinished".
+ */
+static void test_vesc_host_simulated_adapters(void **state) {
+    (void)state;
+
+    vesc_host_glue_state_t glue_state;
+    memset(&glue_state, 0, sizeof(glue_state));
+    glue_state.v_bus = 24.0f;
+    foc_virtual_motor_init(&glue_state.vmotor, 0.05f, 5e-5f, 0.005f, 7, 5e-4f);
+    glue_state.vmotor.rotor_angle_rad = 0.75f;
+    glue_state.vmotor.ia = 3.0f;
+    glue_state.vmotor.ib = -1.5f;
+
+    /* CAN: the send adaptor records the frame, the receive adaptor has no peer. */
+    vesc_can_port_t can;
+    vesc_host_make_can_port(&can, &glue_state);
+    const uint8_t payload[3] = {0xAAu, 0xBBu, 0xCCu};
+    assert_int_equal(can.send_frame(can.self, 0x1234u, payload, sizeof(payload)), EDGE_OK);
+    assert_int_equal(glue_state.last_can_id, 0x1234u);
+    assert_int_equal(glue_state.last_can_len, 3u);
+    assert_memory_equal(glue_state.last_can_data, payload, sizeof(payload));
+
+    uint32_t rx_id = 0u;
+    uint8_t rx_data[8] = {0};
+    uint8_t rx_len = 0u;
+    assert_int_equal(can.receive_frame(can.self, &rx_id, rx_data, &rx_len), EDGE_ENOENT);
+
+    /* Terminal output and its telemetry source. */
+    terminal_stream_port_t term_stream;
+    vesc_host_make_terminal_stream_port(&term_stream, &glue_state);
+    assert_int_equal(term_stream.write_string(term_stream.self, "help\n"), EDGE_OK);
+    assert_string_equal(glue_state.terminal_tx_buf, "help\n");
+
+    foc_inverter_port_t inverter = {
+        .set_duty = gp_set_duty, .set_phase_state = gp_set_phase, .self = NULL};
+    foc_current_port_t current = {
+        .read_currents = gp_read_currents, .read_vbus = gp_read_vbus, .self = NULL};
+    foc_rotor_port_t rotor = {.read_angle = gp_read_angle, .self = NULL};
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 5e-5f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.1f,
+                        .current_ki = 50.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 8.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = false};
+    foc_core_t foc;
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &cfg, &inverter, &current, &rotor);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    foc_core_set_temperature(&foc, 37.0f);
+    assert_int_equal(foc_core_fast_loop(&foc, 5e-5f), EDGE_OK);
+
+    terminal_system_port_t term_sys;
+    vesc_host_make_terminal_system_port(&term_sys, &foc);
+    float rpm = 0.0f;
+    float iq = 0.0f;
+    float v_bus = 0.0f;
+    float temp = 0.0f;
+    uint32_t faults = 1u;
+    assert_int_equal(term_sys.get_stats(term_sys.self, &rpm, &iq, &v_bus, &temp, &faults), EDGE_OK);
+    assert_float_equal(rpm, 1234.0f, 1e-3f); /* from the rotor adaptor */
+    assert_float_equal(v_bus, 24.0f, 1e-3f);
+    assert_float_equal(temp, 37.0f, 1e-3f);
+    assert_int_equal(faults, foc_core_get_faults(&foc));
+
+    /* motor_id measurement reads the virtual motor, its hall stub reports a fixed
+     * state, and the control side is a stub that must still answer OK. */
+    motor_id_measure_port_t id_m;
+    vesc_host_make_motor_id_measure_port(&id_m, &glue_state);
+    float ia = 0.0f;
+    float ib = 0.0f;
+    assert_int_equal(id_m.get_currents(id_m.self, &ia, &ib), EDGE_OK);
+    assert_float_equal(ia, 3.0f, 1e-6f);
+    assert_float_equal(ib, -1.5f, 1e-6f);
+    assert_int_equal(id_m.get_hall(id_m.self), 1u);
+    assert_float_equal(id_m.get_rotor_angle(id_m.self), 0.75f, 1e-6f);
+
+    motor_id_control_port_t id_c;
+    vesc_host_make_motor_id_control_port(&id_c, &glue_state);
+    assert_int_equal(id_c.set_voltage_alpha_beta(id_c.self, 1.0f, 2.0f), EDGE_OK);
+    assert_int_equal(id_c.set_pwm_duty(id_c.self, 0.5f, 0.5f, 0.5f), EDGE_OK);
+    assert_int_equal(id_c.set_openloop_angle(id_c.self, 0.1f, 2.0f), EDGE_OK);
+    assert_int_equal(id_c.stop_inverter(id_c.self), EDGE_OK);
+
+    /* Simulated sensors: constant, and documented as such. */
+    nunchuk_port_t nunchuk;
+    vesc_host_make_nunchuk_port(&nunchuk, &glue_state);
+    uint8_t js_x = 0u;
+    uint8_t js_y = 0u;
+    bool btn_c = true;
+    assert_int_equal(nunchuk.read_data(nunchuk.self, &js_x, &js_y, NULL, NULL, NULL, &btn_c, NULL),
+                     EDGE_OK);
+    assert_int_equal(js_x, 128u);
+    assert_int_equal(js_y, 128u);
+    assert_false(btn_c);
+
+    pas_port_t pas;
+    vesc_host_make_pas_port(&pas, &glue_state);
+    float cadence = 0.0f;
+    float torque = 0.0f;
+    assert_int_equal(pas.read_cadence_rpm(pas.self, &cadence), EDGE_OK);
+    assert_float_equal(cadence, 60.0f, 1e-6f);
+    assert_int_equal(pas.read_torque_nm(pas.self, &torque), EDGE_OK);
+    assert_float_equal(torque, 15.0f, 1e-6f);
+
+    balance_port_t balance;
+    vesc_host_make_balance_port(&balance, &glue_state);
+    float pitch = 1.0f;
+    float roll = 1.0f;
+    assert_int_equal(balance.read_attitude(balance.self, &pitch, &roll, NULL, NULL, NULL, NULL),
+                     EDGE_OK);
+    assert_float_equal(pitch, 0.0f, 1e-6f);
+    assert_float_equal(roll, 0.0f, 1e-6f);
+
+    /* BMS CAN shares the CAN recording fields and clamps an oversized frame. */
+    bms_can_port_t bms_can;
+    vesc_host_make_bms_can_port(&bms_can, &glue_state);
+    const uint8_t big[12] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
+    assert_int_equal(bms_can.send_can_msg(bms_can.self, 0x77u, big, sizeof(big)), EDGE_OK);
+    assert_int_equal(glue_state.last_can_id, 0x77u);
+    assert_int_equal(glue_state.last_can_len, 8u);
+
+    /* Storage bounds: writing past the fake flash is refused, not clamped. */
+    motor_config_storage_port_t storage;
+    vesc_host_make_storage_port(&storage, &glue_state);
+    uint8_t one[1] = {0};
+    assert_int_equal(storage.write(storage.self, sizeof(glue_state.flash_mem), one, 1u),
+                     EDGE_EINVAL);
+    assert_int_equal(storage.erase(storage.self, sizeof(glue_state.flash_mem), 1u), EDGE_EINVAL);
+
+    /* Stream TX bounds. */
+    edge_stream_tx_port_t stream_tx;
+    vesc_host_make_stream_tx_port(&stream_tx, &glue_state);
+    uint8_t small[2] = {0};
+    assert_int_equal(stream_tx.write(stream_tx.self, small, sizeof(small)), EDGE_OK);
+    assert_int_equal(glue_state.stream_tx_len, sizeof(small));
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_meter_host_glue),
@@ -475,6 +623,7 @@ int main(void) {
         cmocka_unit_test(test_vesc_host_glue),
         cmocka_unit_test(test_vesc_host_motor_provider_semantics),
         cmocka_unit_test(test_vesc_host_app_status_adapters),
+        cmocka_unit_test(test_vesc_host_simulated_adapters),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
