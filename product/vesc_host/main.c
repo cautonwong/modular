@@ -161,9 +161,12 @@ int main(void) {
         return 12;
     }
 
-    timeout_guard_t guard;
-    timeout_guard_construct(&guard, EDGE_MOD_TIMEOUT_GUARD, 5u, NULL, 500u, 5.0f, 1000u);
-    if (timeout_guard_init(&guard) != EDGE_OK) {
+    /* The guard's memory is the composition root's to provide. */
+    static alignas(
+        TIMEOUT_GUARD_STORAGE_ALIGN) unsigned char guard_storage[TIMEOUT_GUARD_STORAGE_SIZE];
+    timeout_guard_t *guard = (timeout_guard_t *)guard_storage;
+    timeout_guard_construct(guard, EDGE_MOD_TIMEOUT_GUARD, 5u, NULL, 500u, 5.0f, 1000u);
+    if (timeout_guard_init(guard) != EDGE_OK) {
         return 13;
     }
 
@@ -271,7 +274,7 @@ int main(void) {
     apps[0] = foc_core_module(&foc);
     apps[1] = vesc_comm_module(comm);
     apps[2] = motor_config_module(&motor_cfg);
-    apps[3] = timeout_guard_module(&guard);
+    apps[3] = timeout_guard_module(guard);
     apps[4] = throttle_module(&throttle);
     apps[5] = ppm_module(&ppm);
     apps[6] = adc_input_module(&adc_app);

@@ -3,6 +3,7 @@
 
 #include "edge/errors.h"
 #include "edge/module.h"
+#include <stdalign.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -20,22 +21,20 @@ typedef struct timeout_motor_port {
     void *self;
 } timeout_motor_port_t;
 
-typedef struct timeout_guard {
-    edge_module_t module;
+/*
+ * Opaque, caller-provided memory:
+ *
+ *   static alignas(TIMEOUT_GUARD_STORAGE_ALIGN)
+ *       unsigned char storage[TIMEOUT_GUARD_STORAGE_SIZE];
+ *   timeout_guard_t *guard = (timeout_guard_t *)storage;
+ *
+ * The definition lives in src/timeout_guard_internal.h, which also asserts that
+ * the size and alignment below still cover it.
+ */
+#define TIMEOUT_GUARD_STORAGE_SIZE 128u
+#define TIMEOUT_GUARD_STORAGE_ALIGN alignof(max_align_t)
 
-    /* Injected Port */
-    const timeout_motor_port_t *motor;
-
-    /* Timeout Configuration */
-    uint32_t timeout_ms;
-    float brake_current_a;
-
-    /* State */
-    uint64_t last_feed_ticks;
-    uint32_t ticks_per_ms;
-    bool has_timed_out;
-    uint32_t timeout_count;
-} timeout_guard_t;
+typedef struct timeout_guard timeout_guard_t;
 
 void timeout_guard_construct(timeout_guard_t *self, uint32_t module_id, uint32_t priority,
                              const timeout_motor_port_t *motor, uint32_t timeout_ms,
