@@ -1305,6 +1305,49 @@ static void test_foc_apply_mtpa(void **state) {
         1e-6f);
 }
 
+/*
+ * The battery level, reference mc_interface_get_battery_level() with
+ * utils_batt_liion_norm_v_to_capacity(). The polynomial is transcribed, so this pins the
+ * properties that make it that curve instead of re-implementing it: zero at and below the empty
+ * cell voltage, one at the full one, monotonic in between, clamped outside the range, and the
+ * reference's own 0/0 for an unknown chemistry - which is NaN, and not a number to invent a
+ * replacement for.
+ */
+static void test_foc_battery_level(void **state) {
+    (void)state;
+
+    /* The five coefficients sum to the full-charge capacity, and everything vanishes at zero. */
+    assert_float_equal(foc_batt_liion_norm_v_to_capacity(0.0f), 0.0f, 1e-6f);
+    assert_float_equal(foc_batt_liion_norm_v_to_capacity(1.0f), 0.999587f, 1e-5f);
+    /* Clamped outside [0, 1], as the reference truncates it. */
+    assert_float_equal(foc_batt_liion_norm_v_to_capacity(3.0f),
+                       foc_batt_liion_norm_v_to_capacity(1.0f), 1e-9f);
+    assert_float_equal(foc_batt_liion_norm_v_to_capacity(-2.0f), 0.0f, 1e-6f);
+
+    const uint8_t liion = FOC_BATTERY_TYPE_LIION_3_0__4_2;
+    float wh_left = -1.0f;
+
+    /* A 10-cell, 10 Ah pack at 3.2 V per cell is empty. */
+    assert_float_equal(foc_battery_level(liion, 10, 10.0f, 32.0f, &wh_left), 0.0f, 1e-6f);
+    assert_float_equal(wh_left, 0.0f, 1e-6f);
+
+    /* At 4.2 V per cell it is full: the polynomial's 0.999587 of an 8.5 Ah usable capacity. */
+    const float full = foc_battery_level(liion, 10, 10.0f, 42.0f, &wh_left);
+    assert_float_equal(full, 0.999587f, 1e-4f);
+    assert_float_equal(wh_left, 8.5f * 0.999587f * 37.0f, 1e-2f);
+
+    /* Monotonic in between. */
+    float previous = -1.0f;
+    for (float v = 32.0f; v <= 42.0f; v += 2.0f) {
+        const float level = foc_battery_level(liion, 10, 10.0f, v, NULL);
+        assert_true(level >= previous);
+        previous = level;
+    }
+
+    /* An unknown chemistry divides zero by zero, as the reference does. */
+    assert_true(isnan(foc_battery_level(9u, 10, 10.0f, 42.0f, &wh_left)));
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_foc_math_transforms),
@@ -1325,6 +1368,7 @@ int main(void) {
         cmocka_unit_test(test_foc_run_pid_speed),
         cmocka_unit_test(test_foc_run_fw_matches_reference),
         cmocka_unit_test(test_foc_apply_mtpa),
+        cmocka_unit_test(test_foc_battery_level),
         cmocka_unit_test(test_foc_core_modes),
         cmocka_unit_test(test_foc_core_duty_now_is_a_modulation_magnitude),
         cmocka_unit_test(test_foc_core_set_current_rel_picks_its_limit_from_the_duty),

@@ -120,6 +120,12 @@ typedef struct foc_config {
     uint8_t mtpa_mode; /* FOC_MTPA_MODE_OFF / _IQ_TARGET / _IQ_MEASURED */
     float cc_min_current;
 
+    /* Battery description, for the setup-values battery level (mc_interface_get_battery_level).
+     * The type values are the reference's BATTERY_TYPE order. */
+    uint8_t si_battery_type;
+    int si_battery_cells;
+    float si_battery_ah;
+
     /* Speed-loop parameters, handed to foc_run_pid_speed verbatim. */
     foc_speed_pid_params_t speed_pid;
 

@@ -289,6 +289,111 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
         return self->ops->forward_can(self->ops->self, data[1], data + 2u, len - 2u);
     }
 
+    case COMM_GET_VALUES_SETUP:
+    case COMM_GET_VALUES_SETUP_SELECTIVE: {
+        if (self->motor == (void *)0 || self->motor->get_setup_values == (void *)0) {
+            return EDGE_ENOTSUP;
+        }
+
+        vesc_setup_values_t setup;
+        edge_status_t st = self->motor->get_setup_values(self->motor->self, &setup);
+        if (st != EDGE_OK) {
+            return st;
+        }
+
+        /*
+         * Reference comm/commands.c:797-885. The reply is the command id, then - for the
+         * selective variant only - the mask echoed from the request, then one field per set bit
+         * with the reference's own encoding. The bit table and the scales are the whole content
+         * of this command, so they are transcribed rather than derived.
+         */
+        uint8_t *resp = self->cmd_reply_buf;
+        size_t n = 0u;
+        resp[n++] = cmd_id;
+
+        uint32_t mask = 0xFFFFFFFFu;
+        if (cmd_id == COMM_GET_VALUES_SETUP_SELECTIVE) {
+            if (len < 5u) {
+                return EDGE_EINVAL;
+            }
+            size_t ind = 1u;
+            /* The codec has buffer_get_int32 and not buffer_get_uint32; the four bytes are the
+             * same big-endian word either way, so the cast is exact - including a mask whose top
+             * bit is set, which reads as -1 and casts back to 0xFFFFFFFF. */
+            mask = (uint32_t)buffer_get_int32(data, &ind);
+            buffer_append_uint32(resp, mask, &n);
+        }
+
+        if (mask & (1u << 0)) {
+            buffer_append_float16(resp, setup.temp_mos, 1e1f, &n);
+        }
+        if (mask & (1u << 1)) {
+            buffer_append_float16(resp, setup.temp_motor, 1e1f, &n);
+        }
+        if (mask & (1u << 2)) {
+            buffer_append_float32(resp, setup.current_tot, 1e2f, &n);
+        }
+        if (mask & (1u << 3)) {
+            buffer_append_float32(resp, setup.current_in_tot, 1e2f, &n);
+        }
+        if (mask & (1u << 4)) {
+            buffer_append_float16(resp, setup.duty_now, 1e3f, &n);
+        }
+        if (mask & (1u << 5)) {
+            buffer_append_float32(resp, setup.rpm, 1e0f, &n);
+        }
+        if (mask & (1u << 6)) {
+            buffer_append_float32(resp, setup.speed_m_s, 1e3f, &n);
+        }
+        if (mask & (1u << 7)) {
+            buffer_append_float16(resp, setup.v_in, 1e1f, &n);
+        }
+        if (mask & (1u << 8)) {
+            buffer_append_float16(resp, setup.battery_level, 1e3f, &n);
+        }
+        if (mask & (1u << 9)) {
+            buffer_append_float32(resp, setup.ah_tot, 1e4f, &n);
+        }
+        if (mask & (1u << 10)) {
+            buffer_append_float32(resp, setup.ah_charge_tot, 1e4f, &n);
+        }
+        if (mask & (1u << 11)) {
+            buffer_append_float32(resp, setup.wh_tot, 1e4f, &n);
+        }
+        if (mask & (1u << 12)) {
+            buffer_append_float32(resp, setup.wh_charge_tot, 1e4f, &n);
+        }
+        if (mask & (1u << 13)) {
+            buffer_append_float32(resp, setup.distance_m, 1e3f, &n);
+        }
+        if (mask & (1u << 14)) {
+            buffer_append_float32(resp, setup.distance_abs_m, 1e3f, &n);
+        }
+        if (mask & (1u << 15)) {
+            buffer_append_float32(resp, setup.pid_pos_deg, 1e6f, &n);
+        }
+        if (mask & (1u << 16)) {
+            resp[n++] = setup.fault;
+        }
+        if (mask & (1u << 17)) {
+            resp[n++] = setup.controller_id;
+        }
+        if (mask & (1u << 18)) {
+            resp[n++] = setup.num_vescs;
+        }
+        if (mask & (1u << 19)) {
+            buffer_append_float32(resp, setup.wh_batt_left, 1e3f, &n);
+        }
+        if (mask & (1u << 20)) {
+            buffer_append_uint32(resp, setup.odometer_m, &n);
+        }
+        if (mask & (1u << 21)) {
+            buffer_append_uint32(resp, setup.uptime_ms, &n);
+        }
+
+        return send_reply(self, n);
+    }
+
     case COMM_GET_MCCONF: {
         if (self->config == (void *)0 || self->config->get_mcconf == (void *)0) {
             return EDGE_ENOTSUP;

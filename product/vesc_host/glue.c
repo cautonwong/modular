@@ -2,6 +2,7 @@
 #include "motor_config/motor_config.h"
 #include "vesc_can/vesc_can.h"
 #include "vesc_terminal/vesc_terminal.h"
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -293,6 +294,61 @@ static edge_status_t config_set_appconf_nostore(void *self, const uint8_t *in, s
     return motor_config_apply_app_stream_nostore((motor_config_t *)self, in, len);
 }
 
+/*
+ * COMM_GET_VALUES_SETUP's source: the reference's mc_interface_get_setup_values() together with
+ * mc_interface_get_battery_level(). Fields this product has no source for are named zeros with
+ * their reasons rather than guesses:
+ *   temp_motor    no motor NTC is wired (the same reason as the GET_VALUES field)
+ *   odometer_m    needs a persisted counter, and the reference's own accumulation site has not
+ *                 been located yet; inventing one would be inventing the number
+ *   uptime_ms     this module is given no clock
+ *   num_vescs     stays 1: the reference aggregates unexpired CAN status frames, and this
+ *                 product has no CAN status receive path
+ *   controller_id 1 until the app configuration reaches this adapter
+ * The battery level uses the bus voltage where the reference filters a slower input voltage;
+ * this port has no such filter, which is recorded in adr-conformance.md.
+ */
+static edge_status_t motor_get_setup_values(void *self, vesc_setup_values_t *out) {
+    foc_core_t *foc = (foc_core_t *)self;
+    if (foc == (void *)0 || out == (void *)0) {
+        return EDGE_EINVAL;
+    }
+
+    foc_telemetry_t telem;
+    foc_core_get_telemetry(foc, &telem);
+    memset(out, 0, sizeof(*out));
+
+    const float tacho_scale =
+        (foc->config.si_wheel_diameter * (float)M_PI) /
+        (3.0f * (float)foc->config.si_motor_poles * foc->config.si_gear_ratio);
+
+    out->temp_mos = telem.fet_temp_c;
+    out->temp_motor = 0.0f;
+    out->current_tot = telem.current_abs;
+    out->current_in_tot = telem.current_in;
+    out->duty_now = telem.duty_now;
+    /* The reference's mc_interface_get_rpm() is electrical rpm. */
+    out->rpm = telem.speed_rpm * ((float)foc->config.si_motor_poles / 2.0f);
+    out->speed_m_s = foc->speed_m_s;
+    out->v_in = telem.v_bus;
+    out->ah_tot = telem.amp_hours;
+    out->ah_charge_tot = telem.amp_hours_charged;
+    out->wh_tot = telem.watt_hours;
+    out->wh_charge_tot = telem.watt_hours_charged;
+    out->distance_m = (float)telem.tachometer * tacho_scale;
+    out->distance_abs_m = (float)telem.tachometer_abs * tacho_scale;
+    out->pid_pos_deg = telem.rotor_angle_rad * (180.0f / (float)M_PI);
+    out->fault = (uint8_t)telem.faults;
+    out->controller_id = 1u;
+    out->num_vescs = 1u;
+    out->battery_level =
+        foc_battery_level(foc->config.si_battery_type, foc->config.si_battery_cells,
+                          foc->config.si_battery_ah, telem.v_bus, &out->wh_batt_left);
+    out->odometer_m = 0u;
+    out->uptime_ms = 0u;
+    return EDGE_OK;
+}
+
 void vesc_host_make_config_port(vesc_config_provider_port_t *out, motor_config_t *cfg) {
     if (out == (void *)0) {
         return;
@@ -350,6 +406,7 @@ void vesc_host_make_motor_provider_port(vesc_motor_provider_port_t *out, foc_cor
         .set_current = motor_set_current,
         .set_current_rel = motor_set_current_rel,
         .set_handbrake = motor_set_handbrake,
+        .get_setup_values = motor_get_setup_values,
         .set_current_brake = motor_set_current_brake,
         .set_rpm = motor_set_rpm,
         .set_pos = motor_set_pos,
