@@ -3,6 +3,7 @@
 
 #include "adc_input/adc_input.h"
 #include "balance/balance.h"
+#include "flash/flash.h"
 #include "foc_core/foc_core.h"
 #include "foc_core/foc_math.h"
 #include "motor_config/motor_config.h"
@@ -50,6 +51,20 @@ void vesc_host_make_motor_provider_port(vesc_motor_provider_port_t *out, foc_cor
  * that keeps a malformed stream from half-writing the running configuration.
  */
 void vesc_host_make_config_port(vesc_config_provider_port_t *out, motor_config_t *cfg);
+
+/*
+ * The configuration's variable store, backed by the EEPROM emulation (infra/flash). Keys are the
+ * logical indices motor_config uses; the reference's virtual address base EEPROM_BASE_MCCONF
+ * (conf_general.c:50) is applied here, so the app never sees an address space. The emulation
+ * itself is the product's: it needs a variable table (the reference builds it by enumerating
+ * base + i, conf_general.c:72) and a sector backend.
+ */
+/* conf_general.c:50, and the size of the variable table the emulation walks: the reference
+ * enumerates base + i for every two bytes of the configuration (conf_general.c:72). */
+#define VESC_HOST_MCCONF_BASE 1000u
+#define VESC_HOST_MCCONF_VARS (sizeof(mc_configuration_t) / 2u)
+
+void vesc_host_make_var_port(motor_config_var_port_t *out, flash_emul_t *emul);
 
 /*
  * COMM_TERMINAL_CMD and COMM_FORWARD_CAN run through the product: the terminal, and the
