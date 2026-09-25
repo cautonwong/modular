@@ -12,6 +12,7 @@
 #include "edge/errors.h"
 #include "edge/modules.h"
 #include "motor_config/motor_config.h"
+#include "vesc_comm/vesc_comm.h" /* vesc_crc16, for the cross-check */
 
 typedef struct mock_storage_ctx {
     uint8_t flash_mem[1536]; /* the module reads its whole 1024-byte scratch at offset 0x100 */
@@ -530,6 +531,110 @@ static void test_motor_config_app_nostore_applies_without_marking_dirty(void **s
     assert_true(motor_config_is_dirty(cfg));
 }
 
+/* A mock variable store: one uint16 per two configuration bytes. */
+#define MOCK_VAR_COUNT 512u
+
+typedef struct mock_var_store {
+    uint16_t values[MOCK_VAR_COUNT];
+    bool present; /* false simulates a variable that was never written */
+    int writes;
+} mock_var_store_t;
+
+static edge_status_t mock_var_read(void *self, uint16_t index, uint16_t *value) {
+    mock_var_store_t *store = (mock_var_store_t *)self;
+    if (!store->present || index >= MOCK_VAR_COUNT) {
+        return EDGE_ENOENT;
+    }
+    *value = store->values[index];
+    return EDGE_OK;
+}
+
+static edge_status_t mock_var_write(void *self, uint16_t index, uint16_t value) {
+    mock_var_store_t *store = (mock_var_store_t *)self;
+    if (index >= MOCK_VAR_COUNT) {
+        return EDGE_EINVAL;
+    }
+    store->values[index] = value;
+    store->writes++;
+    return EDGE_OK;
+}
+
+/*
+ * The configuration through the variable store, which is how the reference actually persists it
+ * (conf_general.c:436-520): one uint16 per two bytes, and the struct's own crc member as the
+ * integrity check rather than an outside envelope.
+ */
+static void test_motor_config_variable_store(void **state) {
+    (void)state;
+    mock_var_store_t store;
+    memset(&store, 0, sizeof(store));
+    store.present = true;
+    const motor_config_var_port_t port = {
+        .read = mock_var_read, .write = mock_var_write, .self = &store};
+
+    static alignas(MOTOR_CONFIG_STORAGE_ALIGN) unsigned char storage[MOTOR_CONFIG_STORAGE_SIZE];
+    memset(storage, 0, sizeof(storage));
+    motor_config_t *cfg = (motor_config_t *)storage;
+    mock_storage_ctx_t flash;
+    memset(&flash, 0xFF, sizeof(flash));
+    motor_config_storage_port_t flash_port = {.read = mock_flash_read,
+                                              .write = mock_flash_write,
+                                              .erase = mock_flash_erase,
+                                              .self = &flash};
+    motor_config_construct(cfg, EDGE_MOD_MOTOR_CONFIG, 20u, &flash_port, 0x100u);
+
+    mc_configuration_t mc;
+    app_configuration_t app;
+    motor_config_set_defaults(&mc, &app);
+    mc.l_current_max = 37.5f;
+    mc.foc_pll_kp = 1234.0f;
+    assert_int_equal(motor_config_update_mc(cfg, &mc), EDGE_OK);
+
+    assert_int_equal(motor_config_store_to_vars(cfg, &port), EDGE_OK);
+    assert_true(store.writes > 0);
+
+    /* Wipe the live configuration, then read it back out of the variables. */
+    motor_config_set_defaults(&mc, &app); /* returns void */
+    assert_int_equal(motor_config_update_mc(cfg, &mc), EDGE_OK);
+    assert_float_equal(motor_config_get_mc(cfg)->l_current_max, 60.0f, 1e-3f);
+
+    assert_int_equal(motor_config_load_from_vars(cfg, &port), EDGE_OK);
+    assert_float_equal(motor_config_get_mc(cfg)->l_current_max, 37.5f, 1e-2f);
+    assert_float_equal(motor_config_get_mc(cfg)->foc_pll_kp, 1234.0f, 1e-1f);
+
+    /* A variable that never made it falls back to the defaults, as the reference does. */
+    store.present = false;
+    assert_int_equal(motor_config_load_from_vars(cfg, &port), EDGE_ENOENT);
+    assert_float_equal(motor_config_get_mc(cfg)->l_current_max, 60.0f, 1e-3f);
+
+    /* And so does a CRC mismatch. */
+    store.present = true;
+    store.values[1] ^= 0xFFFFu;
+    assert_int_equal(motor_config_load_from_vars(cfg, &port), EDGE_EINVAL);
+    assert_float_equal(motor_config_get_mc(cfg)->l_current_max, 60.0f, 1e-3f);
+}
+
+/*
+ * The CRC this module computes must be the one the codec's table-driven vesc_crc16 computes, or
+ * the two copies of util/crc.c's algorithm have drifted. The reference's own version zeroes the
+ * crc member and covers the whole struct, padding included, so the check mirrors that.
+ */
+static void test_motor_config_crc_matches_the_codec(void **state) {
+    (void)state;
+    mc_configuration_t mc;
+    app_configuration_t app;
+    motor_config_set_defaults(&mc, &app);
+    mc.l_current_max = 12.5f;
+
+    const uint16_t mine = motor_config_config_crc(&mc);
+    const uint16_t saved = mc.crc;
+    mc.crc = 0u;
+    const uint16_t theirs = vesc_crc16((const uint8_t *)&mc, sizeof(mc));
+    mc.crc = saved;
+
+    assert_int_equal(mine, theirs);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_defaults_and_validation),
@@ -538,6 +643,8 @@ int main(void) {
         cmocka_unit_test(test_motor_config_golden_bytes),
         cmocka_unit_test(test_motor_config_golden_bytes_off_default),
         cmocka_unit_test(test_motor_config_app_golden_bytes),
+        cmocka_unit_test(test_motor_config_variable_store),
+        cmocka_unit_test(test_motor_config_crc_matches_the_codec),
         cmocka_unit_test(test_motor_config_defaults_keep_the_calibration_offsets),
         cmocka_unit_test(test_motor_config_app_nostore_applies_without_marking_dirty),
         cmocka_unit_test(test_serialization_roundtrip),
