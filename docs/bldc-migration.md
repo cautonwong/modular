@@ -143,6 +143,21 @@ clang-format --dry-run     # 格式
   设了就是无人读的死状态（与本端口对 `set_current_off_delay` 的处理同一理由）。另，
   `m_i_fw_override` 那条路径来自检测流程，属 **B5**。
 
+#### B5 检测流程：结构结论（先读再动，避免把阻塞过程硬搬）
+
+`mcpwm_foc_measure_resistance()`（mcpwm_foc.c:1797）这类过程在参考里是**阻塞式**的：
+它 `mc_interface_lock()`、置一套覆盖状态（`m_phase_override` / `CONTROL_MODE_CURRENT` /
+`MC_STATE_RUNNING`）、修改 timeout、然后 `chThdSleepMilliseconds` 循环等待，靠 **ISR 每周期
+加进 `m_samples.avg_current_tot/avg_voltage_tot/sample_num`** 来采样，最后除出平均值；
+失败路径要 `stop_pwm_hw()` 并回滚状态与 timeout。
+
+端口没有线程，所以**不能照搬阻塞形状** —— 应投影为**状态机**：一个\u201c爬流 → 稳定等待 →
+计数采样 → 收尾/回滚\u201d的相位机，由快环或周期 poll 推进，采样累加器放在 foc_core 里（注意
+它与遥测用的 `foc_core_read_reset_averages` 是**两套**累加器，原版就是分开的）。
+`measure_inductance`（:1909）与 `measure_inductance_current`（:2086）同形。
+实现时还要补：相位覆盖字段（现在只有 handbrake 的置 0）、`stop_pwm_hw` 等价物、以及
+`COMM_DETECT_*` 族的受理（当前在命令表外）。
+
 **B6 剩余项的实测依赖（读原版后记录，避免下轮重新推导）**
 
 - `COMM_SET_CURRENT_REL`（**已实现**）：线格式是 float32 × 1e5（原版用的是**定点**
@@ -208,6 +223,21 @@ clang-format --dry-run     # 格式
   **观测器增益随 duty/v_bus 缩放**，属于 **B4**（它是 `duty_now` 的消费者之一，duty_now 已修正）。
 
 ### 阶段 C — 配置与持久化
+
+#### C1 验收（有消费者的字段是否都配置驱动）
+
+机械核对的结果（脚本对比 `foc_config_t` 的字段与 main.c 的 `mc->` 映射）：
+
+- `foc_config_t` 共 **32** 个字段，**31** 个直接来自 `mc->某字段`，唯一的例外是
+  `sensorless_mode` —— 它曾经被**硬编码为 false**，等于让配置里的传感器模式对控制路径不可见。
+  原版是从 `foc_sensor_mode` 选角度源的（`mcpwm_foc.c` 的 `FOC_SENSOR_MODE_SENSORLESS` 分支），
+  现已改为 `(mc->foc_sensor_mode == FOC_SENSOR_MODE_SENSORLESS)`，即 32/32 配置驱动。
+- 结构体本身是参考的：**177 个成员**由生成器从 `datatypes.h` 产出（C2）；默认值是 **202 个宏**，
+  每个都带它在 `mcconf_default.h` / `appconf_default.h` 的**行号**（判据要求的逐条对照）。
+- 其余 **156** 个 mc 字段目前未被 `foc_core`/main 引用 —— 它们的消费者各有归属：HFI 系 →**B2**、
+  温度补偿 →**B4**（受阻于无电机温度源）、检测系 →**B5**、编码器/DRV8301/NTC/BMS/Wi-Fi/埴位表
+  等 →各自模块与 C3/D 阶段。所以本条判据「只补有消费者的字段」成立：**凡现已有消费者的，
+  都已在配置里驱动**。
 
 #### C2 进展：mc_configuration 流已逐字节对齐原版
 
