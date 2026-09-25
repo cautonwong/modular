@@ -50,6 +50,9 @@ void vesc_host_make_motor_provider_port(vesc_motor_provider_port_t *out, foc_cor
  * that keeps a malformed stream from half-writing the running configuration.
  */
 void vesc_host_make_config_port(vesc_config_provider_port_t *out, motor_config_t *cfg);
+
+/* COMM_TERMINAL_CMD: the product's terminal, run by the codec. */
+void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_terminal_app_t *term);
 void vesc_host_make_inverter_port(foc_inverter_port_t *out, vesc_host_glue_state_t *state);
 void vesc_host_make_current_port(foc_current_port_t *out, vesc_host_glue_state_t *state);
 void vesc_host_make_rotor_port(foc_rotor_port_t *out, vesc_host_glue_state_t *state);

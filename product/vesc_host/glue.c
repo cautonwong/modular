@@ -1,5 +1,6 @@
 #include "glue.h"
 #include "motor_config/motor_config.h"
+#include "vesc_terminal/vesc_terminal.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -305,6 +306,21 @@ void vesc_host_make_config_port(vesc_config_provider_port_t *out, motor_config_t
         .get_appconf_default = config_get_appconf_default,
         .set_appconf_nostore = config_set_appconf_nostore,
         .self = cfg,
+    };
+}
+
+static edge_status_t ops_terminal_cmd(void *self, const char *cmd) {
+    return vesc_terminal_execute((vesc_terminal_app_t *)self, cmd);
+}
+
+void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_terminal_app_t *term) {
+    if (out == (void *)0) {
+        return;
+    }
+
+    *out = (vesc_comm_ops_port_t){
+        .terminal_cmd = ops_terminal_cmd,
+        .self = term,
     };
 }
 

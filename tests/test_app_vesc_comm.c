@@ -13,6 +13,8 @@
 #include "edge/errors.h"
 #include "edge/event.h"
 #include "edge/modules.h"
+#include <stdio.h>
+
 #include "vesc_comm/vesc_comm.h"
 
 typedef struct mock_comm_ctx {
@@ -204,14 +206,15 @@ static void test_vesc_comm_lifecycle_and_guards(void **state) {
     /* Null self is refused rather than dereferenced. */
     assert_int_equal(vesc_comm_init(NULL), EDGE_EINVAL);
     assert_int_equal(vesc_comm_deinit(NULL), EDGE_EINVAL);
-    vesc_comm_construct(NULL, EDGE_MOD_VESC_COMM, 10u, NULL, NULL, NULL, NULL, NULL);
+    vesc_comm_construct(NULL, EDGE_MOD_VESC_COMM, 10u, NULL, NULL, NULL, NULL, NULL, NULL);
 
     mock_comm_ctx_t ctx;
     memset(&ctx, 0, sizeof(ctx));
     edge_stream_tx_port_t tx_port = {.write = mock_stream_write, .self = &ctx};
 
     vesc_comm_t *comm = test_comm_alloc();
-    vesc_comm_construct(comm, EDGE_MOD_VESC_COMM, 10u, &tx_port, NULL, NULL, NULL, &test_identity);
+    vesc_comm_construct(comm, EDGE_MOD_VESC_COMM, 10u, &tx_port, NULL, NULL, NULL, NULL,
+                        &test_identity);
     assert_non_null(vesc_comm_module(comm));
     assert_int_equal(vesc_comm_module(comm)->module_id, EDGE_MOD_VESC_COMM);
     assert_ptr_equal(vesc_comm_module(NULL), NULL);
@@ -246,7 +249,8 @@ static void test_vesc_comm_lifecycle_and_guards(void **state) {
                      EDGE_EINVAL);
 
     vesc_comm_t *no_tx = test_comm_alloc();
-    vesc_comm_construct(no_tx, EDGE_MOD_VESC_COMM, 10u, NULL, NULL, NULL, NULL, &test_identity);
+    vesc_comm_construct(no_tx, EDGE_MOD_VESC_COMM, 10u, NULL, NULL, NULL, NULL, NULL,
+                        &test_identity);
     assert_int_equal(vesc_comm_send_packet(no_tx, payload, sizeof(payload)), EDGE_EINVAL);
 
     /* The module hooks: poll and power_off answer, on_event needs its event. */
@@ -285,7 +289,8 @@ static void test_send_packet_framing(void **state) {
     };
 
     vesc_comm_t *comm = test_comm_alloc();
-    vesc_comm_construct(comm, EDGE_MOD_VESC_COMM, 10, &tx_port, NULL, NULL, NULL, &test_identity);
+    vesc_comm_construct(comm, EDGE_MOD_VESC_COMM, 10, &tx_port, NULL, NULL, NULL, NULL,
+                        &test_identity);
     assert_int_equal(vesc_comm_init(comm), EDGE_OK);
 
     uint8_t payload[] = {0x04, 0x01, 0x02, 0x03};
@@ -338,7 +343,7 @@ static void test_receive_packet_and_commands(void **state) {
 
     vesc_comm_t *comm = test_comm_alloc();
     vesc_comm_construct(comm, EDGE_MOD_VESC_COMM, 10, &tx_port, &motor_port, &app_status_port, NULL,
-                        &test_identity);
+                        NULL, &test_identity);
     assert_int_equal(vesc_comm_init(comm), EDGE_OK);
 
     /* Test 1: COMM_SET_DUTY */
@@ -434,7 +439,7 @@ static void test_receive_packet_and_commands(void **state) {
 
     /* Identity that cannot fit is refused rather than truncated or overflowed. */
     vesc_comm_t *oversize_comm = test_comm_alloc2();
-    vesc_comm_construct(oversize_comm, EDGE_MOD_VESC_COMM, 10, &tx_port, NULL, NULL, NULL,
+    vesc_comm_construct(oversize_comm, EDGE_MOD_VESC_COMM, 10, &tx_port, NULL, NULL, NULL, NULL,
                         &oversized_identity);
     assert_int_equal(vesc_comm_init(oversize_comm), EDGE_OK);
     ctx.tx_count = 0;
@@ -442,7 +447,8 @@ static void test_receive_packet_and_commands(void **state) {
     assert_int_equal(ctx.tx_count, 0);
 
     /* A codec with no identity at all refuses the same way. */
-    vesc_comm_construct(oversize_comm, EDGE_MOD_VESC_COMM, 10, &tx_port, NULL, NULL, NULL, NULL);
+    vesc_comm_construct(oversize_comm, EDGE_MOD_VESC_COMM, 10, &tx_port, NULL, NULL, NULL, NULL,
+                        NULL);
     assert_int_equal(vesc_comm_init(oversize_comm), EDGE_OK);
     assert_int_equal(vesc_comm_process_command(oversize_comm, cmd_fw, sizeof(cmd_fw)), EDGE_EINVAL);
     assert_int_equal(ctx.tx_count, 0);
@@ -728,6 +734,17 @@ static edge_status_t mock_set_appconf_nostore(void *self, const uint8_t *in, siz
     return mock_set_appconf(self, in, len);
 }
 
+/* COMM_TERMINAL_CMD reaches the product's terminal as a NUL-terminated command line. */
+static char mock_terminal_last[64];
+static int mock_terminal_calls;
+
+static edge_status_t mock_terminal_cmd(void *self, const char *cmd) {
+    (void)self;
+    mock_terminal_calls++;
+    snprintf(mock_terminal_last, sizeof(mock_terminal_last), "%s", cmd);
+    return EDGE_OK;
+}
+
 static void test_config_commands_framing(void **state) {
     (void)state;
     mock_comm_ctx_t ctx;
@@ -748,8 +765,9 @@ static void test_config_commands_framing(void **state) {
     };
 
     vesc_comm_t *comm = test_comm_alloc();
+    vesc_comm_ops_port_t ops_port = {.terminal_cmd = mock_terminal_cmd, .self = NULL};
     vesc_comm_construct(comm, EDGE_MOD_VESC_COMM, 10u, &tx_port, NULL, NULL, &config_port,
-                        &test_identity);
+                        &ops_port, &test_identity);
     assert_int_equal(vesc_comm_init(comm), EDGE_OK);
 
     /* COMM_GET_MCCONF: the reply is [id][stream], with the stream's own signature first. */
@@ -797,9 +815,24 @@ static void test_config_commands_framing(void **state) {
     assert_int_equal(ctx.tx_count, 1);
     assert_int_equal(ctx.tx_buf[2], COMM_SET_APPCONF_NO_STORE);
 
+    /* COMM_TERMINAL_CMD: the command line reaches the terminal, and the codec sends nothing
+     * itself - the reference's terminal answers through its own printing path. */
+    mock_terminal_calls = 0;
+    mock_terminal_last[0] = '\0';
+    ctx.tx_count = 0;
+    uint8_t term_cmd[] = {COMM_TERMINAL_CMD, 'h', 'e', 'l', 'p', 0};
+    assert_int_equal(vesc_comm_process_command(comm, term_cmd, sizeof(term_cmd)), EDGE_OK);
+    assert_int_equal(mock_terminal_calls, 1);
+    assert_string_equal(mock_terminal_last, "help");
+    assert_int_equal(ctx.tx_count, 0);
+
+    /* A terminal command with no payload is malformed, not an empty command line. */
+    uint8_t term_bare[] = {COMM_TERMINAL_CMD};
+    assert_int_equal(vesc_comm_process_command(comm, term_bare, sizeof(term_bare)), EDGE_EINVAL);
+
     /* A codec with no configuration source refuses rather than answering nonsense. */
     vesc_comm_t *no_cfg = test_comm_alloc2();
-    vesc_comm_construct(no_cfg, EDGE_MOD_VESC_COMM, 10u, &tx_port, NULL, NULL, NULL,
+    vesc_comm_construct(no_cfg, EDGE_MOD_VESC_COMM, 10u, &tx_port, NULL, NULL, NULL, NULL,
                         &test_identity);
     assert_int_equal(vesc_comm_init(no_cfg), EDGE_OK);
     ctx.tx_count = 0;

@@ -25,6 +25,7 @@ struct vesc_comm {
     const vesc_motor_provider_port_t *motor;
     const vesc_app_status_port_t *app_status;
     const vesc_config_provider_port_t *config;
+    const vesc_comm_ops_port_t *ops;
     const vesc_identity_t *identity;
 
     /* Packet RX State */
