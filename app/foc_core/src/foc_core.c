@@ -5,16 +5,6 @@
 #include <math.h>
 #include <string.h>
 
-/*
- * Reference util/utils_math.h:58: SIGN(x) = ((x) < 0.0) ? -1.0 : 1.0. Note the
- * x == 0 case - it is +1.0, not 0 - and the current-command branch in
- * foc_core_set_current_rel depends on that, so this is not replaceable by a plain
- * comparison against zero.
- */
-static float foc_core_sign(float x) {
-    return (x < 0.0f) ? -1.0f : 1.0f;
-}
-
 static edge_status_t foc_core_poll(edge_module_t *module) {
     foc_core_t *self = (foc_core_t *)edge_module_data(module);
     if (self == (void *)0) {
@@ -194,6 +184,9 @@ void foc_core_construct(foc_core_t *self, uint32_t module_id, uint32_t priority,
     self->v_d = 0.0f;
     self->v_q = 0.0f;
     self->duty_now = 0.0f;
+    self->duty_abs_filtered = 0.0f;
+    self->mod_q_filter = 0.0f;
+    self->i_fw_set = 0.0f;
     self->v_alpha = 0.0f;
     self->v_beta = 0.0f;
     self->duty_a = 0.5f;
@@ -515,8 +508,42 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
 
     if (self->state == FOC_STATE_RUNNING_CURRENT || self->state == FOC_STATE_RUNNING_RPM ||
         self->state == FOC_STATE_RUNNING_POS || self->state == FOC_STATE_HANDBRAKE) {
+        /*
+         * The reference applies MTPA and field weakening to this cycle's *setpoints* rather
+         * than to the command, so they are locals here too: target_id/target_iq stay what the
+         * command set, and id_set/iq_set are what the PI tracks (mcpwm_foc.c:3627-3654).
+         */
+        float iq_set = self->target_iq;
+        float id_set = self->target_id;
+        foc_apply_mtpa(self->config.mtpa_mode, self->config.ld_lq_diff, self->config.lambda_wb,
+                       self->iq_filter, &iq_set, &id_set);
+
+        const foc_fw_state_t fw_state = {.duty_abs_filtered = self->duty_abs_filtered,
+                                         .iq = iq,
+                                         .iq_target = self->target_iq,
+                                         .speed_erpm =
+                                             rpm * ((float)self->config.si_motor_poles / 2.0f),
+                                         .i_fw_set = self->i_fw_set};
+        const foc_fw_params_t fw_params = {.current_max = self->config.fw_current_max,
+                                           .duty_start = self->config.fw_duty_start,
+                                           .backoff = self->config.fw_backoff,
+                                           .ramp_time = self->config.fw_ramp_time,
+                                           .l_max_duty = self->config.duty_max,
+                                           .cc_min_current = self->config.cc_min_current};
+        /* The reference's mode gate includes the braking mode; this port's brake is
+         * approximated by the current mode (see docs/adr-conformance.md), so it is included
+         * implicitly rather than named. */
+        const bool fw_mode_allows =
+            (self->state == FOC_STATE_RUNNING_CURRENT || self->state == FOC_STATE_RUNNING_RPM);
+        foc_fw_state_t fw_next = fw_state;
+        foc_run_fw(&fw_next, &fw_params, fw_mode_allows, dt);
+        self->i_fw_set = fw_next.i_fw_set;
+
+        id_set = foc_max_abs(id_set, -self->i_fw_set);
+        iq_set -= foc_sign(self->mod_q_filter) * self->i_fw_set * self->config.fw_q_current_factor;
+
         /* d-axis PI controller */
-        float err_d = self->target_id - id;
+        float err_d = id_set - id;
         self->id_integral += err_d * self->config.current_ki * dt;
         /* anti-windup clamp */
         /* mod = 1.5 * v / v_bus reaches 1.0 at v = (2/3) * v_bus, which is the
@@ -529,7 +556,7 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
         vd = err_d * self->config.current_kp + self->id_integral;
 
         /* q-axis PI controller */
-        float err_q = self->target_iq - iq;
+        float err_q = iq_set - iq;
         self->iq_integral += err_q * self->config.current_ki * dt;
         if (self->iq_integral > v_limit)
             self->iq_integral = v_limit;
@@ -558,7 +585,18 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
      */
     const float mod_d = vd * (1.5f / v_bus);
     const float mod_q = vq * (1.5f / v_bus);
-    self->duty_now = foc_core_sign(vq) * NORM2_f(mod_d, mod_q) * TWO_BY_SQRT3;
+    self->duty_now = foc_sign(vq) * NORM2_f(mod_d, mod_q) * TWO_BY_SQRT3;
+
+    /*
+     * The two filters field weakening and MTPA consume (reference mcpwm_foc.c:3812-3814 and
+     * :3332-3333): mod_q low-passed at 0.2, and |duty_now| at 0.01, each clamped to
+     * magnitude 1. Both use UTILS_LP_FAST's `value -= c * (value - sample)` form, which is
+     * what keeps them bit-equal to the reference.
+     */
+    self->mod_q_filter -= 0.2f * (self->mod_q_filter - mod_q);
+    foc_truncate_number_abs(&self->mod_q_filter, 1.0f);
+    self->duty_abs_filtered -= 0.01f * (self->duty_abs_filtered - fabsf(self->duty_now));
+    foc_truncate_number_abs(&self->duty_abs_filtered, 1.0f);
 
     /* 9. Inverse Park Transform */
     float v_alpha = 0.0f, v_beta = 0.0f;
@@ -688,10 +726,9 @@ edge_status_t foc_core_set_current_rel(foc_core_t *self, float rel) {
      * zero setpoint against a negative duty picks the negative limit - the reference's
      * behaviour, not an accident to fix.
      */
-    const float base =
-        (fabsf(self->duty_now) < 0.02f || foc_core_sign(rel) == foc_core_sign(self->duty_now))
-            ? self->config.current_max_a
-            : fabsf(self->config.current_min_a);
+    const float base = (fabsf(self->duty_now) < 0.02f || foc_sign(rel) == foc_sign(self->duty_now))
+                           ? self->config.current_max_a
+                           : fabsf(self->config.current_min_a);
 
     /*
      * The reference then calls mc_interface_set_current(), so DIR_MULT and the rest of

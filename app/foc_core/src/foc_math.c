@@ -622,3 +622,114 @@ void foc_virtual_motor_step(foc_virtual_motor_t *vm, float v_alpha, float v_beta
     vm->ib = -0.5f * vm->i_alpha + SQRT3_BY_2 * vm->i_beta;
     vm->ic = -vm->ia - vm->ib;
 }
+
+/*
+ * Reference util/utils_math.c: utils_step_towards, utils_truncate_number, utils_min_abs and
+ * utils_max_abs, plus the SIGN macro from util/utils_math.h:58. All four are small enough
+ * that re-deriving them would only introduce doubt, and SIGN's x == 0 case (+1.0, not 0) is
+ * load-bearing in the field-weakening backoff below.
+ */
+float foc_sign(float x) {
+    return (x < 0.0f) ? -1.0f : 1.0f;
+}
+
+void foc_step_towards(float *value, float goal, float step) {
+    if (*value < goal) {
+        if ((*value + step) < goal) {
+            *value += step;
+        } else {
+            *value = goal;
+        }
+    } else if (*value > goal) {
+        if ((*value - step) > goal) {
+            *value -= step;
+        } else {
+            *value = goal;
+        }
+    }
+}
+
+void foc_truncate_number(float *number, float min, float max) {
+    if (*number > max) {
+        *number = max;
+    } else if (*number < min) {
+        *number = min;
+    }
+}
+
+void foc_truncate_number_abs(float *number, float max) {
+    foc_truncate_number(number, -max, max);
+}
+
+float foc_min_abs(float va, float vb) {
+    return (fabsf(va) < fabsf(vb)) ? va : vb;
+}
+
+float foc_max_abs(float va, float vb) {
+    return (fabsf(va) > fabsf(vb)) ? va : vb;
+}
+
+void foc_run_fw(foc_fw_state_t *state, const foc_fw_params_t *params, bool mode_allows, float dt) {
+    if (params->current_max < fmaxf(params->cc_min_current, 0.001f)) {
+        return;
+    }
+
+    /*
+     * The reference's gate: the running state plus one of the current/brake/speed modes, or
+     * having been in field weakening already - the latter so a mode change does not strand a
+     * live FW setpoint. The mode half is passed in, because this function does not know the
+     * state machine; the setpoint half is checked here, as the reference does.
+     */
+    if (!mode_allows && state->i_fw_set <= params->cc_min_current) {
+        return;
+    }
+
+    float fw_current_now = 0.0f;
+    if (params->duty_start < 0.99f &&
+        state->duty_abs_filtered > params->duty_start * params->l_max_duty) {
+        float i_fw_max = params->current_max;
+
+        /*
+         * When more field weakening than is achievable is requested, the current controller
+         * puts almost all voltage in vd and the iq controller can lose its headroom; the
+         * backoff uses the iq error to pull the setpoint back. Comment and arithmetic are the
+         * reference's (foc_math.c:735-742).
+         */
+        if (params->backoff > 0.001f) {
+            float i_err_backoff =
+                foc_sign(state->speed_erpm) * (state->iq - state->iq_target) / i_fw_max;
+            i_err_backoff *= params->backoff;
+            foc_truncate_number(&i_err_backoff, 0.0f, 1.0f);
+            i_fw_max *= (1.0f - i_err_backoff);
+        }
+
+        fw_current_now = FOC_MAP(state->duty_abs_filtered, params->duty_start * params->l_max_duty,
+                                 params->l_max_duty, 0.0f, i_fw_max);
+    }
+
+    if (params->ramp_time < dt) {
+        state->i_fw_set = fw_current_now;
+    } else {
+        foc_step_towards(&state->i_fw_set, fw_current_now,
+                         (dt / params->ramp_time) * params->current_max);
+    }
+}
+
+void foc_apply_mtpa(uint8_t mtpa_mode, float ld_lq_diff, float lambda, float iq_filter,
+                    float *iq_set, float *id_set) {
+    if (mtpa_mode == FOC_MTPA_MODE_OFF || ld_lq_diff == 0.0f) {
+        return;
+    }
+
+    /*
+     * Reference mcpwm_foc.c:3633-3639. The 8.0 and 4.0 literals are double on purpose - the
+     * reference writes them that way, and 8.0f/4.0f would move the last bits.
+     */
+    float iq_ref = *iq_set;
+    if (mtpa_mode == FOC_MTPA_MODE_IQ_MEASURED) {
+        iq_ref = foc_min_abs(*iq_set, iq_filter);
+    }
+
+    *id_set = (lambda - sqrtf(SQ(lambda) + 8.0 * SQ(ld_lq_diff * iq_ref))) / (4.0 * ld_lq_diff);
+    *iq_set = foc_sign(*iq_set) * sqrtf(SQ(*iq_set) - SQ(*id_set));
+}

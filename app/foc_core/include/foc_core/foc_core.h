@@ -107,6 +107,19 @@ typedef struct foc_config {
      * because that is what its signature takes; this is the motor-level view. */
     bool m_invert_direction;
 
+    /*
+     * Field weakening and MTPA, from mcconf foc_fw_* / foc_mtpa_mode / cc_min_current
+     * (defaults: current_max 0.0, duty_start 0.8, backoff 2.0, ramp_time 0.5,
+     * q_current_factor 0.05). foc_run_fw and foc_apply_mtpa take exactly these.
+     */
+    float fw_current_max;
+    float fw_duty_start;
+    float fw_backoff;
+    float fw_ramp_time;
+    float fw_q_current_factor;
+    uint8_t mtpa_mode; /* FOC_MTPA_MODE_OFF / _IQ_TARGET / _IQ_MEASURED */
+    float cc_min_current;
+
     /* Speed-loop parameters, handed to foc_run_pid_speed verbatim. */
     foc_speed_pid_params_t speed_pid;
 
@@ -184,6 +197,17 @@ typedef struct foc_core {
      */
     float duty_now;
     uint32_t svm_sector;
+
+    /*
+     * The two filtered quantities field weakening and MTPA read: |duty_now| low-passed at 0.01
+     * and mod_q at 0.2, both clamped to magnitude 1 (reference mcpwm_foc.c:3332-3333 and
+     * :3812-3814). They are per-cycle state, not per-command, so they live here.
+     */
+    float duty_abs_filtered;
+    float mod_q_filter;
+
+    /* Field-weakening setpoint, the reference's m_i_fw_set. */
+    float i_fw_set;
 
     /* Observer & Feedback */
     foc_observer_t observer;

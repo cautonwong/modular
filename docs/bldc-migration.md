@@ -122,6 +122,27 @@ clang-format --dry-run     # 格式
 | B5 | 检测流程：`COMM_DETECT_MOTOR_{PARAM,R_L,FLUX_LINKAGE}` 与 `foc_detect_*` |
 | B6 | 控制模式语义：`l_current_max` 斜坡、按 duty 降流、`COMM_SET_CURRENT_REL`、handbrake 语义 |
 
+#### B3 进展（弱磁 + MTPA 已接入控制环）
+
+- `foc_run_fw` 作为**纯函数**移植（`foc_math.c`），用 8 组**原版黄金向量**逐位对照：
+  harness 编译原版 `motor/foc_math.c:708-762` 的 `foc_run_fw` 取输出，测试喂同一批输入。
+  覆盖：阈值下不动、ramp 步进 `dt/ramp_time*current_max`、backoff 坍塌与随速度翻符号、
+  `dt > ramp_time` 时直接吸附到 `map(duty)` 值、从既有设定值步进、FW 关闭时早退、以及
+  模式门（离开 FW 模式但仍有活跃设定值时继续，避免把设定值“搁浅”）。
+- MTPA 按 `mcpwm_foc.c:3627-3639` 逐行转写：
+  `id_set = (λ - sqrt(λ² + 8·(ld_lq_diff·iq_ref)²)) / (4·ld_lq_diff)`、
+  `iq_set = SIGN(iq_set)·sqrt(iq_set² - id_set²)`。**`8.0`/`4.0` 是 double 字面量**（照拄才能
+  逐位一致，写成 `8.0f` 会移动末位）。`IQ_MEASURED` 模式下 `iq_ref` 取 `iq_filter` 的较小幅值。
+- 环内顺序照原版：**MTPA → FW → 作用于本周期的 id/iq 设定值**（`target_id/iq` 保持命令值，
+  与原版区分「命令」与「本周期设定值」一致）；FW 的 q 轴修正用 `mod_q_filter`。
+- 新增两个滤波状态：`duty_abs_filtered`（LP 0.01）与 `mod_q_filter`（LP 0.2），均按原版
+  截断到模 ≤ 1。`SIGN` 合并为单一 `foc_sign`（原版 `util/utils_math.h:58`，`x==0` 为 +1）。
+- **未携带（B3 剩余件，已定位）**：原版 FW 内还置 `m_current_off_delay = 1.0`，其唯一
+  读者是**调制延长块**（`mcpwm_foc.c:3953-3990`，靠 `m_i_fw_set < min_current` 与
+  `m_motor_released` 决定是否继续保持调制）。该块未移植，所以这里刻意**不设该字段** ——
+  设了就是无人读的死状态（与本端口对 `set_current_off_delay` 的处理同一理由）。另，
+  `m_i_fw_override` 那条路径来自检测流程，属 **B5**。
+
 **B6 剩余项的实测依赖（读原版后记录，避免下轮重新推导）**
 
 - `COMM_SET_CURRENT_REL`（**已实现**）：线格式是 float32 × 1e5（原版用的是**定点**
