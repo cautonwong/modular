@@ -284,9 +284,27 @@ C3 的真正目标是 **`driver/eeprom.c`（643 行）**：在 flash 扇区上�
   于是“搬移中断、新页仅 RECEIVE”的半成品镜像会被当成可用、读出一片空；正确判据是**读侧**的
   “是否存在 VALID 页”（参考 `EE_Init` 的口径）。
 
-**C3 后续（不在本任务判据内，已定位）**：把 `motor_config` 的存/取接到它上面（现在仍是自有信封
-signature + version + length + CRC，参考没有），并按 `conf_general.c` 的 store/load 语义决定何时
-落盘；A8 登记的 `COMM_GET_VALUES_SETUP` 缺的里程计/SOC 源也在这里。
+#### C3 后续（不在本任务判据内）——已量准的设计，含对本文先前一句错的更正
+
+先更正：本文早先写过「配置 blob 的持久化属 `conf_general.c` 那套 flash store，不是 EEPROM 仿真」
+——**恰好相反**。读 `conf_general_read/store_mc_configuration`（conf_general.c:436-520）可见：
+配置**就存在 EEPROM 仿真里**，用 `EE_ReadVariable/EE_WriteVariable`，虚拟地址基址
+**`EEPROM_BASE_MCCONF = 1000`**（第二电机 5000，见 conf_general.c:50-54），
+**每 2 字节配置占一个 u16 变量**（循环 `sizeof(mc_configuration) / 2` 次），且变量表就是在
+`conf_general.c:72` 处用 `EEPROM_BASE_MCCONF + i` 枚举出来的——这正好就是 C3 里
+`flash_var_table_t` 需要的形状。
+
+完整性不是外挂的 CRC 信封，而是**结构体自带的 `uint16_t crc;` 成员**（生成结构体的最后一个
+成员，之前在 manifest 里按“不进线上流”处理是对的：原版 `confgenerator_serialize_mcconf` 确实
+不写它）；写入前用 `mc_interface_calc_crc(conf, is_motor_2)` 算好，读出时比对，**任何变量缺失
+或 CRC 不符就 `confgenerator_set_defaults_mcconf()` 回落默认值并记故障**。
+
+因此本端口要做的：把 `motor_config` 现有的**字节存取端口**换成**变量存取端口**
+（`flash_emul` 正好是这个实现，由产品侧 glue 提供——app 不得直接依赖 infra），基址 1000、
+表 = base+i、crc 成员参与校验、失败回落默认值——这就是自有信封（signature + version +
+length + CRC）的替代物。实现前只需再读一处：`mc_interface_calc_crc` 的字节范围（它不在
+mc_interface.c 的普通函数里，需再定位；算法本身是 util/crc.c 的 crc16，端口已在
+`vesc_can` 里有一份位算式副本）。
 
 #### C1 验收（有消费者的字段是否都配置驱动）
 
