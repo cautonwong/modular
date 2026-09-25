@@ -23,8 +23,9 @@ rewritten) the byte stream. One row per mc_configuration member:
   X(<c type>, <name>, <array size>, <wire kind>, <scale>, <default>)
 
 with wire kinds U8, U16, U32, I32, F16 (2-byte, value * scale), F32 (4-byte fixed
-point, value * scale), F32A (4-byte IEEE float, subnormals zeroed), BMS (the nested
-bms_config, 17 bytes) and NONE (a runtime value the reference does not serialise).
+point, value * scale), F32A (4-byte IEEE float, subnormals zeroed) and NONE for a runtime
+value the reference does not serialise. The nested bms_config's fields are rows of their
+own, with dotted expressions, exactly as the reference writes them.
 
 The order is the reference's *serialisation* order, not its declaration order: those
 differ, and the wire is what has to match. Runtime-only members are appended, since the
@@ -78,15 +79,16 @@ KIND_MAP = {
 }
 
 # the shapes confgenerator_serialize_mcconf() writes in
-WRITE_CAST_U8_RE = re.compile(r"^buffer\[ind\+\+\] = \(uint8_t\)conf->([a-zA-Z_0-9]+)(\[\d+\])?;$")
-WRITE_U8_RE = re.compile(r"^buffer\[ind\+\+\] = conf->([a-zA-Z_0-9]+)(\[\d+\])?;$")
+WRITE_CAST_U8_RE = re.compile(r"^buffer\[ind\+\+\] = \(uint8_t\)conf->([a-zA-Z_0-9.\[\]]+);$")
+WRITE_U8_RE = re.compile(r"^buffer\[ind\+\+\] = conf->([a-zA-Z_0-9.\[\]]+);$")
 APPEND_SCALED_RE = re.compile(
-    r"^buffer_append_([a-z0-9_]+)\(buffer, conf->([a-zA-Z_0-9]+)(\[\d+\])?, ([\d.e-]+), &ind\);$"
+    r"^buffer_append_([a-z0-9_]+)\(buffer, conf->([a-zA-Z_0-9.\[\]]+), ([\d.e-]+), &ind\);$"
 )
 APPEND_PLAIN_RE = re.compile(
-    r"^buffer_append_([a-z0-9_]+)\(buffer, conf->([a-zA-Z_0-9]+)(\[\d+\])?, &ind\);$"
+    r"^buffer_append_([a-z0-9_]+)\(buffer, conf->([a-zA-Z_0-9.\[\]]+), &ind\);$"
 )
-DEFAULT_RE = re.compile(r"^conf->([a-zA-Z_0-9]+)\s*=\s*(.+?);$")
+# names may be dotted (conf->bms.type) and indexed (conf->hall_table[0])
+DEFAULT_RE = re.compile(r"^conf->([a-zA-Z_0-9.\[\]]+)\s*=\s*(.+?);$")
 MACRO_RE = re.compile(r"^#define\s+(MCCONF_[A-Z0-9_]+)\s+(.+?)(\s*//.*)?$")
 
 
@@ -147,15 +149,13 @@ def parse_wire(body):
             continue
         if "MCCONF_SIGNATURE" in line:
             continue  # fixed 4-byte signature, not a member
-        if "conf->bms." in line:
-            continue  # the nested bms_config, parsed by parse_bms_fields()
         m = WRITE_CAST_U8_RE.match(line) or WRITE_U8_RE.match(line)
         if m:
             wire.append(("U8", m.group(1), "0"))
             continue
         m = APPEND_SCALED_RE.match(line)
         if m:
-            wire.append((m.group(1), m.group(2), m.group(4)))
+            wire.append((m.group(1), m.group(2), m.group(3)))
             continue
         m = APPEND_PLAIN_RE.match(line)
         if m:
@@ -173,30 +173,6 @@ def parse_defaults(body):
         if m:
             defaults[m.group(1)] = m.group(2).strip()
     return defaults
-
-
-def parse_bms_fields(body):
-    """The wire order/kind/scale of the nested bms_config, from the serialiser lines that
-    mention conf->bms.<field>."""
-    fields = []
-    for line in body.splitlines():
-        line = line.strip()
-        m = re.search(r"conf->bms\.([a-zA-Z_0-9]+)", line)
-        if not m:
-            continue
-        if line.startswith("buffer[ind++]"):
-            fields.append((m.group(1), "U8", "0"))
-            continue
-        mk = re.search(r"buffer_append_([a-z0-9_]+)\(buffer, conf->bms\.[a-zA-Z_0-9]+, ([\d.e-]+),", line)
-        if mk:
-            fields.append((m.group(1), mk.group(1), mk.group(2)))
-            continue
-        mk = re.search(r"buffer_append_([a-z0-9_]+)\(buffer, conf->bms\.", line)
-        if mk:
-            fields.append((m.group(1), mk.group(1), "0"))
-            continue
-        raise SystemExit(f"unparsed bms wire line: {line}")
-    return fields
 
 
 KIND_SIZE = {"U8": 1, "U16": 2, "U32": 4, "I32": 4, "F16": 2, "F32": 4, "F32A": 4, "NONE": 0}
@@ -251,12 +227,12 @@ def main():
     datatypes = read_text(os.path.join(ref, "datatypes.h"))
     confgen = read_text(os.path.join(ref, "confgenerator.c"))
     defaults_h = read_text(os.path.join(ref, "motor", "mcconf_default.h"))
+    confgenerator_h = read_text(os.path.join(ref, "confgenerator.h"))
 
     members, decl_order = parse_members(struct_body(datatypes, "mc_configuration", "mc_configuration"))
     bms_members, _ = parse_members(struct_body(datatypes, "bms_config", "bms_config"))
     wire, unparsed = parse_wire(brace_body(confgen, "int32_t confgenerator_serialize_mcconf"))
     defaults = parse_defaults(brace_body(confgen, "void confgenerator_set_defaults_mcconf"))
-    bms_wire = parse_bms_fields(brace_body(confgen, "int32_t confgenerator_serialize_mcconf"))
 
     if unparsed:
         raise SystemExit("unparsed serialiser statements:\n  " + "\n  ".join(unparsed))
@@ -268,36 +244,52 @@ def main():
         if m:
             macros[m.group(1)] = (m.group(2).strip(), n)
 
+    # Defaults that name a constant from an enum the port owns (see PORT_OWNED_TYPES) are
+    # emitted as the number, with the constant kept as a comment: the port's own enum lives
+    # in an app this module may not include, and the ordinal is what the wire carries.
+    owned_constants = {}
+    for t in PORT_OWNED_TYPES:
+        idx2 = datatypes.find("} " + t + ";")
+        if idx2 < 0:
+            continue
+        st2 = datatypes.rindex("typedef enum", 0, idx2)
+        body2 = datatypes[datatypes.index("{", st2) + 1 : idx2]
+        ordinal = 0
+        for entry in body2.split(","):
+            name = entry.split("=")[0].strip()
+            if not name or not re.match(r"^[A-Z][A-Z0-9_]*$", name):
+                continue
+            owned_constants[name] = ordinal
+            ordinal += 1
+
+    def resolve_default(expr):
+        def sub(match):
+            name = match.group(0)
+            if name not in owned_constants:
+                return name
+            return f"{owned_constants[name]} /* {name} */"
+
+        return re.sub(r"\bFOC_[A-Z0-9_]+\b", sub, expr)
+
     rows = []
-    seen = set()
-    for kind, name, scale in wire:
-        if name in seen:
-            continue
-        seen.add(name)
-        if name not in members:
-            raise SystemExit(f"wire member {name} is not a mc_configuration member")
-        ctype, size = members[name]
-        if name == "bms":
-            kind, scale = "BMS", "0"
-        rows.append((ctype, name, size, KIND_MAP.get(kind, kind), scale, defaults.get(name, "0")))
+    wire_members = set()
+    for kind, expr, scale in wire:
+        member = expr.split("[")[0].split(".")[0]
+        if member not in members:
+            raise SystemExit(f"wire member {expr} is not a mc_configuration member")
+        wire_members.add(member)
+        rows.append((KIND_MAP.get(kind, kind), expr, scale, resolve_default(defaults.get(expr, "0"))))
     for name in decl_order:
-        if name in seen:
+        if name in wire_members:
             continue
-        ctype, size = members[name]
-        # bms is serialised, its sub-fields are just written by parse_bms_fields() rather
-        # than appearing as rows of their own; everything else here is runtime-only.
-        kind, scale = ("BMS", "0") if name == "bms" else ("NONE", "0")
-        rows.append((ctype, name, size, kind, scale, defaults.get(name, "0")))
+        rows.append(("NONE", name, "0", resolve_default(defaults.get(name, "0"))))
 
     # the wire length this manifest implies; the static assert in the header pins 484
     wire_len = 4  # the signature
-    for _, _, size, kind, _, _ in rows:
-        if kind == "BMS":
-            wire_len += sum(KIND_SIZE[KIND_MAP.get(k, "U8")] for _, k, _ in bms_wire)
-        else:
-            if kind not in KIND_SIZE:
-                raise SystemExit(f"unknown wire kind {kind}")
-            wire_len += size * KIND_SIZE[kind]
+    for kind, expr, _, _ in rows:
+        if kind not in KIND_SIZE:
+            raise SystemExit(f"unknown wire kind {kind} for {expr}")
+        wire_len += KIND_SIZE[kind]
 
     enums = sorted(
         {
@@ -342,25 +334,31 @@ def main():
         f.write(stamp)
         f.write(
             "\n/*\n"
-            " * One row per mc_configuration member, in the reference's *serialisation* order:\n"
+            " * One row per byte-stream item, in the reference's own order, array elements\n"
+            " * included (the reference writes hall_table[0]..[7] one at a time, and gives\n"
+            " * each its own MCCONF_HALL_TAB_n default):\n"
             " *\n"
-            " *   X(<c type>, <name>, <array size>, <wire kind>, <scale>, <default>)\n"
+            " *   X(<wire kind>, <expression>, <scale>, <default>)\n"
             " *\n"
             " * Kinds: U8/U16/U32/I32 integers, F16 (2 bytes, value * scale), F32 (4 bytes,\n"
             " * fixed point, value * scale), F32A (4 bytes, IEEE float, subnormals zeroed),\n"
-            " * BMS (the nested bms_config, via the same order as the reference writes it) and\n"
-            " * NONE for a runtime value the reference does not serialise.\n"
+            " * BMS rows are the nested bms_config's own fields, written by the reference\n"
+            " * one at a time; NONE marks a runtime value the reference does not serialise.\n"
             " *\n"
-            " * If this list changes, MCCONF_WIRE_LEN changes with it and the static assert\n"
-            " * below fires - which is the point: the wire layout is the reference's, so a\n"
-            " * silent edit here would be a protocol change.\n"
+            " * The same list drives the writer, the reader and the defaults, so those three\n"
+            " * cannot disagree; and MCCONF_WIRE_LEN is asserted to be the reference's 488.\n"
             " */\n\n"
         )
         f.write("#ifndef MCCONF_MANIFEST_H\n#define MCCONF_MANIFEST_H\n\n")
-        f.write("#define MCCONF_FIELDS(X) \\\n")
-        for i, (ctype, name, size, kind, scale, default) in enumerate(rows):
-            line = f"    X({ctype}, {name}, {size}, {kind}, {scale}, {default})"
-            f.write(line + (" \\\n" if i + 1 < len(rows) else "\n"))
+        sig = re.search(r"#define\s+(MCCONF_SIGNATURE|APPCONF_SIGNATURE)\s+(\d+)", confgenerator_h)
+        if not sig:
+            raise SystemExit("no MCCONF_SIGNATURE in confgenerator.h")
+        f.write("/* confgenerator.h: the signature the stream starts with. */\n")
+        for m in re.finditer(r"#define\s+(MCCONF_SIGNATURE|APPCONF_SIGNATURE)\s+(\d+)", confgenerator_h):
+            f.write(f"#define {m.group(1)} {m.group(2)}u\n")
+        f.write("\n#define MCCONF_WIRE(X) \\\n")
+        for i, (kind, expr, scale, default) in enumerate(rows):
+            f.write(f"    X({kind}, {expr}, {scale}, {default})" + (" \\\n" if i + 1 < len(rows) else "\n"))
         f.write("\n#define MCCONF_KIND_LEN_U8 1\n")
         f.write("#define MCCONF_KIND_LEN_U16 2\n")
         f.write("#define MCCONF_KIND_LEN_U32 4\n")
@@ -369,15 +367,13 @@ def main():
         f.write("#define MCCONF_KIND_LEN_F32 4\n")
         f.write("#define MCCONF_KIND_LEN_F32A 4\n")
         f.write("#define MCCONF_KIND_LEN_NONE 0\n")
-        bms_len = sum(KIND_SIZE[KIND_MAP.get(k, "U8")] for _, k, _ in bms_wire)
-        f.write(f"#define MCCONF_KIND_LEN_BMS {bms_len}\n")
-        f.write("#define MCCONF_WIRE_LEN_ONE(ct, name, n, kind, scale, def) + (n) * MCCONF_KIND_LEN_##kind\n")
-        f.write("#define MCCONF_WIRE_LEN (4 MCCONF_FIELDS(MCCONF_WIRE_LEN_ONE))\n")
+        f.write("#define MCCONF_WIRE_LEN_ONE(kind, expr, scale, def) + MCCONF_KIND_LEN_##kind\n")
+        f.write("#define MCCONF_WIRE_LEN (4 MCCONF_WIRE(MCCONF_WIRE_LEN_ONE))\n")
         f.write("\n#endif /* MCCONF_MANIFEST_H */\n")
 
     # 3. the defaults macros, in the reference's own spelling
     used = set()
-    for _, _, _, _, _, default in rows:
+    for _, _, _, default in rows:
         used |= set(re.findall(r"MCCONF_[A-Z0-9_]+", default))
     defaults_path = os.path.join(args.out, "src", "mcconf_defaults.h")
     with open_or_die(defaults_path, "w") as f:
@@ -395,7 +391,7 @@ def main():
                 missing.append(name)
                 continue
             value, line = macros[name]
-            f.write(f"/* mcconf_default.h:{line} */\n#define {name} {value}\n")
+            f.write(f"/* mcconf_default.h:{line} */\n#define {name} {resolve_default(value)}\n")
         f.write("\n#endif /* MCCONF_DEFAULTS_H */\n")
     if missing:
         raise SystemExit("defaults without a reference macro: " + ", ".join(missing))
@@ -425,7 +421,7 @@ def main():
     write_text(struct_path, struct_text)
 
     print(f"members={len(members)} wire items={len(wire)} rows={len(rows)}")
-    print(f"enums={len(enum_blocks)} bms fields={len(bms_wire)} defaults macros={len(used)}")
+    print(f"enums={len(enum_blocks)} rows={len(rows)} defaults macros={len(used)}")
     print(f"computed wire length={wire_len} (the reference's is 488)")
     for path in (enum_path, manifest_path, defaults_path, struct_path):
         format_in_place(path)

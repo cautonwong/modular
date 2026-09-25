@@ -55,10 +55,11 @@ typedef struct motor_config_storage_port {
  * so the caller never needs the layout to use the module.
  */
 /*
- * The caller's storage contract. sizeof(struct motor_config) is 1152 with the
- * generated 177-member mc_configuration_t (776 of those bytes); the assert in
- * src/motor_config_internal.h turns a stale value into a build error rather than an
- * under-allocated caller.
+ * The caller's storage contract: sizeof(struct motor_config) is 1408 with the generated
+ * 177-member mc_configuration_t (776 of those bytes). Measured under this module's own
+ * -std=c11, which lays the same aggregate out 256 bytes larger than -std=gnu11 does.
+ * The assert in src/motor_config_internal.h turns a stale value into a build error rather
+ * than an under-allocating caller.
  */
 #define MOTOR_CONFIG_STORAGE_SIZE 1408u
 #define MOTOR_CONFIG_STORAGE_ALIGN alignof(max_align_t)
@@ -73,6 +74,18 @@ edge_status_t motor_config_validate(const mc_configuration_t *mcconf,
 edge_status_t motor_config_serialize(const mc_configuration_t *mcconf,
                                      const app_configuration_t *appconf, uint8_t *buffer,
                                      size_t buf_size, size_t *out_len);
+
+/*
+ * The reference's own mc_configuration stream - confgenerator_serialize_mcconf(): 488
+ * bytes including the signature, with no version, length or CRC of its own, which is why
+ * these two are separate from the flash envelope above. This is what COMM_GET_MCCONF
+ * hands out and what the tests compare byte for byte against the reference's serialiser.
+ */
+size_t motor_config_stream_len(void);
+edge_status_t motor_config_serialize_mc(const mc_configuration_t *mcconf, uint8_t *buffer,
+                                        size_t buf_size, size_t *out_len);
+edge_status_t motor_config_deserialize_mc(mc_configuration_t *mcconf, const uint8_t *buffer,
+                                          size_t len);
 
 edge_status_t motor_config_deserialize(mc_configuration_t *mcconf, app_configuration_t *appconf,
                                        const uint8_t *buffer, size_t len);
