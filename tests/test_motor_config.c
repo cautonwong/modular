@@ -14,40 +14,37 @@
 #include "motor_config/motor_config.h"
 #include "vesc_comm/vesc_comm.h" /* vesc_crc16, for the cross-check */
 
-typedef struct mock_storage_ctx {
-    uint8_t flash_mem[1536]; /* the module reads its whole 1024-byte scratch at offset 0x100 */
-    size_t read_count;
-    size_t write_count;
-    size_t erase_count;
-} mock_storage_ctx_t;
+/* A mock variable store: one uint16 per two configuration bytes, which is how the reference
+ * persists a configuration (conf_general.c:436-520). */
+#define MOCK_VAR_COUNT 512u
 
-static edge_status_t mock_flash_read(void *self, uint32_t offset, uint8_t *buf, size_t len) {
-    mock_storage_ctx_t *ctx = (mock_storage_ctx_t *)self;
-    if (offset + len > sizeof(ctx->flash_mem)) {
-        return EDGE_EINVAL;
+typedef struct mock_var_store {
+    uint16_t values[MOCK_VAR_COUNT];
+    bool present; /* false simulates a variable that was never written */
+    int writes;
+} mock_var_store_t;
+
+static edge_status_t mock_var_read(void *self, uint16_t index, uint16_t *value) {
+    mock_var_store_t *store = (mock_var_store_t *)self;
+    if (!store->present || index >= MOCK_VAR_COUNT) {
+        return EDGE_ENOENT;
     }
-    memcpy(buf, ctx->flash_mem + offset, len);
-    ctx->read_count++;
+    *value = store->values[index];
     return EDGE_OK;
 }
 
-static edge_status_t mock_flash_write(void *self, uint32_t offset, const uint8_t *buf, size_t len) {
-    mock_storage_ctx_t *ctx = (mock_storage_ctx_t *)self;
-    if (offset + len > sizeof(ctx->flash_mem)) {
+static edge_status_t mock_var_write(void *self, uint16_t index, uint16_t value) {
+    mock_var_store_t *store = (mock_var_store_t *)self;
+    if (index >= MOCK_VAR_COUNT) {
         return EDGE_EINVAL;
     }
-    memcpy(ctx->flash_mem + offset, buf, len);
-    ctx->write_count++;
-    return EDGE_OK;
-}
-
-static edge_status_t mock_flash_erase(void *self, uint32_t offset, size_t len) {
-    mock_storage_ctx_t *ctx = (mock_storage_ctx_t *)self;
-    if (offset + len > sizeof(ctx->flash_mem)) {
-        return EDGE_EINVAL;
-    }
-    memset(ctx->flash_mem + offset, 0xFF, len);
-    ctx->erase_count++;
+    store->values[index] = value;
+    /* The variable exists once it has been written, which is how the reference's store
+     * reports a blank one: by the read failing, not by the value. That distinction is load
+     * bearing - an all-zero image has a CRC of zero, so it would otherwise pass the check
+     * against an unwritten struct's own zero crc field. */
+    store->present = true;
+    store->writes++;
     return EDGE_OK;
 }
 
@@ -122,7 +119,7 @@ static void test_controller_fields_have_reference_defaults(void **state) {
 static void test_controller_fields_survive_a_round_trip(void **state) {
     (void)state;
     mc_configuration_t mc_orig, mc_restored;
-    app_configuration_t app_orig, app_restored;
+    app_configuration_t app_orig;
 
     motor_config_set_defaults(&mc_orig, &app_orig);
     mc_orig.foc_current_filter_const = 0.25f;
@@ -139,14 +136,13 @@ static void test_controller_fields_survive_a_round_trip(void **state) {
 
     uint8_t buffer[MOTOR_CONFIG_BUFFER_SIZE];
     size_t out_len = 0;
-    assert_int_equal(motor_config_serialize(&mc_orig, &app_orig, buffer, sizeof(buffer), &out_len),
+    assert_int_equal(motor_config_serialize_mc(&mc_orig, buffer, sizeof(buffer), &out_len),
                      EDGE_OK);
     /* lo_current_min is a runtime value in the reference and has no place in the byte
      * stream, so a decode must leave whatever the caller had in it alone. A sentinel
      * proves that; comparing against a value we happened to encode would not. */
     mc_restored.lo_current_min = -999.0f;
-    assert_int_equal(motor_config_deserialize(&mc_restored, &app_restored, buffer, out_len),
-                     EDGE_OK);
+    assert_int_equal(motor_config_deserialize_mc(&mc_restored, buffer, out_len), EDGE_OK);
 
     assert_float_equal(mc_restored.foc_current_filter_const, 0.25f, 1e-4f);
     assert_float_equal(mc_restored.foc_pll_kp, 1500.0f, 0.5f);
@@ -161,51 +157,12 @@ static void test_controller_fields_survive_a_round_trip(void **state) {
     assert_float_equal(mc_restored.cc_min_current, 0.07f, 1e-4f);
 }
 
-static void test_serialization_roundtrip(void **state) {
+static void test_module_lifecycle_and_variable_store(void **state) {
     (void)state;
-    mc_configuration_t mc_orig, mc_restored;
-    app_configuration_t app_orig, app_restored;
-
-    motor_config_set_defaults(&mc_orig, &app_orig);
-    mc_orig.l_current_max = 75.5f;
-    mc_orig.foc_current_kp = 0.045f;
-    app_orig.controller_id = 42;
-
-    uint8_t buffer[MOTOR_CONFIG_BUFFER_SIZE];
-    size_t out_len = 0;
-
-    assert_int_equal(motor_config_serialize(&mc_orig, &app_orig, buffer, sizeof(buffer), &out_len),
-                     EDGE_OK);
-    assert_true(out_len > 0);
-
-    assert_int_equal(motor_config_deserialize(&mc_restored, &app_restored, buffer, out_len),
-                     EDGE_OK);
-
-    assert_int_equal(mc_restored.motor_type, mc_orig.motor_type);
-    assert_true(fabsf(mc_restored.l_current_max - 75.5f) < 0.02f);
-    assert_true(fabsf(mc_restored.foc_current_kp - 0.045f) < 1e-4f);
-    assert_int_equal(app_restored.controller_id, 42);
-
-    /* Corrupt buffer CRC */
-    buffer[4] ^= 0xFF;
-    assert_int_equal(motor_config_deserialize(&mc_restored, &app_restored, buffer, out_len),
-                     EDGE_EINVAL);
-}
-
-static void test_module_lifecycle_and_storage(void **state) {
-    (void)state;
-    mock_storage_ctx_t ctx;
-    memset(&ctx, 0xFF, sizeof(ctx));
-    ctx.read_count = 0;
-    ctx.write_count = 0;
-    ctx.erase_count = 0;
-
-    motor_config_storage_port_t storage_port = {
-        .read = mock_flash_read,
-        .write = mock_flash_write,
-        .erase = mock_flash_erase,
-        .self = &ctx,
-    };
+    mock_var_store_t store;
+    memset(&store, 0, sizeof(store));
+    const motor_config_var_port_t port = {
+        .read = mock_var_read, .write = mock_var_write, .self = &store};
 
     /* Caller-provided storage: two instances, so two blocks. */
     static alignas(
@@ -215,31 +172,32 @@ static void test_module_lifecycle_and_storage(void **state) {
     motor_config_t *config = (motor_config_t *)config_storage;
     memset(config_storage, 0, sizeof(config_storage));
     memset(config2_storage, 0, sizeof(config2_storage));
-    motor_config_construct(config, EDGE_MOD_MOTOR_CONFIG, 20, &storage_port, 0x100);
+    motor_config_construct(config, EDGE_MOD_MOTOR_CONFIG, 20u, &port);
 
-    /* Init on clean/empty flash should auto-save defaults */
+    /* An empty store - or one whose image fails its CRC - leaves the defaults in place and
+     * persists them, which is the reference's first-boot behaviour. */
     assert_int_equal(motor_config_init(config), EDGE_OK);
-    assert_true(ctx.read_count >= 1);
-    assert_true(ctx.write_count >= 1);
+    assert_true(store.writes > 0);
 
-    /* Update a parameter */
+    /* Update a parameter, then let the module's poll flush it. */
     mc_configuration_t new_mc = *motor_config_get_mc(config);
     new_mc.l_current_max = 90.0f;
     assert_int_equal(motor_config_update_mc(config, &new_mc), EDGE_OK);
+    assert_true(motor_config_is_dirty(config));
 
-    /* Polling flushes dirty config to flash */
     edge_module_t *mod = motor_config_module(config);
     assert_non_null(mod);
     assert_int_equal(mod->poll(mod), EDGE_OK);
+    assert_false(motor_config_is_dirty(config));
 
-    /* Create new instance and load from the same mock flash */
+    /* A second instance over the same store reads back what the first one saved. */
     motor_config_t *config2 = (motor_config_t *)config2_storage;
-    motor_config_construct(config2, EDGE_MOD_MOTOR_CONFIG, 20, &storage_port, 0x100);
+    motor_config_construct(config2, EDGE_MOD_MOTOR_CONFIG, 20u, &port);
     assert_int_equal(motor_config_init(config2), EDGE_OK);
 
     const mc_configuration_t *loaded_mc = motor_config_get_mc(config2);
     assert_non_null(loaded_mc);
-    assert_true(fabsf(loaded_mc->l_current_max - 90.0f) < 0.02f);
+    assert_float_equal(loaded_mc->l_current_max, 90.0f, 1e-3f);
 }
 
 /*
@@ -445,18 +403,14 @@ static void test_motor_config_app_golden_bytes(void **state) {
  */
 static void test_motor_config_defaults_keep_the_calibration_offsets(void **state) {
     (void)state;
-    mock_storage_ctx_t ctx;
-    memset(&ctx, 0xFF, sizeof(ctx));
-    motor_config_storage_port_t storage_port = {
-        .read = mock_flash_read,
-        .write = mock_flash_write,
-        .erase = mock_flash_erase,
-        .self = &ctx,
-    };
+    mock_var_store_t store;
+    memset(&store, 0, sizeof(store));
+    const motor_config_var_port_t port = {
+        .read = mock_var_read, .write = mock_var_write, .self = &store};
     static alignas(MOTOR_CONFIG_STORAGE_ALIGN) unsigned char storage[MOTOR_CONFIG_STORAGE_SIZE];
     memset(storage, 0, sizeof(storage));
     motor_config_t *cfg = (motor_config_t *)storage;
-    motor_config_construct(cfg, EDGE_MOD_MOTOR_CONFIG, 20u, &storage_port, 0x100u);
+    motor_config_construct(cfg, EDGE_MOD_MOTOR_CONFIG, 20u, &port);
     assert_int_equal(motor_config_init(cfg), EDGE_OK);
 
     /* Live calibration, plus a non-default current limit to show what is NOT carried over. */
@@ -500,18 +454,14 @@ static void test_motor_config_defaults_keep_the_calibration_offsets(void **state
  */
 static void test_motor_config_app_nostore_applies_without_marking_dirty(void **state) {
     (void)state;
-    mock_storage_ctx_t ctx;
-    memset(&ctx, 0xFF, sizeof(ctx));
-    motor_config_storage_port_t storage_port = {
-        .read = mock_flash_read,
-        .write = mock_flash_write,
-        .erase = mock_flash_erase,
-        .self = &ctx,
-    };
+    mock_var_store_t store;
+    memset(&store, 0, sizeof(store));
+    const motor_config_var_port_t port = {
+        .read = mock_var_read, .write = mock_var_write, .self = &store};
     static alignas(MOTOR_CONFIG_STORAGE_ALIGN) unsigned char storage[MOTOR_CONFIG_STORAGE_SIZE];
     memset(storage, 0, sizeof(storage));
     motor_config_t *cfg = (motor_config_t *)storage;
-    motor_config_construct(cfg, EDGE_MOD_MOTOR_CONFIG, 20u, &storage_port, 0x100u);
+    motor_config_construct(cfg, EDGE_MOD_MOTOR_CONFIG, 20u, &port);
     assert_int_equal(motor_config_init(cfg), EDGE_OK);
 
     app_configuration_t app = *motor_config_get_app(cfg);
@@ -531,34 +481,6 @@ static void test_motor_config_app_nostore_applies_without_marking_dirty(void **s
     assert_true(motor_config_is_dirty(cfg));
 }
 
-/* A mock variable store: one uint16 per two configuration bytes. */
-#define MOCK_VAR_COUNT 512u
-
-typedef struct mock_var_store {
-    uint16_t values[MOCK_VAR_COUNT];
-    bool present; /* false simulates a variable that was never written */
-    int writes;
-} mock_var_store_t;
-
-static edge_status_t mock_var_read(void *self, uint16_t index, uint16_t *value) {
-    mock_var_store_t *store = (mock_var_store_t *)self;
-    if (!store->present || index >= MOCK_VAR_COUNT) {
-        return EDGE_ENOENT;
-    }
-    *value = store->values[index];
-    return EDGE_OK;
-}
-
-static edge_status_t mock_var_write(void *self, uint16_t index, uint16_t value) {
-    mock_var_store_t *store = (mock_var_store_t *)self;
-    if (index >= MOCK_VAR_COUNT) {
-        return EDGE_EINVAL;
-    }
-    store->values[index] = value;
-    store->writes++;
-    return EDGE_OK;
-}
-
 /*
  * The configuration through the variable store, which is how the reference actually persists it
  * (conf_general.c:436-520): one uint16 per two bytes, and the struct's own crc member as the
@@ -568,20 +490,13 @@ static void test_motor_config_variable_store(void **state) {
     (void)state;
     mock_var_store_t store;
     memset(&store, 0, sizeof(store));
-    store.present = true;
     const motor_config_var_port_t port = {
         .read = mock_var_read, .write = mock_var_write, .self = &store};
 
     static alignas(MOTOR_CONFIG_STORAGE_ALIGN) unsigned char storage[MOTOR_CONFIG_STORAGE_SIZE];
     memset(storage, 0, sizeof(storage));
     motor_config_t *cfg = (motor_config_t *)storage;
-    mock_storage_ctx_t flash;
-    memset(&flash, 0xFF, sizeof(flash));
-    motor_config_storage_port_t flash_port = {.read = mock_flash_read,
-                                              .write = mock_flash_write,
-                                              .erase = mock_flash_erase,
-                                              .self = &flash};
-    motor_config_construct(cfg, EDGE_MOD_MOTOR_CONFIG, 20u, &flash_port, 0x100u);
+    motor_config_construct(cfg, EDGE_MOD_MOTOR_CONFIG, 20u, &port);
 
     mc_configuration_t mc;
     app_configuration_t app;
@@ -590,7 +505,7 @@ static void test_motor_config_variable_store(void **state) {
     mc.foc_pll_kp = 1234.0f;
     assert_int_equal(motor_config_update_mc(cfg, &mc), EDGE_OK);
 
-    assert_int_equal(motor_config_store_to_vars(cfg, &port), EDGE_OK);
+    assert_int_equal(motor_config_save(cfg), EDGE_OK);
     assert_true(store.writes > 0);
 
     /* Wipe the live configuration, then read it back out of the variables. */
@@ -598,19 +513,19 @@ static void test_motor_config_variable_store(void **state) {
     assert_int_equal(motor_config_update_mc(cfg, &mc), EDGE_OK);
     assert_float_equal(motor_config_get_mc(cfg)->l_current_max, 60.0f, 1e-3f);
 
-    assert_int_equal(motor_config_load_from_vars(cfg, &port), EDGE_OK);
+    assert_int_equal(motor_config_load(cfg), EDGE_OK);
     assert_float_equal(motor_config_get_mc(cfg)->l_current_max, 37.5f, 1e-2f);
     assert_float_equal(motor_config_get_mc(cfg)->foc_pll_kp, 1234.0f, 1e-1f);
 
     /* A variable that never made it falls back to the defaults, as the reference does. */
     store.present = false;
-    assert_int_equal(motor_config_load_from_vars(cfg, &port), EDGE_ENOENT);
+    assert_int_equal(motor_config_load(cfg), EDGE_ENOENT);
     assert_float_equal(motor_config_get_mc(cfg)->l_current_max, 60.0f, 1e-3f);
 
     /* And so does a CRC mismatch. */
     store.present = true;
     store.values[1] ^= 0xFFFFu;
-    assert_int_equal(motor_config_load_from_vars(cfg, &port), EDGE_EINVAL);
+    assert_int_equal(motor_config_load(cfg), EDGE_EINVAL);
     assert_float_equal(motor_config_get_mc(cfg)->l_current_max, 60.0f, 1e-3f);
 }
 
@@ -647,8 +562,7 @@ int main(void) {
         cmocka_unit_test(test_motor_config_crc_matches_the_codec),
         cmocka_unit_test(test_motor_config_defaults_keep_the_calibration_offsets),
         cmocka_unit_test(test_motor_config_app_nostore_applies_without_marking_dirty),
-        cmocka_unit_test(test_serialization_roundtrip),
-        cmocka_unit_test(test_module_lifecycle_and_storage),
+        cmocka_unit_test(test_module_lifecycle_and_variable_store),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

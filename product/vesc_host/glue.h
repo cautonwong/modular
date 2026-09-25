@@ -24,7 +24,9 @@ typedef struct vesc_host_glue_state {
     foc_virtual_motor_t vmotor;
     foc_core_t *foc;
     float v_bus;
-    uint8_t flash_mem[1024];
+    /* The EEPROM emulation's two sectors, one FLASH_EMUL_PAGE_SIZE each: the configuration's
+     * variable table is stored in this image, so the emulation's page size sets its size. */
+    uint8_t flash_mem[2u * FLASH_EMUL_PAGE_SIZE];
     uint8_t stream_tx_buf[512];
     size_t stream_tx_len;
     float ppm_pulse_us;
@@ -41,7 +43,7 @@ typedef struct vesc_host_glue_state {
     const adc_input_app_t *adc;
 } vesc_host_glue_state_t;
 
-void vesc_host_make_storage_port(motor_config_storage_port_t *out, vesc_host_glue_state_t *state);
+void vesc_host_make_flash_sector_port(flash_sector_port_t *out, vesc_host_glue_state_t *state);
 void vesc_host_make_stream_tx_port(edge_stream_tx_port_t *out, vesc_host_glue_state_t *state);
 void vesc_host_make_motor_provider_port(vesc_motor_provider_port_t *out, foc_core_t *foc);
 

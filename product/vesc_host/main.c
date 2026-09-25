@@ -6,6 +6,7 @@
 #include "edge/events.h"
 #include "edge/modules.h"
 #include "example/board.h"
+#include "flash/flash.h"
 #include "foc_core/foc_core.h"
 #include "glue.h"
 #include "motor_config/motor_config.h"
@@ -27,6 +28,9 @@
 int main(void) {
     vesc_host_glue_state_t glue_state;
     memset(&glue_state, 0, sizeof(glue_state));
+    /* Erased flash reads as ones, and the emulation looks for its page markers there; a
+     * zeroed image would look like two valid pages. */
+    memset(glue_state.flash_mem, 0xFF, sizeof(glue_state.flash_mem));
     glue_state.v_bus = 24.0f;
     glue_state.ppm_pulse_us = 1500.0f;
     glue_state.adc_throttle_v = 1.0f;
@@ -35,8 +39,8 @@ int main(void) {
     foc_virtual_motor_init(&glue_state.vmotor, 0.015f, 0.000020f, 0.005f, 7, 0.0001f);
 
     /* Construct Ports */
-    motor_config_storage_port_t storage_port;
-    vesc_host_make_storage_port(&storage_port, &glue_state);
+    flash_sector_port_t flash_sectors;
+    vesc_host_make_flash_sector_port(&flash_sectors, &glue_state);
 
     edge_stream_tx_port_t stream_tx_port;
     vesc_host_make_stream_tx_port(&stream_tx_port, &glue_state);
@@ -77,12 +81,32 @@ int main(void) {
     terminal_stream_port_t term_stream_port;
     vesc_host_make_terminal_stream_port(&term_stream_port, &glue_state);
 
+    /*
+     * The configuration's variable store, which is how the reference persists it: the EEPROM
+     * emulation over the flash sectors above, with a variable table enumerating the reference's
+     * virtual address base (conf_general.c:50, :72).
+     */
+    static uint16_t mcconf_var_table[VESC_HOST_MCCONF_VARS];
+    for (size_t i = 0u; i < VESC_HOST_MCCONF_VARS; i++) {
+        mcconf_var_table[i] = (uint16_t)(VESC_HOST_MCCONF_BASE + i);
+    }
+    static flash_emul_t flash_store;
+    flash_emul_construct(
+        &flash_store, &flash_sectors,
+        (flash_var_table_t){.virtual_addresses = mcconf_var_table, .count = VESC_HOST_MCCONF_VARS},
+        0u);
+    if (flash_emul_init(&flash_store) != EDGE_OK) {
+        return 11;
+    }
+    motor_config_var_port_t var_port;
+    vesc_host_make_var_port(&var_port, &flash_store);
+
     /* Construct Apps */
     /* The configuration module's memory is the composition root's to provide. */
     static alignas(
         MOTOR_CONFIG_STORAGE_ALIGN) unsigned char motor_cfg_storage[MOTOR_CONFIG_STORAGE_SIZE];
     motor_config_t *motor_cfg = (motor_config_t *)motor_cfg_storage;
-    motor_config_construct(motor_cfg, EDGE_MOD_MOTOR_CONFIG, 30u, &storage_port, 0x00u);
+    motor_config_construct(motor_cfg, EDGE_MOD_MOTOR_CONFIG, 30u, &var_port);
     if (motor_config_init(motor_cfg) < 0) {
         return 10;
     }

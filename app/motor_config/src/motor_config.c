@@ -34,7 +34,7 @@ static edge_status_t motor_config_power_off(edge_module_t *module) {
 }
 
 void motor_config_construct(motor_config_t *self, uint32_t module_id, uint32_t priority,
-                            const motor_config_storage_port_t *storage, uint32_t flash_offset) {
+                            const motor_config_var_port_t *vars) {
     if (self == (void *)0) {
         return;
     }
@@ -53,8 +53,7 @@ void motor_config_construct(motor_config_t *self, uint32_t module_id, uint32_t p
         .private_data = self,
     };
 
-    self->storage = storage;
-    self->flash_offset = flash_offset;
+    self->vars = vars;
     self->is_dirty = false;
 
     motor_config_set_defaults(&self->mcconf, &self->appconf);
@@ -65,11 +64,11 @@ edge_status_t motor_config_init(motor_config_t *self) {
         return EDGE_EINVAL;
     }
 
-    /* Try loading saved config from storage */
-    if (self->storage != (void *)0 && self->storage->read != (void *)0) {
-        edge_status_t status = motor_config_load(self);
-        if (status != EDGE_OK) {
-            /* Flash uninitialized or corrupted: restore defaults and persist */
+    /* Try loading the saved configuration out of the variable store. */
+    if (self->vars != (void *)0 && self->vars->read != (void *)0) {
+        if (motor_config_load(self) != EDGE_OK) {
+            /* Nothing stored yet, or the stored image failed its CRC: restore the defaults
+             * and persist them, which is the reference's first-boot behaviour. */
             motor_config_set_defaults(&self->mcconf, &self->appconf);
             (void)motor_config_save(self);
         }
@@ -89,59 +88,61 @@ edge_status_t motor_config_deinit(motor_config_t *self) {
 }
 
 edge_status_t motor_config_load(motor_config_t *self) {
-    if (self == (void *)0 || self->storage == (void *)0 || self->storage->read == (void *)0) {
+    if (self == (void *)0 || self->vars == (void *)0 || self->vars->read == (void *)0) {
         return EDGE_EINVAL;
     }
 
-    uint8_t *buffer = self->scratch;
-    edge_status_t status =
-        self->storage->read(self->storage->self, self->flash_offset, buffer, sizeof(self->scratch));
-    if (status != EDGE_OK) {
-        return status;
+    /*
+     * Read into the staging copy so a failed read cannot half-overwrite the running
+     * configuration, then check the struct's own CRC exactly as
+     * conf_general_read_mc_configuration does: a missing variable or a mismatch falls back to
+     * the defaults.
+     */
+    uint8_t *bytes = (uint8_t *)&self->staging_mc;
+    const size_t count = sizeof(self->staging_mc) / 2u;
+    for (size_t i = 0u; i < count; i++) {
+        uint16_t value = 0u;
+        edge_status_t status = self->vars->read(self->vars->self, (uint16_t)i, &value);
+        if (status != EDGE_OK) {
+            motor_config_set_defaults(&self->mcconf, &self->appconf);
+            return status;
+        }
+        bytes[2u * i] = (uint8_t)(value >> 8);
+        bytes[2u * i + 1u] = (uint8_t)(value & 0xFFu);
     }
 
-    mc_configuration_t mc;
-    app_configuration_t app;
-    status = motor_config_deserialize(&mc, &app, buffer, sizeof(self->scratch));
-    if (status != EDGE_OK) {
-        return status;
+    if (self->staging_mc.crc != motor_config_config_crc(&self->staging_mc)) {
+        motor_config_set_defaults(&self->mcconf, &self->appconf);
+        return EDGE_EINVAL;
     }
 
-    self->mcconf = mc;
-    self->appconf = app;
+    self->mcconf = self->staging_mc;
     self->is_dirty = false;
     return EDGE_OK;
 }
 
 edge_status_t motor_config_save(motor_config_t *self) {
-    if (self == (void *)0 || self->storage == (void *)0 || self->storage->write == (void *)0) {
+    if (self == (void *)0 || self->vars == (void *)0 || self->vars->write == (void *)0) {
         return EDGE_EINVAL;
     }
 
-    uint8_t *buffer = self->scratch;
-    memset(buffer, 0xFF, sizeof(self->scratch));
-    size_t out_len = 0;
+    /* The reference computes the CRC into the struct's own field first, then writes the whole
+     * struct out as variables, so the stored image includes the CRC it was built with. */
+    self->mcconf.crc = motor_config_config_crc(&self->mcconf);
 
-    edge_status_t status = motor_config_serialize(&self->mcconf, &self->appconf, buffer,
-                                                  sizeof(self->scratch), &out_len);
-    if (status != EDGE_OK) {
-        return status;
-    }
-
-    if (self->storage->erase != (void *)0) {
-        status =
-            self->storage->erase(self->storage->self, self->flash_offset, sizeof(self->scratch));
+    const uint8_t *bytes = (const uint8_t *)&self->mcconf;
+    const size_t count = sizeof(self->mcconf) / 2u;
+    for (size_t i = 0u; i < count; i++) {
+        const uint16_t value =
+            (uint16_t)(((uint16_t)bytes[2u * i] << 8) | (uint16_t)bytes[2u * i + 1u]);
+        edge_status_t status = self->vars->write(self->vars->self, (uint16_t)i, value);
         if (status != EDGE_OK) {
             return status;
         }
     }
 
-    status = self->storage->write(self->storage->self, self->flash_offset, buffer,
-                                  sizeof(self->scratch));
-    if (status == EDGE_OK) {
-        self->is_dirty = false;
-    }
-    return status;
+    self->is_dirty = false;
+    return EDGE_OK;
 }
 
 edge_module_t *motor_config_module(motor_config_t *self) {
@@ -314,63 +315,4 @@ uint16_t motor_config_config_crc(mc_configuration_t *mcconf) {
     const uint16_t crc = config_crc16((const uint8_t *)mcconf, sizeof(*mcconf));
     mcconf->crc = saved;
     return crc;
-}
-
-edge_status_t motor_config_store_to_vars(motor_config_t *self,
-                                         const motor_config_var_port_t *port) {
-    if (self == (void *)0 || port == (void *)0 || port->write == (void *)0) {
-        return EDGE_EINVAL;
-    }
-
-    /* The reference computes the CRC into the struct's own field first, then writes the whole
-     * struct out as variables, so the stored image includes the CRC it was built with. */
-    self->mcconf.crc = motor_config_config_crc(&self->mcconf);
-
-    const uint8_t *bytes = (const uint8_t *)&self->mcconf;
-    const size_t count = sizeof(self->mcconf) / 2u;
-    for (size_t i = 0u; i < count; i++) {
-        const uint16_t value =
-            (uint16_t)(((uint16_t)bytes[2u * i] << 8) | (uint16_t)bytes[2u * i + 1u]);
-        edge_status_t status = port->write(port->self, (uint16_t)i, value);
-        if (status != EDGE_OK) {
-            return status;
-        }
-    }
-
-    self->is_dirty = false;
-    return EDGE_OK;
-}
-
-edge_status_t motor_config_load_from_vars(motor_config_t *self,
-                                          const motor_config_var_port_t *port) {
-    if (self == (void *)0 || port == (void *)0 || port->read == (void *)0) {
-        return EDGE_EINVAL;
-    }
-
-    /*
-     * Read into the staging copy so a failed read cannot half-overwrite the running
-     * configuration, then check the struct's own CRC exactly as conf_general_read_mc_configuration
-     * does: a missing variable or a mismatch falls back to the defaults.
-     */
-    uint8_t *bytes = (uint8_t *)&self->staging_mc;
-    const size_t count = sizeof(self->staging_mc) / 2u;
-    for (size_t i = 0u; i < count; i++) {
-        uint16_t value = 0u;
-        edge_status_t status = port->read(port->self, (uint16_t)i, &value);
-        if (status != EDGE_OK) {
-            motor_config_set_defaults(&self->mcconf, &self->appconf);
-            return status;
-        }
-        bytes[2u * i] = (uint8_t)(value >> 8);
-        bytes[2u * i + 1u] = (uint8_t)(value & 0xFFu);
-    }
-
-    if (self->staging_mc.crc != motor_config_config_crc(&self->staging_mc)) {
-        motor_config_set_defaults(&self->mcconf, &self->appconf);
-        return EDGE_EINVAL;
-    }
-
-    self->mcconf = self->staging_mc;
-    self->is_dirty = false;
-    return EDGE_OK;
 }

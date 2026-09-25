@@ -284,7 +284,7 @@ C3 的真正目标是 **`driver/eeprom.c`（643 行）**：在 flash 扇区上�
   于是“搬移中断、新页仅 RECEIVE”的半成品镜像会被当成可用、读出一片空；正确判据是**读侧**的
   “是否存在 VALID 页”（参考 `EE_Init` 的口径）。
 
-#### C3 后续（不在本任务判据内）——已量准的设计，含对本文先前一句错的更正
+#### C3 后续：配置持久化已改为变量式（含对本文先前一句错的更正）
 
 先更正：本文早先写过「配置 blob 的持久化属 `conf_general.c` 那套 flash store，不是 EEPROM 仿真」
 ——**恰好相反**。读 `conf_general_read/store_mc_configuration`（conf_general.c:436-520）可见：
@@ -320,6 +320,33 @@ util/crc.c 的 crc16，端口已在 `vesc_can` 里有一份位算式副本。
 - 因此本端口又要一份 crc16 副本（app 不得依赖 infra，而仓库的 D30 决定不建共享 util），
   与 `vesc_can` 里那份同理，用测试交叉校验即可。
 
+**已完成（本次）**：上述设计已落地，自有信封随之删除。
+
+- `motor_config` 的 `save`/`load` 现在自己走变量循环（一个 u16 对两个配置字节），端口由
+  `motor_config_construct` 注入；先前为「先加路径、后切端口」而存在的
+  `motor_config_store_to_vars`/`load_from_vars` 是**同一行为、两个公开入口**，已折回
+  `save`/`load`（`ponytail-review` 的发现）。
+- 删除的东西：字节存取端口 `motor_config_storage_port_t`、自有信封
+  （`MOTOR_CONFIG_SIGNATURE`/`MOTOR_CONFIG_SCHEMA_VER` + length + CRC 与 `calc_crc`）、
+  以及 1024 字节的 `scratch`。`MOTOR_CONFIG_BUFFER_SIZE` 保留，但现在只是两个线上流
+  所需缓冲区的大小。调用方存储契约随之从 3576 降到 **2552**（本模块自己的 `-std=c11`
+  下实测；`-std=gnu11` 布局相同但小 256 字节，这个差在前几轮已记过）。
+- 产品侧：`vesc_host_make_flash_sector_port` 取代原先的字节存储端口——按 `flash.h` 的端口
+  契约实现（**整扇区擦除**、**半字写只允许清位**、越界拒绝而不夹断）；
+  `glue_state.flash_mem` 从 1024 扩到**两个扇区**（`2 × FLASH_EMUL_PAGE_SIZE`，
+  仿真本身要这么多）；组合根枚举 `VESC_HOST_MCCONF_BASE + i` 的 **388** 项变量表，
+  `flash_emul_init` 之后把变量端口交给 `motor_config`。
+- `main.c` 另有一处必要修正：`glue_state` 清零后 flash 是**全 0**，而全 0 会被仿真读成
+  「两个页都 valid」（marker 就是 `0x0000`），所以要先 `memset(flash_mem, 0xFF, …)`
+  当作擦除态。
+- 一个值得记住的坑（测试逼出来的）：**全零镜像的 CRC 恰好是 0**，与未写入结构体自带的
+  `crc = 0` 相等，于是「空的存储」会被当成合法配置载入。原版能区分是因为**读失败**
+  （`EE_ReadVariable` 对未写过的变量报错）——所以「空」必须由**读失败**判定，而不是由值
+  判定。测试的 mock 现在也这样建模（写入才让变量存在）。
+- 证据：55/55 通过、`test_motor_config` 与 `test_product_glue` 各连跑 10 次无抖动、
+  ASan/UBSan 下相关四个测试全绿、六个门禁脚本全绿，且**产品本体端到端跑通**
+  （RPM 217.7、0 错误）——这条路径在真实运行里成立，而不只是测试里。
+
 #### C1 验收（有消费者的字段是否都配置驱动）
 
 机械核对的结果（脚本对比 `foc_config_t` 的字段与 main.c 的 `mc->` 映射）：
@@ -353,20 +380,21 @@ util/crc.c 的 crc16，端口已在 `vesc_can` 里有一份位算式副本。
 而不是 0；`l_abs_current_max` 其实有全局默认 **130 A**（宏名是 `MCCONF_L_MAX_ABS_CURRENT`，
 我先前搜错名字才误记为“待板级”）。
 
-仍待办：`app_configuration` 流仍是端口自己的小编码（A7 的另一半）；flash 信封
-（signature + version + length + CRC，原版没有）归 C3 定夺。
+仍待办：无。`app_configuration` 流已是原版的 290 字节布局（C2 的另一半）；flash 信封
+（signature + version + length + CRC，原版没有）**已删**，持久化改走变量存储（见上）。
 
 > **A7 与 C1 必须先合并做，且 C1 的字段集决定 A7 的字节流。** 原版
 > `confgenerator.c` 是**唯一**的配置字节流：`COMM_GET_MCCONF` 回的就是它，
-> 落 flash 存的也是它。本仓库现在的 `app/motor_config/src/serialization.c` 是
+> 落 flash 存的也是它。本仓库当时的 `app/motor_config/src/serialization.c` 曾是
 > **另一套自造格式**（自带 `MOTOR_CONFIG_SIGNATURE` + `MOTOR_CONFIG_SCHEMA_VER`
-> + payload_len + CRC16 框），内部用没问题，但**与协议要的字节流不是一回事**。
+> + payload_len + CRC16 框）——**现已删**：协议用原版的 mc/app 两条流，
+> 持久化用结构体自带的 `crc` 成员，两件事都回到原版的形状。
 
 | 切片 | 内容 |
 |---|---|
 | C1 | 字段级 1:1：`si_motor_poles`/`si_gear_ratio`/`si_wheel_diameter`、`throttle_exp*`、`foc_current_filter_const`、`foc_dt_us`/`foc_f_zv`、`foc_motor_ld_lq_diff`、`foc_temp_comp*`、`foc_observer_*`、`foc_hfi_*`、`l_*` 等（按阶段 B 的消费者逐个补齐，不做无消费者的字段） |
 | C2 | 按 `confgenerator.c` 的字段顺序/缩放写序列化器，**flash 与协议共用同一份字节流**；含跨版本迁移语义 |
-| C3 | `infra/flash` 的扇区/擦写语义（`flash_helper`） |
+| C3 | `infra/flash` 的 EEPROM 仿真（`driver/eeprom.c` 的两页仿真）+ 配置的变量式持久化 |
 
 **A4c 的更正（先前的判断是错的）：** 曾据此断言"原版按霍尔/编码器步进计数、需要改转子端口契约"。
 读完 `mcpwm_foc.c:3866-3881` 后否证：原版把 FOC **已有的相位**量化成六个 60° 扇区

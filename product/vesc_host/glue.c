@@ -7,8 +7,9 @@
 #include <stdio.h>
 #include <string.h>
 
-/* Storage Port Adaptors */
-static edge_status_t storage_read(void *self, uint32_t offset, uint8_t *buf, size_t len) {
+/* Flash Sector Port Adaptors: the EEPROM emulation's view of the flash, which is whole-sector
+ * erasure and half-word programming. */
+static edge_status_t sector_read(void *self, uint32_t offset, uint8_t *buf, size_t len) {
     vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
     if (offset + len > sizeof(s->flash_mem)) {
         return EDGE_EINVAL;
@@ -17,32 +18,41 @@ static edge_status_t storage_read(void *self, uint32_t offset, uint8_t *buf, siz
     return EDGE_OK;
 }
 
-static edge_status_t storage_write(void *self, uint32_t offset, const uint8_t *buf, size_t len) {
+static edge_status_t sector_write_halfword(void *self, uint32_t offset, uint16_t value) {
     vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
-    if (offset + len > sizeof(s->flash_mem)) {
+    if (offset + 2u > sizeof(s->flash_mem)) {
         return EDGE_EINVAL;
     }
-    memcpy(s->flash_mem + offset, buf, len);
+    /* Flash can only clear bits. Programming a value that would raise one is the error a real
+     * part reports, and it is what catches a record being written over itself. */
+    const uint16_t existing =
+        (uint16_t)((uint16_t)s->flash_mem[offset] | ((uint16_t)s->flash_mem[offset + 1u] << 8));
+    if ((value & existing) != value) {
+        return EDGE_EBUSY;
+    }
+    s->flash_mem[offset] = (uint8_t)(value & 0xFFu);
+    s->flash_mem[offset + 1u] = (uint8_t)(value >> 8);
     return EDGE_OK;
 }
 
-static edge_status_t storage_erase(void *self, uint32_t offset, size_t len) {
+static edge_status_t sector_erase(void *self, uint32_t offset, size_t len) {
     vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
-    if (offset + len > sizeof(s->flash_mem)) {
+    /* Granularity: whole sectors, nothing smaller. */
+    if (len != FLASH_EMUL_PAGE_SIZE || offset + len > sizeof(s->flash_mem)) {
         return EDGE_EINVAL;
     }
     memset(s->flash_mem + offset, 0xFF, len);
     return EDGE_OK;
 }
 
-void vesc_host_make_storage_port(motor_config_storage_port_t *out, vesc_host_glue_state_t *state) {
+void vesc_host_make_flash_sector_port(flash_sector_port_t *out, vesc_host_glue_state_t *state) {
     if (!out || !state) {
         return;
     }
-    *out = (motor_config_storage_port_t){
-        .read = storage_read,
-        .write = storage_write,
-        .erase = storage_erase,
+    *out = (flash_sector_port_t){
+        .read = sector_read,
+        .write_halfword = sector_write_halfword,
+        .erase_sector = sector_erase,
         .self = state,
     };
 }
