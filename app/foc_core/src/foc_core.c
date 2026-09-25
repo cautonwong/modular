@@ -147,6 +147,9 @@ void foc_core_construct(foc_core_t *self, uint32_t module_id, uint32_t priority,
         self->config.sensorless_mode = false;
         self->config.observer_gamma = 9.0e5f;
         self->config.observer_type = FOC_OBSERVER_ORTEGA_ORIGINAL;
+        self->config.sat_comp_mode = 0u; /* SAT_COMP_DISABLED */
+        self->config.sat_comp = 0.0f;
+        self->config.ld_lq_diff = 0.0f;
         self->config.pll_kp = 2000.0f;
         self->config.pll_ki = 30000.0f;
     }
@@ -341,9 +344,25 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
     float angle_rad = 0.0f;
     float rpm = 0.0f;
     if (self->config.sensorless_mode) {
+        /* Compensation first: the reference applies it inside the observer, this port
+         * applies it here and keeps the observer's parameters explicit. It reads the
+         * previous pass's currents, as the reference does. Temperature compensation is
+         * not carried (no motor-temperature source), so it passes false. */
+        float r_eff = self->config.r_ohm;
+        float l_eff = self->config.l_henry;
+        float lambda_eff = self->config.lambda_wb;
+        foc_observer_adjust_params(self->config.r_ohm, self->config.l_henry,
+                                   self->config.lambda_wb, self->config.ld_lq_diff,
+                                   self->last_id, self->last_iq, self->i_abs_filter,
+                                   self->config.current_max_a, self->observer.lambda_est,
+                                   self->config.sat_comp,
+                                   (foc_sat_comp_mode_t)self->config.sat_comp_mode,
+                                   self->config.r_ohm, false, self->config.observer_type, &r_eff,
+                                   &l_eff, &lambda_eff);
+
         foc_observer_update(&self->observer, self->v_alpha, self->v_beta, i_alpha, i_beta, dt,
-                            self->config.r_ohm, self->config.l_henry, self->config.lambda_wb,
-                            self->config.observer_gamma, self->config.observer_type);
+                            r_eff, l_eff, lambda_eff, self->config.observer_gamma,
+                            self->config.observer_type);
         angle_rad = self->observer.phase;
 
         /* Reference: the observer's angle goes through the PLL, and the PLL speed
