@@ -663,6 +663,9 @@ typedef struct mock_config_ctx {
     size_t app_len;
     uint8_t set_app[64];
     size_t set_app_len;
+    int mc_default_calls;
+    int app_default_calls;
+    int app_nostore_calls;
 } mock_config_ctx_t;
 
 static edge_status_t mock_get_mcconf(void *self, uint8_t *out, size_t buf_size, size_t *out_len) {
@@ -705,6 +708,26 @@ static edge_status_t mock_set_appconf(void *self, const uint8_t *in, size_t len)
     return EDGE_OK;
 }
 
+static edge_status_t mock_get_mcconf_default(void *self, uint8_t *out, size_t buf_size,
+                                             size_t *out_len) {
+    mock_config_ctx_t *c = (mock_config_ctx_t *)self;
+    c->mc_default_calls++;
+    return mock_get_mcconf(self, out, buf_size, out_len);
+}
+
+static edge_status_t mock_get_appconf_default(void *self, uint8_t *out, size_t buf_size,
+                                              size_t *out_len) {
+    mock_config_ctx_t *c = (mock_config_ctx_t *)self;
+    c->app_default_calls++;
+    return mock_get_appconf(self, out, buf_size, out_len);
+}
+
+static edge_status_t mock_set_appconf_nostore(void *self, const uint8_t *in, size_t len) {
+    mock_config_ctx_t *c = (mock_config_ctx_t *)self;
+    c->app_nostore_calls++;
+    return mock_set_appconf(self, in, len);
+}
+
 static void test_config_commands_framing(void **state) {
     (void)state;
     mock_comm_ctx_t ctx;
@@ -718,6 +741,9 @@ static void test_config_commands_framing(void **state) {
         .set_mcconf = mock_set_mcconf,
         .get_appconf = mock_get_appconf,
         .set_appconf = mock_set_appconf,
+        .get_mcconf_default = mock_get_mcconf_default,
+        .get_appconf_default = mock_get_appconf_default,
+        .set_appconf_nostore = mock_set_appconf_nostore,
         .self = &cfg,
     };
 
@@ -743,10 +769,42 @@ static void test_config_commands_framing(void **state) {
 
     /* COMM_SET_MCCONF: the request's stream reaches the provider byte for byte. */
     uint8_t set_mc[] = {COMM_SET_MCCONF, 0xBCu, 0x09u, 0xF8u, 0xB0u};
+    ctx.tx_count = 0;
     assert_int_equal(vesc_comm_process_command(comm, set_mc, sizeof(set_mc)), EDGE_OK);
     assert_int_equal(cfg.set_mc_len, 4u);
     assert_int_equal(cfg.set_mc[0], 0xBCu);
     assert_int_equal(cfg.set_mc[3], 0xB0u);
+    /* A SET is acknowledged with its own id, one byte, as the reference does. */
+    assert_int_equal(ctx.tx_count, 1);
+    assert_int_equal(ctx.tx_buf[1], 1u); /* payload length */
+    assert_int_equal(ctx.tx_buf[2], COMM_SET_MCCONF);
+
+    /* COMM_GET_MCCONF_DEFAULT: the same framing, through the defaults path. */
+    ctx.tx_count = 0;
+    uint8_t get_mc_default[] = {COMM_GET_MCCONF_DEFAULT};
+    assert_int_equal(vesc_comm_process_command(comm, get_mc_default, sizeof(get_mc_default)),
+                     EDGE_OK);
+    assert_int_equal(cfg.mc_default_calls, 1);
+    assert_int_equal(ctx.tx_buf[2], COMM_GET_MCCONF_DEFAULT);
+
+    /* COMM_SET_APPCONF_NO_STORE: applied, and acknowledged the same way. */
+    ctx.tx_count = 0;
+    uint8_t set_app_nostore[] = {COMM_SET_APPCONF_NO_STORE, 0x11u, 0xADu};
+    assert_int_equal(vesc_comm_process_command(comm, set_app_nostore, sizeof(set_app_nostore)),
+                     EDGE_OK);
+    assert_int_equal(cfg.app_nostore_calls, 1);
+    assert_int_equal(cfg.set_app_len, 2u);
+    assert_int_equal(ctx.tx_count, 1);
+    assert_int_equal(ctx.tx_buf[2], COMM_SET_APPCONF_NO_STORE);
+
+    /* A codec with no configuration source refuses rather than answering nonsense. */
+    vesc_comm_t *no_cfg = test_comm_alloc2();
+    vesc_comm_construct(no_cfg, EDGE_MOD_VESC_COMM, 10u, &tx_port, NULL, NULL, NULL,
+                        &test_identity);
+    assert_int_equal(vesc_comm_init(no_cfg), EDGE_OK);
+    ctx.tx_count = 0;
+    assert_int_equal(vesc_comm_process_command(no_cfg, get_mc, sizeof(get_mc)), EDGE_ENOTSUP);
+    assert_int_equal(ctx.tx_count, 0);
 }
 int main(void) {
     const struct CMUnitTest tests[] = {

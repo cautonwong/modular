@@ -281,8 +281,44 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
             return EDGE_ENOTSUP;
         }
         /* In this port's codec `data` carries the command id (ind starts at 1), so the
-         * stream begins at data + 1; the reference's `data` excludes it. */
-        return self->config->set_mcconf(self->config->self, data + 1u, len - 1u);
+         * stream begins at data + 1; the reference's `data` excludes it. A successful
+         * apply is acknowledged with the packet's own id, one byte, as the reference does. */
+        edge_status_t st = self->config->set_mcconf(self->config->self, data + 1u, len - 1u);
+        if (st != EDGE_OK) {
+            return st;
+        }
+        self->cmd_reply_buf[0] = COMM_SET_MCCONF;
+        return send_reply(self, 1u);
+    }
+
+    case COMM_GET_MCCONF_DEFAULT: {
+        if (self->config == (void *)0 || self->config->get_mcconf_default == (void *)0) {
+            return EDGE_ENOTSUP;
+        }
+        size_t stream_len = 0u;
+        edge_status_t st =
+            self->config->get_mcconf_default(self->config->self, self->cmd_reply_buf + 1u,
+                                             sizeof(self->cmd_reply_buf) - 1u, &stream_len);
+        if (st != EDGE_OK) {
+            return st;
+        }
+        self->cmd_reply_buf[0] = COMM_GET_MCCONF_DEFAULT;
+        return send_reply(self, stream_len + 1u);
+    }
+
+    case COMM_GET_APPCONF_DEFAULT: {
+        if (self->config == (void *)0 || self->config->get_appconf_default == (void *)0) {
+            return EDGE_ENOTSUP;
+        }
+        size_t stream_len = 0u;
+        edge_status_t st =
+            self->config->get_appconf_default(self->config->self, self->cmd_reply_buf + 1u,
+                                              sizeof(self->cmd_reply_buf) - 1u, &stream_len);
+        if (st != EDGE_OK) {
+            return st;
+        }
+        self->cmd_reply_buf[0] = COMM_GET_APPCONF_DEFAULT;
+        return send_reply(self, stream_len + 1u);
     }
 
     case COMM_GET_APPCONF: {
@@ -303,7 +339,26 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
         if (self->config == (void *)0 || self->config->set_appconf == (void *)0) {
             return EDGE_ENOTSUP;
         }
-        return self->config->set_appconf(self->config->self, data + 1u, len - 1u);
+        edge_status_t st = self->config->set_appconf(self->config->self, data + 1u, len - 1u);
+        if (st != EDGE_OK) {
+            return st;
+        }
+        self->cmd_reply_buf[0] = COMM_SET_APPCONF;
+        return send_reply(self, 1u);
+    }
+
+    case COMM_SET_APPCONF_NO_STORE: {
+        if (self->config == (void *)0 || self->config->set_appconf_nostore == (void *)0) {
+            return EDGE_ENOTSUP;
+        }
+        edge_status_t st =
+            self->config->set_appconf_nostore(self->config->self, data + 1u, len - 1u);
+        if (st != EDGE_OK) {
+            return st;
+        }
+        /* The reference acknowledges with the packet's own id here too. */
+        self->cmd_reply_buf[0] = COMM_SET_APPCONF_NO_STORE;
+        return send_reply(self, 1u);
     }
 
     case COMM_SET_CURRENT: {

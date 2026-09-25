@@ -358,6 +358,12 @@ typedef struct vesc_config_provider_port {
     edge_status_t (*set_mcconf)(void *self, const uint8_t *in, size_t len);
     edge_status_t (*get_appconf)(void *self, uint8_t *out, size_t buf_size, size_t *out_len);
     edge_status_t (*set_appconf)(void *self, const uint8_t *in, size_t len);
+    /* COMM_GET_MCCONF_DEFAULT keeps the live calibration offsets, as the reference does. */
+    edge_status_t (*get_mcconf_default)(void *self, uint8_t *out, size_t buf_size, size_t *out_len);
+    edge_status_t (*get_appconf_default)(void *self, uint8_t *out, size_t buf_size,
+                                         size_t *out_len);
+    /* COMM_SET_APPCONF_NO_STORE: applied, not stored. */
+    edge_status_t (*set_appconf_nostore)(void *self, const uint8_t *in, size_t len);
     void *self;
 } vesc_config_provider_port_t;
 
