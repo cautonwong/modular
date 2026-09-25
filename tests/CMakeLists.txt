@@ -45,7 +45,7 @@ edge_add_contract_violation_test(test_contract_violation_board contract_violatio
 edge_add_contract_violation_test(test_contract_violation_rtos contract_violations/rtos.c)
 
 edge_add_host_test(test_event SOURCES test_event.c DEPS edge_module)
-edge_add_host_test(test_sys SOURCES test_sys.c DEPS edge_module sys_example sys_meter)
+edge_add_host_test(test_sys SOURCES test_sys.c DEPS edge_module sys_example sys_meter sys_bldc)
 edge_add_host_test(test_architecture SOURCES test_architecture.c DEPS edge_module)
 edge_add_host_test(test_app_dlt645 SOURCES test_app_dlt645.c DEPS app_dlt645 edge_test_contract)
 edge_add_host_test(test_app_relay SOURCES test_app_relay.c DEPS app_relay edge_test_contract)

@@ -10,6 +10,7 @@
 /* clang-format on */
 
 #include "edge/errors.h"
+#include "edge/event.h"
 #include "edge/modules.h"
 #include "vesc_comm/vesc_comm.h"
 
@@ -146,6 +147,72 @@ static edge_status_t mock_set_pos(void *self, float pos) {
     mock_comm_ctx_t *ctx = (mock_comm_ctx_t *)self;
     ctx->set_pos_val = pos;
     return EDGE_OK;
+}
+
+/*
+ * Lifecycle and the argument guards. These lines were never executed by any test,
+ * which is the kind of gap that hides a divide-by-zero or a null dereference until
+ * something calls it.
+ */
+static void test_vesc_comm_lifecycle_and_guards(void **state) {
+    (void)state;
+
+    /* Null self is refused rather than dereferenced. */
+    assert_int_equal(vesc_comm_init(NULL), EDGE_EINVAL);
+    assert_int_equal(vesc_comm_deinit(NULL), EDGE_EINVAL);
+    vesc_comm_construct(NULL, EDGE_MOD_VESC_COMM, 10u, NULL, NULL, NULL, NULL);
+
+    mock_comm_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    edge_stream_tx_port_t tx_port = {.write = mock_stream_write, .self = &ctx};
+
+    vesc_comm_t comm;
+    vesc_comm_construct(&comm, EDGE_MOD_VESC_COMM, 10u, &tx_port, NULL, NULL, &test_identity);
+    assert_ptr_equal(vesc_comm_module(&comm), &comm.module);
+    assert_ptr_equal(vesc_comm_module(NULL), NULL);
+
+    /* init/deinit are idempotent, and a re-init clears the counters. */
+    assert_int_equal(vesc_comm_init(&comm), EDGE_OK);
+    comm.packets_received = 5u;
+    comm.crc_errors = 2u;
+    assert_int_equal(vesc_comm_init(&comm), EDGE_OK);
+    assert_int_equal(comm.packets_received, 0u);
+    assert_int_equal(comm.crc_errors, 0u);
+    assert_int_equal(vesc_comm_deinit(&comm), EDGE_OK);
+
+    /* A byte before init must not be processed into anything. */
+    assert_int_equal(vesc_comm_init(&comm), EDGE_OK);
+    vesc_comm_process_byte(NULL, 0x02u);
+    for (int i = 0; i < 600; i++) {
+        vesc_comm_process_byte(&comm, 0x55u); /* junk; must not overflow the rx buffer */
+    }
+    assert_int_equal(comm.packets_received, 0u);
+
+    /* Sending guards: no port, no payload, oversized payload. */
+    uint8_t payload[4] = {0};
+    assert_int_equal(vesc_comm_send_packet(NULL, payload, sizeof(payload)), EDGE_EINVAL);
+    assert_int_equal(vesc_comm_send_packet(&comm, NULL, sizeof(payload)), EDGE_EINVAL);
+    assert_int_equal(vesc_comm_send_packet(&comm, payload, 0u), EDGE_EINVAL);
+    assert_int_equal(vesc_comm_send_packet(&comm, payload, VESC_PACKET_MAX_PL_LEN + 1u),
+                     EDGE_EINVAL);
+
+    vesc_comm_t no_tx;
+    vesc_comm_construct(&no_tx, EDGE_MOD_VESC_COMM, 10u, NULL, NULL, NULL, &test_identity);
+    assert_int_equal(vesc_comm_send_packet(&no_tx, payload, sizeof(payload)), EDGE_EINVAL);
+
+    /* The module hooks: poll and power_off answer, on_event needs its event. */
+    assert_int_equal(comm.module.poll(&comm.module), EDGE_OK);
+    edge_event_t evt;
+    memset(&evt, 0, sizeof(evt));
+    assert_int_equal(comm.module.on_event(&comm.module, &evt), EDGE_OK);
+    assert_int_equal(comm.module.on_event(&comm.module, NULL), EDGE_EINVAL);
+    assert_int_equal(comm.module.power_off(&comm.module), EDGE_OK);
+
+    /* An unknown command is answered with "not supported", not silence or a crash. */
+    uint8_t unknown[1] = {COMM_REBOOT}; /* declared in the table, not handled yet */
+    assert_int_equal(vesc_comm_process_command(&comm, unknown, sizeof(unknown)), EDGE_ENOTSUP);
+    assert_int_equal(vesc_comm_process_command(&comm, NULL, 1u), EDGE_EINVAL);
+    assert_int_equal(vesc_comm_process_command(&comm, unknown, 0u), EDGE_EINVAL);
 }
 
 static void test_crc16_calculation(void **state) {
@@ -491,6 +558,7 @@ static void test_receive_packet_and_commands(void **state) {
 
 int main(void) {
     const struct CMUnitTest tests[] = {
+        cmocka_unit_test(test_vesc_comm_lifecycle_and_guards),
         cmocka_unit_test(test_crc16_calculation),
         cmocka_unit_test(test_send_packet_framing),
         cmocka_unit_test(test_receive_packet_and_commands),
