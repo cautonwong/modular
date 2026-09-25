@@ -78,7 +78,21 @@ clang-format --dry-run     # 格式
 | B3 | 弱磁（`foc_run_fw`）、MTPA 接回控制环（原版含 iq 重投影） |
 | B4 | 电感饱和/凸极补偿、温度补偿（`foc_temp_comp`） |
 | B5 | 检测流程：`COMM_DETECT_MOTOR_{PARAM,R_L,FLUX_LINKAGE}` 与 `foc_detect_*` |
-| B6 | 控制模式语义：`l_current_max` 斜坡、按 duty 降流、`COMM_SET_CURRENT_REL` |
+| B6 | 控制模式语义：`l_current_max` 斜坡、按 duty 降流、`COMM_SET_CURRENT_REL`、handbrake 语义 |
+
+**B6 剩余项的实测依赖（读原版后记录，避免下轮重新推导）**
+
+- `COMM_SET_CURRENT_REL`：线格式是 float32 × 1e5，但语义在
+  `mc_interface_set_current_rel()`（mc_interface.c:733）：按 `duty` 的符号选限幅基数 ——
+  `|duty| < 0.02` 或 `SIGN(val) == SIGN(duty)` 时用 `lo_current_max`，否则用
+  `|lo_current_min|`；末尾还有一个由 `l_abs_current_max` / `cc_min_current` 门控的
+  `set_current_off_delay(0.1)` 副作用。所以它需要本端口尚未携带的三项
+  （`lo_current_min`、`l_abs_current_max`、`cc_min_current`）以及 `current_off_delay` 状态。
+- speed PID 本体已逐位验证并接入（提交 `cf8854d` / `26e805c`）；剩下的三项才是
+  上面这一批。
+- handbrake：`foc_core_set_handbrake` 目前是 `set_current(0, brake_current)`，
+  需先核对 `mc_interface_set_handbrake` 的定义再判断是否等价 —— **尚未核对**，
+  不要当成已比对。
 
 ### 阶段 C — 配置与持久化
 
