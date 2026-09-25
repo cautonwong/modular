@@ -117,11 +117,43 @@ static void test_throttle_module_step(void **state) {
     assert_true(io.cmd_out > 0.0f);
 }
 
+/*
+ * The curve's negative-curve branches and the app's own guards. The existing tests sweep only
+ * non-negative curves, so the half of each mode that applies below zero never ran; these assert
+ * the properties that must hold either way - 0 maps to 0, 1 to 1, the magnitude stays inside the
+ * unit interval and never decreases - rather than guessing each formula's value.
+ */
+static void test_throttle_negative_curve_and_app_guards(void **state) {
+    (void)state;
+
+    for (int mode = 0; mode < 4; mode++) {
+        float previous = 0.0f;
+        for (int i = 0; i <= 10; i++) {
+            const float in = (float)i / 10.0f;
+            const float out = throttle_apply_curve(in, -0.5f, -0.5f, mode);
+            assert_true(out >= -1e-5f);
+            assert_true(out <= 1.0f + 1e-5f);
+            assert_true(out >= previous - 1e-5f);
+            previous = out;
+        }
+        assert_float_equal(throttle_apply_curve(0.0f, -0.5f, -0.5f, mode), 0.0f, 1e-5f);
+        assert_float_equal(throttle_apply_curve(1.0f, -0.5f, -0.5f, mode), 1.0f, 1e-4f);
+    }
+
+    /* The app's guards, which the function-level tests never touch. */
+    assert_int_equal(throttle_init(NULL), EDGE_EINVAL);
+    assert_int_equal(throttle_deinit(NULL), EDGE_EINVAL);
+    assert_int_equal(throttle_step(NULL), EDGE_EINVAL);
+    assert_float_equal(throttle_get_output(NULL), 0.0f, 1e-9f);
+    assert_ptr_equal(throttle_module(NULL), NULL);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_throttle_deadband),
         cmocka_unit_test(test_throttle_curve_matches_reference),
         cmocka_unit_test(test_throttle_rate_limiting_ramp),
+        cmocka_unit_test(test_throttle_negative_curve_and_app_guards),
         cmocka_unit_test(test_throttle_module_step),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
