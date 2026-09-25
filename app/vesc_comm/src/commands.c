@@ -72,6 +72,18 @@ static float buffer_get_float32(const uint8_t *buffer, float scale, size_t *inde
     return (float)buffer_get_int32(buffer, index) / scale;
 }
 
+/*
+ * Send what was built in the caller-provided reply buffer. The size check lives
+ * here and nowhere else: a handler that grows a reply past the buffer is refused
+ * rather than allowed to run off the end of the struct.
+ */
+static edge_status_t send_reply(vesc_comm_t *self, size_t len) {
+    if (len > sizeof(self->cmd_reply_buf)) {
+        return EDGE_ENOSPC;
+    }
+    return vesc_comm_send_packet(self, self->cmd_reply_buf, len);
+}
+
 edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, size_t len) {
     if (!self || !data || len == 0) {
         return EDGE_EINVAL;
@@ -89,10 +101,10 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
         }
 
         /* 1 id + 1 major + 1 minor + 12 uuid + 8 flags + 4 crc = 27 fixed bytes. */
-        uint8_t resp[80];
+        uint8_t *resp = self->cmd_reply_buf;
         size_t hw_len = strlen(id->hw_name) + 1;
         size_t fw_len = strlen(id->fw_name) + 1;
-        if (hw_len + fw_len > sizeof(resp) - 27u) {
+        if (hw_len + fw_len > sizeof(self->cmd_reply_buf) - 27u) {
             return EDGE_EINVAL;
         }
 
@@ -123,7 +135,7 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
 
         buffer_append_uint32(resp, id->hw_crc, &resp_len);
 
-        return vesc_comm_send_packet(self, resp, resp_len);
+        return send_reply(self, resp_len);
     }
 
     case COMM_GET_VALUES:
@@ -152,7 +164,7 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
          * GET_VALUES_SELECTIVE are one code path there, with the mask all-ones for
          * the former; SELECTIVE echoes the mask it was given, GET_VALUES does not.
          */
-        uint8_t resp[128];
+        uint8_t *resp = self->cmd_reply_buf;
         size_t resp_len = 0;
         resp[resp_len++] = cmd_id;
         if (cmd_id == COMM_GET_VALUES_SELECTIVE) {
@@ -228,7 +240,7 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
             resp[resp_len++] = val.status;
         }
 
-        return vesc_comm_send_packet(self, resp, resp_len);
+        return send_reply(self, resp_len);
     }
 
     case COMM_SET_DUTY: {
@@ -304,7 +316,7 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
             return st;
         }
 
-        uint8_t resp[80];
+        uint8_t *resp = self->cmd_reply_buf;
         size_t resp_len = 0;
         resp[resp_len++] = COMM_GET_STATS;
         buffer_append_uint32(resp, (uint32_t)mask, &resp_len);
@@ -344,7 +356,7 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
             buffer_append_float32_auto(resp, st_val.count_time, &resp_len);
         }
 
-        return vesc_comm_send_packet(self, resp, resp_len);
+        return send_reply(self, resp_len);
     }
 
     case COMM_RESET_STATS: {
@@ -364,9 +376,9 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
             return EDGE_OK;
         }
 
-        uint8_t resp[2];
+        uint8_t *resp = self->cmd_reply_buf;
         resp[0] = COMM_RESET_STATS;
-        return vesc_comm_send_packet(self, resp, 1u);
+        return send_reply(self, 1u);
     }
 
     case COMM_GET_DECODED_PPM: {
@@ -381,14 +393,14 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
             return st;
         }
 
-        uint8_t resp[16];
+        uint8_t *resp = self->cmd_reply_buf;
         size_t resp_len = 0;
         resp[resp_len++] = COMM_GET_DECODED_PPM;
         /* Reference: decoded level and pulse length, int32 scaled by 1e6. */
         buffer_append_int32(resp, (int32_t)(level * 1000000.0), &resp_len);
         buffer_append_int32(resp, (int32_t)(pulse_us * 1000000.0), &resp_len);
 
-        return vesc_comm_send_packet(self, resp, resp_len);
+        return send_reply(self, resp_len);
     }
 
     case COMM_GET_DECODED_ADC: {
@@ -405,7 +417,7 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
             return st;
         }
 
-        uint8_t resp[24];
+        uint8_t *resp = self->cmd_reply_buf;
         size_t resp_len = 0;
         resp[resp_len++] = COMM_GET_DECODED_ADC;
         buffer_append_int32(resp, (int32_t)(level * 1000000.0), &resp_len);
@@ -413,7 +425,7 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
         buffer_append_int32(resp, (int32_t)(level2 * 1000000.0), &resp_len);
         buffer_append_int32(resp, (int32_t)(voltage2 * 1000000.0), &resp_len);
 
-        return vesc_comm_send_packet(self, resp, resp_len);
+        return send_reply(self, resp_len);
     }
 
     case COMM_ALIVE:
