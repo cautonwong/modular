@@ -873,6 +873,63 @@ static void test_foc_observer_nan_and_flux_floor(void **state) {
     assert_float_equal(obs.x2, 0.0f, 1e-6f);
 }
 
+/*
+ * Parameter compensation. The differential harness proves the whole chain against
+ * the reference (four combinations of saturation mode and temperature
+ * compensation, bit-exact); these assertions keep each rule individually visible,
+ * so a change to one of them fails by name rather than inside a blob comparison.
+ */
+static void test_foc_observer_adjust_params(void **state) {
+    (void)state;
+    const float r = 0.015f, l = 7e-6f, lambda = 0.00245f;
+    float ra = 0.0f, la = 0.0f, lwa = 0.0f;
+
+    /* Disabled: parameters come back untouched. */
+    foc_observer_adjust_params(r, l, lambda, 0.0f, 0.0f, 0.0f, 0.0f, 60.0f, lambda, 0.0f,
+                               FOC_SAT_COMP_DISABLED, 0.0f, false, FOC_OBSERVER_ORTEGA_ORIGINAL, &ra,
+                               &la, &lwa);
+    assert_float_equal(ra, r, 1e-9f);
+    assert_float_equal(la, l, 1e-9f);
+    assert_float_equal(lwa, lambda, 1e-9f);
+
+    /* FACTOR: L and lambda shrink by sat_comp * (i_abs_filter / l_current_max). */
+    float fact = 0.25f * (30.0f / 60.0f);
+    foc_observer_adjust_params(r, l, lambda, 0.0f, 0.0f, 0.0f, 30.0f, 60.0f, lambda, 0.25f,
+                               FOC_SAT_COMP_FACTOR, 0.0f, false, FOC_OBSERVER_ORTEGA_ORIGINAL, &ra,
+                               &la, &lwa);
+    assert_float_equal(la, l - l * fact, 1e-12f);
+    assert_float_equal(lwa, lambda - lambda * fact, 1e-12f);
+    assert_float_equal(ra, r, 1e-9f); /* this branch leaves R alone */
+
+    /* Temperature compensation replaces R with the model's value. */
+    foc_observer_adjust_params(r, l, lambda, 0.0f, 0.0f, 0.0f, 0.0f, 60.0f, lambda, 0.0f,
+                               FOC_SAT_COMP_DISABLED, 0.021f, true, FOC_OBSERVER_ORTEGA_ORIGINAL,
+                               &ra, &la, &lwa);
+    assert_float_equal(ra, 0.021f, 1e-9f);
+
+    /* Saliency moves L by ld_lq_diff's projection on iq, and only above the
+     * reference's 0.1 A gate. */
+    float ld_lq = 2.5e-6f, id = 4.0f, iq = 6.0f;
+    foc_observer_adjust_params(r, l, lambda, ld_lq, id, iq, 0.0f, 60.0f, lambda, 0.0f,
+                               FOC_SAT_COMP_DISABLED, 0.0f, false, FOC_OBSERVER_ORTEGA_ORIGINAL, &ra,
+                               &la, &lwa);
+    assert_float_equal(la, l - ld_lq / 2.0f + ld_lq * (iq * iq) / (id * id + iq * iq), 1e-12f);
+    foc_observer_adjust_params(r, l, lambda, ld_lq, 0.05f, 0.05f, 0.0f, 60.0f, lambda, 0.0f,
+                               FOC_SAT_COMP_DISABLED, 0.0f, false, FOC_OBSERVER_ORTEGA_ORIGINAL, &ra,
+                               &la, &lwa);
+    assert_float_equal(la, l, 1e-12f);
+
+    /* LAMBDA scales L by the live flux estimate, for the observers that track one. */
+    float l_est = lambda * 0.6f;
+    foc_observer_adjust_params(r, l, lambda, 0.0f, 0.0f, 0.0f, 0.0f, 60.0f, l_est, 0.0f,
+                               FOC_SAT_COMP_LAMBDA, 0.0f, false, FOC_OBSERVER_MXV, &ra, &la, &lwa);
+    assert_float_equal(la, l * (l_est / lambda), 1e-12f);
+    foc_observer_adjust_params(r, l, lambda, 0.0f, 0.0f, 0.0f, 0.0f, 60.0f, l_est, 0.0f,
+                               FOC_SAT_COMP_LAMBDA, 0.0f, false, FOC_OBSERVER_ORTEGA_ORIGINAL, &ra,
+                               &la, &lwa);
+    assert_float_equal(la, l, 1e-12f);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_foc_math_transforms),
@@ -888,6 +945,7 @@ int main(void) {
         cmocka_unit_test(test_foc_core_stats_and_reset),
         cmocka_unit_test(test_foc_core_tachometer_sectors),
         cmocka_unit_test(test_foc_observer_family),
+        cmocka_unit_test(test_foc_observer_adjust_params),
         cmocka_unit_test(test_foc_pll_tracks_phase_rate),
         cmocka_unit_test(test_foc_core_modes),
     };

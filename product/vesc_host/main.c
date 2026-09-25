@@ -79,8 +79,8 @@ int main(void) {
 
     /* Construct Apps */
     /* The configuration module's memory is the composition root's to provide. */
-    static alignas(MOTOR_CONFIG_STORAGE_ALIGN)
-        unsigned char motor_cfg_storage[MOTOR_CONFIG_STORAGE_SIZE];
+    static alignas(
+        MOTOR_CONFIG_STORAGE_ALIGN) unsigned char motor_cfg_storage[MOTOR_CONFIG_STORAGE_SIZE];
     motor_config_t *motor_cfg = (motor_config_t *)motor_cfg_storage;
     motor_config_construct(motor_cfg, EDGE_MOD_MOTOR_CONFIG, 30u, &storage_port, 0x00u);
     if (motor_config_init(motor_cfg) < 0) {

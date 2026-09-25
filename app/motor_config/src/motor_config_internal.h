@@ -7,8 +7,8 @@
  * stale when a field is added here.
  */
 
-#include "motor_config/motor_config.h"
 #include "edge/module.h"
+#include "motor_config/motor_config.h"
 #include <stdalign.h>
 #include <stddef.h>
 
