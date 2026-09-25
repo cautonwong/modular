@@ -407,6 +407,16 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
         }
     }
 
+    /*
+     * Handbrake: the reference forces the electrical phase to zero in this mode so the
+     * current simply locks the rotor (mcpwm_foc.c:3602). Forcing it here, before the
+     * angle is stored, also makes the reported phase zero, as the reference's assignment
+     * to state_now->phase does, and freezes the sector-based tachometer with it.
+     */
+    if (self->state == FOC_STATE_HANDBRAKE) {
+        angle_rad = 0.0f;
+    }
+
     self->last_angle_rad = angle_rad;
     self->last_rpm = rpm;
 
@@ -504,7 +514,7 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
     }
 
     if (self->state == FOC_STATE_RUNNING_CURRENT || self->state == FOC_STATE_RUNNING_RPM ||
-        self->state == FOC_STATE_RUNNING_POS) {
+        self->state == FOC_STATE_RUNNING_POS || self->state == FOC_STATE_HANDBRAKE) {
         /* d-axis PI controller */
         float err_d = self->target_id - id;
         self->id_integral += err_d * self->config.current_ki * dt;
@@ -729,10 +739,18 @@ edge_status_t foc_core_set_handbrake(foc_core_t *self, float brake_current_a) {
     if (self->state == FOC_STATE_FAULT || self->state == FOC_STATE_UNINITIALIZED) {
         return EDGE_EBUSY;
     }
-    if (brake_current_a < 0.0f) {
-        brake_current_a = -brake_current_a;
-    }
-    return foc_core_set_current(self, 0.0f, brake_current_a);
+
+    /*
+     * Reference mcpwm_foc_set_handbrake (mcpwm_foc.c:854-864). Three things this used to
+     * get wrong, all of which made it a different command: the reference does NOT take
+     * the absolute value (the sign is the caller's, and COMM_SET_HANDBRAKE's own
+     * relative form is what makes it positive), it writes the *q* axis, and it enters a
+     * mode of its own - which is what the loop's phase override acts on. It also applies
+     * no DIR_MULT, unlike current/brake/duty/rpm.
+     */
+    self->target_iq = brake_current_a;
+    self->state = FOC_STATE_HANDBRAKE;
+    return EDGE_OK;
 }
 
 edge_status_t foc_core_set_duty(foc_core_t *self, float duty_target) {

@@ -427,6 +427,59 @@ static void test_foc_core_set_current_rel_picks_its_limit_from_the_duty(void **s
     assert_float_equal(foc.target_iq, 600.0f, 1e-4f);
 }
 
+/*
+ * Handbrake forces the electrical phase to zero (mcpwm_foc.c:3602), which is what makes
+ * it lock the rotor rather than drive it. The reported phase, the Park transform and the
+ * sector-based tachometer all follow that angle, so a rotor sitting at 1 rad must be
+ * reported at 0 once handbrake is entered.
+ */
+static void test_foc_core_handbrake_forces_the_phase_to_zero(void **state) {
+    (void)state;
+
+    mock_inverter_t inv = {0};
+    mock_current_sensor_t cs = {.v_bus = 24.0f};
+    mock_rotor_sensor_t rs = {.angle_rad = 1.0f, .rpm = 500.0f};
+
+    foc_inverter_port_t inv_port = {
+        .set_duty = mock_set_duty, .set_phase_state = mock_set_phase_state, .self = &inv};
+    foc_current_port_t cs_port = {
+        .read_currents = mock_read_currents, .read_vbus = mock_read_vbus, .self = &cs};
+    foc_rotor_port_t rs_port = {.read_angle = mock_read_angle, .self = &rs};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = 300.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = false};
+
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    /* Without handbrake the rotor angle is reported as the sensor gives it. */
+    assert_int_equal(foc_core_set_current(&foc, 1.0f, 0.0f), EDGE_OK);
+    assert_int_equal(foc_core_fast_loop(&foc, 0.001f), EDGE_OK);
+    foc_telemetry_t telem;
+    foc_core_get_telemetry(&foc, &telem);
+    assert_float_equal(telem.rotor_angle_rad, 1.0f, 1e-6f);
+
+    assert_int_equal(foc_core_set_handbrake(&foc, 15.0f), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_HANDBRAKE);
+    assert_int_equal(foc_core_fast_loop(&foc, 0.001f), EDGE_OK);
+    foc_core_get_telemetry(&foc, &telem);
+    assert_float_equal(telem.rotor_angle_rad, 0.0f, 1e-9f);
+}
+
 /* Test 6: Closed-loop Current Control with Virtual Motor */
 static void test_foc_core_closed_loop_virtual_motor(void **state) {
     (void)state;
@@ -930,9 +983,12 @@ static void test_foc_core_modes(void **state) {
     assert_int_equal(foc_core_get_state(&foc), FOC_STATE_RUNNING_POS);
     assert_int_equal(foc_core_fast_loop(&foc, 0.00005f), EDGE_OK);
 
-    /* Test Handbrake mode */
+    /* Test Handbrake mode: a mode of its own, with the setpoint on the q axis. The port
+     * used to write the d axis and return RUNNING_CURRENT, which made it a plain current
+     * command that happened to brake. */
     assert_int_equal(foc_core_set_handbrake(&foc, 15.0f), EDGE_OK);
-    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_RUNNING_CURRENT);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_HANDBRAKE);
+    assert_float_equal(foc.target_iq, 15.0f, 1e-6f);
     assert_int_equal(foc_core_fast_loop(&foc, 0.00005f), EDGE_OK);
 }
 
@@ -1136,6 +1192,7 @@ int main(void) {
         cmocka_unit_test(test_foc_core_modes),
         cmocka_unit_test(test_foc_core_duty_now_is_a_modulation_magnitude),
         cmocka_unit_test(test_foc_core_set_current_rel_picks_its_limit_from_the_duty),
+        cmocka_unit_test(test_foc_core_handbrake_forces_the_phase_to_zero),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

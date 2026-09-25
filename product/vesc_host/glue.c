@@ -199,6 +199,12 @@ static edge_status_t motor_set_current_rel(void *self, float rel) {
     return foc_core_set_current_rel(foc, motor_dir_mult(foc) * rel);
 }
 
+static edge_status_t motor_set_handbrake(void *self, float current) {
+    /* No DIR_MULT: the reference's mc_interface_set_handbrake does not apply it, unlike
+     * current, brake, duty and pid_speed (mc_interface.c:777-800). */
+    return foc_core_set_handbrake((foc_core_t *)self, current);
+}
+
 static edge_status_t motor_set_current_brake(void *self, float current) {
     foc_core_t *foc = (foc_core_t *)self;
     /*
@@ -259,6 +265,7 @@ void vesc_host_make_motor_provider_port(vesc_motor_provider_port_t *out, foc_cor
         .set_duty = motor_set_duty,
         .set_current = motor_set_current,
         .set_current_rel = motor_set_current_rel,
+        .set_handbrake = motor_set_handbrake,
         .set_current_brake = motor_set_current_brake,
         .set_rpm = motor_set_rpm,
         .set_pos = motor_set_pos,

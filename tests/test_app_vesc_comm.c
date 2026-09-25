@@ -24,6 +24,7 @@ typedef struct mock_comm_ctx {
     float set_duty_val;
     float set_current_val;
     float set_current_rel_val;
+    float set_handbrake_val;
     float set_rpm_val;
     float set_pos_val;
     uint32_t last_mask;
@@ -132,6 +133,12 @@ static edge_status_t mock_set_current_brake(void *self, float current) {
 static edge_status_t mock_set_current_rel(void *self, float rel) {
     mock_comm_ctx_t *ctx = (mock_comm_ctx_t *)self;
     ctx->set_current_rel_val = rel;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_set_handbrake(void *self, float current) {
+    mock_comm_ctx_t *ctx = (mock_comm_ctx_t *)self;
+    ctx->set_handbrake_val = current;
     return EDGE_OK;
 }
 
@@ -314,6 +321,7 @@ static void test_receive_packet_and_commands(void **state) {
         .set_duty = mock_set_duty,
         .set_current = mock_set_current,
         .set_current_rel = mock_set_current_rel,
+        .set_handbrake = mock_set_handbrake,
         .set_current_brake = mock_set_current_brake,
         .set_rpm = mock_set_rpm,
         .set_pos = mock_set_pos,
@@ -610,6 +618,26 @@ static void test_receive_packet_and_commands(void **state) {
     }
     assert_int_equal(vesc_comm_packets_received(comm), packets_before + 1u);
     assert_float_equal(ctx.set_current_rel_val, 0.5f, 1e-5f);
+
+    /* COMM_SET_HANDBRAKE: float32 scaled by 1e3 - amps, unlike the 1e5 the current
+     * commands use (comm/commands.c:515).
+     * payload: [COMM_SET_HANDBRAKE][5.0 * 1e3 = 5000 = 0x00001388] */
+    uint8_t cmd_handbrake[] = {COMM_SET_HANDBRAKE, 0x00u, 0x00u, 0x13u, 0x88u};
+    const uint32_t hb_before = vesc_comm_packets_received(comm);
+    crc = vesc_crc16(cmd_handbrake, sizeof(cmd_handbrake));
+    f_idx = 0;
+    frame[f_idx++] = 2;
+    frame[f_idx++] = (uint8_t)sizeof(cmd_handbrake);
+    memcpy(frame + f_idx, cmd_handbrake, sizeof(cmd_handbrake));
+    f_idx += sizeof(cmd_handbrake);
+    frame[f_idx++] = (uint8_t)(crc >> 8);
+    frame[f_idx++] = (uint8_t)(crc & 0xFFu);
+    frame[f_idx++] = 3;
+    for (size_t i = 0; i < f_idx; i++) {
+        vesc_comm_process_byte(comm, frame[i]);
+    }
+    assert_int_equal(vesc_comm_packets_received(comm), hb_before + 1u);
+    assert_float_equal(ctx.set_handbrake_val, 5.0f, 1e-5f);
 }
 
 int main(void) {
