@@ -128,11 +128,21 @@ clang-format --dry-run     # 格式
   10 个周期”（用到 `m_br_speed_before` / `m_br_vq_before` / `m_br_no_duty_samples` /
   `m_duty_filtered`），并且 `foc_math.c:722` 说明弱磁在刹车模式下也参与。所以它与 B3 共用
   一套状态，端口目前的 `-current` 近似**保留不动**，不自行翻转符号。
-- 原计划把两项列入 B6，读原版后**归属应改正**：
-  `utils_step_towards(&m_iq_set, ...)` 的斜坡在 `mcpwm_foc_measure_resistance()` 里
-  （mcpwm_foc.c:1818），属于 **B5 检测**；`utils_map(fabsf(duty_now), 0, 40/v_bus,
-  0, foc_observer_gain)`（mcpwm_foc.c:4150）是**观测器增益随 duty/v_bus 缩放**，属于
-  **B4**，且它正是 `duty_now` 的消费者之一（duty_now 已修正）。
+- **有效限幅的来源（上一轮写错过，以本条为准）**：`l_current_max/min` 是**存储的**配置；
+  命令实际用的是 `lo_current_max/min`，它们是 `update_override_limits()`
+  （mc_interface.c:~2500-2546）**运行时算出**的有效限幅 —— 取 MOSFET/电机电流限、rpm 限、
+  加减速限、FET/电机温度限、duty 限、输入电流限的**最小绝对值**，再用
+  `±cc_min_current` 兜底。因此：
+  - **「按 duty 降流」确实存在**，就在这里（`lo_max_duty`、`lo_max_i_in` 等参与取最小），
+    不属于 B4；
+  - `confgenerator_serialize_mcconf()` **不写**这两个字段，端口也不应把它们当配置持久化
+    （schema 6 已改：只写 `l_abs_current_max` 与 `cc_min_current`）；
+  - 端口 `foc_core_set_current_rel` 目前用 `current_min_a`（即 `l_current_min`）当负限幅基数，
+    而原版用 `lo_current_min`（有效值）。只有在本端口算出有效限幅之后两者才等价。
+- 原 B6 计划里的另一项已核实**归属错误**：`utils_step_towards(&m_iq_set, ...)` 的斜坡在
+  `mcpwm_foc_measure_resistance()` 里（mcpwm_foc.c:1818），属于 **B5 检测**；
+  `utils_map(fabsf(duty_now), 0, 40/v_bus, 0, foc_observer_gain)`（mcpwm_foc.c:4150）是
+  **观测器增益随 duty/v_bus 缩放**，属于 **B4**（它是 `duty_now` 的消费者之一，duty_now 已修正）。
 
 ### 阶段 C — 配置与持久化
 

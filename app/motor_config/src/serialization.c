@@ -100,8 +100,12 @@ void motor_config_set_defaults(mc_configuration_t *mcconf, app_configuration_t *
         mcconf->s_pid_ramp_erpms_s = 25000.0f;
         mcconf->s_pid_allow_braking = true;
         mcconf->m_invert_direction = false;
-        /* Only cc_min_current has a global reference default; the lo_* limits are
-         * board-calibrated and stay 0 until a board supplies them. */
+        /*
+         * l_abs_current_max and cc_min_current are calibrated per hardware/board, so
+         * they start at 0 except cc_min_current, which has a global reference default
+         * (mcconf_default.h: 0.05). lo_current_min is not configured at all - it is a
+         * runtime value and stays 0 here for the same reason.
+         */
         mcconf->l_abs_current_max = 0.0f;
         mcconf->lo_current_min = 0.0f;
         mcconf->cc_min_current = 0.05f;
@@ -232,7 +236,8 @@ edge_status_t motor_config_serialize(const mc_configuration_t *mcconf,
     buffer[idx++] = mcconf->s_pid_allow_braking ? 1u : 0u;
     buffer[idx++] = mcconf->m_invert_direction ? 1u : 0u;
     append_float(buffer, mcconf->l_abs_current_max, 1e2f, &idx);
-    append_float(buffer, mcconf->lo_current_min, 1e2f, &idx);
+    /* lo_current_min is not written: the reference's stream has no runtime values, and
+     * a persisted effective limit would come back as if it were configuration. */
     append_float(buffer, mcconf->cc_min_current, 1e4f, &idx);
 
     /* Serialize App Config */
@@ -328,7 +333,6 @@ edge_status_t motor_config_deserialize(mc_configuration_t *mcconf, app_configura
     mcconf->s_pid_allow_braking = (buffer[idx++] != 0u);
     mcconf->m_invert_direction = (buffer[idx++] != 0u);
     mcconf->l_abs_current_max = get_float(buffer, 1e2f, &idx);
-    mcconf->lo_current_min = get_float(buffer, 1e2f, &idx);
     mcconf->cc_min_current = get_float(buffer, 1e4f, &idx);
 
     /* Deserialize App Config */

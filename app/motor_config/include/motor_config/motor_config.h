@@ -15,7 +15,7 @@ extern "C" {
 #define MOTOR_CONFIG_SIGNATURE 0x56455343u /* "VESC" */
 /* 2: added the fields foc_core consumes (filter constant, PLL gains, max duty,
  * observer type). A stored blob from version 1 is rejected rather than parsed. */
-#define MOTOR_CONFIG_SCHEMA_VER 5u
+#define MOTOR_CONFIG_SCHEMA_VER 6u
 #define MOTOR_CONFIG_BUFFER_SIZE 256u
 
 typedef enum {
@@ -81,10 +81,17 @@ typedef struct mc_configuration {
     bool m_invert_direction;
     /*
      * Limits the current-command semantics need (reference datatypes.h:403/431/553).
-     * cc_min_current has a global default (0.05, mcconf_default.h); the two lo_*
-     * values do NOT - they are calibrated per hardware, so they default to 0 here
-     * and are meant to come from board/<board>. A 0 is "pending the board", not the
-     * reference's default.
+     * l_abs_current_max and cc_min_current are stored configuration - the reference
+     * serialises both. lo_current_min above is not: it is computed at runtime.
+     */
+    /*
+     * Reference datatypes.h:430-431. These are RUNTIME values, not configuration:
+     * update_override_limits() (mc_interface.c:~2500-2546) derives them as the smallest
+     * of the MOSFET and motor current limits, the rpm limits, the acceleration and
+     * temperature limits, the duty limit and the input-current limit, floored at
+     * +/-cc_min_current. confgenerator_serialize_mcconf() does NOT write them, so they
+     * are deliberately absent from the flash format here too. Until this port computes
+     * the effective limits, the stored l_current_* values stand in for them.
      */
     float l_abs_current_max;
     float lo_current_min;

@@ -135,6 +135,10 @@ static void test_controller_fields_survive_a_round_trip(void **state) {
     size_t out_len = 0;
     assert_int_equal(motor_config_serialize(&mc_orig, &app_orig, buffer, sizeof(buffer), &out_len),
                      EDGE_OK);
+    /* lo_current_min is a runtime value in the reference and has no place in the byte
+     * stream, so a decode must leave whatever the caller had in it alone. A sentinel
+     * proves that; comparing against a value we happened to encode would not. */
+    mc_restored.lo_current_min = -999.0f;
     assert_int_equal(motor_config_deserialize(&mc_restored, &app_restored, buffer, out_len),
                      EDGE_OK);
 
@@ -147,7 +151,7 @@ static void test_controller_fields_survive_a_round_trip(void **state) {
     assert_float_equal(mc_restored.foc_sat_comp, 0.25f, 1e-4f);
     assert_float_equal(mc_restored.foc_motor_ld_lq_diff, 2.5e-6f, 1e-10f);
     assert_float_equal(mc_restored.l_abs_current_max, 130.0f, 1e-2f);
-    assert_float_equal(mc_restored.lo_current_min, -45.5f, 1e-2f);
+    assert_float_equal(mc_restored.lo_current_min, -999.0f, 1e-6f); /* runtime, untouched */
     assert_float_equal(mc_restored.cc_min_current, 0.07f, 1e-4f);
 }
 
