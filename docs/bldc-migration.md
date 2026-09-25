@@ -90,9 +90,16 @@ clang-format --dry-run     # 格式
   （`lo_current_min`、`l_abs_current_max`、`cc_min_current`）以及 `current_off_delay` 状态。
 - speed PID 本体已逐位验证并接入（提交 `cf8854d` / `26e805c`）；剩下的三项才是
   上面这一批。
-- handbrake：`foc_core_set_handbrake` 目前是 `set_current(0, brake_current)`，
-  需先核对 `mc_interface_set_handbrake` 的定义再判断是否等价 —— **尚未核对**，
-  不要当成已比对。
+- handbrake：**已核对，本端口当前不等价**。原版链路是
+  `COMM_SET_HANDBRAKE`（float32 × 1e3）→ `mc_interface_set_handbrake()`
+  （|current|>0.001 时 SHUTDOWN_RESET；`mc_interface_try_input()` 为真则整体 return；
+  按 motor_type 分派；最后 `events_add("set_handbrake", current)`）→ FOC 走
+  `mcpwm_foc_set_handbrake()`：它先设 **`CONTROL_MODE_HANDBRAKE`（独立控制模式）**、
+  把电流写进 **iq** 设定值（不是 d 轴），且在 `|current| < cc_min_current` 时提前返回。
+  而本端口的 `foc_core_set_handbrake` 只是 `set_current(0, brake_current)` —— 没有专属
+  控制模式、写的是 d 轴、也没有 `cc_min_current` 分支。要对比需新增控制模式 +
+  `cc_min_current`，并继续读完 `mcpwm_foc_set_handbrake`（`MC_STATE_RUNNING` 之后的
+  `else` 分支尚未读）。
 
 ### 阶段 C — 配置与持久化
 
