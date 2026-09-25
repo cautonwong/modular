@@ -3,6 +3,11 @@
 
 #include "edge/errors.h"
 #include "edge/module.h"
+/*
+ * mc_configuration_t, bms_config and the enums come from the generator: they are the
+ * reference's own datatypes.h, emitted by tools/gen_mcconf_from_reference.py.
+ */
+#include "motor_config/mcconf_struct.h"
 #include <stdalign.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -16,87 +21,10 @@ extern "C" {
 /* 2: added the fields foc_core consumes (filter constant, PLL gains, max duty,
  * observer type). A stored blob from version 1 is rejected rather than parsed. */
 #define MOTOR_CONFIG_SCHEMA_VER 6u
-#define MOTOR_CONFIG_BUFFER_SIZE 256u
-
-typedef enum {
-    MC_MOTOR_TYPE_BLDC = 0,
-    MC_MOTOR_TYPE_DC = 1,
-    MC_MOTOR_TYPE_FOC = 2
-} mc_motor_type_t;
-
-typedef struct mc_configuration {
-    mc_motor_type_t motor_type;
-    float current_min;
-    float current_max;
-    float in_current_min;
-    float in_current_max;
-    float current_min_scale;
-    float current_max_scale;
-    float v_in_min;
-    float v_in_max;
-    float rpm_min;
-    float rpm_max;
-    float foc_current_kp;
-    float foc_current_ki;
-    float foc_f_sw;
-    float foc_motor_r;
-    float foc_motor_l;
-    float foc_motor_flux_linkage;
-    float foc_observer_gain;
-    float temp_fet_max;
-    float temp_motor_max;
-    /* Speed information, reference types and defaults from datatypes.h:584 and
-     * mcconf_default.h:613-620. si_motor_poles is a pole COUNT, not pole pairs. */
-    uint8_t si_motor_poles;
-    float si_gear_ratio;
-    float si_wheel_diameter;
-    /*
-     * Fields foc_core actually consumes, with the reference's defaults, so the
-     * configuration reaches the controller instead of the controller running on
-     * compile-time constants. Defaults: mcconf_default.h (notes per field).
-     */
-    float foc_current_filter_const; /* 0.1   - MCCONF_FOC_CURRENT_FILTER_CONST */
-    float foc_pll_kp;               /* 2000  - MCCONF_FOC_PLL_KP */
-    float foc_pll_ki;               /* 30000 - MCCONF_FOC_PLL_KI */
-    float l_max_duty;               /* 0.95  - MCCONF_L_MAX_DUTY */
-    uint8_t foc_observer_type;      /* 0     - FOC_OBSERVER_ORTEGA_ORIGINAL */
-    /* Saturation and saliency compensation, reference defaults: disabled, factor
-     * 0.0, ld_lq_diff 0.0 (mcconf_default.h). Temperature compensation is NOT
-     * carried: its model needs a motor temperature this port has no source for. */
-    uint8_t foc_sat_comp_mode;  /* 0 - SAT_COMP_DISABLED */
-    float foc_sat_comp;         /* 0.0 */
-    float foc_motor_ld_lq_diff; /* 0.0 */
-    /*
-     * Speed PID, reference defaults from motor/mcconf_default.h: kp 0.004,
-     * ki 0.004, kd 0.0001, kd_filter 0.2, braking allowed, ramp 25000 ERPM/s.
-     * s_pid_min_erpm has no default macro there, so it stays 0.0.
-     */
-    float s_pid_kp;
-    float s_pid_ki;
-    float s_pid_kd;
-    float s_pid_kd_filter;
-    float s_pid_min_erpm;
-    float s_pid_ramp_erpms_s;
-    bool s_pid_allow_braking;
-    bool m_invert_direction;
-    /*
-     * Limits the current-command semantics need (reference datatypes.h:403/431/553).
-     * l_abs_current_max and cc_min_current are stored configuration - the reference
-     * serialises both. lo_current_min above is not: it is computed at runtime.
-     */
-    /*
-     * Reference datatypes.h:430-431. These are RUNTIME values, not configuration:
-     * update_override_limits() (mc_interface.c:~2500-2546) derives them as the smallest
-     * of the MOSFET and motor current limits, the rpm limits, the acceleration and
-     * temperature limits, the duty limit and the input-current limit, floored at
-     * +/-cc_min_current. confgenerator_serialize_mcconf() does NOT write them, so they
-     * are deliberately absent from the flash format here too. Until this port computes
-     * the effective limits, the stored l_current_* values stand in for them.
-     */
-    float l_abs_current_max;
-    float lo_current_min;
-    float cc_min_current;
-} mc_configuration_t;
+/* The reference's mc_configuration stream is 488 bytes (4 signature + 484 fields,
+ * docs/bldc-mcconf-format.md); this port's own framing is smaller, but the buffer has
+ * to fit the reference's when the codec is rewritten to it. */
+#define MOTOR_CONFIG_BUFFER_SIZE 512u
 
 typedef struct app_configuration {
     uint8_t controller_id;
@@ -126,7 +54,13 @@ typedef struct motor_config_storage_port {
  * The configuration itself is reached through motor_config_get_mc() / _get_app(),
  * so the caller never needs the layout to use the module.
  */
-#define MOTOR_CONFIG_STORAGE_SIZE 576u
+/*
+ * The caller's storage contract. sizeof(struct motor_config) is 1152 with the
+ * generated 177-member mc_configuration_t (776 of those bytes); the assert in
+ * src/motor_config_internal.h turns a stale value into a build error rather than an
+ * under-allocated caller.
+ */
+#define MOTOR_CONFIG_STORAGE_SIZE 1408u
 #define MOTOR_CONFIG_STORAGE_ALIGN alignof(max_align_t)
 
 typedef struct motor_config motor_config_t;

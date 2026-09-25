@@ -61,26 +61,26 @@ static uint16_t calc_crc(const uint8_t *buf, size_t len) {
 void motor_config_set_defaults(mc_configuration_t *mcconf, app_configuration_t *appconf) {
     if (mcconf != (void *)0) {
         memset(mcconf, 0, sizeof(*mcconf));
-        mcconf->motor_type = MC_MOTOR_TYPE_FOC;
-        mcconf->current_min = -60.0f;
-        mcconf->current_max = 60.0f;
-        mcconf->in_current_min = -60.0f;
-        mcconf->in_current_max = 99.0f;
-        mcconf->current_min_scale = 1.0f;
-        mcconf->current_max_scale = 1.0f;
-        mcconf->v_in_min = 8.0f;
-        mcconf->v_in_max = 55.0f;
-        mcconf->rpm_min = -100000.0f;
-        mcconf->rpm_max = 100000.0f;
+        mcconf->motor_type = MOTOR_TYPE_FOC;
+        mcconf->l_current_min = -60.0f;
+        mcconf->l_current_max = 60.0f;
+        mcconf->l_in_current_min = -60.0f;
+        mcconf->l_in_current_max = 99.0f;
+        mcconf->l_current_min_scale = 1.0f;
+        mcconf->l_current_max_scale = 1.0f;
+        mcconf->l_min_vin = 8.0f;
+        mcconf->l_max_vin = 55.0f;
+        mcconf->l_min_erpm = -100000.0f;
+        mcconf->l_max_erpm = 100000.0f;
         mcconf->foc_current_kp = 0.03f;
         mcconf->foc_current_ki = 50.0f;
-        mcconf->foc_f_sw = 25000.0f;
+        mcconf->foc_f_zv = 25000.0f;
         mcconf->foc_motor_r = 0.015f;
         mcconf->foc_motor_l = 0.000007f;
         mcconf->foc_motor_flux_linkage = 0.00245f;
         mcconf->foc_observer_gain = 9.0e5f;
-        mcconf->temp_fet_max = 85.0f;
-        mcconf->temp_motor_max = 85.0f;
+        mcconf->l_temp_fet_end = 85.0f;
+        mcconf->l_temp_motor_end = 85.0f;
         mcconf->si_motor_poles = 14u;
         mcconf->si_gear_ratio = 3.0f;
         mcconf->si_wheel_diameter = 0.083f;
@@ -126,13 +126,13 @@ edge_status_t motor_config_validate(const mc_configuration_t *mcconf,
         return EDGE_EINVAL;
     }
 
-    if (mcconf->current_max <= 0.0f || mcconf->current_min >= 0.0f) {
+    if (mcconf->l_current_max <= 0.0f || mcconf->l_current_min >= 0.0f) {
         return EDGE_EINVAL;
     }
-    if (mcconf->v_in_max <= mcconf->v_in_min || mcconf->v_in_min <= 0.0f) {
+    if (mcconf->l_max_vin <= mcconf->l_min_vin || mcconf->l_min_vin <= 0.0f) {
         return EDGE_EINVAL;
     }
-    if (mcconf->foc_f_sw < 5000.0f || mcconf->foc_f_sw > 100000.0f) {
+    if (mcconf->foc_f_zv < 5000.0f || mcconf->foc_f_zv > 100000.0f) {
         return EDGE_EINVAL;
     }
     if (appconf->timeout_msec == 0) {
@@ -197,25 +197,25 @@ edge_status_t motor_config_serialize(const mc_configuration_t *mcconf,
 
     /* Serialize MC Config */
     buffer[idx++] = (uint8_t)mcconf->motor_type;
-    append_float(buffer, mcconf->current_min, 1e2f, &idx);
-    append_float(buffer, mcconf->current_max, 1e2f, &idx);
-    append_float(buffer, mcconf->in_current_min, 1e2f, &idx);
-    append_float(buffer, mcconf->in_current_max, 1e2f, &idx);
-    append_float(buffer, mcconf->current_min_scale, 1e4f, &idx);
-    append_float(buffer, mcconf->current_max_scale, 1e4f, &idx);
-    append_float(buffer, mcconf->v_in_min, 1e2f, &idx);
-    append_float(buffer, mcconf->v_in_max, 1e2f, &idx);
-    append_float(buffer, mcconf->rpm_min, 1e0f, &idx);
-    append_float(buffer, mcconf->rpm_max, 1e0f, &idx);
+    append_float(buffer, mcconf->l_current_min, 1e2f, &idx);
+    append_float(buffer, mcconf->l_current_max, 1e2f, &idx);
+    append_float(buffer, mcconf->l_in_current_min, 1e2f, &idx);
+    append_float(buffer, mcconf->l_in_current_max, 1e2f, &idx);
+    append_float(buffer, mcconf->l_current_min_scale, 1e4f, &idx);
+    append_float(buffer, mcconf->l_current_max_scale, 1e4f, &idx);
+    append_float(buffer, mcconf->l_min_vin, 1e2f, &idx);
+    append_float(buffer, mcconf->l_max_vin, 1e2f, &idx);
+    append_float(buffer, mcconf->l_min_erpm, 1e0f, &idx);
+    append_float(buffer, mcconf->l_max_erpm, 1e0f, &idx);
     append_float(buffer, mcconf->foc_current_kp, 1e6f, &idx);
     append_float(buffer, mcconf->foc_current_ki, 1e4f, &idx);
-    append_float(buffer, mcconf->foc_f_sw, 1e0f, &idx);
+    append_float(buffer, mcconf->foc_f_zv, 1e0f, &idx);
     append_float(buffer, mcconf->foc_motor_r, 1e6f, &idx);
     append_float(buffer, mcconf->foc_motor_l, 1e9f, &idx);
     append_float(buffer, mcconf->foc_motor_flux_linkage, 1e7f, &idx);
     append_float(buffer, mcconf->foc_observer_gain, 1e-1f, &idx);
-    append_float(buffer, mcconf->temp_fet_max, 1e1f, &idx);
-    append_float(buffer, mcconf->temp_motor_max, 1e1f, &idx);
+    append_float(buffer, mcconf->l_temp_fet_end, 1e1f, &idx);
+    append_float(buffer, mcconf->l_temp_motor_end, 1e1f, &idx);
     buffer[idx++] = mcconf->si_motor_poles;
     append_float(buffer, mcconf->si_gear_ratio, 1e4f, &idx);
     append_float(buffer, mcconf->si_wheel_diameter, 1e4f, &idx);
@@ -293,26 +293,26 @@ edge_status_t motor_config_deserialize(mc_configuration_t *mcconf, app_configura
     }
 
     /* Deserialize MC Config */
-    mcconf->motor_type = (mc_motor_type_t)buffer[idx++];
-    mcconf->current_min = get_float(buffer, 1e2f, &idx);
-    mcconf->current_max = get_float(buffer, 1e2f, &idx);
-    mcconf->in_current_min = get_float(buffer, 1e2f, &idx);
-    mcconf->in_current_max = get_float(buffer, 1e2f, &idx);
-    mcconf->current_min_scale = get_float(buffer, 1e4f, &idx);
-    mcconf->current_max_scale = get_float(buffer, 1e4f, &idx);
-    mcconf->v_in_min = get_float(buffer, 1e2f, &idx);
-    mcconf->v_in_max = get_float(buffer, 1e2f, &idx);
-    mcconf->rpm_min = get_float(buffer, 1e0f, &idx);
-    mcconf->rpm_max = get_float(buffer, 1e0f, &idx);
+    mcconf->motor_type = (mc_motor_type)buffer[idx++];
+    mcconf->l_current_min = get_float(buffer, 1e2f, &idx);
+    mcconf->l_current_max = get_float(buffer, 1e2f, &idx);
+    mcconf->l_in_current_min = get_float(buffer, 1e2f, &idx);
+    mcconf->l_in_current_max = get_float(buffer, 1e2f, &idx);
+    mcconf->l_current_min_scale = get_float(buffer, 1e4f, &idx);
+    mcconf->l_current_max_scale = get_float(buffer, 1e4f, &idx);
+    mcconf->l_min_vin = get_float(buffer, 1e2f, &idx);
+    mcconf->l_max_vin = get_float(buffer, 1e2f, &idx);
+    mcconf->l_min_erpm = get_float(buffer, 1e0f, &idx);
+    mcconf->l_max_erpm = get_float(buffer, 1e0f, &idx);
     mcconf->foc_current_kp = get_float(buffer, 1e6f, &idx);
     mcconf->foc_current_ki = get_float(buffer, 1e4f, &idx);
-    mcconf->foc_f_sw = get_float(buffer, 1e0f, &idx);
+    mcconf->foc_f_zv = get_float(buffer, 1e0f, &idx);
     mcconf->foc_motor_r = get_float(buffer, 1e6f, &idx);
     mcconf->foc_motor_l = get_float(buffer, 1e9f, &idx);
     mcconf->foc_motor_flux_linkage = get_float(buffer, 1e7f, &idx);
     mcconf->foc_observer_gain = get_float(buffer, 1e-1f, &idx);
-    mcconf->temp_fet_max = get_float(buffer, 1e1f, &idx);
-    mcconf->temp_motor_max = get_float(buffer, 1e1f, &idx);
+    mcconf->l_temp_fet_end = get_float(buffer, 1e1f, &idx);
+    mcconf->l_temp_motor_end = get_float(buffer, 1e1f, &idx);
     mcconf->si_motor_poles = buffer[idx++];
     mcconf->si_gear_ratio = get_float(buffer, 1e4f, &idx);
     mcconf->si_wheel_diameter = get_float(buffer, 1e4f, &idx);
