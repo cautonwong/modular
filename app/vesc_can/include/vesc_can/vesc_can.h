@@ -18,6 +18,12 @@ typedef enum {
     CAN_PACKET_SET_CURRENT_BRAKE = 2,
     CAN_PACKET_SET_RPM = 3,
     CAN_PACKET_SET_POS = 4,
+    /* Reference datatypes.h:1162-1165: the multi-frame receive path comm_can_send_buffer
+     * uses for payloads longer than six bytes. */
+    CAN_PACKET_FILL_RX_BUFFER = 5,
+    CAN_PACKET_FILL_RX_BUFFER_LONG = 6,
+    CAN_PACKET_PROCESS_RX_BUFFER = 7,
+    CAN_PACKET_PROCESS_SHORT_BUFFER = 8,
     CAN_PACKET_STATUS_1 = 9,
     CAN_PACKET_STATUS_2 = 14,
     CAN_PACKET_STATUS_3 = 15,
@@ -71,6 +77,16 @@ edge_status_t vesc_can_send_status_4(vesc_can_app_t *app);
 edge_status_t vesc_can_send_status_5(vesc_can_app_t *app);
 
 edge_status_t vesc_can_send_duty(vesc_can_app_t *app, uint8_t target_id, float duty);
+
+/*
+ * The reference's comm_can_send_buffer(): hand a whole packet to another controller. Six
+ * bytes or less travel in one short-buffer frame; longer payloads are split into the
+ * FILL_RX_BUFFER / FILL_RX_BUFFER_LONG frames and closed by a PROCESS_RX_BUFFER frame
+ * carrying the sender, the length and a CRC. `send` is the reference's "is this a response"
+ * flag, passed through unchanged.
+ */
+edge_status_t vesc_can_send_buffer(vesc_can_app_t *app, uint8_t controller_id, const uint8_t *data,
+                                   size_t len, uint8_t send);
 edge_status_t vesc_can_send_current(vesc_can_app_t *app, uint8_t target_id, float current);
 edge_status_t vesc_can_send_rpm(vesc_can_app_t *app, uint8_t target_id, float rpm);
 
