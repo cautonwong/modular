@@ -51,14 +51,21 @@ static uint16_t calc_crc(const uint8_t *buf, size_t len) {
     return crc;
 }
 
+/*
+ * Defaults are the reference's (motor/mcconf_default.h). Six of them used to be
+ * invented values: input current limits, motor inductance and flux linkage,
+ * observer gain and the current-loop integral gain. A default-configured motor
+ * runs the observer and the current loop off those numbers, so they are not
+ * cosmetic.
+ */
 void motor_config_set_defaults(mc_configuration_t *mcconf, app_configuration_t *appconf) {
     if (mcconf != (void *)0) {
         memset(mcconf, 0, sizeof(*mcconf));
         mcconf->motor_type = MC_MOTOR_TYPE_FOC;
         mcconf->current_min = -60.0f;
         mcconf->current_max = 60.0f;
-        mcconf->in_current_min = -20.0f;
-        mcconf->in_current_max = 50.0f;
+        mcconf->in_current_min = -60.0f;
+        mcconf->in_current_max = 99.0f;
         mcconf->current_min_scale = 1.0f;
         mcconf->current_max_scale = 1.0f;
         mcconf->v_in_min = 8.0f;
@@ -66,12 +73,12 @@ void motor_config_set_defaults(mc_configuration_t *mcconf, app_configuration_t *
         mcconf->rpm_min = -100000.0f;
         mcconf->rpm_max = 100000.0f;
         mcconf->foc_current_kp = 0.03f;
-        mcconf->foc_current_ki = 30.0f;
+        mcconf->foc_current_ki = 50.0f;
         mcconf->foc_f_sw = 25000.0f;
         mcconf->foc_motor_r = 0.015f;
-        mcconf->foc_motor_l = 0.000020f;
-        mcconf->foc_motor_flux_linkage = 0.005f;
-        mcconf->foc_observer_gain = 2.0e6f;
+        mcconf->foc_motor_l = 0.000007f;
+        mcconf->foc_motor_flux_linkage = 0.00245f;
+        mcconf->foc_observer_gain = 9.0e5f;
         mcconf->temp_fet_max = 85.0f;
         mcconf->temp_motor_max = 85.0f;
         mcconf->si_motor_poles = 14u;

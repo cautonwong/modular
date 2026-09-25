@@ -29,8 +29,8 @@ void foc_inv_park_transform(float vd, float vq, float sin_th, float cos_th, floa
                             float *v_beta);
 
 /* Space Vector PWM (SVPWM) */
-void foc_svpwm(float v_alpha, float v_beta, float v_bus, float *duty_a, float *duty_b,
-               float *duty_c, uint32_t *sector_out);
+void foc_svpwm(float v_alpha, float v_beta, float v_bus, float duty_max, float *duty_a,
+               float *duty_b, float *duty_c, uint32_t *sector_out);
 
 /* Ortega flux observer state */
 typedef struct foc_observer {
