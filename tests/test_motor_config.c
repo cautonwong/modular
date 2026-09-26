@@ -550,6 +550,80 @@ static void test_motor_config_crc_matches_the_codec(void **state) {
     assert_int_equal(mine, theirs);
 }
 
+/*
+ * The guards of every public entry point, walked once. They were most of this module's uncovered
+ * lines: each function checks its arguments and each check is its own branch, so no amount of
+ * round-trip testing reaches them. The cases are a null aggregate, a null output and a null
+ * buffer, and the expected answers are the header's own wording.
+ */
+static void test_motor_config_guards(void **state) {
+    (void)state;
+    mc_configuration_t mc;
+    app_configuration_t app;
+    motor_config_set_defaults(&mc, &app);
+
+    uint8_t buffer[MOTOR_CONFIG_BUFFER_SIZE];
+    size_t len = 0u;
+
+    /* A null aggregate: construct is a no-op and everything else refuses. */
+    motor_config_construct(NULL, EDGE_MOD_MOTOR_CONFIG, 20u, NULL);
+    assert_int_equal(motor_config_init(NULL), EDGE_EINVAL);
+    assert_int_equal(motor_config_deinit(NULL), EDGE_EINVAL);
+    assert_int_equal(motor_config_load(NULL), EDGE_EINVAL);
+    assert_int_equal(motor_config_save(NULL), EDGE_EINVAL);
+    assert_ptr_equal(motor_config_module(NULL), NULL);
+    assert_ptr_equal(motor_config_get_mc(NULL), NULL);
+    assert_ptr_equal(motor_config_get_app(NULL), NULL);
+    assert_false(motor_config_is_dirty(NULL));
+    assert_int_equal(motor_config_update_mc(NULL, &mc), EDGE_EINVAL);
+    assert_int_equal(motor_config_update_app(NULL, &app), EDGE_EINVAL);
+    assert_int_equal(motor_config_apply_mc_stream(NULL, buffer, sizeof(buffer)), EDGE_EINVAL);
+    assert_int_equal(motor_config_apply_app_stream(NULL, buffer, sizeof(buffer)), EDGE_EINVAL);
+    assert_int_equal(motor_config_apply_app_stream_nostore(NULL, buffer, sizeof(buffer)),
+                     EDGE_EINVAL);
+    assert_int_equal(motor_config_serialize_mc_defaults(NULL, buffer, sizeof(buffer), &len),
+                     EDGE_EINVAL);
+
+    /* The free functions refuse a null pointer rather than writing through it. */
+    assert_int_equal(motor_config_config_crc(NULL), 0u);
+    assert_int_equal(motor_config_validate(NULL, &app), EDGE_EINVAL);
+    assert_int_equal(motor_config_validate(&mc, NULL), EDGE_EINVAL);
+    assert_int_equal(motor_config_serialize_mc(NULL, buffer, sizeof(buffer), &len), EDGE_EINVAL);
+    assert_int_equal(motor_config_serialize_mc(&mc, NULL, sizeof(buffer), &len), EDGE_EINVAL);
+    assert_int_equal(motor_config_serialize_mc(&mc, buffer, sizeof(buffer), NULL), EDGE_EINVAL);
+    assert_int_equal(motor_config_deserialize_mc(NULL, buffer, sizeof(buffer)), EDGE_EINVAL);
+    assert_int_equal(motor_config_deserialize_mc(&mc, NULL, sizeof(buffer)), EDGE_EINVAL);
+    assert_int_equal(motor_config_serialize_app(NULL, buffer, sizeof(buffer), &len), EDGE_EINVAL);
+    assert_int_equal(motor_config_deserialize_app(NULL, buffer, sizeof(buffer)), EDGE_EINVAL);
+    assert_int_equal(motor_config_serialize_app_defaults(NULL, sizeof(buffer), &len), EDGE_EINVAL);
+    motor_config_set_defaults(NULL, NULL);
+
+    /* Constructed with no store: load and save refuse, and init still succeeds with nothing to
+     * persist to. */
+    static alignas(MOTOR_CONFIG_STORAGE_ALIGN) unsigned char storage[MOTOR_CONFIG_STORAGE_SIZE];
+    memset(storage, 0, sizeof(storage));
+    motor_config_t *cfg = (motor_config_t *)storage;
+    motor_config_construct(cfg, EDGE_MOD_MOTOR_CONFIG, 20u, NULL);
+    assert_int_equal(motor_config_load(cfg), EDGE_EINVAL);
+    assert_int_equal(motor_config_save(cfg), EDGE_EINVAL);
+    assert_int_equal(motor_config_init(cfg), EDGE_OK);
+    assert_non_null(motor_config_get_mc(cfg));
+    assert_non_null(motor_config_get_app(cfg));
+    assert_non_null(motor_config_module(cfg));
+
+    /* A stream it cannot decode is refused and the live configuration is left alone. */
+    const float before = motor_config_get_mc(cfg)->l_current_max;
+    uint8_t bad[6] = {0};
+    assert_int_equal(motor_config_apply_mc_stream(cfg, bad, sizeof(bad)), EDGE_EINVAL);
+    assert_float_equal(motor_config_get_mc(cfg)->l_current_max, before, 1e-9f);
+    assert_int_equal(motor_config_update_mc(cfg, NULL), EDGE_EINVAL);
+    assert_int_equal(motor_config_update_app(cfg, NULL), EDGE_EINVAL);
+    assert_int_equal(motor_config_apply_app_stream(cfg, bad, sizeof(bad)), EDGE_EINVAL);
+    assert_int_equal(motor_config_apply_app_stream_nostore(cfg, bad, sizeof(bad)), EDGE_EINVAL);
+    assert_int_equal(motor_config_serialize_mc_defaults(cfg, NULL, sizeof(buffer), &len),
+                     EDGE_EINVAL);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_defaults_and_validation),
@@ -560,6 +634,7 @@ int main(void) {
         cmocka_unit_test(test_motor_config_app_golden_bytes),
         cmocka_unit_test(test_motor_config_variable_store),
         cmocka_unit_test(test_motor_config_crc_matches_the_codec),
+        cmocka_unit_test(test_motor_config_guards),
         cmocka_unit_test(test_motor_config_defaults_keep_the_calibration_offsets),
         cmocka_unit_test(test_motor_config_app_nostore_applies_without_marking_dirty),
         cmocka_unit_test(test_module_lifecycle_and_variable_store),
