@@ -148,9 +148,65 @@ static void test_throttle_negative_curve_and_app_guards(void **state) {
     assert_ptr_equal(throttle_module(NULL), NULL);
 }
 
+/* A port whose read fails, for the step's error path, and an output the tests do not care about. */
+static edge_status_t failing_read(void *self, float *raw) {
+    (void)self;
+    *raw = 0.0f;
+    return EDGE_EIO;
+}
+
+static edge_status_t sink_command(void *self, float cmd) {
+    (void)self;
+    (void)cmd;
+    return EDGE_OK;
+}
+
+/*
+ * The module's own hooks, the ramp's degenerate rates and the step's guards. The hooks are what a
+ * scheduler calls and none of them had a case; a ramp rate of zero is the "go there now instead of
+ * rate limiting" branch, and a non-positive dt is the "no time passed, nothing moves" one.
+ */
+static void test_throttle_hooks_and_ramp_edges(void **state) {
+    (void)state;
+    mock_throttle_io_t io;
+    memset(&io, 0, sizeof(io));
+    throttle_input_port_t in_port = {.self = &io, .read_raw = mock_throttle_read_raw};
+    throttle_output_port_t out_port = {.self = &io, .set_command = sink_command};
+
+    throttle_t thr;
+    throttle_construct(&thr, EDGE_MOD_THROTTLE, 20u, &in_port, &out_port, NULL, 0.01f);
+    assert_int_equal(throttle_init(&thr), EDGE_OK);
+
+    /* The hooks a scheduler drives. */
+    assert_int_equal(thr.module.poll(&thr.module), EDGE_OK);
+    /* A null event is refused rather than treated as an event with nothing in it. */
+    assert_int_equal(thr.module.on_event(&thr.module, NULL), EDGE_EINVAL);
+    assert_int_equal(thr.module.power_off(&thr.module), EDGE_OK);
+    assert_float_equal(throttle_get_output(&thr), 0.0f, 1e-6f);
+    assert_int_equal(throttle_deinit(&thr), EDGE_OK);
+
+    /* A ramp rate of zero reaches the target in one step, in both directions. */
+    assert_float_equal(throttle_apply_ramp(0.0f, 1.0f, 0.0f, 0.0f, 0.01f), 1.0f, 1e-6f);
+    assert_float_equal(throttle_apply_ramp(1.0f, 0.0f, 0.0f, 0.0f, 0.01f), 0.0f, 1e-6f);
+    /* A non-positive dt moves nothing, and an unchanged target is left alone. */
+    assert_float_equal(throttle_apply_ramp(0.25f, 1.0f, 10.0f, 10.0f, 0.0f), 0.25f, 1e-6f);
+    assert_float_equal(throttle_apply_ramp(0.25f, 1.0f, 10.0f, 10.0f, -1.0f), 0.25f, 1e-6f);
+    assert_float_equal(throttle_apply_ramp(0.5f, 0.5f, 10.0f, 10.0f, 0.01f), 0.5f, 1e-6f);
+
+    /* The step guards and its error path. */
+    assert_int_equal(throttle_step(NULL), EDGE_EINVAL);
+    throttle_t bad;
+    throttle_input_port_t bad_in = {.self = NULL, .read_raw = failing_read};
+    throttle_construct(&bad, EDGE_MOD_THROTTLE, 20u, &bad_in, &out_port, NULL, 0.01f);
+    assert_int_equal(throttle_init(&bad), EDGE_OK);
+    assert_int_equal(throttle_step(&bad), EDGE_EIO);
+}
+
 int main(void) {
+
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_throttle_deadband),
+        cmocka_unit_test(test_throttle_hooks_and_ramp_edges),
         cmocka_unit_test(test_throttle_curve_matches_reference),
         cmocka_unit_test(test_throttle_rate_limiting_ramp),
         cmocka_unit_test(test_throttle_negative_curve_and_app_guards),
