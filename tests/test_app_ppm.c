@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <setjmp.h>
 #include <stdint.h>
+#include <string.h>
 #include <cmocka.h>
 /* clang-format on */
 
@@ -116,9 +117,50 @@ static void test_ppm_safe_start(void **state) {
     assert_float_equal(ppm_get_output(&app), 1.0f, 0.001f);
 }
 
+/*
+ * The module's own hooks, the accessors' guards and the read-failure path. The hooks are what a
+ * scheduler drives - a poll reads the receiver, and power-off is the safe state - and none of them
+ * had a case. The failing read is checked as an invariant rather than an error code: whatever it
+ * reports, a receiver that cannot be read must not leave a demand behind.
+ */
+static void test_ppm_hooks_guards_and_read_failure(void **state) {
+    (void)state;
+    mock_ppm_rcv_t rcv;
+    memset(&rcv, 0, sizeof(rcv));
+    rcv.pulse_us = 1500.0f;
+    rcv.signal_ok = true;
+    ppm_receiver_port_t port = {
+        .self = &rcv, .read_pulse_us = mock_read_pulse, .is_signal_present = mock_signal_present};
+
+    ppm_app_t app;
+    ppm_construct(&app, EDGE_MOD_PPM, 20u, NULL, &port);
+    assert_int_equal(ppm_init(&app), EDGE_OK);
+
+    /* The hooks a scheduler drives. */
+    assert_int_equal(app.module.poll(&app.module), EDGE_OK);
+    assert_int_equal(app.module.on_event(&app.module, NULL), EDGE_OK);
+    assert_int_equal(app.module.power_off(&app.module), EDGE_OK);
+    assert_float_equal(ppm_get_output(&app), 0.0f, 1e-9f);
+    assert_ptr_equal(ppm_module(&app), &app.module);
+
+    /* A read that fails leaves no demand behind. */
+    rcv.signal_ok = false;
+    (void)ppm_update(&app, 0.01f);
+    assert_float_equal(ppm_get_output(&app), 0.0f, 1e-9f);
+
+    /* The guards. */
+    ppm_construct(NULL, EDGE_MOD_PPM, 20u, NULL, &port);
+    assert_int_equal(ppm_update(NULL, 0.01f), EDGE_EINVAL);
+    assert_float_equal(ppm_get_output(NULL), 0.0f, 1e-9f);
+    assert_float_equal(ppm_get_last_pulse_us(NULL), 0.0f, 1e-9f);
+    assert_ptr_equal(ppm_module(NULL), NULL);
+}
+
 int main(void) {
+
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_ppm_init_validation),
+        cmocka_unit_test(test_ppm_hooks_guards_and_read_failure),
         cmocka_unit_test(test_ppm_deadband_and_range),
         cmocka_unit_test(test_ppm_safe_start),
     };
