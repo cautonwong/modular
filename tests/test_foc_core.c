@@ -1729,6 +1729,54 @@ static void test_foc_math_helper_branches(void **state) {
     assert_float_equal(v, -1.0f, 1e-6f);
 }
 
+/*
+ * The saturation path that combines a lambda-scaled inductance with the factor, for an observer
+ * that tracks lambda and one that does not. The assertions are the branch's own arithmetic: the
+ * combined mode scales the inductance by the flux estimate and applies the factor to the
+ * inductance only - the reference leaves lambda itself alone there - and the saliency term applies
+ * on top of every mode, so it is part of the expected value rather than an afterthought.
+ *
+ * Battery chemistries were meant to be here too. They are not: what the curve does for a pack
+ * outside its own voltage range is not something this test has read, and inventing an expectation
+ * for it would be worse than leaving it uncovered. The battery level has its own case already.
+ */
+static void test_foc_math_sat_lambda_combination(void **state) {
+    (void)state;
+
+    float r = 0.0f;
+    float l = 0.0f;
+    float lambda = 0.0f;
+
+    /* Factor plus lambda scaling, with the observer that tracks lambda. */
+    foc_observer_adjust_params(0.05f, 1e-4f, 0.005f, 1e-5f, 1.0f, 0.5f, 2.0f, 10.0f, 0.004f, 0.2f,
+                               FOC_SAT_COMP_LAMBDA_AND_FACTOR, 0.06f, false,
+                               FOC_OBSERVER_MXLEMMING_LAMBDA_COMP, &r, &l, &lambda);
+    assert_true(l < 1e-4f);
+    /* The combined mode scales the inductance by the flux estimate and applies the factor to the
+     * inductance only: the reference leaves lambda itself alone in this branch. */
+    assert_float_equal(lambda, 0.005f, 1e-9f);
+
+    /* The same with temperature compensation on: the resistance comes from the model. */
+    foc_observer_adjust_params(0.05f, 1e-4f, 0.005f, 1e-5f, 1.0f, 0.5f, 2.0f, 10.0f, 0.004f, 0.2f,
+                               FOC_SAT_COMP_LAMBDA_AND_FACTOR, 0.06f, true,
+                               FOC_OBSERVER_MXLEMMING_LAMBDA_COMP, &r, &l, &lambda);
+    assert_float_equal(r, 0.06f, 1e-6f);
+
+    /* An observer that does not track lambda skips that half, so only the factor shrinks the
+     * inductance. */
+    foc_observer_adjust_params(0.05f, 1e-4f, 0.005f, 1e-5f, 1.0f, 0.5f, 2.0f, 10.0f, 0.004f, 0.2f,
+                               FOC_SAT_COMP_LAMBDA_AND_FACTOR, 0.06f, false,
+                               FOC_OBSERVER_ORTEGA_ORIGINAL, &r, &l, &lambda);
+    const float after_factor = 1e-4f * (1.0f - 0.2f * (2.0f / 10.0f));
+    /* The saliency term applies to every mode, so it is part of the expected value rather than an
+     * afterthought: l -= ld_lq_diff / 2 - ld_lq_diff * iq^2 / (id^2 + iq^2) with the currents that
+     * were passed in. */
+    const float after_saliency =
+        after_factor - 1e-5f / 2.0f + 1e-5f * (0.5f * 0.5f) / (1.0f * 1.0f + 0.5f * 0.5f);
+    assert_float_equal(l, after_saliency, 1e-10f);
+    assert_float_equal(lambda, 0.005f, 1e-9f);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -1761,6 +1809,7 @@ int main(void) {
         cmocka_unit_test(test_foc_fft_bins_match_reference),
         cmocka_unit_test(test_foc_core_guards),
         cmocka_unit_test(test_foc_math_helper_branches),
+        cmocka_unit_test(test_foc_math_sat_lambda_combination),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
