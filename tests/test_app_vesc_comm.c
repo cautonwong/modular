@@ -968,6 +968,120 @@ static void test_setup_values_framing(void **state) {
                      EDGE_ENOTSUP);
 }
 
+/*
+ * Every id this port handles, driven once through the dispatcher. Each case in
+ * vesc_comm_process_command is its own body, so a test that exercises a handful of ids leaves the
+ * rest unexecuted - measured, that was 112 of this file's lines. The payload is sixteen zero bytes
+ * after the id, which is what most of these accept, and the two promises checked are the
+ * dispatcher's: a handled id never answers "unknown", and an id nobody handles answers nothing at
+ * all. The reply-producing ids are held to their own promise as well.
+ */
+static void test_every_handled_command_id_is_reachable(void **state) {
+    (void)state;
+    mock_comm_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    mock_config_ctx_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    mock_terminal_calls = 0;
+    mock_forward_calls = 0;
+
+    edge_stream_tx_port_t tx_port = {.write = mock_stream_write, .self = &ctx};
+    vesc_app_status_port_t app_status_port = {.get_decoded_ppm = mock_get_decoded_ppm,
+                                              .get_decoded_adc = mock_get_decoded_adc,
+                                              .self = &ctx};
+    vesc_motor_provider_port_t motor_port = {.get_values = mock_get_values,
+                                             .get_stats = mock_get_stats,
+                                             .reset_stats = mock_reset_stats,
+                                             .set_duty = mock_set_duty,
+                                             .set_current = mock_set_current,
+                                             .set_current_rel = mock_set_current_rel,
+                                             .set_handbrake = mock_set_handbrake,
+                                             .set_current_brake = mock_set_current_brake,
+                                             .set_rpm = mock_set_rpm,
+                                             .set_pos = mock_set_pos,
+                                             .get_setup_values = mock_get_setup_values,
+                                             .self = &ctx};
+    vesc_config_provider_port_t config_port = {.get_mcconf = mock_get_mcconf,
+                                               .set_mcconf = mock_set_mcconf,
+                                               .get_appconf = mock_get_appconf,
+                                               .set_appconf = mock_set_appconf,
+                                               .get_mcconf_default = mock_get_mcconf_default,
+                                               .get_appconf_default = mock_get_appconf_default,
+                                               .set_appconf_nostore = mock_set_appconf_nostore,
+                                               .self = &cfg};
+    vesc_comm_ops_port_t ops_port = {
+        .terminal_cmd = mock_terminal_cmd, .forward_can = mock_forward_can, .self = NULL};
+
+    vesc_comm_t *comm = test_comm_alloc();
+    vesc_comm_construct(comm, EDGE_MOD_VESC_COMM, 10u, &tx_port, &motor_port, &app_status_port,
+                        &config_port, &ops_port, &test_identity);
+    assert_int_equal(vesc_comm_init(comm), EDGE_OK);
+
+    static const uint8_t handled[] = {COMM_FW_VERSION,
+                                      COMM_GET_VALUES,
+                                      COMM_GET_VALUES_SELECTIVE,
+                                      COMM_SET_DUTY,
+                                      COMM_TERMINAL_CMD,
+                                      COMM_FORWARD_CAN,
+                                      COMM_GET_VALUES_SETUP,
+                                      COMM_GET_VALUES_SETUP_SELECTIVE,
+                                      COMM_GET_MCCONF,
+                                      COMM_SET_MCCONF,
+                                      COMM_GET_MCCONF_DEFAULT,
+                                      COMM_GET_APPCONF_DEFAULT,
+                                      COMM_GET_APPCONF,
+                                      COMM_SET_APPCONF,
+                                      COMM_SET_APPCONF_NO_STORE,
+                                      COMM_SET_CURRENT,
+                                      COMM_SET_HANDBRAKE,
+                                      COMM_SET_CURRENT_REL,
+                                      COMM_SET_CURRENT_BRAKE,
+                                      COMM_SET_RPM,
+                                      COMM_SET_POS,
+                                      COMM_GET_STATS,
+                                      COMM_RESET_STATS,
+                                      COMM_GET_DECODED_PPM,
+                                      COMM_GET_DECODED_ADC,
+                                      COMM_ALIVE};
+
+    /* The ones whose whole job is to answer: their reply must appear. */
+    static const uint8_t answers[] = {
+        COMM_FW_VERSION,  COMM_GET_VALUES, COMM_GET_VALUES_SETUP, COMM_GET_MCCONF,
+        COMM_GET_APPCONF, COMM_GET_STATS,  COMM_GET_DECODED_PPM,  COMM_GET_DECODED_ADC};
+
+    for (size_t i = 0u; i < sizeof(handled) / sizeof(handled[0]); i++) {
+        uint8_t payload[17] = {0};
+        payload[0] = handled[i];
+        const size_t before = ctx.tx_count;
+        const edge_status_t status = vesc_comm_process_command(comm, payload, sizeof(payload));
+        if (status == EDGE_ENOTSUP) {
+            /* Name the id in the failure: the dispatcher has a case for every id in this list, so
+             * an ENOTSUP here means the case fell through or the id list drifted. */
+            print_message("command id %u answered ENOTSUP\n", (unsigned)handled[i]);
+            assert_true(false);
+        }
+
+        bool must_answer = false;
+        for (size_t k = 0u; k < sizeof(answers) / sizeof(answers[0]); k++) {
+            must_answer = must_answer || (handled[i] == answers[k]);
+        }
+        if (must_answer) {
+            assert_true(ctx.tx_count > before);
+        }
+    }
+
+    /* The terminal and the CAN forward went through the product in that walk. */
+    assert_true(mock_terminal_calls > 0);
+    assert_true(mock_forward_calls > 0);
+
+    /* An id nobody handles answers nothing, which is what the reference does with an unknown
+     * command - and what docs/bldc-migration.md records for the detection family. */
+    const size_t before = ctx.tx_count;
+    uint8_t unknown[2] = {COMM_DETECT_MOTOR_PARAM, 0u};
+    assert_int_equal(vesc_comm_process_command(comm, unknown, sizeof(unknown)), EDGE_ENOTSUP);
+    assert_int_equal(ctx.tx_count, before);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_vesc_comm_lifecycle_and_guards),
@@ -976,6 +1090,7 @@ int main(void) {
         cmocka_unit_test(test_receive_packet_and_commands),
         cmocka_unit_test(test_config_commands_framing),
         cmocka_unit_test(test_setup_values_framing),
+        cmocka_unit_test(test_every_handled_command_id_is_reachable),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
