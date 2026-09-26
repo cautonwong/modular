@@ -1777,6 +1777,92 @@ static void test_foc_math_sat_lambda_combination(void **state) {
     assert_float_equal(lambda, 0.005f, 1e-9f);
 }
 
+/*
+ * The loop's port-failure paths and the module's own hooks. A sensor that cannot be read has to
+ * stop the cycle rather than run the control on stale numbers, and a lost rotor in sensored mode
+ * has to latch the sensor-lost fault - which is a different outcome from a bad bus reading, since
+ * one is a fault and the other is an error the caller can retry.
+ */
+static edge_status_t failing_currents(void *self, float *ia, float *ib, float *ic) {
+    (void)self;
+    *ia = 0.0f;
+    *ib = 0.0f;
+    *ic = 0.0f;
+    return EDGE_EIO;
+}
+
+static edge_status_t failing_vbus(void *self, float *v_bus) {
+    (void)self;
+    *v_bus = 24.0f;
+    return EDGE_EIO;
+}
+
+static edge_status_t failing_angle(void *self, float *angle_rad, float *rpm) {
+    (void)self;
+    *angle_rad = 0.0f;
+    *rpm = 0.0f;
+    return EDGE_EIO;
+}
+
+static void test_foc_core_loop_and_module_failures(void **state) {
+    (void)state;
+    mock_inverter_t inv;
+    mock_current_sensor_t cs;
+    mock_rotor_sensor_t rs;
+    memset(&inv, 0, sizeof(inv));
+    memset(&cs, 0, sizeof(cs));
+    memset(&rs, 0, sizeof(rs));
+    cs.v_bus = 24.0f;
+
+    foc_core_t core;
+    foc_core_t foc;
+    foc_inverter_port_t inv_port = {
+        .set_duty = mock_set_duty, .set_phase_state = mock_set_phase_state, .self = &inv};
+    foc_rotor_port_t rs_port = {.read_angle = mock_read_angle, .self = &rs};
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = 300.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = false};
+
+    /* A failing current read: the cycle reports the port's error. */
+    foc_current_port_t bad_cs_port = {
+        .read_currents = failing_currents, .read_vbus = mock_read_vbus, .self = &cs};
+    foc_core_construct(&core, 1u, 1u, &cfg, &inv_port, &bad_cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&core), EDGE_OK);
+    assert_int_equal(foc_core_set_current(&core, 3.0f, 0.0f), EDGE_OK);
+    assert_int_equal(foc_core_fast_loop(&core, 5e-5f), EDGE_EIO);
+
+    /* A failing bus read: also the port's error. */
+    foc_current_port_t bad_vbus_port = {
+        .read_currents = mock_read_currents, .read_vbus = failing_vbus, .self = &cs};
+    foc_core_construct(&core, 1u, 1u, &cfg, &inv_port, &bad_vbus_port, &rs_port);
+    assert_int_equal(foc_core_init(&core), EDGE_OK);
+    assert_int_equal(foc_core_set_current(&core, 3.0f, 0.0f), EDGE_OK);
+    assert_int_equal(foc_core_fast_loop(&core, 5e-5f), EDGE_EIO);
+
+    /* A lost rotor in sensored mode latches the sensor-lost fault and stops the phases. */
+    foc_current_port_t cs_port = {
+        .read_currents = mock_read_currents, .read_vbus = mock_read_vbus, .self = &cs};
+    foc_rotor_port_t bad_rs_port = {.read_angle = failing_angle, .self = &rs};
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &bad_rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    assert_int_equal(foc_core_set_current(&foc, 3.0f, 0.0f), EDGE_OK);
+    assert_int_equal(foc_core_fast_loop(&foc, 5e-5f), EDGE_EIO);
+    assert_true((foc_core_get_faults(&foc) & FOC_FAULT_SENSOR_LOST) != 0u);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_FAULT);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -1810,6 +1896,7 @@ int main(void) {
         cmocka_unit_test(test_foc_core_guards),
         cmocka_unit_test(test_foc_math_helper_branches),
         cmocka_unit_test(test_foc_math_sat_lambda_combination),
+        cmocka_unit_test(test_foc_core_loop_and_module_failures),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
