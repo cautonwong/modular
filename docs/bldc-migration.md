@@ -273,6 +273,39 @@ clang-format --dry-run     # 格式
   `utils_map(fabsf(duty_now), 0, 40/v_bus, 0, foc_observer_gain)`（mcpwm_foc.c:4150）是
   **观测器增益随 duty/v_bus 缩放**，属于 **B4**（它是 `duty_now` 的消费者之一，duty_now 已修正）。
 
+#### B5 进展：电阻测量已按原版迁移，并查出对 B2 的依赖
+
+之前 `app/motor_id` 里的「检测」是**自造的**：电压从 0.1 V 起、每步 +0.05 V 边爬边累加，然后报
+`R = (Σv/Σi) * 2/3`；电感用 `L = v·dt/di`，磁链与霍尔也是拍出来的。这些数字无法对照原版，按
+「不编造测量值」的原则已全部删除。
+
+**已迁移：`mcpwm_foc_measure_resistance`（mcpwm_foc.c:1797-1908）**，逐段对应：
+
+| 原版 | 本端口 |
+| --- | --- |
+| `m_phase_override = true` + `m_phase_now_override = 0` | `foc_core_set_phase_override(0, true)`；`foc_core` 在取角前判它，置位时**不读传感器也不跑观测器**（原版 :3486/:3524/:3532 都在各自分支前判这个标志） |
+| `m_control_mode = CURRENT`、`m_id_set = 0` | 端口 `set_current(iq)`（id 恒为 0） |
+| `while (|iq_set-current|>0.001) { step(|current|/200); fault; sleep 1ms; }` | RAMP 相，每累计 1 ms 走一步；`utils_step_towards` 按原版逐字转写 |
+| `chThdSleepMilliseconds(50)` | SETTLE 相，50 ms |
+| 清 `m_samples` 后等 `sample_num >= samples`（上限 10000 ms） | SAMPLE 相；清与读是**两个**端口调用，因为原版就是在不同时刻用它们 |
+| `m_samples += NORM2(id,iq)` / `NORM2(vd,vq)`，仅 `MC_STATE_RUNNING` 时累加 | `foc_core` 的检测累加器，以「控制环跑过的周期」为门（本端口 `state >= RUNNING_CURRENT`） |
+| `R = voltage_avg / current_avg`（各自先 /n） | 同序计算：先两个平均再相除——直接算 `Σv/Σi` 代数相等但**不是逐位相同** |
+| 两条 fault 路径 + 收尾块（清 id/iq、清 override、停 PWM） | `motor_id_fail()` / `motor_id_stop_motor()`，后者只由 `stop_after` 决定是否在结束时执行（原版给 R→L 两趟之间留电机在跑） |
+
+**一处必须做对的地方（我先做错了）**：原版的 `while` 是「先测条件、再步进、再睡」，所以**达成目标的那一毫秒
+就是斜坡的最后一毫秒**（不再多睡一次）。最初的状态机让「发现已达成」的那一毫秒空转，斜坡多花 1 ms；
+测试用 199/200 ms 两个点把它钉住了。
+
+**发现的结构性依赖**：`mcpwm_foc_measure_inductance` 一开头就把配置改成 **HFI 模式**
+（`foc_sensor_mode = FOC_SENSOR_MODE_HFI`，:1927-1935）并驱动 `foc_hfi_voltage_*`。所以**电感测量、
+以及包含它的 `COMM_DETECT_MOTOR_R_L`，都依赖 B2（HFI）**。磁链（`conf_general_measure_flux_linkage`，
+开环升速看电流下降）与霍尔检测的程序**尚未读**。三个未迁移程序一律返回 `EDGE_ENOTSUP`，不再给近似值。
+
+**证据**：`tests/test_app_motor_id.c` 用已知电阻的假机器验证各相/时序/斜坡速率/累加器只被清一次/
+两条 fault 中止/采样超时（原版在超时路径上就是除以零，本端口照算但把结果标为 invalid）/`stop_after`
+两种分支；`tests/test_product_glue.c` 的端到端测试让**原版程序驱动真实控制环**跑虚拟电机，量回它的
+0.05 Ω。55/55、两二进制各 10 次无抖动、ASan/UBSan 绿、六门禁绿、产品端到端照跑。
+
 ### 阶段 C — 配置与持久化
 
 #### C3 定界（先读再动；更正上一轮自己的指向）
