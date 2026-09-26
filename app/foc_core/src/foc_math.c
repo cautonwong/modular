@@ -76,20 +76,26 @@ static float obs_truncate_abs(float v, float max) {
     return v;
 }
 
+/*
+ * Reference util/utils_math.h:169 utils_norm_angle_rad, literally: its wraps use double literals,
+ * so they are computed in double and rounded back to float. Float constants shift the result by
+ * about 1e-4 over a few thousand steps - measured against the reference - which is why this is a
+ * helper both of the trackers below call rather than a loop written out twice.
+ */
+static void foc_norm_angle_rad(float *angle) {
+    while (*angle < -M_PI) {
+        *angle += 2.0 * M_PI;
+    }
+    while (*angle >= M_PI) {
+        *angle -= 2.0 * M_PI;
+    }
+}
+
 void foc_pll_run(foc_pll_t *pll, float phase, float dt, float kp, float ki) {
     pll->phase = (pll->phase != pll->phase) ? 0.0f : pll->phase; /* UTILS_NAN_ZERO */
 
     float delta_theta = phase - pll->phase;
-    /* utils_norm_angle_rad, literally: the reference's macro uses double literals,
-     * so the wraps are computed in double and rounded back to float. Using float
-     * constants here shifts the speed integrator by ~1e-4 over a few thousand
-     * steps (measured against the reference). */
-    while (delta_theta < -M_PI) {
-        delta_theta += 2.0 * M_PI;
-    }
-    while (delta_theta >= M_PI) {
-        delta_theta -= 2.0 * M_PI;
-    }
+    foc_norm_angle_rad(&delta_theta);
 
     pll->speed = (pll->speed != pll->speed) ? 0.0f : pll->speed;
 
@@ -346,6 +352,31 @@ void foc_observer_adjust_params(float r_ohm, float l_henry, float lambda_wb, flo
  */
 float foc_temp_comp_factor(float motor_temp_c, float base_temp_c) {
     return 1.0 + 0.00386 * (motor_temp_c - base_temp_c);
+}
+
+void foc_hfi_adjust_angle(float ang_err, float max_err, float gain, float speed_est_fast, float dt,
+                          foc_hfi_state_t *state) {
+    if (state == (void *)0) {
+        return;
+    }
+
+    foc_truncate_number_abs(&ang_err, max_err);
+
+    /*
+     * The reference writes 4000.0 and 10.0 as double literals, so both gains are the narrowed
+     * products; as float literals they differ in the last bit for some gains. The reference's own
+     * TODO notes that the ratio between them is a guess it has not revisited - it is carried as it
+     * stands rather than tidied, because the tuned behaviour depends on it.
+     */
+    const float gain_int = 4000.0 * gain;
+    const float gain_int2 = 10.0 * gain;
+
+    state->double_integrator += ang_err * gain_int2;
+    /* Bounded by the fast speed estimate: this is what stops the tracker winding up at speed. */
+    foc_truncate_number_abs(&state->double_integrator, fabsf(speed_est_fast));
+    state->angle -= dt * (gain_int * ang_err + state->double_integrator);
+    foc_norm_angle_rad(&state->angle);
+    state->ready = true;
 }
 
 /*
