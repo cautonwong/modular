@@ -1153,6 +1153,71 @@ static void test_vesc_host_config_and_terminal_ports(void **state) {
     assert_non_null(strstr(term_capture, "pong"));
 }
 
+/*
+ * The motor provider's command setters, which the dispatcher walk never reaches because there it
+ * goes through the codec. Each is one step of the port, and what is asserted is the state the
+ * aggregate ends up in - the DIR_MULT question is settled in its own case.
+ */
+static void test_vesc_host_motor_setters(void **state) {
+    (void)state;
+    vesc_host_glue_state_t glue_state;
+    memset(&glue_state, 0, sizeof(glue_state));
+    glue_state.v_bus = 24.0f;
+    foc_virtual_motor_init(&glue_state.vmotor, 0.05f, 0.00005f, 0.005f, 7, 0.0005f);
+
+    foc_inverter_port_t inverter;
+    vesc_host_make_inverter_port(&inverter, &glue_state);
+    foc_current_port_t current;
+    vesc_host_make_current_port(&current, &glue_state);
+    foc_rotor_port_t rotor;
+    vesc_host_make_rotor_port(&rotor, &glue_state);
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.1f,
+                        .current_ki = 50.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 8.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = false};
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &cfg, &inverter, &current, &rotor);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    vesc_motor_provider_port_t port;
+    vesc_host_make_motor_provider_port(&port, &foc);
+
+    assert_int_equal(port.set_current(port.self, 5.0f), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_RUNNING_CURRENT);
+
+    assert_int_equal(port.set_current_rel(port.self, 0.5f), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_RUNNING_CURRENT);
+
+    assert_int_equal(port.set_duty(port.self, 0.4f), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_RUNNING_DUTY);
+
+    assert_int_equal(port.set_rpm(port.self, 1000.0f), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_RUNNING_RPM);
+
+    assert_int_equal(port.set_pos(port.self, 45.0f), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_RUNNING_POS);
+
+    assert_int_equal(port.set_handbrake(port.self, 3.0f), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_HANDBRAKE);
+
+    assert_int_equal(port.set_current_brake(port.self, 2.0f), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_RUNNING_CURRENT);
+
+    assert_int_equal(port.reset_stats(port.self), EDGE_OK);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -1173,6 +1238,7 @@ int main(void) {
         cmocka_unit_test(test_vesc_host_masked_value_adapters),
         cmocka_unit_test(test_vesc_host_adapter_guards),
         cmocka_unit_test(test_vesc_host_config_and_terminal_ports),
+        cmocka_unit_test(test_vesc_host_motor_setters),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
