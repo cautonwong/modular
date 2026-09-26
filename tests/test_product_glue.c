@@ -991,6 +991,87 @@ static void test_vesc_host_masked_value_adapters(void **state) {
     assert_int_equal(port.get_setup_values(port.self, NULL), EDGE_EINVAL);
 }
 
+/*
+ * The product adapters' guards, and the getters nothing had called. Every factory refuses a
+ * missing output or a missing context instead of writing through it, and a handful of one-line
+ * adapters - the PPM pulse, the throttle and brake voltages, the button, the terminal with no
+ * terminal wired - had no test at all. These are the paths that rot silently, and they are cheap
+ * to hold down.
+ */
+static void test_vesc_host_adapter_guards(void **state) {
+    (void)state;
+    vesc_host_glue_state_t glue_state;
+    memset(&glue_state, 0, sizeof(glue_state));
+    glue_state.ppm_pulse_us = 1750.0f;
+    glue_state.adc_throttle_v = 2.5f;
+    glue_state.adc_brake_v = 1.5f;
+
+    /* The input getters, which nothing had read. */
+    ppm_receiver_port_t ppm;
+    vesc_host_make_ppm_port(&ppm, &glue_state);
+    float pulse = 0.0f;
+    assert_int_equal(ppm.read_pulse_us(ppm.self, &pulse), EDGE_OK);
+    assert_float_equal(pulse, 1750.0f, 1e-6f);
+
+    adc_input_port_t adc;
+    vesc_host_make_adc_port(&adc, &glue_state);
+    float volts = 0.0f;
+    assert_int_equal(adc.read_throttle_v(adc.self, &volts), EDGE_OK);
+    assert_float_equal(volts, 2.5f, 1e-6f);
+    assert_int_equal(adc.read_brake_v(adc.self, &volts), EDGE_OK);
+    assert_float_equal(volts, 1.5f, 1e-6f);
+    (void)adc.read_button(adc.self, 0u);
+
+    /* The terminal port with no terminal behind it says so rather than pretending. */
+    vesc_host_ops_ctx_t ops_ctx;
+    memset(&ops_ctx, 0, sizeof(ops_ctx));
+    vesc_comm_ops_port_t ops;
+    vesc_host_make_ops_port(&ops, &ops_ctx);
+    assert_non_null(ops.terminal_cmd);
+    assert_int_equal(ops.terminal_cmd(ops.self, "help"), EDGE_ENOTSUP);
+
+    /* Every factory refuses a missing output, and the ones that take a context refuse a missing
+     * one too: the output stays zeroed in both cases. */
+    vesc_host_make_flash_sector_port(NULL, &glue_state);
+    vesc_host_make_stream_tx_port(NULL, &glue_state);
+    vesc_host_make_inverter_port(NULL, &glue_state);
+    vesc_host_make_current_port(NULL, &glue_state);
+    vesc_host_make_rotor_port(NULL, &glue_state);
+    vesc_host_make_ppm_port(NULL, &glue_state);
+    vesc_host_make_adc_port(NULL, &glue_state);
+    vesc_host_make_app_status_port(NULL, &glue_state);
+    vesc_host_make_can_port(NULL, &glue_state);
+    vesc_host_make_nunchuk_port(NULL, &glue_state);
+    vesc_host_make_balance_port(NULL, &glue_state);
+    vesc_host_make_bms_can_port(NULL, &glue_state);
+    vesc_host_make_terminal_stream_port(NULL, &glue_state);
+
+    flash_sector_port_t sectors = {0};
+    vesc_host_make_flash_sector_port(&sectors, NULL);
+    assert_null(sectors.read);
+
+    /* These two guard their context as well, so the output stays as the caller left it. */
+    pas_port_t pas = {0};
+    vesc_host_make_pas_port(&pas, NULL);
+    assert_null(pas.read_cadence_rpm);
+
+    motor_id_measure_port_t measure = {0};
+    vesc_host_make_motor_id_measure_port(&measure, NULL);
+    assert_null(measure.set_phase_override);
+
+    /* This one fills the callbacks and leaves the consumer's context to the caller, so a null
+     * context shows up as a null self rather than as a null callback. */
+    vesc_config_provider_port_t config = {0};
+    vesc_host_make_config_port(&config, NULL);
+    assert_non_null(config.get_mcconf);
+    assert_null(config.self);
+
+    vesc_comm_ops_port_t ops_out = {0};
+    vesc_host_make_ops_port(&ops_out, NULL);
+    assert_non_null(ops_out.terminal_cmd);
+    assert_null(ops_out.self);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_meter_host_glue),
@@ -1008,6 +1089,7 @@ int main(void) {
         cmocka_unit_test(test_vesc_host_temperature_sampler),
         cmocka_unit_test(test_vesc_host_motor_id_detection),
         cmocka_unit_test(test_vesc_host_masked_value_adapters),
+        cmocka_unit_test(test_vesc_host_adapter_guards),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
