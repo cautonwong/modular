@@ -191,6 +191,75 @@ static void test_encoder_spi_failure_and_guards(void **state) {
     assert_true(encoder_sincos_update(&sc, 0.0f, 1.0f, NULL) != EDGE_OK);
 }
 
+/* A transfer whose response the test chooses, so the encoder's own checks can be driven. */
+typedef struct scripted_spi {
+    uint16_t response;
+} scripted_spi_t;
+
+static edge_status_t scripted_transfer(void *ctx, uint16_t tx_val, uint16_t *rx_val) {
+    (void)tx_val;
+    *rx_val = ((scripted_spi_t *)ctx)->response;
+    return EDGE_OK;
+}
+
+/*
+ * The checks the encoder makes on what comes back, and the two wraps on the way out. A response
+ * whose parity is wrong, or that carries the error bit, must be refused rather than turned into an
+ * angle - and a good response must go through the diagnostic read as well, which nothing called
+ * with a working bus before.
+ */
+static void test_encoder_response_checks_and_wraps(void **state) {
+    (void)state;
+    scripted_spi_t spi;
+    uint16_t raw = 0u;
+    float angle = 0.0f;
+
+    encoder_as5047_t as;
+    encoder_as5047_construct(&as, scripted_transfer, &spi);
+
+    /* A response with the wrong parity is refused. */
+    spi.response = 0x0001u; /* one bit set, so the parity bit is missing */
+    assert_true(encoder_as5047_read_angle_raw(&as, &raw) != EDGE_OK);
+
+    /* A response with the error bit set is refused even with correct parity. */
+    {
+        uint16_t value = 0x4000u; /* error bit, no data */
+        uint16_t bits = 0u;
+        for (int i = 0; i < 14; i++) {
+            if (value & (1u << i)) {
+                bits++;
+            }
+        }
+        if ((bits % 2) != 0) {
+            value |= 0x8000u;
+        }
+        spi.response = value;
+    }
+    assert_true(encoder_as5047_read_angle_raw(&as, &raw) != EDGE_OK);
+
+    /* A good response goes through the diagnostic read, which only ever ran on a dead bus. */
+    spi.response = 0x1234u;
+    assert_int_equal(encoder_as5047_read_diag(&as, &raw), EDGE_OK);
+    assert_int_equal(raw, 0x1234u & 0x3FFFu);
+
+    /* The incremental encoder wraps a negative accumulator rather than going negative. */
+    encoder_abi_t abi;
+    encoder_abi_construct(&abi, 4096u);
+    assert_int_equal(encoder_abi_init(&abi), EDGE_OK);
+    assert_int_equal(encoder_abi_update(&abi, -1, 0.01f, &angle), EDGE_OK);
+    assert_true(angle >= 0.0f);
+    assert_int_equal(encoder_abi_update(&abi, -8192, 0.01f, &angle), EDGE_OK);
+    assert_true(angle >= 0.0f);
+
+    /* The resolver wraps a negative angle into one turn as well. */
+    encoder_sincos_t sc;
+    encoder_sincos_construct(&sc, 0.0f, 0.0f, 1.0f, 1.0f);
+    assert_int_equal(encoder_sincos_init(&sc), EDGE_OK);
+    assert_int_equal(encoder_sincos_update(&sc, -0.5f, 0.5f, &angle), EDGE_OK);
+    assert_true(angle >= 0.0f);
+    assert_true(angle < 2.0f * (float)M_PI);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -201,6 +270,7 @@ int main(void) {
         cmocka_unit_test(test_encoder_hall),
         cmocka_unit_test(test_encoder_resolver_and_hall_guards),
         cmocka_unit_test(test_encoder_spi_failure_and_guards),
+        cmocka_unit_test(test_encoder_response_checks_and_wraps),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
