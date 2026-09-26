@@ -251,6 +251,26 @@ typedef struct foc_hfi_state {
 void foc_hfi_adjust_angle(float ang_err, float max_err, float gain, float speed_est_fast, float dt,
                           foc_hfi_state_t *state);
 
+/*
+ * Reference util/utils_math.c:509-597, the DFT bins HFI computes its angle error from: bin 0 is
+ * the mean, bins 1 and 2 the fundamental and second harmonic of the sample buffer, each over the
+ * 8, 16 or 32 samples the configuration's foc_hfi_samples selects. They are copied rather than
+ * replaced with a real FFT because they are exactly what the reference runs and they feed a
+ * control loop.
+ *
+ * The tables they index are generated from the reference by tools/gen_hfi_from_reference.py: they
+ * are rounded six-decimal literals, so cosf/sinf would not produce the same numbers.
+ */
+void foc_fft32_bin0(const float *real_in, float *real, float *imag);
+void foc_fft32_bin1(const float *real_in, float *real, float *imag);
+void foc_fft32_bin2(const float *real_in, float *real, float *imag);
+void foc_fft16_bin0(const float *real_in, float *real, float *imag);
+void foc_fft16_bin1(const float *real_in, float *real, float *imag);
+void foc_fft16_bin2(const float *real_in, float *real, float *imag);
+void foc_fft8_bin0(const float *real_in, float *real, float *imag);
+void foc_fft8_bin1(const float *real_in, float *real, float *imag);
+void foc_fft8_bin2(const float *real_in, float *real, float *imag);
+
 void foc_observer_update(foc_observer_t *obs, float v_alpha, float v_beta, float i_alpha,
                          float i_beta, float dt, float r_ohm, float l_henry, float lambda_wb,
                          float gamma, foc_observer_type_t type);

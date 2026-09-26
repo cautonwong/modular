@@ -1543,7 +1543,72 @@ static void test_foc_hfi_adjust_angle_matches_reference(void **state) {
     foc_hfi_adjust_angle(0.1f, 1.0f, 1.0f, 1.0f, 1e-4f, NULL);
 }
 
+/*
+ * The nine HFI DFT bins against the reference. The four rows are the reference's own output for the
+ * four input patterns below - an impulse, a ramp, a pseudo-random sequence and a clean bin-1
+ * sinusoid - printed at 9 significant digits, which round-trips a float exactly. The harness
+ * compiles one driver twice, against the reference's util/utils_math.c and against these functions,
+ * and a textual diff of the two runs is the comparison; docs/bldc-migration.md has the recipe.
+ *
+ * The bins matter because HFI's angle error is computed from them every control cycle, and they
+ * index tables of rounded six-decimal literals that cosf/sinf would not reproduce.
+ */
+static void test_foc_fft_bins_match_reference(void **state) {
+    (void)state;
+    static const float expected[][18] = {
+        {0.03125f, 0.0f, 0.0259834379f, -0.0173615627f, 0.011958844f, -0.0288712494f, 0.0625f, 0.0f,
+         0.0239176881f, -0.0577424988f, -0.044194188f, -0.044194188f, 0.125f, 0.0f, -0.0883883759f,
+         -0.0883883759f, 0.0f, 0.125f},
+        {-0.015625f, 0.0f, -0.0156250019f, 0.15864329f, -0.015625f, 0.0785521865f, -0.265625f, 0.0f,
+         -0.015625f, 0.0785522014f, -0.015625f, 0.0377220958f, -0.390625f, 0.0f, -0.0156250037f,
+         0.0377220921f, -0.015625f, 0.015625f},
+        {0.98379463f, 0.0f, -0.168508112f, -0.017366996f, -0.0415294059f, -0.098797448f,
+         0.955540419f, 0.0f, -0.115269512f, 0.0210615359f, -0.135867313f, -0.0104073174f,
+         0.820434928f, 0.0f, -0.254662961f, -0.0101622269f, -0.0271532536f, 0.263560861f},
+        {0.122598127f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.122598127f, 0.0f, 0.0f, 0.0f, 0.122598127f,
+         0.0f, 0.122598127f, 0.0f, 0.122598127f, 0.0f, 0.122598127f, 0.0f},
+    };
+
+    uint32_t rng_state = 12345u;
+    float buf[32];
+    for (int pattern = 0; pattern < 4; pattern++) {
+        for (int i = 0; i < 32; i++) {
+            switch (pattern) {
+            case 0:
+                buf[i] = (i == 3) ? 1.0f : 0.0f;
+                break;
+            case 1:
+                buf[i] = (float)i * 0.03125f - 0.5f;
+                break;
+            case 2:
+                rng_state = rng_state * 1664525u + 1013904223u;
+                buf[i] = (float)(int32_t)(rng_state >> 8) / 8388608.0f;
+                break;
+            default:
+                buf[i] = 0.980785f * (float)((i % 8) == 0 ? 1 : 0);
+                break;
+            }
+        }
+
+        float got[18];
+        foc_fft32_bin0(buf, &got[0], &got[1]);
+        foc_fft32_bin1(buf, &got[2], &got[3]);
+        foc_fft32_bin2(buf, &got[4], &got[5]);
+        foc_fft16_bin0(buf, &got[6], &got[7]);
+        foc_fft16_bin1(buf, &got[8], &got[9]);
+        foc_fft16_bin2(buf, &got[10], &got[11]);
+        foc_fft8_bin0(buf, &got[12], &got[13]);
+        foc_fft8_bin1(buf, &got[14], &got[15]);
+        foc_fft8_bin2(buf, &got[16], &got[17]);
+
+        for (int k = 0; k < 18; k++) {
+            assert_true(got[k] == expected[pattern][k]);
+        }
+    }
+}
+
 int main(void) {
+
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_foc_math_transforms),
         cmocka_unit_test(test_foc_math_svpwm),
@@ -1571,6 +1636,7 @@ int main(void) {
         cmocka_unit_test(test_foc_temp_comp_factor),
         cmocka_unit_test(test_foc_core_temp_compensation),
         cmocka_unit_test(test_foc_hfi_adjust_angle_matches_reference),
+        cmocka_unit_test(test_foc_fft_bins_match_reference),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
