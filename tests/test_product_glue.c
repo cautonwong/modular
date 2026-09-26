@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #include <cmocka.h>
@@ -1072,7 +1073,88 @@ static void test_vesc_host_adapter_guards(void **state) {
     assert_null(ops_out.self);
 }
 
+/* A terminal stream that keeps what the terminal wrote, so the terminal port can be driven. */
+static char term_capture[128];
+static edge_status_t term_capture_write(void *self, const char *str) {
+    (void)self;
+    snprintf(term_capture, sizeof(term_capture), "%s", str);
+    return EDGE_OK;
+}
+
+/*
+ * The configuration port's setters and read side, and the ops port with an actual terminal behind
+ * it. The aggregate is real, so what is checked is the round trip through the reference's own
+ * streams rather than the adapter's shape: a stream the aggregate can decode lands, one it cannot
+ * is refused, and the read side hands back what the aggregate serialises.
+ */
+static void test_vesc_host_config_and_terminal_ports(void **state) {
+    (void)state;
+
+    static alignas(MOTOR_CONFIG_STORAGE_ALIGN) unsigned char cfg_storage[MOTOR_CONFIG_STORAGE_SIZE];
+    memset(cfg_storage, 0, sizeof(cfg_storage));
+    motor_config_t *cfg = (motor_config_t *)cfg_storage;
+    motor_config_construct(cfg, EDGE_MOD_MOTOR_CONFIG, 30u, NULL);
+    assert_int_equal(motor_config_init(cfg), EDGE_OK);
+
+    vesc_config_provider_port_t config;
+    vesc_host_make_config_port(&config, cfg);
+    assert_ptr_equal(config.self, cfg);
+
+    uint8_t stream[MOTOR_CONFIG_BUFFER_SIZE];
+    size_t len = 0u;
+
+    /* NO_STORE first, while the aggregate is still clean: it lands on the running system and
+     * leaves the flag alone, which is the whole difference from the storing set below. */
+    app_configuration_t app = *motor_config_get_app(cfg);
+    app.timeout_msec = 2500u;
+    assert_int_equal(motor_config_serialize_app(&app, stream, sizeof(stream), &len), EDGE_OK);
+    assert_int_equal(config.set_appconf_nostore(config.self, stream, len), EDGE_OK);
+    assert_int_equal(motor_config_get_app(cfg)->timeout_msec, 2500u);
+    assert_false(motor_config_is_dirty(cfg));
+
+    /* The mc stream, with one field changed, lands in the aggregate. */
+    mc_configuration_t mc = *motor_config_get_mc(cfg);
+    mc.l_current_max = 42.0f;
+    assert_int_equal(motor_config_serialize_mc(&mc, stream, sizeof(stream), &len), EDGE_OK);
+    assert_int_equal(config.set_mcconf(config.self, stream, len), EDGE_OK);
+    assert_float_equal(motor_config_get_mc(cfg)->l_current_max, 42.0f, 1e-3f);
+
+    /* A stream it cannot decode is refused. */
+    assert_int_equal(config.set_mcconf(config.self, stream, 3u), EDGE_EINVAL);
+    assert_int_equal(config.set_appconf(config.self, stream, 3u), EDGE_EINVAL);
+
+    /* The read side hands back the aggregate's own serialisation, and the defaults are the
+     * reference's rather than the live configuration. */
+    size_t got = 0u;
+    assert_int_equal(config.get_mcconf(config.self, stream, sizeof(stream), &got), EDGE_OK);
+    assert_int_equal(got, motor_config_stream_len());
+    assert_int_equal(config.get_mcconf_default(config.self, stream, sizeof(stream), &got), EDGE_OK);
+    assert_int_equal(got, motor_config_stream_len());
+    assert_int_equal(config.get_appconf(config.self, stream, sizeof(stream), &got), EDGE_OK);
+    assert_int_equal(got, motor_config_app_stream_len());
+    assert_int_equal(config.get_appconf_default(config.self, stream, sizeof(stream), &got),
+                     EDGE_OK);
+    assert_int_equal(got, motor_config_app_stream_len());
+
+    /* The ops port, with a real terminal behind it this time: the command reaches the terminal
+     * and its answer comes back through the terminal's own stream. */
+    vesc_terminal_app_t term;
+    terminal_stream_port_t term_stream = {.self = NULL, .write_string = term_capture_write};
+    terminal_system_port_t term_sys = {.self = NULL, .get_stats = NULL};
+    vesc_terminal_construct(&term, EDGE_MOD_VESC_TERMINAL, 50u, &term_stream, &term_sys);
+    assert_int_equal(vesc_terminal_init(&term), EDGE_OK);
+
+    vesc_host_ops_ctx_t ops_ctx;
+    memset(&ops_ctx, 0, sizeof(ops_ctx));
+    ops_ctx.term = &term;
+    vesc_comm_ops_port_t ops;
+    vesc_host_make_ops_port(&ops, &ops_ctx);
+    assert_int_equal(ops.terminal_cmd(ops.self, "ping"), EDGE_OK);
+    assert_non_null(strstr(term_capture, "pong"));
+}
+
 int main(void) {
+
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_meter_host_glue),
         cmocka_unit_test(test_meter_mps2_glue),
@@ -1090,6 +1172,7 @@ int main(void) {
         cmocka_unit_test(test_vesc_host_motor_id_detection),
         cmocka_unit_test(test_vesc_host_masked_value_adapters),
         cmocka_unit_test(test_vesc_host_adapter_guards),
+        cmocka_unit_test(test_vesc_host_config_and_terminal_ports),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
