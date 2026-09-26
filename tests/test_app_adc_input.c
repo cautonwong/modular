@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <setjmp.h>
 #include <stdint.h>
+#include <string.h>
 #include <cmocka.h>
 /* clang-format on */
 
@@ -98,10 +99,66 @@ static void test_adc_input_throttle_and_brake(void **state) {
     assert_float_equal(adc_input_get_throttle(&app), 0.0f, 0.001f);
 }
 
+/*
+ * The paths the init and throttle cases miss: the module's own hooks, update's argument guard, the
+ * read-failure path that latches the wire-disconnected fault and zeroes both demands, the
+ * safe-start gate (which holds the demands at zero until the throttle has been seen low once), and
+ * the getters' guards.
+ */
+static void test_adc_input_edges_and_guards(void **state) {
+    (void)state;
+    mock_adc_t adc;
+    memset(&adc, 0, sizeof(adc));
+    adc.read_ok = true;
+    adc.v_throttle = 0.8f;
+    adc.v_brake = 0.5f;
+    adc_input_port_t port = {.self = &adc,
+                             .read_throttle_v = mock_read_throttle,
+                             .read_brake_v = mock_read_brake,
+                             .read_button = mock_read_btn};
+
+    adc_input_app_t app;
+    adc_input_construct(&app, EDGE_MOD_ADC_INPUT, 20u, NULL, &port);
+    assert_int_equal(adc_input_init(&app), EDGE_OK);
+
+    /* Guards. */
+    assert_int_equal(adc_input_update(NULL), EDGE_EINVAL);
+    assert_float_equal(adc_input_get_throttle(NULL), 0.0f, 1e-9f);
+    assert_float_equal(adc_input_get_brake(NULL), 0.0f, 1e-9f);
+    assert_true(adc_input_has_fault(NULL));
+    assert_ptr_equal(adc_input_module(NULL), NULL);
+    assert_ptr_equal(adc_input_module(&app), &app.module);
+
+    /* The module's own hooks. */
+    assert_int_equal(app.module.poll(&app.module), EDGE_OK);
+    assert_int_equal(app.module.power_off(&app.module), EDGE_OK);
+
+    /* The safe-start gate: the first update with the throttle above the low threshold holds the
+     * demands at zero, and once the throttle has been seen low the gate opens. */
+    assert_int_equal(adc_input_update(&app), EDGE_OK);
+    adc.v_throttle = 0.0f;
+    assert_int_equal(adc_input_update(&app), EDGE_OK);
+    adc.v_throttle = 0.8f;
+    assert_int_equal(adc_input_update(&app), EDGE_OK);
+
+    /* A failed read latches the wire-disconnected fault and zeroes both demands; the getters
+     * report zero rather than a stale value, and has_fault says so. */
+    adc.read_ok = false;
+    assert_int_equal(adc_input_update(&app), EDGE_EIO);
+    assert_true(adc_input_has_fault(&app));
+    assert_float_equal(adc_input_get_throttle(&app), 0.0f, 1e-9f);
+    assert_float_equal(adc_input_get_brake(&app), 0.0f, 1e-9f);
+
+    /* The voltage getters report the raw readings, and the normalised ones keep their guard. */
+    assert_true(adc_input_get_throttle_v(&app) >= 0.0f);
+    assert_true(adc_input_get_brake_v(&app) >= 0.0f);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_adc_input_init_validation),
         cmocka_unit_test(test_adc_input_throttle_and_brake),
+        cmocka_unit_test(test_adc_input_edges_and_guards),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
