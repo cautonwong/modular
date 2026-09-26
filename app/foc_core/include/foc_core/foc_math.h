@@ -215,6 +215,13 @@ void foc_observer_adjust_params(float r_ohm, float l_henry, float lambda_wb, flo
                                 float r_temp_comp, bool temp_comp, foc_observer_type_t type,
                                 float *r_out, float *l_out, float *lambda_out);
 
+/*
+ * The temperature model's factor for one cycle: 1.0 + 0.00386 * (motor_temp - base_temp), the
+ * expression from the reference's timer_update (mcpwm_foc.c:3942). The caller applies it to the
+ * motor resistance and to the current loop's ki, and owns the reference's -30 degC floor.
+ */
+float foc_temp_comp_factor(float motor_temp_c, float base_temp_c);
+
 void foc_observer_update(foc_observer_t *obs, float v_alpha, float v_beta, float i_alpha,
                          float i_beta, float dt, float r_ohm, float l_henry, float lambda_wb,
                          float gamma, foc_observer_type_t type);

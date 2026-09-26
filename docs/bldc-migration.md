@@ -164,6 +164,36 @@ clang-format --dry-run     # 格式
   设了就是无人读的死状态（与本端口对 `set_current_off_delay` 的处理同一理由）。另，
   `m_i_fw_override` 那条路径来自检测流程，属 **B5**。
 
+#### B4 已完成：饱和补偿与温度补偿
+
+- **饱和补偿**（`foc_math.c:36-65` 的三个分支）与**凸极项**早已随观测器一起逐位对齐
+  （`foc_observer_adjust_params`，见一致性表）。
+- **温度补偿**这次接通了整条链：`timer_update`（mcpwm_foc.c:3939-3948）在控制周期开头**无条件**重算
+  `comp_fact = 1.0 + 0.00386 * (motor_temp - foc_temp_comp_base_temp)`，把 `foc_motor_r` 与
+  `foc_current_ki` 各乘一次得到 `m_res_temp_comp` / `m_current_ki_temp_comp`；**只有使用**由
+  `foc_temp_comp` 门控，两处消费者即 `foc_math.c:70-72`（观测器的 R）与 `mcpwm_foc.c:4634-4637`
+  （电流环的 ki，两轴共用）。`<= -30 °C` 是原版「NTC 没有可用读数」的情形，直接走未补偿参数。
+- **表达式的形状也要保住**：参考里 `1.0` 与 `0.00386` 是 **double 字面量**，乘积在 double 里算完才
+  窄化成 float。测试用一个**能判别**的温度（−40 °C、基准 25 °C）钉住这点：double 形状给
+  `0x1.7f8a0ap-1`，写成 float 字面量会给 `0x1.7f8a08p-1`（差最后一位）。
+- **这个输入从哪来**：原版在 **ADC 注入中断**里采样并滤波（FET 用 `UTILS_LP_FAST(..., 0.1)`，
+  电机用板级 `MOTOR_TEMP_LPF`，默认 0.01；电机那路另有「读数不像温度就替换成 −100」的保护），
+  FOC 只读缓存值。所以产品侧新增 `vesc_host_sample_temperatures()`，按同一形式 `v -= f * (v - x)`
+  滤波后交给 `foc_core`；滤波常数是 `hwconf/hw.h` 的**板级**定义，因此它属于产品而不是 app。
+  这也让原先只有测试调用者的 `foc_core_set_temperature` 第一次有了生产调用者。
+- **顺带消掉的两处「无源字段」**：`GET_VALUES` 与 `GET_VALUES_SETUP` 的 `temp_motor`
+  现在报真实滤波值（原先是命名 0），统计里的电机温度均值/最大值也从 −300 种子变成真实值。
+  另外把 `fet_temp_c` 的种子从本端口自选的 **25 °C** 改回参考的 **0 °C**（参考的静态零初始化，
+  由滤波从那里爬上去）——这是既存的小偏差，既然一行能消掉就不再登记。
+- 测试：`test_foc_temp_comp_factor`（基准处**精确为 1.0**、系数、double 形状判别）、
+  `test_foc_core_temp_compensation`（基准温度与 −30 地板下与未补偿**逐位相同**、地板边上仍补偿、
+  热电机抬高 ki 使同一电流误差下电压更大、把 ki 置 0 后只剩观测器这一个消费者时输出仍不同、
+  统计报出所给电机温度）、`test_vesc_host_temperature_sampler`（滤波收敛形式、坏读数替换、
+  NULL 目标拒绝）。证据：55/55、两个二进制各 10 次无抖动、ASan/UBSan 绿、产品端到端仍跑通
+  （RPM 217.7、0 错误）。
+- **仍未做（登记在一致性表）**：`l_temp_motor_start/end` 与 FET 温度启用的**降流**（`utils_map` 那条）。
+  它共用这个输入，但属于限制逻辑。
+
 #### B5 检测流程：结构结论（先读再动，避免把阻塞过程硬搬）
 
 `mcpwm_foc_measure_resistance()`（mcpwm_foc.c:1797）这类过程在参考里是**阻塞式**的：

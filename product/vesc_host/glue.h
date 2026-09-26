@@ -32,6 +32,16 @@ typedef struct vesc_host_glue_state {
     float ppm_pulse_us;
     float adc_throttle_v;
     float adc_brake_v;
+
+    /*
+     * The two NTC readings the host simulation is given, and the filtered values the adapter
+     * makes of them (vesc_host_sample_temperatures). Inputs the composition root sets, like
+     * v_bus and the throttle voltages.
+     */
+    float fet_temp_raw_c;
+    float motor_temp_raw_c;
+    float fet_temp_c;
+    float motor_temp_c;
     uint32_t last_can_id;
     uint8_t last_can_data[8];
     uint8_t last_can_len;
@@ -66,6 +76,10 @@ void vesc_host_make_config_port(vesc_config_provider_port_t *out, motor_config_t
 #define VESC_HOST_MCCONF_BASE 1000u
 #define VESC_HOST_MCCONF_VARS (sizeof(mc_configuration_t) / 2u)
 
+/* The motor NTC's filter, hwconf/hw.h:639. Boards that need a faster response override it
+ * (the m600 sets 0.001), so it is a board parameter and belongs here rather than in the app. */
+#define VESC_HOST_MOTOR_TEMP_LPF 0.01
+
 void vesc_host_make_var_port(motor_config_var_port_t *out, flash_emul_t *emul);
 
 /*
@@ -84,6 +98,16 @@ void vesc_host_make_rotor_port(foc_rotor_port_t *out, vesc_host_glue_state_t *st
 void vesc_host_make_ppm_port(ppm_receiver_port_t *out, vesc_host_glue_state_t *state);
 void vesc_host_make_adc_port(adc_input_port_t *out, vesc_host_glue_state_t *state);
 void vesc_host_make_app_status_port(vesc_app_status_port_t *out, vesc_host_glue_state_t *state);
+
+/*
+ * One sampling pass over the two NTCs, as the reference's ADC interrupt handler does it
+ * (mc_interface.c:2266 for the FET, :2325-2331 for the motor): the motor reading is replaced
+ * when it is not a plausible number, then each is low-passed - 0.1 for the FET, the board's
+ * MOTOR_TEMP_LPF (0.01) for the motor - and the filtered values are handed to the FOC, which
+ * caches them as the reference's motor state does. Those constants are board defines in the
+ * reference (hwconf/hw.h), which is why the sampler lives in the product and not in the app.
+ */
+void vesc_host_sample_temperatures(vesc_host_glue_state_t *state, foc_core_t *foc);
 void vesc_host_make_can_port(vesc_can_port_t *out, vesc_host_glue_state_t *state);
 void vesc_host_make_motor_id_measure_port(motor_id_measure_port_t *out,
                                           vesc_host_glue_state_t *state);

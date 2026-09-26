@@ -1,3 +1,4 @@
+#include <math.h>
 #include <setjmp.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -350,7 +351,7 @@ static void test_vesc_host_motor_provider_semantics(void **state) {
 
     /* Masked telemetry: only the requested fields are filled, and each comes from
      * its own source. Bit 1 reported the FET temperature once. */
-    foc_core_set_temperature(&foc, 42.0f);
+    foc_core_set_fet_temperature(&foc, 42.0f);
     vesc_values_t val;
 
     assert_int_equal(port.get_values(port.self, (1u << 0), &val), EDGE_OK);
@@ -594,7 +595,7 @@ static void test_vesc_host_simulated_adapters(void **state) {
     foc_core_t foc;
     foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &cfg, &inverter, &current, &rotor);
     assert_int_equal(foc_core_init(&foc), EDGE_OK);
-    foc_core_set_temperature(&foc, 37.0f);
+    foc_core_set_fet_temperature(&foc, 37.0f);
     assert_int_equal(foc_core_fast_loop(&foc, 5e-5f), EDGE_OK);
 
     terminal_system_port_t term_sys;
@@ -776,6 +777,58 @@ static void test_vesc_host_var_port(void **state) {
     vesc_host_make_var_port(NULL, &emul);
 }
 
+/*
+ * The NTC sampler. The reference filters both readings in its ADC interrupt handler
+ * (mc_interface.c:2266 for the FET, :2325-2331 for the motor) and the FOC only ever reads the
+ * filtered values, so the filter belongs to the product that owns the board's constants. The
+ * form is UTILS_LP_FAST, v -= f * (v - x), which the test recomputes rather than assumes; a
+ * reading that cannot be a temperature is replaced by -100 instead of being filtered, because
+ * the reference's own comment says a value that walks into the filter never comes back out.
+ */
+static void test_vesc_host_temperature_sampler(void **state) {
+    (void)state;
+    vesc_host_glue_state_t glue_state;
+    memset(&glue_state, 0, sizeof(glue_state));
+
+    /* Only the two temperature fields of the core matter here. */
+    foc_core_t foc;
+    memset(&foc, 0, sizeof(foc));
+
+    /* One pass from cold moves each value a fixed fraction of the way to its reading. */
+    glue_state.motor_temp_raw_c = 100.0f;
+    glue_state.fet_temp_raw_c = 40.0f;
+    vesc_host_sample_temperatures(&glue_state, &foc);
+    assert_float_equal(glue_state.motor_temp_c, 0.01f * 100.0f, 1e-4f);
+    assert_float_equal(glue_state.fet_temp_c, 0.1f * 40.0f, 1e-4f);
+
+    /* The core caches exactly those filtered values, not the readings. */
+    assert_true(foc.motor_temp_c == glue_state.motor_temp_c);
+    assert_true(foc.fet_temp_c == glue_state.fet_temp_c);
+
+    /* It approaches the reading asymptotically rather than assigning it. */
+    for (int i = 0; i < 2000; i++) {
+        vesc_host_sample_temperatures(&glue_state, &foc);
+    }
+    assert_float_equal(glue_state.motor_temp_c, 100.0f, 0.01f);
+    assert_float_equal(glue_state.fet_temp_c, 40.0f, 0.01f);
+    assert_true(glue_state.motor_temp_c != 100.0f);
+
+    /* A reading that cannot be a temperature becomes -100 and is filtered from there. */
+    glue_state.motor_temp_raw_c = NAN;
+    vesc_host_sample_temperatures(&glue_state, &foc);
+    assert_true(glue_state.motor_temp_c < 100.0f);
+    assert_true(glue_state.motor_temp_c > -100.0f);
+
+    const float before = glue_state.motor_temp_c;
+    glue_state.motor_temp_raw_c = 5000.0f; /* past the range the reference accepts */
+    vesc_host_sample_temperatures(&glue_state, &foc);
+    assert_true(glue_state.motor_temp_c < before);
+
+    /* The sampler refuses a missing target instead of writing through it. */
+    vesc_host_sample_temperatures(NULL, &foc);
+    vesc_host_sample_temperatures(&glue_state, NULL);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_meter_host_glue),
@@ -790,6 +843,7 @@ int main(void) {
         cmocka_unit_test(test_vesc_host_var_port),
         cmocka_unit_test(test_vesc_host_app_status_adapters),
         cmocka_unit_test(test_vesc_host_simulated_adapters),
+        cmocka_unit_test(test_vesc_host_temperature_sampler),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

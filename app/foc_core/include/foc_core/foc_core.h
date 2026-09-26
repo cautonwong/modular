@@ -94,12 +94,19 @@ typedef struct foc_config {
     /* Reference: mcconf foc_observer_type (datatypes.h). */
     foc_observer_type_t observer_type;
 
-    /* Reference: mcconf foc_sat_comp_mode / foc_sat_comp / foc_motor_ld_lq_diff.
-     * Temperature compensation is deliberately absent: its model needs a motor
-     * temperature this port has no source for. */
+    /* Reference: mcconf foc_sat_comp_mode / foc_sat_comp / foc_motor_ld_lq_diff. */
     uint8_t sat_comp_mode;
     float sat_comp;
     float ld_lq_diff;
+
+    /*
+     * Reference: mcconf foc_temp_comp / foc_temp_comp_base_temp. Two consumers, both gated on
+     * the flag: the observer's resistance (foc_math.c:70-72) and the current loop's ki
+     * (mcpwm_foc.c:4634-4637). The motor temperature itself arrives through
+     * foc_core_set_motor_temperature().
+     */
+    bool temp_comp;
+    float temp_comp_base_temp;
 
     /* Reference mcconf m_invert_direction. It has two consumers: the speed PID reads
      * it inside foc_run_pid_control_speed (foc_math.c:511), and the command layer uses
@@ -146,6 +153,7 @@ typedef struct foc_telemetry {
     float rotor_angle_rad;
     float speed_rpm;
     float fet_temp_c;
+    float motor_temp_c;
 
     /*
      * Energy counters are cumulative, not averages, and the reference never reads
@@ -228,6 +236,18 @@ typedef struct foc_core {
     float last_angle_rad;
     float last_rpm;
     float fet_temp_c;
+
+    /*
+     * The motor NTC, already low-passed by whoever samples it: the reference filters it in its
+     * ADC interrupt handler (mc_interface.c:2331) with the board's MOTOR_TEMP_LPF, and the FOC
+     * only reads the cached value. It starts at zero, as the reference's own static does.
+     */
+    float motor_temp_c;
+
+    /* Reference timer_update (mcpwm_foc.c:3939-3948) recomputes these every cycle; they are
+     * only *used* when foc_temp_comp is set, which is why they exist even with the flag off. */
+    float res_temp_comp;
+    float current_ki_temp_comp;
 
     /*
      * Low-passed currents. The reference filters id/iq right after the Park
@@ -391,7 +411,14 @@ void foc_core_get_telemetry(const foc_core_t *self, foc_telemetry_t *out_telem);
  * only calls mc_interface_read_reset_* for the bits its mask selects).
  */
 void foc_core_read_reset_averages(foc_core_t *self, uint32_t channel_mask, foc_averages_t *out);
-void foc_core_set_temperature(foc_core_t *self, float fet_temp_c);
+void foc_core_set_fet_temperature(foc_core_t *self, float fet_temp_c);
+
+/*
+ * The filtered motor NTC reading. The reference keeps it separately from the FET temperature
+ * (m_temp_motor vs m_temp_fet) because the two have their own sensors and their own filters, so
+ * this is a second input rather than a second argument to the one above.
+ */
+void foc_core_set_motor_temperature(foc_core_t *self, float motor_temp_c);
 
 void foc_core_get_stats(const foc_core_t *self, foc_stats_t *out_stats);
 void foc_core_stats_reset(foc_core_t *self);
