@@ -1657,6 +1657,78 @@ static void test_foc_core_guards(void **state) {
                 foc_core_get_state(&core) == FOC_STATE_FAULT || foc_core_get_faults(&core) == 0u);
 }
 
+/*
+ * Branches in the math helpers that the existing cases do not reach: the sine approximation on the
+ * negative side and near +-pi, where it takes the other correction branch; the SVPWM guard for a
+ * bus voltage too small to modulate, which parks all three duties at half and reports sector 1,
+ * including the half of that guard with no sector output; the three transforms' arithmetic; and
+ * the battery curve clamping its argument instead of extrapolating.
+ */
+static void test_foc_math_helper_branches(void **state) {
+    (void)state;
+
+    /* Sine and cosine across the wrap, including the angles that take the other correction. */
+    for (int i = -40; i <= 40; i++) {
+        const float a = (float)i * 0.1570796f;
+        float s = 0.0f;
+        float c = 0.0f;
+        foc_fast_sincos(a, &s, &c);
+        assert_true(fabsf(s - sinf(a)) < 0.01f);
+        assert_true(fabsf(c - cosf(a)) < 0.01f);
+    }
+
+    /* Angles well outside one turn are wrapped rather than approximated. */
+    float s = 0.0f;
+    float c = 0.0f;
+    foc_fast_sincos(7.0f * (float)M_PI, &s, &c);
+    assert_true(fabsf(s) < 0.05f);
+
+    /* A bus voltage too small to modulate parks every duty at half. */
+    float da = 0.0f;
+    float db = 0.0f;
+    float dc = 0.0f;
+    uint32_t sector = 9u;
+    foc_svpwm(1.0f, 0.0f, 0.0f, 0.95f, &da, &db, &dc, &sector);
+    assert_float_equal(da, 0.5f, 1e-6f);
+    assert_float_equal(db, 0.5f, 1e-6f);
+    assert_float_equal(dc, 0.5f, 1e-6f);
+    assert_int_equal(sector, 1u);
+    /* ... and the same without a sector output. */
+    foc_svpwm(1.0f, 0.0f, 0.0f, 0.95f, &da, &db, &dc, NULL);
+
+    /* The transforms are each other's inverse at zero angle. */
+    float alpha = 0.0f;
+    float beta = 0.0f;
+    foc_clarke_transform(1.0f, -0.5f, -0.5f, &alpha, &beta);
+    assert_float_equal(alpha, 1.0f, 1e-6f);
+    assert_float_equal(beta, (1.0f + 2.0f * -0.5f) * ONE_BY_SQRT3, 1e-6f);
+
+    float id = 0.0f;
+    float iq = 0.0f;
+    foc_park_transform(alpha, beta, 0.0f, 1.0f, &id, &iq);
+    assert_float_equal(id, alpha, 1e-6f);
+    assert_float_equal(iq, beta, 1e-6f);
+
+    float va = 0.0f;
+    float vb = 0.0f;
+    foc_inv_park_transform(id, iq, 0.0f, 1.0f, &va, &vb);
+    assert_float_equal(va, alpha, 1e-6f);
+    assert_float_equal(vb, beta, 1e-6f);
+
+    /* The battery curve clamps rather than extrapolating, and the helpers clamp as written. */
+    assert_float_equal(foc_batt_liion_norm_v_to_capacity(2.0f),
+                       foc_batt_liion_norm_v_to_capacity(1.0f), 1e-6f);
+    assert_float_equal(foc_batt_liion_norm_v_to_capacity(-1.0f),
+                       foc_batt_liion_norm_v_to_capacity(0.0f), 1e-6f);
+
+    float v = 5.0f;
+    foc_truncate_number(&v, 0.0f, 1.0f);
+    assert_float_equal(v, 1.0f, 1e-6f);
+    v = -5.0f;
+    foc_truncate_number_abs(&v, 1.0f);
+    assert_float_equal(v, -1.0f, 1e-6f);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -1688,6 +1760,7 @@ int main(void) {
         cmocka_unit_test(test_foc_hfi_adjust_angle_matches_reference),
         cmocka_unit_test(test_foc_fft_bins_match_reference),
         cmocka_unit_test(test_foc_core_guards),
+        cmocka_unit_test(test_foc_math_helper_branches),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
