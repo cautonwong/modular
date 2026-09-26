@@ -1939,6 +1939,39 @@ static void test_foc_core_safety_guards_and_power_off(void **state) {
     assert_true(core.target_iq >= cfg.current_min_a);
 }
 
+/*
+ * The SVPWM duty clamps. A request far past the modulation limit has to land inside the window the
+ * scheduler can actually program - the clamp is per phase and against t_max, not a magnitude
+ * clamp on the vector, which is why it is asserted on each duty rather than on their norm.
+ */
+static void test_foc_svpwm_duty_clamps(void **state) {
+    (void)state;
+    float da = 0.0f;
+    float db = 0.0f;
+    float dc = 0.0f;
+    uint32_t sector = 0u;
+    const float duty_max = 0.95f;
+    const float t_max = 1.0f - (1.0f - duty_max) * 0.5f;
+
+    /* A request far past the limit in one direction. */
+    foc_svpwm(1000.0f, 0.0f, 24.0f, duty_max, &da, &db, &dc, &sector);
+    assert_true(da >= 0.0f && da <= t_max);
+    assert_true(db >= 0.0f && db <= t_max);
+    assert_true(dc >= 0.0f && dc <= t_max);
+
+    /* And far past it in the other. */
+    foc_svpwm(-1000.0f, 0.0f, 24.0f, duty_max, &da, &db, &dc, &sector);
+    assert_true(da >= 0.0f && da <= t_max);
+    assert_true(db >= 0.0f && db <= t_max);
+    assert_true(dc >= 0.0f && dc <= t_max);
+
+    /* A large vector at 120 degrees drives all three phases into their clamps at once. */
+    foc_svpwm(500.0f, 866.0f, 24.0f, duty_max, &da, &db, &dc, &sector);
+    assert_true(da >= 0.0f && da <= t_max);
+    assert_true(db >= 0.0f && db <= t_max);
+    assert_true(dc >= 0.0f && dc <= t_max);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -1974,6 +2007,7 @@ int main(void) {
         cmocka_unit_test(test_foc_math_sat_lambda_combination),
         cmocka_unit_test(test_foc_core_loop_and_module_failures),
         cmocka_unit_test(test_foc_core_safety_guards_and_power_off),
+        cmocka_unit_test(test_foc_svpwm_duty_clamps),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
