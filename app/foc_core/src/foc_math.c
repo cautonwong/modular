@@ -379,6 +379,117 @@ void foc_hfi_adjust_angle(float ang_err, float max_err, float gain, float speed_
     state->ready = true;
 }
 
+/* The generated excitation tables, included next to their only consumer rather than at the top. */
+#include "hfi_tables.h"
+
+/*
+ * Reference util/utils_math.c:509-597. The DFT bins HFI computes its angle error from - bin 0 the
+ * mean, bins 1 and 2 the fundamental and second harmonic - over the 8, 16 or 32 samples the
+ * configuration's foc_hfi_samples selects. Copied as they stand rather than replaced with a real
+ * FFT: they are what the reference runs and they feed a control loop.
+ *
+ * The `0.0`, `32.0`, `16.0` and `8.0` literals are the reference's doubles, so each sum and each
+ * scaling is computed in double and rounded back into the float output.
+ */
+void foc_fft32_bin0(const float *real_in, float *real, float *imag) {
+    *real = 0.0;
+    *imag = 0.0;
+
+    for (int i = 0; i < 32; i++) {
+        *real += real_in[i];
+    }
+
+    *real /= 32.0;
+}
+
+void foc_fft32_bin1(const float *real_in, float *real, float *imag) {
+    *real = 0.0;
+    *imag = 0.0;
+    for (int i = 0; i < 32; i++) {
+        *real += real_in[i] * foc_utils_tab_cos_32_1[i];
+        *imag -= real_in[i] * foc_utils_tab_sin_32_1[i];
+    }
+    *real /= 32.0;
+    *imag /= 32.0;
+}
+
+void foc_fft32_bin2(const float *real_in, float *real, float *imag) {
+    *real = 0.0;
+    *imag = 0.0;
+    for (int i = 0; i < 32; i++) {
+        *real += real_in[i] * foc_utils_tab_cos_32_2[i];
+        *imag -= real_in[i] * foc_utils_tab_sin_32_2[i];
+    }
+    *real /= 32.0;
+    *imag /= 32.0;
+}
+
+void foc_fft16_bin0(const float *real_in, float *real, float *imag) {
+    *real = 0.0;
+    *imag = 0.0;
+
+    for (int i = 0; i < 16; i++) {
+        *real += real_in[i];
+    }
+
+    *real /= 16.0;
+}
+
+void foc_fft16_bin1(const float *real_in, float *real, float *imag) {
+    *real = 0.0;
+    *imag = 0.0;
+    for (int i = 0; i < 16; i++) {
+        *real += real_in[i] * foc_utils_tab_cos_32_1[2 * i];
+        *imag -= real_in[i] * foc_utils_tab_sin_32_1[2 * i];
+    }
+    *real /= 16.0;
+    *imag /= 16.0;
+}
+
+void foc_fft16_bin2(const float *real_in, float *real, float *imag) {
+    *real = 0.0;
+    *imag = 0.0;
+    for (int i = 0; i < 16; i++) {
+        *real += real_in[i] * foc_utils_tab_cos_32_2[2 * i];
+        *imag -= real_in[i] * foc_utils_tab_sin_32_2[2 * i];
+    }
+    *real /= 16.0;
+    *imag /= 16.0;
+}
+
+void foc_fft8_bin0(const float *real_in, float *real, float *imag) {
+    *real = 0.0;
+    *imag = 0.0;
+
+    for (int i = 0; i < 8; i++) {
+        *real += real_in[i];
+    }
+
+    *real /= 8.0;
+}
+
+void foc_fft8_bin1(const float *real_in, float *real, float *imag) {
+    *real = 0.0;
+    *imag = 0.0;
+    for (int i = 0; i < 8; i++) {
+        *real += real_in[i] * foc_utils_tab_cos_32_1[4 * i];
+        *imag -= real_in[i] * foc_utils_tab_sin_32_1[4 * i];
+    }
+    *real /= 8.0;
+    *imag /= 8.0;
+}
+
+void foc_fft8_bin2(const float *real_in, float *real, float *imag) {
+    *real = 0.0;
+    *imag = 0.0;
+    for (int i = 0; i < 8; i++) {
+        *real += real_in[i] * foc_utils_tab_cos_32_2[4 * i];
+        *imag -= real_in[i] * foc_utils_tab_sin_32_2[4 * i];
+    }
+    *real /= 8.0;
+    *imag /= 8.0;
+}
+
 /*
  * Reference: motor/foc_math.c:492 foc_run_pid_control_speed, copied step for step.
  * The literals and the filter form are the reference's: `1.0 / 20.0` is a double
