@@ -326,7 +326,46 @@ static void test_motor_id_sample_timeout_publishes_an_invalid_result(void **stat
     assert_int_equal(plant.stop_calls, 1);
 }
 
+/*
+ * The module's own hooks, the construct guard and the accessors' guards. The hooks are what a
+ * scheduler drives, and power_off has to leave the procedure's state where a restart can begin -
+ * a motor left under a forced phase override after a shutdown would be worse than a stopped one.
+ */
+static void test_motor_id_hooks_and_accessor_guards(void **state) {
+    (void)state;
+    mock_plant_t plant = {.r_ohm = 0.05f, .accumulate = true};
+    motor_id_measure_port_t port = make_port(&plant);
+    motor_id_app_t app;
+
+    motor_id_construct(NULL, EDGE_MOD_MOTOR_ID, 40u, &port);
+    motor_id_construct(&app, EDGE_MOD_MOTOR_ID, 40u, &port);
+    assert_int_equal(motor_id_init(&app), EDGE_OK);
+
+    /* The hooks a scheduler drives. */
+    assert_int_equal(app.module.poll(&app.module), EDGE_OK);
+    assert_int_equal(app.module.on_event(&app.module, NULL), EDGE_OK);
+    assert_int_equal(app.module.power_off(&app.module), EDGE_OK);
+    assert_int_equal(app.state, MOTOR_ID_STATE_IDLE);
+    assert_int_equal(motor_id_get_fault(&app), 0u);
+
+    /* Start something and power off in the middle of it: the override must be released. */
+    assert_int_equal(motor_id_measure_resistance(&app, 2.0f, 200u, true), EDGE_OK);
+    for (int i = 0; i < 50; i++) {
+        run_one_ms(&app, &plant);
+    }
+    assert_true(plant.phase_override);
+    assert_int_equal(app.module.power_off(&app.module), EDGE_OK);
+    assert_false(plant.phase_override);
+    assert_int_equal(app.state, MOTOR_ID_STATE_IDLE);
+
+    /* The accessors' guards. */
+    assert_int_equal(motor_id_get_fault(NULL), 0u);
+    assert_ptr_equal(motor_id_get_result(NULL), NULL);
+    assert_ptr_equal(motor_id_module(NULL), NULL);
+}
+
 int main(void) {
+
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_motor_id_guards_and_unported_procedures),
         cmocka_unit_test(test_motor_id_ramp_rate_is_the_reference_timing),
@@ -334,6 +373,7 @@ int main(void) {
         cmocka_unit_test(test_motor_id_keeps_the_motor_running_when_asked),
         cmocka_unit_test(test_motor_id_aborts_on_a_fault),
         cmocka_unit_test(test_motor_id_sample_timeout_publishes_an_invalid_result),
+        cmocka_unit_test(test_motor_id_hooks_and_accessor_guards),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
