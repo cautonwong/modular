@@ -131,6 +131,66 @@ static void test_encoder_resolver_and_hall_guards(void **state) {
     assert_int_equal(encoder_hall_update(&hall, 7u, &angle), EDGE_OK);
 }
 
+/* A transfer that fails, for the paths where a dead bus must not read as an angle. */
+static edge_status_t failing_spi(void *ctx, uint16_t tx_val, uint16_t *rx_val) {
+    (void)ctx;
+    (void)tx_val;
+    *rx_val = 0u;
+    return EDGE_EIO;
+}
+
+/*
+ * The guards and the dead-bus paths of both SPI encoders, plus the guards of the resolvers. The
+ * assertion is deliberately "not OK" rather than a specific code: what matters is that a bus that
+ * cannot be read never reports an angle, and pinning the code would be pinning an implementation
+ * detail this test has not read.
+ */
+static void test_encoder_spi_failure_and_guards(void **state) {
+    (void)state;
+    uint16_t raw = 0u;
+    float angle = 0.0f;
+
+    /* AS5047. */
+    encoder_as5047_construct(NULL, mock_spi_transfer, NULL);
+    assert_int_equal(encoder_as5047_init(NULL), EDGE_EINVAL);
+    assert_true(encoder_as5047_read_angle_raw(NULL, &raw) != EDGE_OK);
+    assert_true(encoder_as5047_read_angle_rad(NULL, &angle) != EDGE_OK);
+    encoder_as5047_t as;
+    encoder_as5047_construct(&as, NULL, NULL);
+    assert_true(encoder_as5047_init(&as) != EDGE_OK);
+    encoder_as5047_construct(&as, failing_spi, NULL);
+    assert_true(encoder_as5047_read_angle_raw(&as, &raw) != EDGE_OK);
+    assert_true(encoder_as5047_read_angle_rad(&as, &angle) != EDGE_OK);
+    assert_true(encoder_as5047_read_diag(&as, &raw) != EDGE_OK);
+
+    /* MT6816. */
+    encoder_mt6816_construct(NULL, mock_spi_transfer, NULL);
+    assert_int_equal(encoder_mt6816_init(NULL), EDGE_EINVAL);
+    assert_true(encoder_mt6816_read_angle_raw(NULL, &raw) != EDGE_OK);
+    assert_true(encoder_mt6816_read_angle_rad(NULL, &angle) != EDGE_OK);
+    encoder_mt6816_t mt;
+    encoder_mt6816_construct(&mt, failing_spi, NULL);
+    /* Its init does not touch the bus, so a dead one still initialises; what must not happen is a
+     * read reporting an angle. */
+    assert_int_equal(encoder_mt6816_init(&mt), EDGE_OK);
+    assert_true(encoder_mt6816_read_angle_raw(&mt, &raw) != EDGE_OK);
+    assert_true(encoder_mt6816_read_angle_rad(&mt, &angle) != EDGE_OK);
+
+    /* The resolver and the incremental encoder guard their own arguments. */
+    assert_int_equal(encoder_abi_init(NULL), EDGE_EINVAL);
+    encoder_abi_t abi;
+    encoder_abi_construct(NULL, 4096u);
+    encoder_abi_construct(&abi, 4096u);
+    assert_int_equal(encoder_abi_init(&abi), EDGE_OK);
+    assert_true(encoder_abi_update(NULL, 1, 0.01f, &angle) != EDGE_OK);
+    assert_true(encoder_abi_update(&abi, 1, 0.01f, NULL) != EDGE_OK);
+    assert_true(encoder_sincos_update(NULL, 0.0f, 1.0f, &angle) != EDGE_OK);
+    encoder_sincos_t sc;
+    encoder_sincos_construct(&sc, 0.0f, 0.0f, 1.0f, 1.0f);
+    assert_int_equal(encoder_sincos_init(&sc), EDGE_OK);
+    assert_true(encoder_sincos_update(&sc, 0.0f, 1.0f, NULL) != EDGE_OK);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -140,6 +200,7 @@ int main(void) {
         cmocka_unit_test(test_encoder_sincos),
         cmocka_unit_test(test_encoder_hall),
         cmocka_unit_test(test_encoder_resolver_and_hall_guards),
+        cmocka_unit_test(test_encoder_spi_failure_and_guards),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
