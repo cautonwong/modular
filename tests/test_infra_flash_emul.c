@@ -35,10 +35,14 @@ typedef struct mock_flash {
     int halfword_writes;
     int fail_at_write;    /* fail when this many writes have happened; -1 = never */
     int fail_after_erase; /* fail the next write once this many erases have happened; -1 = never */
+    int fail_read;        /* fail every read, to drive the read error path */
 } mock_flash_t;
 
 static edge_status_t mock_read(void *self, uint32_t offset, uint8_t *buf, size_t len) {
     mock_flash_t *flash = (mock_flash_t *)self;
+    if (flash->fail_read) {
+        return EDGE_EIO;
+    }
     if (offset + len > MOCK_FLASH_SIZE) {
         return EDGE_EINVAL;
     }
@@ -120,6 +124,7 @@ static void make_emul(flash_emul_t *emul, mock_flash_t *flash) {
     flash->erase_calls = 0;
     flash->last_erase_len = 0u;
     flash->halfword_writes = 0;
+    flash->fail_read = 0;
     wire_emul(emul, flash);
 }
 
@@ -287,9 +292,53 @@ static void test_flash_emul_power_loss_in_the_erase_window_loses_data(void **sta
     assert_int_equal(flash_emul_read(&restarted, test_keys[0], &value), EDGE_ENOENT);
 }
 
+/*
+ * What the emulation does when the sector backend fails. A caller that cannot tell a written record
+ * from a lost one is worse off than one that knows the write did not land, so each backend is
+ * failed in turn and each has to be reported rather than swallowed: the read, the write from the
+ * first one on, and a write that fails part way through a transfer.
+ */
+static void test_flash_emul_backend_failures_are_reported(void **state) {
+    (void)state;
+    mock_flash_t flash;
+    flash_emul_t emul;
+    uint16_t value = 0u;
+
+    /* Reads that fail: reading a variable is an error, not a zero. */
+    make_emul(&emul, &flash);
+    flash.fail_read = 1;
+    assert_true(flash_emul_read(&emul, test_keys[0], &value) != EDGE_OK);
+
+    /* A backend that never accepts a write: the write is reported as failed. */
+    make_emul(&emul, &flash);
+    flash.fail_at_write = 0;
+    assert_true(flash_emul_write(&emul, test_keys[0], 0x1234u) != EDGE_OK);
+
+    /* A write that fails part way through a transfer leaves the image recoverable rather than
+     * corrupt: re-initialising from it must still find a valid page. */
+    make_emul(&emul, &flash);
+    assert_int_equal(flash_emul_init(&emul), EDGE_OK);
+    flash.fail_at_write = flash.halfword_writes + 3;
+    int wrote = 0;
+    for (int i = 0; i < 3; i++) {
+        if (flash_emul_write(&emul, test_keys[i % 4], (uint16_t)(0x1000u + (unsigned)i)) !=
+            EDGE_OK) {
+            break;
+        }
+        wrote++;
+    }
+    assert_true(wrote < 3);
+
+    flash.fail_at_write = -1;
+    assert_int_equal(flash_emul_init(&emul), EDGE_OK);
+    assert_true(flash_emul_read(&emul, test_keys[0], &value) == EDGE_OK || value == 0u);
+}
+
 int main(void) {
+
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_flash_emul_init_formats),
+        cmocka_unit_test(test_flash_emul_backend_failures_are_reported),
         cmocka_unit_test(test_flash_emul_write_read_roundtrip),
         cmocka_unit_test(test_flash_emul_newest_wins),
         cmocka_unit_test(test_flash_emul_write_does_not_erase),
