@@ -222,9 +222,67 @@ static void test_vesc_can_send_buffer_framing(void **state) {
     assert_int_equal(bus.tx[39].data[5], (uint8_t)(crc2 & 0xFFu));
 }
 
+/*
+ * The send paths, whose bodies the existing cases reach only through their guards, plus the
+ * module's own hooks. The ids and payloads are checked against what the reference puts on the bus:
+ * the packet id in the high byte and the target in the low one, with the value as a big-endian
+ * int32 at the scale each command uses - 1e5 for duty, 1e3 for current, whole rpm for speed.
+ */
+static void test_vesc_can_sends_and_guards(void **state) {
+    (void)state;
+    mock_can_bus_t bus;
+    memset(&bus, 0, sizeof(bus));
+    vesc_can_port_t port = {.self = &bus, .send_frame = mock_send, .receive_frame = mock_receive};
+    vesc_can_app_t app;
+    vesc_can_construct(&app, EDGE_MOD_VESC_CAN, 20u, NULL, &port);
+    assert_int_equal(vesc_can_init(&app), EDGE_OK);
+
+    /* Guards: a null app is refused by every send. */
+    assert_int_equal(vesc_can_send_duty(NULL, 1u, 0.5f), EDGE_EINVAL);
+    assert_int_equal(vesc_can_send_current(NULL, 1u, 1.0f), EDGE_EINVAL);
+    assert_int_equal(vesc_can_send_rpm(NULL, 1u, 1000.0f), EDGE_EINVAL);
+    assert_int_equal(vesc_can_send_status_1(NULL), EDGE_EINVAL);
+
+    /* Duty: target id in the low byte, 0.5 * 1e5 = 50000 = 0x0000C350. */
+    assert_int_equal(vesc_can_send_duty(&app, 7u, 0.5f), EDGE_OK);
+    assert_int_equal((int)(bus.last_tx_id & 0xFFu), 7);
+    assert_int_equal(bus.last_tx_len, 4u);
+    assert_int_equal(bus.last_tx_data[0], 0x00u);
+    assert_int_equal(bus.last_tx_data[1], 0x00u);
+    assert_int_equal(bus.last_tx_data[2], 0xC3u);
+    assert_int_equal(bus.last_tx_data[3], 0x50u);
+
+    /* Current: 1.5 * 1e3 = 1500 = 0x000005DC. */
+    assert_int_equal(vesc_can_send_current(&app, 3u, 1.5f), EDGE_OK);
+    assert_int_equal((int)(bus.last_tx_id & 0xFFu), 3);
+    assert_int_equal(bus.last_tx_data[2], 0x05u);
+    assert_int_equal(bus.last_tx_data[3], 0xDCu);
+
+    /* Rpm: already an integer, 3000 = 0x00000BB8. */
+    assert_int_equal(vesc_can_send_rpm(&app, 2u, 3000.0f), EDGE_OK);
+    assert_int_equal((int)(bus.last_tx_id & 0xFFu), 2);
+    assert_int_equal(bus.last_tx_data[2], 0x0Bu);
+    assert_int_equal(bus.last_tx_data[3], 0xB8u);
+
+    /* The three status frames each go out once. */
+    const int before = bus.tx_count;
+    assert_int_equal(vesc_can_send_status_1(&app), EDGE_OK);
+    assert_int_equal(vesc_can_send_status_4(&app), EDGE_OK);
+    assert_int_equal(vesc_can_send_status_5(&app), EDGE_OK);
+    assert_int_equal(bus.tx_count, before + 3);
+
+    /* The module's own hooks: a poll with nothing queued is a no-op, and power-off is the safe
+     * state. */
+    assert_int_equal(app.module.on_event(&app.module, NULL), EDGE_OK);
+    assert_int_equal(app.module.poll(&app.module), EDGE_OK);
+    assert_int_equal(app.module.power_off(&app.module), EDGE_OK);
+}
+
 int main(void) {
+
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_vesc_can_init_validation),
+        cmocka_unit_test(test_vesc_can_sends_and_guards),
         cmocka_unit_test(test_vesc_can_status_broadcast),
         cmocka_unit_test(test_vesc_can_rx_command),
         cmocka_unit_test(test_vesc_can_send_buffer_framing),
