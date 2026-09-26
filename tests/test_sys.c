@@ -808,7 +808,55 @@ static void test_sys_configure(void **state) {
  */
 #define TEST(fn) cmocka_unit_test_setup(fn, reset_state)
 
+/*
+ * The suspend and resume sweeps in their failure paths, plus the pending check's branches. The
+ * existing case exercises a clean sweep, so the half that matters operationally - an app whose
+ * callback fails being isolated while only the first error is reported - was unexecuted.
+ */
+static void test_suspend_resume_and_pending(void **state) {
+    (void)state;
+    fake_app_t a;
+    fake_app_t b;
+    make_app(&a, 1u, 1u);
+    make_app(&b, 2u, 2u);
+    edge_module_t *apps[] = {&a.module, &b.module};
+    edge_sys_t sys;
+
+    assert_int_equal(edge_sys_init(&sys, apps, 2u), EDGE_OK);
+
+    /* Before the system runs the sweeps are refused, and a null system is not pending. */
+    assert_int_equal(edge_sys_suspend_all(&sys), EDGE_ESTATE);
+    assert_int_equal(edge_sys_resume_all(&sys), EDGE_ESTATE);
+    assert_false(edge_sys_pending(NULL));
+
+    assert_int_equal(edge_sys_start(&sys), EDGE_OK);
+
+    /* A clean sweep suspends both, and resuming brings them back. */
+    assert_int_equal(edge_sys_suspend_all(&sys), EDGE_OK);
+    assert_int_equal(a.suspend_count, 1);
+    assert_int_equal(b.suspend_count, 1);
+    assert_int_equal(edge_sys_resume_all(&sys), EDGE_OK);
+    assert_int_equal(a.resume_count, 1);
+    assert_int_equal(b.resume_count, 1);
+
+    /* An app whose suspend fails is isolated, and its error is the one reported. */
+    b.suspend_rc = EDGE_EIO;
+    assert_int_equal(edge_sys_suspend_all(&sys), EDGE_EIO);
+    assert_true(sys.stats.isolated >= 1u);
+    assert_int_equal(edge_sys_resume_all(&sys), EDGE_OK);
+
+    /* Pending: a pending count answers true, and so does an app whose next due time has passed. */
+    sys.pending_count = 1u;
+    assert_true(edge_sys_pending(&sys));
+    sys.pending_count = 0u;
+    a.module.failed = 0u;
+    a.module.suspended = 0u;
+    a.module.next_due = 0u;
+    assert_true(edge_sys_pending(&sys));
+}
+
 int main(void) {
+
     const struct CMUnitTest tests[] = {
         TEST(test_start_sorts_by_priority_then_id),
         TEST(test_validation),
@@ -832,6 +880,7 @@ int main(void) {
         TEST(test_unsubscribe_during_dispatch_delivers_to_the_rest),
         TEST(test_required_list_is_borrowed_not_copied),
         TEST(test_suspend_resume),
+        TEST(test_suspend_resume_and_pending),
         TEST(test_idle_hook),
         TEST(test_step_and_run_shutdown),
         TEST(test_stats_reset),
