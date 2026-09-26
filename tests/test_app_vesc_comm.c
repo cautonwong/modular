@@ -1074,6 +1074,21 @@ static void test_every_handled_command_id_is_reachable(void **state) {
     assert_true(mock_terminal_calls > 0);
     assert_true(mock_forward_calls > 0);
 
+    /* The same ids again with nothing but the id byte: every one of them has to refuse a payload
+     * it cannot decode, and none of them may answer "unknown" or write a reply it cannot build.
+     * This is the half of each case that a well-formed payload never reaches. */
+    for (size_t i = 0u; i < sizeof(handled) / sizeof(handled[0]); i++) {
+        uint8_t short_payload[1] = {handled[i]};
+        const edge_status_t status =
+            vesc_comm_process_command(comm, short_payload, sizeof(short_payload));
+        assert_true(status != EDGE_ENOTSUP);
+    }
+
+    /* An id nobody handles still answers nothing at all. */
+    uint8_t detect_only[1] = {COMM_DETECT_MOTOR_R_L};
+    assert_int_equal(vesc_comm_process_command(comm, detect_only, sizeof(detect_only)),
+                     EDGE_ENOTSUP);
+
     /* An id nobody handles answers nothing, which is what the reference does with an unknown
      * command - and what docs/bldc-migration.md records for the detection family. */
     const size_t before = ctx.tx_count;
