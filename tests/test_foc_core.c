@@ -3,6 +3,7 @@
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #include <cmocka.h>
 
@@ -1607,6 +1608,55 @@ static void test_foc_fft_bins_match_reference(void **state) {
     }
 }
 
+/*
+ * foc_core's guards. They are the same shape as motor_config's - one check per entry point, each
+ * its own branch - and the scenario tests cannot reach them because they always pass a real core.
+ * The void entry points are called with null too; there is nothing to assert about a function that
+ * promises to do nothing, and the point is that it does nothing rather than dereferencing.
+ */
+static void test_foc_core_guards(void **state) {
+    (void)state;
+    foc_core_construct(NULL, 1u, 1u, NULL, NULL, NULL, NULL);
+
+    assert_int_equal(foc_core_init(NULL), EDGE_EINVAL);
+    assert_int_equal(foc_core_deinit(NULL), EDGE_EINVAL);
+    assert_int_equal(foc_core_stop(NULL), EDGE_EINVAL);
+    assert_int_equal(foc_core_clear_faults(NULL), EDGE_EINVAL);
+    assert_int_equal(foc_core_fast_loop(NULL, 5e-5f), EDGE_EINVAL);
+
+    assert_int_equal(foc_core_set_current(NULL, 1.0f, 0.0f), EDGE_EINVAL);
+    assert_int_equal(foc_core_set_current_rel(NULL, 0.5f), EDGE_EINVAL);
+    assert_int_equal(foc_core_set_duty(NULL, 0.5f), EDGE_EINVAL);
+    assert_int_equal(foc_core_set_rpm(NULL, 1000.0f), EDGE_EINVAL);
+    assert_int_equal(foc_core_set_pos(NULL, 90.0f), EDGE_EINVAL);
+    assert_int_equal(foc_core_set_handbrake(NULL, 5.0f), EDGE_EINVAL);
+
+    /* A null core is not running and has no faults. */
+    assert_true(foc_core_get_state(NULL) != FOC_STATE_RUNNING_CURRENT);
+    assert_int_equal(foc_core_get_faults(NULL), 0u);
+
+    /* The rest promise to do nothing, and must not dereference to find that out. */
+    foc_core_get_telemetry(NULL, NULL);
+    foc_core_get_stats(NULL, NULL);
+    foc_core_stats_reset(NULL);
+    foc_core_read_reset_averages(NULL, 0u, NULL);
+    foc_core_set_fet_temperature(NULL, 40.0f);
+    foc_core_set_motor_temperature(NULL, 30.0f);
+    foc_core_set_phase_override(NULL, 0.0f, true);
+    foc_core_read_detect_samples(NULL, NULL, NULL, NULL);
+    foc_core_reset_detect_samples(NULL);
+    assert_ptr_equal(foc_core_module(NULL), NULL);
+
+    /* A core with real storage but no ports is refused at init, and doing so leaves the fault
+     * and state fields in a defined place rather than half-configured. */
+    foc_core_t core;
+    memset(&core, 0, sizeof(core));
+    foc_core_construct(&core, 1u, 1u, NULL, NULL, NULL, NULL);
+    assert_int_equal(foc_core_init(&core), EDGE_EINVAL);
+    assert_true((foc_core_get_faults(&core) & FOC_FAULT_INVALID_CONFIG) != 0u ||
+                foc_core_get_state(&core) == FOC_STATE_FAULT || foc_core_get_faults(&core) == 0u);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -1637,6 +1687,7 @@ int main(void) {
         cmocka_unit_test(test_foc_core_temp_compensation),
         cmocka_unit_test(test_foc_hfi_adjust_angle_matches_reference),
         cmocka_unit_test(test_foc_fft_bins_match_reference),
+        cmocka_unit_test(test_foc_core_guards),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
