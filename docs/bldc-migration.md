@@ -337,6 +337,30 @@ B2 的面很大（mcpwm_foc.c 内 234 处 HFI 引用），但可以先把它拆�
   （冲激、斜坡、伪随机、干净基波）× 9 抽头 × 实/虚部**逐位文本相同**，这 4×18 个值即
   `test_foc_core.c` 里的黄金向量。
 
+#### B2 剩余部分：ISR 侧的结构结论（先读再动）
+
+已读到的构件与位置（细节以引用为准，不凭记忆写）：
+
+| 构件 | 位置 | 共用状态 |
+| --- | --- | --- |
+| 激励选矢量（六矢量 / V0V7、`foc_hfi_amb_mode`） | `mcpwm_foc.c:1075-1090`（`FOC_CONTROL_SAMPLE_MODE_V0_V7`）与 ISR 的占空比通道 | `foc_hfi_voltage_start/run/max` |
+| 采样缓存填充（`buffer[]` / `buffer_current[]`） | ISR 内按 `ind` 写入；`is_samp_n` 标记负半波 | `ind`、`is_samp_n`、`sign_last_sample`、`cos_last/sin_last`、`prev_sample(_d)` |
+| 另一种机制：正/负样本和与计数 | `buffer[1..7]` 当累加器用（源码里就在 `:4368-4375` 逐条注明） | `flip_cnt` |
+| 慢侧状态机 | `hfi_update` (`:4218+`)：转速门限 `foc_sl_erpm_hfi` 交回观测器、`est_done_cnt`/`flip_cnt` 对 `foc_hfi_start_samples`、`observer_zero_time` 对 `foc_hfi_obs_ovr_sec`、HFI_V2/V3/V4/V5 分支 | `angle`、`double_integrator`、`ready` |
+| ISR 侧的 HFI_START 分支 | `:3555+`（观测器接管时清 `est_done_cnt`/`flip_cnt`） | 同上 |
+
+**投影结论（决定了这块要动多少）：**
+
+1. **激励不需要新端口。** 原版的 HFI 是在 ISR 里**改自己将要输出的电压矢量**（试向量就是它自己的输出），而
+   本仓库的 PWM 输出本就在 `foc_core` 手里 —— 所以注入是聚合根的**内部事务**，不必跨层。
+2. **需要落到端口契约的只有「采样时刻」。** 原版在 PWM 周期内**特定时刻**取相电流（V0/V7 零矢量处），
+   而本端口的 `foc_current_port_t` 每次控制周期只读一次。因此正确的做法是把
+   「**按配置的 HFI 采样点采到的相电流**」写进电流端口的契约（由硬件侧保证采样时刻），而不是在 app 里
+   去模仿硬件时序 —— 这与已有的「控制环不在 ISR 里」的投影一致。
+3. **因此本块的工作量虽大，但边界清楚**：`hfi_state_t` 的其余字段（buffer/ind/翻转计数等）+ 激励与
+   误差提取 + `hfi_update` 状态机，全在 `foc_core` 内部；新增的只有端口契约的一句语义与 `foc_hfi_samples`
+   选出的抽头绑定（它现在不能先写 —— 没有消费者就是死代码）。
+
 ### 阶段 C — 配置与持久化
 
 #### C3 定界（先读再动；更正上一轮自己的指向）
