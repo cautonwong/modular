@@ -682,82 +682,50 @@ void vesc_host_make_can_port(vesc_can_port_t *out, vesc_host_glue_state_t *state
     };
 }
 
-/* Motor ID Measure & Control Port Adaptors */
-static edge_status_t id_get_currents(void *self, float *ia, float *ib) {
-    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
-    *ia = s->vmotor.ia;
-    *ib = s->vmotor.ib;
+/* Motor ID Measure Port Adaptors: the reference's measurement procedures run against the FOC
+ * aggregate, so each callback is one thing those procedures do to the motor. */
+static edge_status_t id_set_phase_override(void *self, float angle_rad, bool enable) {
+    foc_core_set_phase_override((foc_core_t *)self, angle_rad, enable);
     return EDGE_OK;
 }
 
-static edge_status_t id_get_vbus(void *self, float *v_bus) {
-    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
-    *v_bus = s->v_bus > 0.0f ? s->v_bus : 24.0f;
+/* The reference holds id at zero and ramps iq (mcpwm_foc.c:1805-1807). */
+static edge_status_t id_set_current(void *self, float iq) {
+    return foc_core_set_current((foc_core_t *)self, iq, 0.0f);
+}
+
+static edge_status_t id_reset_samples(void *self) {
+    foc_core_reset_detect_samples((foc_core_t *)self);
     return EDGE_OK;
 }
 
-static uint8_t id_get_hall(void *self) {
-    (void)self;
-    return 1;
-}
-
-static float id_get_rotor_angle(void *self) {
-    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
-    return s->vmotor.rotor_angle_rad;
-}
-
-void vesc_host_make_motor_id_measure_port(motor_id_measure_port_t *out,
-                                          vesc_host_glue_state_t *state) {
-    if (!out || !state) {
-        return;
-    }
-    *out = (motor_id_measure_port_t){
-        .self = state,
-        .get_currents = id_get_currents,
-        .get_vbus = id_get_vbus,
-        .get_hall = id_get_hall,
-        .get_rotor_angle = id_get_rotor_angle,
-    };
-}
-
-static edge_status_t id_set_v_ab(void *self, float va, float vb) {
-    (void)self;
-    (void)va;
-    (void)vb;
+static edge_status_t id_read_samples(void *self, float *i_sum, float *v_sum, uint32_t *count) {
+    foc_core_read_detect_samples((foc_core_t *)self, i_sum, v_sum, count);
     return EDGE_OK;
 }
 
-static edge_status_t id_set_duty(void *self, float da, float db, float dc) {
-    (void)self;
-    (void)da;
-    (void)db;
-    (void)dc;
-    return EDGE_OK;
-}
-
-static edge_status_t id_set_openloop(void *self, float angle, float curr) {
-    (void)self;
-    (void)angle;
-    (void)curr;
-    return EDGE_OK;
+static uint32_t id_get_fault(void *self) {
+    /* The procedures compare this against "no fault", which is zero, so the FOC's fault bits
+     * serve as they are rather than being translated into the reference's fault_code enum. */
+    return foc_core_get_faults((foc_core_t *)self);
 }
 
 static edge_status_t id_stop(void *self) {
-    (void)self;
-    return EDGE_OK;
+    return foc_core_stop((foc_core_t *)self);
 }
 
-void vesc_host_make_motor_id_control_port(motor_id_control_port_t *out,
-                                          vesc_host_glue_state_t *state) {
-    if (!out || !state) {
+void vesc_host_make_motor_id_measure_port(motor_id_measure_port_t *out, foc_core_t *foc) {
+    if (out == (void *)0 || foc == (void *)0) {
         return;
     }
-    *out = (motor_id_control_port_t){
-        .self = state,
-        .set_voltage_alpha_beta = id_set_v_ab,
-        .set_pwm_duty = id_set_duty,
-        .set_openloop_angle = id_set_openloop,
-        .stop_inverter = id_stop,
+    *out = (motor_id_measure_port_t){
+        .self = foc,
+        .set_phase_override = id_set_phase_override,
+        .set_current = id_set_current,
+        .reset_samples = id_reset_samples,
+        .read_samples = id_read_samples,
+        .get_fault = id_get_fault,
+        .stop = id_stop,
     };
 }
 

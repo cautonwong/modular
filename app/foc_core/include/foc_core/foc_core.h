@@ -250,6 +250,24 @@ typedef struct foc_core {
     float current_ki_temp_comp;
 
     /*
+     * Forced-angle mode: the reference's m_phase_override / m_phase_now_override. While it is set
+     * the control loop runs against this angle and the sensor and observer branches are not
+     * taken at all, which is how the reference guards them (mcpwm_foc.c:3486, :3524, :3532).
+     * Motor detection is its only user, and it needs the rotor held at a known electrical angle.
+     */
+    bool phase_override;
+    float phase_override_rad;
+
+    /*
+     * Reference mcpwm_foc.c:4139-4146: the detection's sample accumulator, which the control
+     * loop adds to on every cycle it ran - the current and voltage vector magnitudes that cycle
+     * produced. The resistance measurement reads and clears it; nothing else reads it.
+     */
+    float detect_i_sum;
+    float detect_v_sum;
+    uint32_t detect_samples;
+
+    /*
      * Low-passed currents. The reference filters id/iq right after the Park
      * transform (mcpwm_foc.c:4628) and is explicit that these are for "less time
      * critical parts, not for the feedback" - the current controller keeps using
@@ -419,6 +437,24 @@ void foc_core_set_fet_temperature(foc_core_t *self, float fet_temp_c);
  * this is a second input rather than a second argument to the one above.
  */
 void foc_core_set_motor_temperature(foc_core_t *self, float motor_temp_c);
+
+/*
+ * Hold the rotor at a known electrical angle, which is what the reference's m_phase_override does
+ * for motor detection (mcpwm_foc.c:1803). While it is set the loop uses this angle and does not
+ * read the sensor or run the observer; clearing it returns the loop to its normal angle source.
+ */
+void foc_core_set_phase_override(foc_core_t *self, float angle_rad, bool enable);
+
+/*
+ * The detection sample accumulator: the running sums of the current and voltage vector
+ * magnitudes and how many cycles produced them, which is what the reference's measurements read
+ * (mcpwm_foc.c:1846 checks the count while sampling, :1869-1870 divides the totals) and what it
+ * clears before sampling (:1841-1843). Read and clear are separate calls because the reference
+ * uses them at different moments. Any output may be null.
+ */
+void foc_core_read_detect_samples(const foc_core_t *self, float *i_sum, float *v_sum,
+                                  uint32_t *count);
+void foc_core_reset_detect_samples(foc_core_t *self);
 
 void foc_core_get_stats(const foc_core_t *self, foc_stats_t *out_stats);
 void foc_core_stats_reset(foc_core_t *self);

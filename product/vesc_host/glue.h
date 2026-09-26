@@ -109,10 +109,11 @@ void vesc_host_make_app_status_port(vesc_app_status_port_t *out, vesc_host_glue_
  */
 void vesc_host_sample_temperatures(vesc_host_glue_state_t *state, foc_core_t *foc);
 void vesc_host_make_can_port(vesc_can_port_t *out, vesc_host_glue_state_t *state);
-void vesc_host_make_motor_id_measure_port(motor_id_measure_port_t *out,
-                                          vesc_host_glue_state_t *state);
-void vesc_host_make_motor_id_control_port(motor_id_control_port_t *out,
-                                          vesc_host_glue_state_t *state);
+/*
+ * Motor identification's port, wired to the FOC aggregate: the procedures drive the motor through
+ * it and read the sample accumulator the control loop fills.
+ */
+void vesc_host_make_motor_id_measure_port(motor_id_measure_port_t *out, foc_core_t *foc);
 void vesc_host_make_nunchuk_port(nunchuk_port_t *out, vesc_host_glue_state_t *state);
 void vesc_host_make_pas_port(pas_port_t *out, vesc_host_glue_state_t *state);
 void vesc_host_make_balance_port(balance_port_t *out, vesc_host_glue_state_t *state);

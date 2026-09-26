@@ -215,6 +215,13 @@ void foc_core_construct(foc_core_t *self, uint32_t module_id, uint32_t priority,
     self->fet_temp_c = 0.0f;
     self->motor_temp_c = 0.0f;
 
+    /* No forced angle, and an empty detection accumulator. */
+    self->phase_override = false;
+    self->phase_override_rad = 0.0f;
+    self->detect_i_sum = 0.0f;
+    self->detect_v_sum = 0.0f;
+    self->detect_samples = 0u;
+
     self->id_filter = 0.0f;
     self->iq_filter = 0.0f;
     self->i_abs_filter = 0.0f;
@@ -387,7 +394,15 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
     /* 4. Rotor Angle Feedback */
     float angle_rad = 0.0f;
     float rpm = 0.0f;
-    if (self->config.sensorless_mode) {
+    if (self->phase_override) {
+        /*
+         * The reference's m_phase_override: with it set, the sensor and observer branches are
+         * not taken at all (mcpwm_foc.c:3486, :3524 and :3532 each test the flag before their
+         * own branch) and the forced angle stands in. Not running them is the point - detection
+         * holds the rotor at a known electrical angle and the observer is to keep its state.
+         */
+        angle_rad = self->phase_override_rad;
+    } else if (self->config.sensorless_mode) {
         /* Compensation first: the reference applies it inside the observer, this port
          * applies it here and keeps the observer's parameters explicit. It reads the
          * previous pass's currents, as the reference does. The temperature-compensated
@@ -603,6 +618,19 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
 
     self->v_d = vd;
     self->v_q = vq;
+
+    /*
+     * The detection sample accumulator (reference mcpwm_foc.c:4139-4146). The control loop adds
+     * the magnitudes of the vectors it just produced on every cycle it ran, which is the
+     * reference's `m_state == MC_STATE_RUNNING` gate; the states at and above RUNNING_CURRENT are
+     * exactly the ones that ran the control. Its only reader is the resistance measurement, so
+     * it accumulates unconditionally rather than on request.
+     */
+    if (self->state >= FOC_STATE_RUNNING_CURRENT) {
+        self->detect_i_sum += NORM2_f(id, iq);
+        self->detect_v_sum += NORM2_f(vd, vq);
+        self->detect_samples++;
+    }
 
     /*
      * Duty cycle, reference mcpwm_foc.c:3818-3820:
@@ -960,4 +988,38 @@ void foc_core_set_motor_temperature(foc_core_t *self, float motor_temp_c) {
     if (self != (void *)0) {
         self->motor_temp_c = motor_temp_c;
     }
+}
+
+void foc_core_set_phase_override(foc_core_t *self, float angle_rad, bool enable) {
+    if (self != (void *)0) {
+        self->phase_override = enable;
+        self->phase_override_rad = angle_rad;
+    }
+}
+
+void foc_core_read_detect_samples(const foc_core_t *self, float *i_sum, float *v_sum,
+                                  uint32_t *count) {
+    if (self == (void *)0) {
+        return;
+    }
+
+    if (i_sum != (void *)0) {
+        *i_sum = self->detect_i_sum;
+    }
+    if (v_sum != (void *)0) {
+        *v_sum = self->detect_v_sum;
+    }
+    if (count != (void *)0) {
+        *count = self->detect_samples;
+    }
+}
+
+void foc_core_reset_detect_samples(foc_core_t *self) {
+    if (self == (void *)0) {
+        return;
+    }
+
+    self->detect_i_sum = 0.0f;
+    self->detect_v_sum = 0.0f;
+    self->detect_samples = 0u;
 }
