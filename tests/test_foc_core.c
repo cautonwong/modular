@@ -1475,6 +1475,74 @@ static void test_foc_core_temp_compensation(void **state) {
     assert_float_equal(st.temp_motor_avg, 125.0f, 1e-4f);
 }
 
+/*
+ * HFI's angle tracker against the reference. The 36 vectors below are the reference's own output
+ * for the sweep this test runs - the same errors, truncation limits, gains, speed bounds and dt,
+ * 400 steps per configuration, with the state carried across the whole sweep as the harness does -
+ * printed at 9 significant digits, which round-trips a float exactly. The harness links the
+ * reference's motor/foc_math.c unmodified; its recipe and stub headers are recorded in
+ * docs/bldc-migration.md.
+ *
+ * The sweep is chosen to reach the parts that matter: errors past foc_hfi_max_err so the
+ * truncation runs, angles driven past +-pi so the wrap runs (that wrap uses the reference's double
+ * literals), and speed estimates small enough that the double integrator clamps against them.
+ */
+static void test_foc_hfi_adjust_angle_matches_reference(void **state) {
+    (void)state;
+    static const struct {
+        float angle;
+        float double_integrator;
+        int ready;
+    } expected[] = {
+        {0.000799999165f, 0.0f, 1},      {0.00346211903f, 0.5f, 1},
+        {0.217055976f, 0.459999681f, 1}, {0.505047619f, 0.419999689f, 1},
+        {0.509047568f, 0.0f, 1},         {0.517307758f, 0.5f, 1},
+        {0.68943882f, 12.0f, 1},         {1.35343814f, 11.7999992f, 1},
+        {1.36743808f, 0.0f, 1},          {1.39556789f, 0.5f, 1},
+        {1.48528004f, 12.0f, 1},         {-0.0739083514f, 11.3000059f, 1},
+        {-0.0803080797f, 0.0f, 1},       {-0.0890275463f, 0.5f, 1},
+        {0.0476602651f, 12.0f, 1},       {2.81029153f, 12.1599932f, 1},
+        {2.83429146f, 0.0f, 1},          {2.87055826f, 0.5f, 1},
+        {2.9614079f, 12.0f, 1},          {2.98517442f, 11.4000244f, 1},
+        {3.13777423f, 0.0f, 1},          {-2.91639757f, 0.5f, 1},
+        {-2.5918293f, 12.0f, 1},         {1.42698669f, 474.764954f, 1},
+        {1.21098721f, 0.0f, 1},          {0.924039125f, 0.5f, 1},
+        {0.743338943f, 12.0f, 1},        {1.80465996f, 15.6000671f, 1},
+        {1.5646596f, 0.0f, 1},           {1.24493635f, 0.5f, 1},
+        {0.90211153f, 12.0f, 1},         {-0.80102706f, 852.000122f, 1},
+        {-0.662420392f, 0.0f, 1},        {-0.477517843f, 0.5f, 1},
+        {-0.222277343f, 12.0f, 1},       {-0.0761491582f, 900.0f, 1},
+    };
+    const float max_errs[] = {0.02f, 0.2f, 1.0f};
+    const float gains[] = {0.2f, 1.0f, 3.5f};
+    const float speeds[] = {0.0f, 0.5f, 12.0f, 900.0f};
+    assert_int_equal(sizeof(expected) / sizeof(expected[0]), 36u);
+
+    foc_hfi_state_t hfi_state = {0};
+    size_t index = 0u;
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            for (int k = 0; k < 4; k++) {
+                const float dt = 5.0e-5f * (float)(1 + i + k);
+                for (int step = 0; step < 400; step++) {
+                    const float ang_err =
+                        (float)(step - 200) * 0.01f * (float)(1 + j) + 0.007f * (float)i;
+                    foc_hfi_adjust_angle(ang_err, max_errs[i], gains[j], speeds[k], dt, &hfi_state);
+                }
+                assert_true(hfi_state.angle == expected[index].angle);
+                assert_true(hfi_state.double_integrator == expected[index].double_integrator);
+                assert_int_equal(hfi_state.ready ? 1 : 0, expected[index].ready);
+                assert_true(index < 36u);
+                index++;
+            }
+        }
+    }
+    assert_int_equal(index, 36u);
+
+    /* A null state is refused rather than written through. */
+    foc_hfi_adjust_angle(0.1f, 1.0f, 1.0f, 1.0f, 1e-4f, NULL);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_foc_math_transforms),
@@ -1502,6 +1570,7 @@ int main(void) {
         cmocka_unit_test(test_foc_core_handbrake_forces_the_phase_to_zero),
         cmocka_unit_test(test_foc_temp_comp_factor),
         cmocka_unit_test(test_foc_core_temp_compensation),
+        cmocka_unit_test(test_foc_hfi_adjust_angle_matches_reference),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

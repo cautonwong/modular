@@ -10,7 +10,15 @@ extern "C" {
 #endif
 
 #ifndef M_PI
-#define M_PI 3.14159265358979323846f
+/*
+ * Double, as glibc's M_PI is and as the reference uses it. This was a float literal, which made
+ * every angle wrap (`*angle += 2.0 * M_PI`) land about one float ULP away from the reference's;
+ * the error is invisible in one call and accumulates over thousands - measured with the HFI
+ * tracker's differential harness, where it reached the fifth digit after 36 x 400 steps. Strict
+ * -std=c11 does not expose glibc's M_PI (the reference tree needs _DEFAULT_SOURCE to get it), so
+ * this definition is what the port sees and it has to be the same value.
+ */
+#define M_PI 3.14159265358979323846
 #endif
 
 #define SQRT3_BY_2 0.8660254037844386f
@@ -221,6 +229,27 @@ void foc_observer_adjust_params(float r_ohm, float l_henry, float lambda_wb, flo
  * motor resistance and to the current loop's ki, and owns the reference's -30 degC floor.
  */
 float foc_temp_comp_factor(float motor_temp_c, float base_temp_c);
+
+/*
+ * HFI's angle state. The reference's hfi_state_t carries much more - the excitation table, the
+ * sample buffers, the flip counters - and only what the ported pieces touch is here; the rest
+ * arrives with the excitation and sampling that own them.
+ */
+typedef struct foc_hfi_state {
+    float angle;
+    float double_integrator;
+    bool ready;
+} foc_hfi_state_t;
+
+/*
+ * Reference foc_math.c:766 foc_hfi_adjust_angle: HFI's angle tracker. A proportional term and a
+ * double integrator pull the injected frame's angle towards the error the current measurement
+ * reports, and the double integrator is bounded by the fast speed estimate - which is what keeps
+ * the tracker from running away as the motor speeds up. max_err and gain are the configuration's
+ * foc_hfi_max_err and foc_hfi_gain; speed_est_fast is the caller's m_speed_est_fast.
+ */
+void foc_hfi_adjust_angle(float ang_err, float max_err, float gain, float speed_est_fast, float dt,
+                          foc_hfi_state_t *state);
 
 void foc_observer_update(foc_observer_t *obs, float v_alpha, float v_beta, float i_alpha,
                          float i_beta, float dt, float r_ohm, float l_henry, float lambda_wb,
