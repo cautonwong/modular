@@ -1863,6 +1863,82 @@ static void test_foc_core_loop_and_module_failures(void **state) {
     assert_int_equal(foc_core_get_state(&foc), FOC_STATE_FAULT);
 }
 
+/*
+ * The two safety guards inside the cycle and the power-off hook. A current magnitude past 1.5x the
+ * configured maximum is a fault rather than a clamp - the loop stops instead of driving it - and a
+ * bus below the under-voltage threshold while running is the other fault the cycle latches itself.
+ * The position target's lower clamp comes with them.
+ */
+static void test_foc_core_safety_guards_and_power_off(void **state) {
+    (void)state;
+    mock_inverter_t inv;
+    mock_current_sensor_t cs;
+    mock_rotor_sensor_t rs;
+    memset(&inv, 0, sizeof(inv));
+    memset(&cs, 0, sizeof(cs));
+    memset(&rs, 0, sizeof(rs));
+    cs.v_bus = 24.0f;
+    rs.angle_rad = 0.0f;
+
+    foc_core_t core;
+    foc_inverter_port_t inv_port = {
+        .set_duty = mock_set_duty, .set_phase_state = mock_set_phase_state, .self = &inv};
+    foc_current_port_t cs_port = {
+        .read_currents = mock_read_currents, .read_vbus = mock_read_vbus, .self = &cs};
+    foc_rotor_port_t rs_port = {.read_angle = mock_read_angle, .self = &rs};
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = 300.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = false};
+
+    /* Current past 1.5x the maximum is a fault, not a clamp. */
+    cs.ia = 200.0f;
+    cs.ib = -100.0f;
+    cs.ic = -100.0f;
+    foc_core_construct(&core, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&core), EDGE_OK);
+    assert_int_equal(foc_core_set_current(&core, 5.0f, 0.0f), EDGE_OK);
+    assert_int_equal(foc_core_fast_loop(&core, 5e-5f), EDGE_EBUSY);
+    assert_true((foc_core_get_faults(&core) & FOC_FAULT_OVER_CURRENT) != 0u);
+    assert_int_equal(foc_core_get_state(&core), FOC_STATE_FAULT);
+
+    /* A bus below the under-voltage threshold while running faults the same way. */
+    cs.ia = 1.0f;
+    cs.ib = -0.5f;
+    cs.ic = -0.5f;
+    cs.v_bus = 5.0f;
+    foc_core_construct(&core, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&core), EDGE_OK);
+    assert_int_equal(foc_core_set_current(&core, 5.0f, 0.0f), EDGE_OK);
+    assert_int_equal(foc_core_fast_loop(&core, 5e-5f), EDGE_EBUSY);
+    assert_true((foc_core_get_faults(&core) & FOC_FAULT_UNDER_VOLTAGE) != 0u);
+
+    /* Power-off is the safe state: it stops through the same path the stop call uses. */
+    cs.v_bus = 24.0f;
+    foc_core_construct(&core, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&core), EDGE_OK);
+    assert_int_equal(foc_core_set_current(&core, 5.0f, 0.0f), EDGE_OK);
+    assert_int_equal(core.module.power_off(&core.module), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&core), FOC_STATE_IDLE);
+    assert_int_equal(core.module.on_event(&core.module, NULL), EDGE_EINVAL);
+
+    /* The position target's lower clamp: a target far below zero is clamped, not passed on. */
+    assert_int_equal(foc_core_set_pos(&core, -100000.0f), EDGE_OK);
+    assert_int_equal(foc_core_fast_loop(&core, 5e-5f), EDGE_OK);
+    assert_true(core.target_iq >= cfg.current_min_a);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -1897,6 +1973,7 @@ int main(void) {
         cmocka_unit_test(test_foc_math_helper_branches),
         cmocka_unit_test(test_foc_math_sat_lambda_combination),
         cmocka_unit_test(test_foc_core_loop_and_module_failures),
+        cmocka_unit_test(test_foc_core_safety_guards_and_power_off),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
