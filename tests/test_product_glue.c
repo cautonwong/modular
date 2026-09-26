@@ -226,13 +226,12 @@ static void test_vesc_host_glue(void **state) {
     vesc_host_make_can_port(&can, &glue_state);
     assert_non_null(can.send_frame);
 
-    motor_id_measure_port_t id_m;
-    vesc_host_make_motor_id_measure_port(&id_m, &glue_state);
-    assert_non_null(id_m.get_currents);
-
-    motor_id_control_port_t id_c;
-    vesc_host_make_motor_id_control_port(&id_c, &glue_state);
-    assert_non_null(id_c.set_voltage_alpha_beta);
+    /* The motor-identification port is built from the FOC aggregate, which this test has none of;
+     * what it can check here is that the factory refuses a missing one. The detection itself runs
+     * in its own test, where there is a virtual motor to measure. */
+    motor_id_measure_port_t id_m = {0};
+    vesc_host_make_motor_id_measure_port(&id_m, NULL);
+    assert_null(id_m.set_phase_override);
 
     nunchuk_port_t nunchuk;
     vesc_host_make_nunchuk_port(&nunchuk, &glue_state);
@@ -611,24 +610,17 @@ static void test_vesc_host_simulated_adapters(void **state) {
     assert_float_equal(temp, 37.0f, 1e-3f);
     assert_int_equal(faults, foc_core_get_faults(&foc));
 
-    /* motor_id measurement reads the virtual motor, its hall stub reports a fixed
-     * state, and the control side is a stub that must still answer OK. */
+    /* The motor-identification port is wired to this test's FOC aggregate: every callback is one
+     * thing the measurement procedures do to the motor. */
     motor_id_measure_port_t id_m;
-    vesc_host_make_motor_id_measure_port(&id_m, &glue_state);
-    float ia = 0.0f;
-    float ib = 0.0f;
-    assert_int_equal(id_m.get_currents(id_m.self, &ia, &ib), EDGE_OK);
-    assert_float_equal(ia, 3.0f, 1e-6f);
-    assert_float_equal(ib, -1.5f, 1e-6f);
-    assert_int_equal(id_m.get_hall(id_m.self), 1u);
-    assert_float_equal(id_m.get_rotor_angle(id_m.self), 0.75f, 1e-6f);
-
-    motor_id_control_port_t id_c;
-    vesc_host_make_motor_id_control_port(&id_c, &glue_state);
-    assert_int_equal(id_c.set_voltage_alpha_beta(id_c.self, 1.0f, 2.0f), EDGE_OK);
-    assert_int_equal(id_c.set_pwm_duty(id_c.self, 0.5f, 0.5f, 0.5f), EDGE_OK);
-    assert_int_equal(id_c.set_openloop_angle(id_c.self, 0.1f, 2.0f), EDGE_OK);
-    assert_int_equal(id_c.stop_inverter(id_c.self), EDGE_OK);
+    vesc_host_make_motor_id_measure_port(&id_m, &foc);
+    assert_ptr_equal(id_m.self, &foc);
+    assert_non_null(id_m.set_phase_override);
+    assert_non_null(id_m.set_current);
+    assert_non_null(id_m.reset_samples);
+    assert_non_null(id_m.read_samples);
+    assert_non_null(id_m.get_fault);
+    assert_non_null(id_m.stop);
 
     /* Simulated sensors: constant, and documented as such. */
     nunchuk_port_t nunchuk;
@@ -829,6 +821,79 @@ static void test_vesc_host_temperature_sampler(void **state) {
     vesc_host_sample_temperatures(&glue_state, NULL);
 }
 
+/*
+ * The whole detection path: motor identification's port is wired to the FOC aggregate, so the
+ * reference's resistance measurement drives the real control loop against a virtual motor and has
+ * to recover the resistance that motor was built with.
+ *
+ * The forced angle is the reference's way of making this a resistance measurement: the current is
+ * injected at a fixed electrical angle and the rotor pulls itself into line with it - the "wait for
+ * the motor to lock" in the reference's own comment - after which the motor stands still, there is
+ * no back-EMF, and the voltage the loop commands is the current's own drop across R.
+ *
+ * The virtual motor's flux linkage is kept near zero for this test, because a virtual motor has no
+ * alignment torque to hold it: with a real magnet it accelerates under the injected vector, the
+ * back-EMF takes over the current, and the ratio stops being R. Near zero it is a resistor in
+ * series with an inductor, which is what the resistance measurement is supposed to see.
+ */
+static void test_vesc_host_motor_id_detection(void **state) {
+    (void)state;
+    vesc_host_glue_state_t glue_state;
+    memset(&glue_state, 0, sizeof(glue_state));
+    glue_state.v_bus = 24.0f;
+    foc_virtual_motor_init(&glue_state.vmotor, 0.05f, 0.00005f, 1.0e-6f, 7, 0.0005f);
+
+    foc_inverter_port_t inverter;
+    vesc_host_make_inverter_port(&inverter, &glue_state);
+    foc_current_port_t current;
+    vesc_host_make_current_port(&current, &glue_state);
+    foc_rotor_port_t rotor;
+    vesc_host_make_rotor_port(&rotor, &glue_state);
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 1.0e-6f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.1f,
+                        .current_ki = 50.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 8.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = false};
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &cfg, &inverter, &current, &rotor);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    motor_id_measure_port_t id_m;
+    vesc_host_make_motor_id_measure_port(&id_m, &foc);
+    motor_id_app_t id_app;
+    motor_id_construct(&id_app, EDGE_MOD_MOTOR_ID, 40u, &id_m);
+    assert_int_equal(motor_id_init(&id_app), EDGE_OK);
+    assert_int_equal(motor_id_measure_resistance(&id_app, 1.0f, 200u, true), EDGE_OK);
+
+    for (int ms = 0; ms < 5000 && id_app.state != MOTOR_ID_STATE_COMPLETE; ms++) {
+        /* One millisecond of the procedure, with the control loop running at its own rate
+         * alongside it - which is what fills the accumulator while the reference sleeps. */
+        for (int cycle = 0; cycle < 20; cycle++) {
+            assert_int_equal(foc_core_fast_loop(&foc, 5e-5f), EDGE_OK);
+            foc_virtual_motor_step(&glue_state.vmotor, foc.v_alpha, foc.v_beta, 0.0f, 5e-5f, 0.05f);
+        }
+        assert_int_equal(motor_id_step(&id_app, 0.001f), EDGE_OK);
+    }
+
+    assert_int_equal(id_app.state, MOTOR_ID_STATE_COMPLETE);
+    const motor_id_result_t *result = motor_id_get_result(&id_app);
+    assert_non_null(result);
+    assert_true(result->valid);
+    assert_float_equal(result->r_ohm, 0.05f, 2e-3f);
+    assert_int_equal(motor_id_get_fault(&id_app), 0u);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_meter_host_glue),
@@ -844,6 +909,7 @@ int main(void) {
         cmocka_unit_test(test_vesc_host_app_status_adapters),
         cmocka_unit_test(test_vesc_host_simulated_adapters),
         cmocka_unit_test(test_vesc_host_temperature_sampler),
+        cmocka_unit_test(test_vesc_host_motor_id_detection),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

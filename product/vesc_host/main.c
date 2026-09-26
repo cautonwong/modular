@@ -68,12 +68,6 @@ int main(void) {
     vesc_can_port_t can_port;
     vesc_host_make_can_port(&can_port, &glue_state);
 
-    motor_id_measure_port_t id_m_port;
-    vesc_host_make_motor_id_measure_port(&id_m_port, &glue_state);
-
-    motor_id_control_port_t id_c_port;
-    vesc_host_make_motor_id_control_port(&id_c_port, &glue_state);
-
     nunchuk_port_t nunchuk_port;
     vesc_host_make_nunchuk_port(&nunchuk_port, &glue_state);
 
@@ -186,6 +180,10 @@ int main(void) {
         return 11;
     }
     glue_state.foc = &foc;
+
+    /* Motor identification drives the FOC aggregate, so its port is built from it. */
+    motor_id_measure_port_t id_m_port;
+    vesc_host_make_motor_id_measure_port(&id_m_port, &foc);
 
     vesc_motor_provider_port_t motor_port;
     vesc_host_make_motor_provider_port(&motor_port, &foc);
@@ -314,12 +312,7 @@ int main(void) {
     glue_state.adc = &adc_app;
 
     motor_id_app_t motor_id;
-    motor_id_config_t id_cfg = {
-        .max_current = 10.0f,
-        .samples_r = 50,
-        .samples_l = 50,
-    };
-    motor_id_construct(&motor_id, EDGE_MOD_MOTOR_ID, 40u, &id_cfg, &id_m_port, &id_c_port);
+    motor_id_construct(&motor_id, EDGE_MOD_MOTOR_ID, 40u, &id_m_port);
     if (motor_id_init(&motor_id) != EDGE_OK) {
         return 18;
     }
