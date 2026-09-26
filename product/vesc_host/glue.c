@@ -120,9 +120,7 @@ static edge_status_t motor_get_values(void *self, uint32_t mask, vesc_values_t *
         out_val->temp_mos = telem.fet_temp_c;
     }
     if (mask & (1u << 1)) {
-        /* No board wired into this product has a motor NTC, so there is no motor
-         * temperature to report; 0 is the reference's "no sensor configured" case. */
-        out_val->temp_motor = 0.0f;
+        out_val->temp_motor = telem.motor_temp_c;
     }
     if (mask & (1u << 2)) {
         out_val->current_motor = avg.motor_current;
@@ -242,6 +240,34 @@ static edge_status_t motor_set_pos(void *self, float pos) {
     return foc_core_set_pos((foc_core_t *)self, pos);
 }
 
+/*
+ * The reference samples both NTCs in its ADC interrupt handler and filters them there
+ * (mc_interface.c:2266 for the FET, :2325-2331 for the motor); the FOC only ever reads the
+ * filtered values. UTILS_LP_FAST is v -= f * (v - x), kept in that form rather than the
+ * algebraically equal v += f * (x - v) because the rounding is not the same.
+ */
+void vesc_host_sample_temperatures(vesc_host_glue_state_t *state, foc_core_t *foc) {
+    if (state == (void *)0 || foc == (void *)0) {
+        return;
+    }
+
+    /*
+     * A reading that cannot be a temperature is substituted rather than filtered: the
+     * reference's own comment says a value that walks into the filter never comes back out,
+     * so it prefers nonsense over a temperature channel that is permanently wrong.
+     */
+    float temp_motor = state->motor_temp_raw_c;
+    if (isnan(temp_motor) || isinf(temp_motor) || temp_motor > 600.0f || temp_motor < -200.0f) {
+        temp_motor = -100.0f;
+    }
+
+    state->motor_temp_c -= VESC_HOST_MOTOR_TEMP_LPF * (state->motor_temp_c - temp_motor);
+    state->fet_temp_c -= 0.1 * (state->fet_temp_c - state->fet_temp_raw_c);
+
+    foc_core_set_motor_temperature(foc, state->motor_temp_c);
+    foc_core_set_fet_temperature(foc, state->fet_temp_c);
+}
+
 static edge_status_t motor_get_stats(void *self, vesc_stats_t *out_val) {
     foc_core_t *foc = (foc_core_t *)self;
     if (!foc || !out_val) {
@@ -309,7 +335,7 @@ static edge_status_t config_set_appconf_nostore(void *self, const uint8_t *in, s
  * COMM_GET_VALUES_SETUP's source: the reference's mc_interface_get_setup_values() together with
  * mc_interface_get_battery_level(). Fields this product has no source for are named zeros with
  * their reasons rather than guesses:
- *   temp_motor    no motor NTC is wired (the same reason as the GET_VALUES field)
+ *   temp_motor    the filtered motor NTC reading the product's sampler delivers
  *   odometer_m    needs a persisted counter, and the reference's own accumulation site has not
  *                 been located yet; inventing one would be inventing the number
  *   uptime_ms     this module is given no clock
@@ -334,7 +360,7 @@ static edge_status_t motor_get_setup_values(void *self, vesc_setup_values_t *out
         (3.0f * (float)foc->config.si_motor_poles * foc->config.si_gear_ratio);
 
     out->temp_mos = telem.fet_temp_c;
-    out->temp_motor = 0.0f;
+    out->temp_motor = telem.motor_temp_c;
     out->current_tot = telem.current_abs;
     out->current_in_tot = telem.current_in;
     out->duty_now = telem.duty_now;

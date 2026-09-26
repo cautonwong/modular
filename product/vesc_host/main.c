@@ -34,6 +34,11 @@ int main(void) {
     glue_state.v_bus = 24.0f;
     glue_state.ppm_pulse_us = 1500.0f;
     glue_state.adc_throttle_v = 1.0f;
+    /* The two NTC readings the host simulation is given; the sampler filters them into the
+     * values the FOC caches, which is where the reported motor temperature and the
+     * temperature compensation both come from. */
+    glue_state.fet_temp_raw_c = 30.0f;
+    glue_state.motor_temp_raw_c = 25.0f;
 
     /* Initialize virtual motor */
     foc_virtual_motor_init(&glue_state.vmotor, 0.015f, 0.000020f, 0.005f, 7, 0.0001f);
@@ -140,6 +145,8 @@ int main(void) {
         .sat_comp_mode = mc->foc_sat_comp_mode,
         .sat_comp = mc->foc_sat_comp,
         .ld_lq_diff = mc->foc_motor_ld_lq_diff,
+        .temp_comp = mc->foc_temp_comp,
+        .temp_comp_base_temp = mc->foc_temp_comp_base_temp,
         /* openloop_rpm is unused while index_found is passed true (see foc_core);
          * the port has no encoder index to lose, so there is nothing to clamp. */
         .speed_pid = {.kp = mc->s_pid_kp,
@@ -380,6 +387,9 @@ int main(void) {
 
     /* Run 1000 fast-loop FOC and system cycles */
     for (int i = 0; i < 1000; i++) {
+        /* The sampler runs ahead of the control cycle, as the reference's ADC interrupt
+         * handler does; the FOC then reads the filtered values it cached. */
+        vesc_host_sample_temperatures(&glue_state, &foc);
         foc_core_fast_loop(&foc, 0.000050f);
         /* Close the loop on the voltage vector the FOC just commanded, which is what
          * the reference firmware's virtual-motor hook does (virtual_motor_int_handler(

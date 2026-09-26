@@ -337,6 +337,18 @@ void foc_observer_adjust_params(float r_ohm, float l_henry, float lambda_wb, flo
 }
 
 /*
+ * Reference timer_update (mcpwm_foc.c:3939-3948): the model behind foc_temp_comp, a linearised
+ * copper coefficient of 0.00386 per degree Celsius applied to the motor resistance and to the
+ * current loop's integral gain. The two literals stay double, as the reference's do, so the
+ * rounding into the returned float is the same one - as float literals they differ in the last
+ * bit for some temperatures. The caller owns the reference's -30 degC floor, which is what
+ * decides between these compensated parameters and the plain ones.
+ */
+float foc_temp_comp_factor(float motor_temp_c, float base_temp_c) {
+    return 1.0 + 0.00386 * (motor_temp_c - base_temp_c);
+}
+
+/*
  * Reference: motor/foc_math.c:492 foc_run_pid_control_speed, copied step for step.
  * The literals and the filter form are the reference's: `1.0 / 20.0` is a double
  * there, and UTILS_LP_FAST is `value -= c * (value - sample)`, not the algebraically

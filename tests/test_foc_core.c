@@ -251,7 +251,7 @@ static void test_foc_core_thermal_protection(void **state) {
     foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
     assert_int_equal(foc_core_init(&foc), EDGE_OK);
 
-    foc_core_set_temperature(&foc, 90.0f);
+    foc_core_set_fet_temperature(&foc, 90.0f);
     assert_int_equal(foc.module.poll(&foc.module), EDGE_OK);
 
     assert_int_equal(foc_core_get_state(&foc), FOC_STATE_FAULT);
@@ -731,7 +731,7 @@ static void test_foc_core_stats_and_reset(void **state) {
 
     foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
     assert_int_equal(foc_core_init(&foc), EDGE_OK);
-    foc_core_set_temperature(&foc, 30.0f);
+    foc_core_set_fet_temperature(&foc, 30.0f);
 
     foc_stats_t st;
 
@@ -770,7 +770,7 @@ static void test_foc_core_stats_and_reset(void **state) {
     assert_float_equal(st.temp_mos_avg, 30.0f, 1e-3f); /* constant FET temperature */
     assert_float_equal(st.temp_mos_max, 30.0f, 1e-3f);
     /* Feeding a hotter FET raises the maximum but not the average retroactively. */
-    foc_core_set_temperature(&foc, 55.0f);
+    foc_core_set_fet_temperature(&foc, 55.0f);
     assert_int_equal(foc.module.poll(&foc.module), EDGE_OK);
     foc_core_get_stats(&foc, &st);
     assert_float_equal(st.temp_mos_max, 55.0f, 1e-3f);
@@ -821,7 +821,7 @@ static void test_foc_core_tachometer_sectors(void **state) {
 
     foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
     assert_int_equal(foc_core_init(&foc), EDGE_OK);
-    foc_core_set_temperature(&foc, 25.0f);
+    foc_core_set_fet_temperature(&foc, 25.0f);
 
     /*
      * One angle in the middle of each sector: sector s spans
@@ -1348,6 +1348,133 @@ static void test_foc_battery_level(void **state) {
     assert_true(isnan(foc_battery_level(9u, 10, 10.0f, 42.0f, &wh_left)));
 }
 
+/*
+ * The temperature model behind foc_temp_comp: 1.0 + 0.00386 * (motor_temp - base_temp), the
+ * expression from the reference's timer_update (mcpwm_foc.c:3942).
+ *
+ * The last case pins the shape rather than the arithmetic. The reference writes 1.0 and 0.00386
+ * as double literals, so the product is evaluated in double and only the result is narrowed to
+ * float; as float literals the same expression gives 0x1.7f8a08p-1 here instead. A port that
+ * "tidied" the literals would fail on this one value, which is the point of picking it.
+ */
+static void test_foc_temp_comp_factor(void **state) {
+    (void)state;
+    /* At the base temperature the factor is exactly one: the model is neutral there. */
+    assert_float_equal(foc_temp_comp_factor(25.0f, 25.0f), 1.0f, 0.0f);
+    /* And the coefficient is the reference's 0.00386 per degree. */
+    assert_float_equal(foc_temp_comp_factor(125.0f, 25.0f), 1.386f, 1e-6f);
+    /* Below the base it falls below one, in the same proportion. */
+    assert_float_equal(foc_temp_comp_factor(5.0f, 25.0f), 0.9228f, 1e-6f);
+    assert_true(foc_temp_comp_factor(5.0f, 25.0f) < 1.0f);
+    /* The double-literal case. */
+    assert_true(foc_temp_comp_factor(-40.0f, 25.0f) == 0x1.7f8a0ap-1f);
+}
+
+/*
+ * One temperature-compensation scenario: build a core, run it at a fixed command, and report
+ * the duty magnitude it settled on. Everything except the temperature model, the observer mode
+ * and ki is identical between runs, which is what makes their outputs comparable.
+ *
+ * With out_stats non-null the module is polled once more first, because that poll is where the
+ * statistics sampler runs (as the reference's updater thread does), and the stats are read back.
+ */
+static float run_temp_comp_case(bool temp_comp, bool sensorless, float motor_temp_c,
+                                float current_ki, foc_stats_t *out_stats) {
+    sim_context_t sim;
+    sim.v_bus = 24.0f;
+    sim.inv.enabled = false;
+    foc_virtual_motor_init(&sim.vm, 0.05f, 0.00005f, 0.005f, 7, 0.0005f);
+
+    foc_inverter_port_t inv_port = {
+        .set_duty = sim_set_duty, .set_phase_state = sim_set_phase_state, .self = &sim};
+    foc_current_port_t cs_port = {
+        .read_currents = sim_read_currents, .read_vbus = sim_read_vbus, .self = &sim};
+    foc_rotor_port_t rs_port = {.read_angle = sim_read_angle, .self = &sim};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = current_ki,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .current_filter_const = 0.1f,
+                        .sensorless_mode = sensorless,
+                        .temp_comp = temp_comp,
+                        .temp_comp_base_temp = 25.0f};
+
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    foc_core_set_motor_temperature(&foc, motor_temp_c);
+    assert_int_equal(foc_core_set_current(&foc, 5.0f, 0.0f), EDGE_OK);
+
+    for (int step = 0; step < 400; step++) {
+        assert_int_equal(foc_core_fast_loop(&foc, 0.00005f), EDGE_OK);
+        foc_virtual_motor_step(&sim.vm, foc.v_alpha, foc.v_beta, 0.0f, 0.00005f, 0.05f);
+    }
+
+    if (out_stats != (void *)0) {
+        assert_int_equal(foc.module.poll(&foc.module), EDGE_OK);
+        foc_core_get_stats(&foc, out_stats);
+    }
+
+    foc_telemetry_t telem;
+    foc_core_get_telemetry(&foc, &telem);
+    return fabsf(telem.duty_now);
+}
+
+/*
+ * Temperature compensation as the loop sees it. Both of its consumers are gated on foc_temp_comp
+ * and both are fed by the same cycle-time recomputation, so:
+ *
+ *   - at the base temperature the factor is exactly one, and the run must be bit-for-bit the
+ *     uncompensated one (not merely close: the parameters are the same floats);
+ *   - below the reference's -30 degC floor the plain parameters are used, so that run must match
+ *     the uncompensated one exactly as well;
+ *   - a hot motor scales the current loop's ki, which shows up as a larger commanded voltage for
+ *     the same current error;
+ *   - with ki taken out of the picture entirely (ki = 0) the observer is the only consumer left,
+ *     and its resistance is a different number, so the flux estimate and the angle it produces
+ *     differ and the commanded voltage differs with them;
+ *   - the statistics sampler reports the same motor temperature the model was given.
+ */
+static void test_foc_core_temp_compensation(void **state) {
+    (void)state;
+
+    const float plain = run_temp_comp_case(false, false, 125.0f, 300.0f, NULL);
+    assert_true(plain > 0.0f);
+
+    /* Neutral at the base temperature, and at the floor. */
+    assert_true(run_temp_comp_case(true, false, 25.0f, 300.0f, NULL) == plain);
+    assert_true(run_temp_comp_case(true, false, -40.0f, 300.0f, NULL) == plain);
+    /* Exactly at the floor's edge the model is still applied. */
+    assert_true(run_temp_comp_case(true, false, -29.9f, 300.0f, NULL) != plain);
+
+    /* A hot motor raises ki, so the same current error integrates further. */
+    const float hot = run_temp_comp_case(true, false, 125.0f, 300.0f, NULL);
+    assert_true(hot > plain);
+
+    /* With no integral action, the observer's resistance is the only difference left. */
+    const float observer_plain = run_temp_comp_case(false, true, 125.0f, 0.0f, NULL);
+    const float observer_hot = run_temp_comp_case(true, true, 125.0f, 0.0f, NULL);
+    assert_true(observer_plain > 0.0f);
+    assert_true(observer_hot != observer_plain);
+
+    /* And the sampler reports the temperature the model was given. */
+    foc_stats_t st;
+    (void)run_temp_comp_case(true, false, 125.0f, 300.0f, &st);
+    assert_float_equal(st.temp_motor_max, 125.0f, 1e-4f);
+    assert_float_equal(st.temp_motor_avg, 125.0f, 1e-4f);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_foc_math_transforms),
@@ -1373,6 +1500,8 @@ int main(void) {
         cmocka_unit_test(test_foc_core_duty_now_is_a_modulation_magnitude),
         cmocka_unit_test(test_foc_core_set_current_rel_picks_its_limit_from_the_duty),
         cmocka_unit_test(test_foc_core_handbrake_forces_the_phase_to_zero),
+        cmocka_unit_test(test_foc_temp_comp_factor),
+        cmocka_unit_test(test_foc_core_temp_compensation),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

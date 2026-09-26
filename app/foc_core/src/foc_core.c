@@ -36,8 +36,8 @@ static edge_status_t foc_core_poll(edge_module_t *module) {
      * dedicated thread rather than the control path. Power is input voltage times
      * the absolute input current (the reference filters that voltage; this port has
      * no filtered bus voltage), the current term is the RAW motor current
-     * magnitude, and the temperature term the FET temperature. No motor NTC is
-     * wired, so the motor-temperature statistics stay at their -300 seed.
+     * magnitude, and the temperature terms the FET and motor NTC readings this core
+     * is handed by whoever samples them.
      */
     /*
      * Vehicle speed: reference mc_interface_get_speed(). The reference divides
@@ -49,12 +49,11 @@ static edge_status_t foc_core_poll(edge_module_t *module) {
                       self->config.si_gear_ratio;
 
     float stat_power = self->last_v_bus * fabsf(self->i_bus);
-    const float stat_temp_motor = 0.0f;
 
     self->stat_power_sum += stat_power;
     self->stat_current_sum += self->i_abs;
     self->stat_temp_mos_sum += self->fet_temp_c;
-    self->stat_temp_motor_sum += stat_temp_motor;
+    self->stat_temp_motor_sum += self->motor_temp_c;
     self->stat_speed_sum += fabsf(self->speed_m_s);
     self->stat_samples += 1.0f;
 
@@ -70,8 +69,8 @@ static edge_status_t foc_core_poll(edge_module_t *module) {
     if (self->fet_temp_c > self->stat_max_temp_mos) {
         self->stat_max_temp_mos = self->fet_temp_c;
     }
-    if (stat_temp_motor > self->stat_max_temp_motor) {
-        self->stat_max_temp_motor = stat_temp_motor;
+    if (self->motor_temp_c > self->stat_max_temp_motor) {
+        self->stat_max_temp_motor = self->motor_temp_c;
     }
 
     /* Background Thermal Protection Check */
@@ -150,6 +149,9 @@ void foc_core_construct(foc_core_t *self, uint32_t module_id, uint32_t priority,
         self->config.sat_comp_mode = 0u; /* SAT_COMP_DISABLED */
         self->config.sat_comp = 0.0f;
         self->config.ld_lq_diff = 0.0f;
+        /* mcconf_default.h: MCCONF_FOC_TEMP_COMP is false, its base temperature 25. */
+        self->config.temp_comp = false;
+        self->config.temp_comp_base_temp = 25.0f;
         /* Reference defaults (mcconf_default.h): 0.004 / 0.004 / 0.0001 / 0.2,
          * braking allowed, 25000 ERPM/s ramp, min_erpm 0. */
         self->config.speed_pid = (foc_speed_pid_params_t){
@@ -206,7 +208,12 @@ void foc_core_construct(foc_core_t *self, uint32_t module_id, uint32_t priority,
     self->last_iq = 0.0f;
     self->last_angle_rad = 0.0f;
     self->last_rpm = 0.0f;
-    self->fet_temp_c = 25.0f;
+    /*
+     * Both temperatures start at zero, as the reference's own motor state does: its statics are
+     * zero-initialised and the sampler filters the first reading up from there.
+     */
+    self->fet_temp_c = 0.0f;
+    self->motor_temp_c = 0.0f;
 
     self->id_filter = 0.0f;
     self->iq_filter = 0.0f;
@@ -323,6 +330,22 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
 
     self->fast_loop_count++;
 
+    /*
+     * Reference timer_update (mcpwm_foc.c:3939-3948) runs first in the control cycle: the
+     * temperature-compensated parameters are recomputed unconditionally, and only their *use*
+     * is gated on foc_temp_comp. The -30 degC floor is the reference's way of saying the NTC is
+     * not reading anything sensible, and it passes the plain parameters through.
+     */
+    if (self->motor_temp_c > -30.0) {
+        const float comp_fact =
+            foc_temp_comp_factor(self->motor_temp_c, self->config.temp_comp_base_temp);
+        self->res_temp_comp = self->config.r_ohm * comp_fact;
+        self->current_ki_temp_comp = self->config.current_ki * comp_fact;
+    } else {
+        self->res_temp_comp = self->config.r_ohm;
+        self->current_ki_temp_comp = self->config.current_ki;
+    }
+
     /* 1. Read sensors via consumer ports */
     float ia = 0.0f, ib = 0.0f, ic = 0.0f;
     edge_status_t st =
@@ -367,8 +390,9 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
     if (self->config.sensorless_mode) {
         /* Compensation first: the reference applies it inside the observer, this port
          * applies it here and keeps the observer's parameters explicit. It reads the
-         * previous pass's currents, as the reference does. Temperature compensation is
-         * not carried (no motor-temperature source), so it passes false. */
+         * previous pass's currents, as the reference does. The temperature-compensated
+         * resistance comes from this cycle's timer_update equivalent and is substituted
+         * only when foc_temp_comp is set (foc_math.c:70-72). */
         float r_eff = self->config.r_ohm;
         float l_eff = self->config.l_henry;
         float lambda_eff = self->config.lambda_wb;
@@ -376,8 +400,8 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
             self->config.r_ohm, self->config.l_henry, self->config.lambda_wb,
             self->config.ld_lq_diff, self->last_id, self->last_iq, self->i_abs_filter,
             self->config.current_max_a, self->observer.lambda_est, self->config.sat_comp,
-            (foc_sat_comp_mode_t)self->config.sat_comp_mode, self->config.r_ohm, false,
-            self->config.observer_type, &r_eff, &l_eff, &lambda_eff);
+            (foc_sat_comp_mode_t)self->config.sat_comp_mode, self->res_temp_comp,
+            self->config.temp_comp, self->config.observer_type, &r_eff, &l_eff, &lambda_eff);
 
         foc_observer_update(&self->observer, self->v_alpha, self->v_beta, i_alpha, i_beta, dt,
                             r_eff, l_eff, lambda_eff, self->config.observer_gamma,
@@ -542,9 +566,18 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
         id_set = foc_max_abs(id_set, -self->i_fw_set);
         iq_set -= foc_sign(self->mod_q_filter) * self->i_fw_set * self->config.fw_q_current_factor;
 
+        /*
+         * Reference foc_run_pid_control_current (mcpwm_foc.c:4634-4637): ki is taken from the
+         * temperature-compensated copy whenever foc_temp_comp is set, and both axes use it.
+         */
+        float ki = self->config.current_ki;
+        if (self->config.temp_comp) {
+            ki = self->current_ki_temp_comp;
+        }
+
         /* d-axis PI controller */
         float err_d = id_set - id;
-        self->id_integral += err_d * self->config.current_ki * dt;
+        self->id_integral += err_d * ki * dt;
         /* anti-windup clamp */
         /* mod = 1.5 * v / v_bus reaches 1.0 at v = (2/3) * v_bus, which is the
          * reference's definition of the largest vector the inverter can make. */
@@ -557,7 +590,7 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
 
         /* q-axis PI controller */
         float err_q = iq_set - iq;
-        self->iq_integral += err_q * self->config.current_ki * dt;
+        self->iq_integral += err_q * ki * dt;
         if (self->iq_integral > v_limit)
             self->iq_integral = v_limit;
         if (self->iq_integral < -v_limit)
@@ -870,6 +903,7 @@ void foc_core_get_telemetry(const foc_core_t *self, foc_telemetry_t *out_telem) 
     out_telem->rotor_angle_rad = self->last_angle_rad;
     out_telem->speed_rpm = self->last_rpm;
     out_telem->fet_temp_c = self->fet_temp_c;
+    out_telem->motor_temp_c = self->motor_temp_c;
     out_telem->tachometer = self->tachometer;
     out_telem->tachometer_abs = self->tachometer_abs;
     out_telem->current_in = self->i_bus;
@@ -916,8 +950,14 @@ void foc_core_stats_reset(foc_core_t *self) {
     self->stat_max_temp_motor = -300.0f;
 }
 
-void foc_core_set_temperature(foc_core_t *self, float fet_temp_c) {
+void foc_core_set_fet_temperature(foc_core_t *self, float fet_temp_c) {
     if (self != (void *)0) {
         self->fet_temp_c = fet_temp_c;
+    }
+}
+
+void foc_core_set_motor_temperature(foc_core_t *self, float motor_temp_c) {
+    if (self != (void *)0) {
+        self->motor_temp_c = motor_temp_c;
     }
 }
