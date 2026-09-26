@@ -173,17 +173,17 @@ static void test_throttle_hooks_and_ramp_edges(void **state) {
     throttle_input_port_t in_port = {.self = &io, .read_raw = mock_throttle_read_raw};
     throttle_output_port_t out_port = {.self = &io, .set_command = sink_command};
 
-    throttle_t thr;
-    throttle_construct(&thr, EDGE_MOD_THROTTLE, 20u, &in_port, &out_port, NULL, 0.01f);
-    assert_int_equal(throttle_init(&thr), EDGE_OK);
+    throttle_t thr_app;
+    throttle_construct(&thr_app, EDGE_MOD_THROTTLE, 20u, &in_port, &out_port, NULL, 0.01f);
+    assert_int_equal(throttle_init(&thr_app), EDGE_OK);
 
     /* The hooks a scheduler drives. */
-    assert_int_equal(thr.module.poll(&thr.module), EDGE_OK);
+    assert_int_equal(thr_app.module.poll(&thr_app.module), EDGE_OK);
     /* A null event is refused rather than treated as an event with nothing in it. */
-    assert_int_equal(thr.module.on_event(&thr.module, NULL), EDGE_EINVAL);
-    assert_int_equal(thr.module.power_off(&thr.module), EDGE_OK);
-    assert_float_equal(throttle_get_output(&thr), 0.0f, 1e-6f);
-    assert_int_equal(throttle_deinit(&thr), EDGE_OK);
+    assert_int_equal(thr_app.module.on_event(&thr_app.module, NULL), EDGE_EINVAL);
+    assert_int_equal(thr_app.module.power_off(&thr_app.module), EDGE_OK);
+    assert_float_equal(throttle_get_output(&thr_app), 0.0f, 1e-6f);
+    assert_int_equal(throttle_deinit(&thr_app), EDGE_OK);
 
     /* A ramp rate of zero reaches the target in one step, in both directions. */
     assert_float_equal(throttle_apply_ramp(0.0f, 1.0f, 0.0f, 0.0f, 0.01f), 1.0f, 1e-6f);
