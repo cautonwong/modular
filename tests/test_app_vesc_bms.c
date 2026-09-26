@@ -120,11 +120,81 @@ static void test_vesc_bms_edges(void **state) {
     assert_ptr_equal(vesc_bms_module(NULL), NULL);
 }
 
+/*
+ * The two CAN frames the first case does not send, and the limit paths. The cell frame carries a
+ * start index and two bytes per cell, the temperature frame one byte per sensor signed - so a
+ * negative reading has to arrive negative rather than as a large positive one - and the limits are
+ * zeroed on a fault and derated as the state of charge approaches full.
+ */
+static void test_vesc_bms_cell_and_temp_frames_and_limits(void **state) {
+    (void)state;
+    vesc_bms_app_t bms;
+    bms_config_t cfg = {.cell_count = 10u,
+                        .v_cell_min = 3.0f,
+                        .v_cell_max = 4.2f,
+                        .temp_max_c = 60.0f,
+                        .i_in_max_a = 40.0f,
+                        .i_out_max_a = 60.0f,
+                        .soc_limit_start = 0.90f,
+                        .soc_limit_end = 1.0f};
+    vesc_bms_construct(&bms, 0x2E00, 50u, &cfg, NULL);
+    assert_int_equal(vesc_bms_init(&bms), EDGE_OK);
+
+    /* Guards on the frame handler. */
+    assert_int_equal(vesc_bms_process_can_frame(NULL, 0x30, (const uint8_t *)"abcd", 4u),
+                     EDGE_EINVAL);
+    assert_int_equal(vesc_bms_process_can_frame(&bms, 0x30, NULL, 4u), EDGE_EINVAL);
+    assert_int_equal(vesc_bms_process_can_frame(&bms, 0x30, (const uint8_t *)"ab", 2u),
+                     EDGE_EINVAL);
+
+    /* Cell voltages: start index 0, then 4000 mV and 3900 mV. */
+    const uint8_t cells[5] = {0u, 0x0Fu, 0xA0u, 0x0Fu, 0x3Cu}; /* 4000 mV, 3900 mV */
+    assert_int_equal(vesc_bms_process_can_frame(&bms, 0x31, cells, sizeof(cells)), EDGE_OK);
+    bms_values_t vals;
+    vesc_bms_get_values(&bms, &vals);
+    assert_float_equal(vals.cell_voltages[0], 4.0f, 1e-4f);
+    assert_float_equal(vals.cell_voltages[1], 3.9f, 1e-4f);
+
+    /* A start index that would run past the array is skipped rather than written past it. */
+    const uint8_t far_cells[4] = {200u, 0x0Fu, 0xA0u, 0x0Fu};
+    assert_int_equal(vesc_bms_process_can_frame(&bms, 0x31, far_cells, sizeof(far_cells)), EDGE_OK);
+
+    /* Temperatures: start index 0, then +25 C and -10 C. */
+    const uint8_t temps[4] = {0u, 25u, (uint8_t)(int8_t)-10, 30u};
+    assert_int_equal(vesc_bms_process_can_frame(&bms, 0x32, temps, sizeof(temps)), EDGE_OK);
+    vesc_bms_get_values(&bms, &vals);
+    assert_float_equal(vals.temp_sensors[0], 25.0f, 1e-4f);
+    assert_float_equal(vals.temp_sensors[1], -10.0f, 1e-4f);
+
+    /* A fault zeroes both limits rather than leaving a stale window. */
+    bms.fault_code = 1u;
+    float i_min = 1.0f;
+    float i_max = 1.0f;
+    vesc_bms_update_limits(&bms, &i_min, &i_max);
+    assert_float_equal(i_min, 0.0f, 1e-6f);
+    assert_float_equal(i_max, 0.0f, 1e-6f);
+
+    /* With no fault, the derating falls on the charging side: the configuration's input limit is
+     * scaled down as the state of charge approaches full, and it is reported as the negative
+     * current the pack will accept. The discharge side is the pack's own. */
+    bms.fault_code = 0u;
+    bms.values.soc = 0.0f;
+    vesc_bms_update_limits(&bms, &i_min, &i_max);
+    const float charge_empty = i_min;
+    const float discharge_empty = i_max;
+    bms.values.soc = 0.95f;
+    vesc_bms_update_limits(&bms, &i_min, &i_max);
+    assert_true(i_min > charge_empty); /* less negative: charging is being cut back */
+    assert_float_equal(i_max, discharge_empty, 1e-6f);
+}
+
 int main(void) {
+
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_vesc_bms_lifecycle),
         cmocka_unit_test(test_vesc_bms_can_processing_and_limits),
         cmocka_unit_test(test_vesc_bms_edges),
+        cmocka_unit_test(test_vesc_bms_cell_and_temp_frames_and_limits),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
