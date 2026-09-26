@@ -894,6 +894,103 @@ static void test_vesc_host_motor_id_detection(void **state) {
     assert_int_equal(motor_id_get_fault(&id_app), 0u);
 }
 
+/*
+ * The two masked value adapters. Their whole job is the bit table, and every branch of it is a
+ * separate `if`, so the cases are: every bit at once, one bit alone (which must leave the rest
+ * zeroed, since the reply is memset first), and the read-and-reset channels, where asking for one
+ * channel must not consume another's averaging window. The derived fields of the setup reply are
+ * checked against their sources rather than against literals.
+ */
+static void test_vesc_host_masked_value_adapters(void **state) {
+    (void)state;
+    vesc_host_glue_state_t glue_state;
+    memset(&glue_state, 0, sizeof(glue_state));
+    glue_state.v_bus = 24.0f;
+    foc_virtual_motor_init(&glue_state.vmotor, 0.05f, 0.00005f, 0.005f, 7, 0.0005f);
+
+    foc_inverter_port_t inverter;
+    vesc_host_make_inverter_port(&inverter, &glue_state);
+    foc_current_port_t current;
+    vesc_host_make_current_port(&current, &glue_state);
+    foc_rotor_port_t rotor;
+    vesc_host_make_rotor_port(&rotor, &glue_state);
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.1f,
+                        .current_ki = 50.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 8.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = false};
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &cfg, &inverter, &current, &rotor);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    foc_core_set_fet_temperature(&foc, 41.0f);
+    foc_core_set_motor_temperature(&foc, 37.0f);
+    assert_int_equal(foc_core_set_current(&foc, 4.0f, 0.0f), EDGE_OK);
+    for (int i = 0; i < 200; i++) {
+        assert_int_equal(foc_core_fast_loop(&foc, 5e-5f), EDGE_OK);
+        foc_virtual_motor_step(&glue_state.vmotor, foc.v_alpha, foc.v_beta, 0.0f, 5e-5f, 0.05f);
+    }
+    /* Reset the averaging window so the masked read below has current to average. */
+    foc_core_read_reset_averages(&foc, FOC_AVG_MOTOR_CURRENT, NULL);
+
+    vesc_motor_provider_port_t port;
+    vesc_host_make_motor_provider_port(&port, &foc);
+    vesc_values_t val;
+
+    /* Every bit at once. */
+    assert_int_equal(port.get_values(port.self, 0xFFFFFFFFu, &val), EDGE_OK);
+    assert_float_equal(val.temp_mos, 41.0f, 1e-3f);
+    assert_float_equal(val.temp_motor, 37.0f, 1e-3f);
+    assert_float_equal(val.v_in, 24.0f, 1e-3f);
+    assert_true(val.rpm > 0.0f);
+
+    /* One bit alone leaves the rest zeroed. */
+    memset(&val, 0xAA, sizeof(val));
+    assert_int_equal(port.get_values(port.self, (1u << 1), &val), EDGE_OK);
+    assert_float_equal(val.temp_motor, 37.0f, 1e-3f);
+    assert_float_equal(val.temp_mos, 0.0f, 1e-9f);
+    assert_float_equal(val.v_in, 0.0f, 1e-9f);
+    assert_float_equal(val.amp_hours, 0.0f, 1e-9f);
+
+    /* No bits at all is a valid, empty reply. */
+    assert_int_equal(port.get_values(port.self, 0u, &val), EDGE_OK);
+    assert_float_equal(val.temp_mos, 0.0f, 1e-9f);
+
+    /* Guards. */
+    assert_int_equal(port.get_values(NULL, 1u, &val), EDGE_EINVAL);
+    assert_int_equal(port.get_values(port.self, 1u, NULL), EDGE_EINVAL);
+
+    /* The setup reply, whose derived fields are checked against their sources. */
+    vesc_setup_values_t setup;
+    assert_int_equal(port.get_setup_values(port.self, &setup), EDGE_OK);
+    foc_telemetry_t telem;
+    foc_core_get_telemetry(&foc, &telem);
+    const float tacho_scale = (cfg.si_wheel_diameter * (float)M_PI) /
+                              (3.0f * (float)cfg.si_motor_poles * cfg.si_gear_ratio);
+    assert_float_equal(setup.temp_mos, telem.fet_temp_c, 1e-3f);
+    assert_float_equal(setup.temp_motor, telem.motor_temp_c, 1e-3f);
+    assert_float_equal(setup.rpm, telem.speed_rpm * ((float)cfg.si_motor_poles / 2.0f), 1e-2f);
+    assert_float_equal(setup.distance_m, (float)telem.tachometer * tacho_scale, 1e-3f);
+    assert_float_equal(setup.pid_pos_deg, telem.rotor_angle_rad * (180.0f / (float)M_PI), 1e-3f);
+    assert_int_equal(setup.fault, (uint8_t)telem.faults);
+    assert_int_equal(setup.controller_id, 1u);
+    assert_int_equal(setup.num_vescs, 1u);
+    assert_int_equal(setup.odometer_m, 0u);
+    assert_int_equal(setup.uptime_ms, 0u);
+    assert_int_equal(port.get_setup_values(NULL, &setup), EDGE_EINVAL);
+    assert_int_equal(port.get_setup_values(port.self, NULL), EDGE_EINVAL);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_meter_host_glue),
@@ -910,6 +1007,7 @@ int main(void) {
         cmocka_unit_test(test_vesc_host_simulated_adapters),
         cmocka_unit_test(test_vesc_host_temperature_sampler),
         cmocka_unit_test(test_vesc_host_motor_id_detection),
+        cmocka_unit_test(test_vesc_host_masked_value_adapters),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
