@@ -72,9 +72,73 @@ static void test_drv8323_init_and_registers(void **state) {
     assert_int_equal(ctx.regs[DRV8323_REG_CTRL_CSA], 0x00C0u);
 }
 
+/* A transfer that fails, for the paths where the driver has to report it rather than carry on. */
+static edge_status_t failing_transfer(void *ctx, uint16_t tx_val, uint16_t *rx_val) {
+    (void)ctx;
+    (void)tx_val;
+    *rx_val = 0u;
+    return EDGE_EIO;
+}
+
+/*
+ * The guards and the failing-transfer paths of both drivers. A null driver, a null register output
+ * or a missing transfer function is refused rather than dereferenced, and a transfer that fails is
+ * reported as such instead of being turned into a register value - which is the case that matters
+ * on a real board, where a dead SPI bus must not read as a healthy gate driver.
+ */
+static void test_drv83xx_guards_and_transfer_failure(void **state) {
+    (void)state;
+    mock_spi_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    uint16_t val = 0u;
+
+    /* Construct accepts a null self and a null transfer function; every use then refuses. */
+    drv8301_construct(NULL, mock_drv_spi_transfer, &ctx);
+    drv8323_construct(NULL, mock_drv_spi_transfer, &ctx);
+    drv8301_t bare;
+    drv8301_construct(&bare, NULL, &ctx);
+    assert_int_equal(drv8301_init(&bare, 0u, 0u, 0u), EDGE_EINVAL);
+    assert_int_equal(drv8301_read_reg(&bare, DRV8301_REG_STAT1, &val), EDGE_EINVAL);
+    assert_int_equal(drv8301_write_reg(&bare, DRV8301_REG_CTRL1, 0u), EDGE_EINVAL);
+    assert_int_equal(drv8301_read_faults(&bare, &val), EDGE_EINVAL);
+
+    drv8301_t d1;
+    drv8301_construct(&d1, mock_drv_spi_transfer, &ctx);
+    assert_int_equal(drv8301_read_reg(NULL, DRV8301_REG_STAT1, &val), EDGE_EINVAL);
+    assert_int_equal(drv8301_read_reg(&d1, DRV8301_REG_STAT1, NULL), EDGE_EINVAL);
+    assert_int_equal(drv8301_write_reg(NULL, DRV8301_REG_CTRL1, 0u), EDGE_EINVAL);
+    assert_int_equal(drv8301_init(NULL, 0u, 0u, 0u), EDGE_EINVAL);
+    assert_int_equal(drv8301_read_faults(NULL, &val), EDGE_EINVAL);
+    assert_int_equal(drv8301_read_faults(&d1, NULL), EDGE_EINVAL);
+
+    /* A dead bus is reported, not converted into a plausible register value. */
+    drv8301_t bad;
+    drv8301_construct(&bad, failing_transfer, &ctx);
+    assert_int_equal(drv8301_read_reg(&bad, DRV8301_REG_STAT1, &val), EDGE_EIO);
+    assert_int_equal(drv8301_write_reg(&bad, DRV8301_REG_CTRL1, 0u), EDGE_EIO);
+    assert_int_equal(drv8301_init(&bad, 0u, 0u, 0u), EDGE_EIO);
+    assert_int_equal(drv8301_read_faults(&bad, &val), EDGE_EIO);
+
+    drv8323_t d23;
+    drv8323_construct(&d23, mock_drv_spi_transfer, &ctx);
+    assert_int_equal(drv8323_read_reg(NULL, 0u, &val), EDGE_EINVAL);
+    assert_int_equal(drv8323_read_reg(&d23, 0u, NULL), EDGE_EINVAL);
+    assert_int_equal(drv8323_write_reg(NULL, 0u, 0u), EDGE_EINVAL);
+    assert_int_equal(drv8323_init(NULL, 0u, 0u, 0u), EDGE_EINVAL);
+    assert_int_equal(drv8323_read_faults(NULL, &val), EDGE_EINVAL);
+
+    drv8323_t bad23;
+    drv8323_construct(&bad23, failing_transfer, &ctx);
+    assert_int_equal(drv8323_read_reg(&bad23, 0u, &val), EDGE_EIO);
+    assert_int_equal(drv8323_init(&bad23, 0u, 0u, 0u), EDGE_EIO);
+    assert_int_equal(drv8323_read_faults(&bad23, &val), EDGE_EIO);
+}
+
 int main(void) {
+
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_drv8301_init_and_registers),
+        cmocka_unit_test(test_drv83xx_guards_and_transfer_failure),
         cmocka_unit_test(test_drv8323_init_and_registers),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
