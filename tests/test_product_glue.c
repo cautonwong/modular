@@ -1218,6 +1218,89 @@ static void test_vesc_host_motor_setters(void **state) {
     assert_int_equal(port.reset_stats(port.self), EDGE_OK);
 }
 
+/*
+ * The adapters nothing had called. They are whole bodies rather than guards: the stream write's
+ * bound, a getter handed no output, the CAN forward with no bus behind it, and the two input
+ * readers whose value is the neutral reading they report when the board has no such hardware.
+ */
+static void test_vesc_host_adapters_nothing_called(void **state) {
+    (void)state;
+    vesc_host_glue_state_t glue_state;
+    memset(&glue_state, 0, sizeof(glue_state));
+
+    /* An aggregate for the one adapter that needs a real one. */
+    foc_virtual_motor_init(&glue_state.vmotor, 0.05f, 0.00005f, 0.005f, 7, 0.0005f);
+    foc_inverter_port_t inv;
+    vesc_host_make_inverter_port(&inv, &glue_state);
+    foc_current_port_t cs;
+    vesc_host_make_current_port(&cs, &glue_state);
+    foc_rotor_port_t rs;
+    vesc_host_make_rotor_port(&rs, &glue_state);
+    foc_core_t foc_for_adapters;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.1f,
+                        .current_ki = 50.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 8.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = false};
+    foc_core_construct(&foc_for_adapters, EDGE_MOD_FOC_CORE, 10u, &cfg, &inv, &cs, &rs);
+    assert_int_equal(foc_core_init(&foc_for_adapters), EDGE_OK);
+
+    /* The stream write refuses more than its buffer can hold. */
+    edge_stream_tx_port_t stream_tx;
+    vesc_host_make_stream_tx_port(&stream_tx, &glue_state);
+    uint8_t big[600];
+    memset(big, 0, sizeof(big));
+    assert_int_equal(stream_tx.write(stream_tx.self, big, sizeof(big)), EDGE_ENOSPC);
+
+    /* A getter handed no output refuses rather than writing through it. The motor provider is
+     * built over a real aggregate elsewhere instead of with a null one: that factory returns early
+     * on a null context, so the port would be left uninitialised and calling through it is exactly
+     * the crash this case is not about. */
+    vesc_motor_provider_port_t motor;
+    vesc_host_make_motor_provider_port(&motor, &foc_for_adapters);
+    assert_int_equal(motor.get_values(motor.self, 0u, NULL), EDGE_EINVAL);
+
+    /* The CAN forward with no bus behind it does not report success. */
+    vesc_host_ops_ctx_t ops_ctx;
+    memset(&ops_ctx, 0, sizeof(ops_ctx));
+    vesc_comm_ops_port_t ops;
+    vesc_host_make_ops_port(&ops, &ops_ctx);
+    assert_true(ops.forward_can(ops.self, 1u, (const uint8_t *)"", 0u) != EDGE_OK);
+
+    /* The two input readers answer with what they have, which is nothing. */
+    nunchuk_port_t nunchuk;
+    vesc_host_make_nunchuk_port(&nunchuk, &glue_state);
+    uint8_t js_x = 0u;
+    uint8_t js_y = 0u;
+    int16_t acc_x = 0;
+    int16_t acc_y = 0;
+    int16_t acc_z = 0;
+    bool btn_c = false;
+    bool btn_z = false;
+    assert_int_equal(
+        nunchuk.read_data(nunchuk.self, &js_x, &js_y, &acc_x, &acc_y, &acc_z, &btn_c, &btn_z),
+        EDGE_OK);
+
+    balance_port_t balance;
+    vesc_host_make_balance_port(&balance, &glue_state);
+    float pitch = 1.0f;
+    float roll = 1.0f;
+    assert_int_equal(balance.read_attitude(balance.self, &pitch, &roll, NULL, NULL, NULL, NULL),
+                     EDGE_OK);
+    assert_float_equal(pitch, 0.0f, 1e-6f);
+    assert_float_equal(roll, 0.0f, 1e-6f);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -1238,6 +1321,7 @@ int main(void) {
         cmocka_unit_test(test_vesc_host_masked_value_adapters),
         cmocka_unit_test(test_vesc_host_adapter_guards),
         cmocka_unit_test(test_vesc_host_config_and_terminal_ports),
+        cmocka_unit_test(test_vesc_host_adapters_nothing_called),
         cmocka_unit_test(test_vesc_host_motor_setters),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
