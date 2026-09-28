@@ -14,7 +14,6 @@
 #include "nunchuk/nunchuk.h"
 #include "pas/pas.h"
 #include "ppm/ppm.h"
-#include "throttle/throttle.h"
 #include "timeout_guard/timeout_guard.h"
 #include "vesc_can/vesc_can.h"
 #include "vesc_comm/vesc_comm.h"
@@ -274,12 +273,6 @@ int main(void) {
         return 13;
     }
 
-    throttle_t throttle;
-    throttle_construct(&throttle, EDGE_MOD_THROTTLE, 15u, NULL, NULL, NULL, 0.02f);
-    if (throttle_init(&throttle) != EDGE_OK) {
-        return 14;
-    }
-
     ppm_app_t ppm;
     ppm_config_t ppm_cfg = {
         .mode = PPM_MODE_CURRENT,
@@ -348,21 +341,28 @@ int main(void) {
     }
 
     /* Assemble App List */
-    edge_module_t *apps[14];
+    /*
+     * The throttle app is not scheduled here. Its step applies deadband, curve and ramp to a raw
+     * input, and this product has no raw input to give it: the host's simulated throttle reaches
+     * the control path through the ppm and adc_input apps above, which is where the reference
+     * applies the same curve (app_ppm.c / app_adc.c). Constructed with no input port it returned
+     * EDGE_EINVAL from every poll - a failure that went unseen until the step's result stopped
+     * being dropped, because edge_sys_step() was answering EDGE_ESTATE the whole time.
+     */
+    edge_module_t *apps[13];
     apps[0] = foc_core_module(&foc);
     apps[1] = vesc_comm_module(comm);
     apps[2] = motor_config_module(motor_cfg);
     apps[3] = timeout_guard_module(guard);
-    apps[4] = throttle_module(&throttle);
-    apps[5] = ppm_module(&ppm);
-    apps[6] = adc_input_module(&adc_app);
-    apps[7] = vesc_can_module(&can_app);
-    apps[8] = motor_id_module(&motor_id);
-    apps[9] = nunchuk_module(&nunchuk_app);
-    apps[10] = pas_module(&pas_app);
-    apps[11] = balance_module(&balance_app);
-    apps[12] = vesc_terminal_module(&term_app);
-    apps[13] = vesc_bms_module(&bms_app);
+    apps[4] = ppm_module(&ppm);
+    apps[5] = adc_input_module(&adc_app);
+    apps[6] = vesc_can_module(&can_app);
+    apps[7] = motor_id_module(&motor_id);
+    apps[8] = nunchuk_module(&nunchuk_app);
+    apps[9] = pas_module(&pas_app);
+    apps[10] = balance_module(&balance_app);
+    apps[11] = vesc_terminal_module(&term_app);
+    apps[12] = vesc_bms_module(&bms_app);
 
     /* System & Event Infrastructure */
     edge_event_t event_storage[16];
@@ -372,8 +372,18 @@ int main(void) {
     edge_sys_subscription_t subs[16];
     edge_sys_t sys;
 
-    if (sys_bldc_init(&sys, apps, 14, &event_queue, subs, 16) != EDGE_OK) {
+    if (sys_bldc_init(&sys, apps, 13, &event_queue, subs, 16) != EDGE_OK) {
         return 1;
+    }
+    /*
+     * Nothing polls until the system is started: edge_sys_step() answers EDGE_ESTATE while the
+     * state is not EDGE_SYS_RUNNING. Until this call existed, every step below returned that
+     * error and its result was dropped, so no module poll and no event dispatch ever ran - the
+     * FOC loop turned the motor by itself, which is why the run looked healthy while the
+     * scheduler's share of it was silently skipped.
+     */
+    if (edge_sys_start(&sys) != EDGE_OK) {
+        return 6;
     }
 
     foc_core_set_current(&foc, 5.0f, 0.0f);
@@ -390,7 +400,22 @@ int main(void) {
          * leaves the actuator disconnected from the controller: the d-axis current then
          * diverges and the loop trips its own over-current guard. */
         foc_virtual_motor_step(&glue_state.vmotor, foc.v_alpha, foc.v_beta, 0.0f, 0.000050f, 0.0f);
-        edge_sys_step(&sys);
+        /*
+         * A poll that fails marks its module failed and comes back here, so the run reports it
+         * instead of dropping it the way the previous unchecked call did. The module that failed
+         * is named: with fourteen modules polling, the error code alone does not say whose.
+         */
+        const edge_status_t step_rc = edge_sys_step(&sys);
+        if (step_rc != EDGE_OK) {
+            printf("FAIL: the scheduler rejected a step at cycle %d (rc 0x%x)\n", i,
+                   (unsigned)step_rc);
+            for (size_t m = 0u; m < 13u; m++) {
+                if (apps[m]->failed) {
+                    printf("      module 0x%x failed\n", (unsigned)apps[m]->module_id);
+                }
+            }
+            return 32;
+        }
     }
 
     foc_telemetry_t telem;
