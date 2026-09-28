@@ -528,16 +528,21 @@ util/crc.c 的 crc16，端口已在 `vesc_can` 里有一份位算式副本。
 
 | 切片 | 内容 |
 |---|---|
-| D1 | `product/vesc6_stm32f4`（ticket #203 声称已交付，实际不存在） |
+| D1 | **达成**：`product/vesc6_stm32f4` 已存在（family bldc / board vesc6），装配 `board_vesc6` + `motor_config` + `timeout_guard` 并交给 bldc 家族的调度器；`main()` 显式装配，模块状态全部由组合根提供。交叉编译实测：ELF32/ARM，入口 `0x8000239`（低 flash），text 22148 / data 1072 / bss 2680，bin 23220/1048576 flash 与 3752/131072 RAM，零动态分配 PASS（163 符号）；同一份 main 在 host 上退出 0。**未含**控制面与协议：它们的端口是 ADC/PWM/UART 读取，而 soc/stm32f4 仍只是算术与地址宏（D2） |
 | D2 | `soc/stm32f4`：TIM1/TIM8 互补 PWM、三路 ADC 注入采样、IRQ 转发（现为 31 行纯算术） |
 | D3 | board 处置：`board/vesc4`/`board/vesc_unity` 已登记为「保留但不绑定」，`board/vesc6` 登记为「保留并指向 D1」（带触发条件）——均在下方处置表中 |
 | D4 | 实时预算：原版 15µs @168MHz 的快环节拍；目前仓库内无任何基准工程 |
+
+D1 顺手暴露的两件事（都不在上表里，但会影响后续）：
+
+- `product/vesc_host` 从未调 `edge_sys_start`，1000 次 `edge_sys_step` 全部返回 `EDGE_ESTATE` 而返回值被丢弃 —— **调度器从未运行**（电机是被直接调用的快环转起来的，所以自检一直是绿的）。把返回值接上后立刻暴露第二件事：`throttle` 应用以三个 NULL 端口构造，而 `throttle_step` 对 NULL 输入返回 `EDGE_EINVAL`。原版里死区/曲线/斜坡是 `app_adc.c` / `app_ppm.c` 的职责，本仓库由 `app/throttle` 的单元测试覆盖，因此它已从该组合的**应用表与调度**中去掉（构造也一并去掉，保持 CMake 与应用表一致）。
+- 尺寸/栈/map 预算脚本的阈值是 **meter 产品**的口径（app flash 2 KB、单帧栈 512 B、product RAM 2 KB）。vesc6 固件实测 app flash 13544、product RAM 2680、最大帧 1128（`motor_config_serialize_app_defaults`）。对 1 MB flash / 128 KB SRAM 的部件这些数字可接受，但**得先给 bldc 家族定一套预算 profile 才算有据**；在此之前这些脚本不把 vesc6 当门禁（CI 只把它们跑在 meter_mps2 上）。
 
 ### 阶段 E — 收口
 
 | 切片 | 内容 |
 |---|---|
-| E1 | **达成**：gated 集 **5301/5579 = 95.00%**（本轮从 83% 推到门槛，一小步一提交）。CI 的同一条命令按 95% 门槛跑出 exit 0。**注意这是卡线通过**：任何新增的未覆盖行都会立刻跌破门槛，所以后续改动都带测试。本文早先写过的“还差 450/350 行”与一个提交信息里的“5255”都是没先读打印值就写的，已更正 |
+| E1 | **达成**：gated 集 **5325/5603 = 95%**（D1 新增的产品 glue 24 行已进 `test_product_glue`），CI 的同一条命令跑出 exit 0。**注意这是卡线通过**：任何新增的未覆盖行都会立刻跌破门槛 —— 本轮就发生过一次（新产品的 glue 未入测试集，门禁掉到 94%）。本文早先写过的“还差 450/350 行”与提交信息里的“5255”都是没先读打印值就写的，已更正 |
 
 **E1 的实测缺口（同一套 gcovr 过滤命令量得，按未覆盖行数排序）：** 要过 95% 还需再覆盖约 62 行。
 剩余缺口与各自的成因已经分类，便于下一轮直接接：
