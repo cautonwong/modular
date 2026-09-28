@@ -1347,6 +1347,23 @@ static void test_foc_battery_level(void **state) {
 
     /* An unknown chemistry divides zero by zero, as the reference does. */
     assert_true(isnan(foc_battery_level(9u, 10, 10.0f, 42.0f, &wh_left)));
+
+    /* Lithium iron phosphate, 2.6 to 3.6 V per cell: 10 cells at 3.0 V each is 4 of 10 Ah left,
+     * averaged against (2.8 * cells + v_in) / 2. 116 / (10 * 32) = 0.3625. */
+    const uint8_t liiron = FOC_BATTERY_TYPE_LIIRON_2_6__3_6;
+    assert_float_equal(foc_battery_level(liiron, 10, 10.0f, 30.0f, &wh_left), 0.3625f, 1e-4f);
+    assert_float_equal(wh_left, 4.0f * 29.0f, 1e-3f);
+    /* Empty at the bottom of its own range and full at the top: no 0.85 derating on this
+     * chemistry, unlike the li-ion one, which keeps its polynomial. */
+    assert_float_equal(foc_battery_level(liiron, 10, 10.0f, 26.0f, &wh_left), 0.0f, 1e-6f);
+    assert_float_equal(foc_battery_level(liiron, 10, 10.0f, 36.0f, &wh_left), 1.0f, 1e-4f);
+
+    /* Lead acid, a much narrower range at 2.1 to 2.36 V per cell: 2.23 V each is half of it, so
+     * 5 of 10 Ah left. 108.25 / (10 * 22.3) = 0.485426. */
+    const uint8_t lead = FOC_BATTERY_TYPE_LEAD_ACID;
+    assert_float_equal(foc_battery_level(lead, 10, 10.0f, 22.3f, &wh_left), 0.485426f, 1e-4f);
+    assert_float_equal(wh_left, 5.0f * 21.65f, 1e-3f);
+    assert_float_equal(foc_battery_level(lead, 10, 10.0f, 21.0f, &wh_left), 0.0f, 1e-6f);
 }
 
 /*
