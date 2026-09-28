@@ -19,6 +19,8 @@
 #include "pulse_meter/pulse_meter.h"
 #include "relay/relay.h"
 #include "uart/uart.h"
+/* By path, not by bare name: four products ship a glue.h and this target compiles all of them. */
+#include "vesc6_stm32f4/glue.h"
 
 /*
  * The product glues are pure adapters, and the coverage gate now includes every
@@ -1301,6 +1303,45 @@ static void test_vesc_host_adapters_nothing_called(void **state) {
     assert_float_equal(roll, 0.0f, 1e-6f);
 }
 
+/*
+ * The vesc6 product's variable store. What matters here is the read/write protocol rather than
+ * the storage: a word that was never written must fail the read, because the configuration tells
+ * "no stored configuration" from "a stored one" by that failure and not by the value - an
+ * all-zero configuration is a real configuration, and its CRC is zero.
+ */
+static void test_vesc6_var_store_protocol(void **state) {
+    (void)state;
+    board_vesc6_t board;
+    assert_int_equal(board_vesc6_init(&board), EDGE_OK);
+
+    vesc6_glue_state_t glue;
+    vesc6_glue_init(&glue, &board);
+    assert_ptr_equal(glue.board, &board);
+
+    motor_config_var_port_t port;
+    vesc6_make_var_port(&port, &glue);
+    assert_non_null(port.read);
+    assert_non_null(port.write);
+    assert_ptr_equal(port.self, &glue);
+
+    uint16_t value = 0xBEEFu;
+    assert_int_equal(port.read(port.self, 0u, &value), EDGE_ENOENT);
+    assert_int_equal(port.write(port.self, 0u, 0x1234u), EDGE_OK);
+    assert_int_equal(port.read(port.self, 0u, &value), EDGE_OK);
+    assert_int_equal(value, 0x1234u);
+
+    /* Past the table, and with nothing to read into or write from. */
+    assert_int_equal(port.read(port.self, VESC6_MCCONF_VARS, &value), EDGE_EINVAL);
+    assert_int_equal(port.write(port.self, VESC6_MCCONF_VARS, 1u), EDGE_EINVAL);
+    assert_int_equal(port.read(port.self, 0u, NULL), EDGE_EINVAL);
+    assert_int_equal(port.read(NULL, 0u, &value), EDGE_EINVAL);
+    assert_int_equal(port.write(NULL, 0u, 1u), EDGE_EINVAL);
+
+    /* The constructors refuse a null destination instead of writing through it. */
+    vesc6_glue_init(NULL, &board);
+    vesc6_make_var_port(NULL, &glue);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -1322,6 +1363,7 @@ int main(void) {
         cmocka_unit_test(test_vesc_host_adapter_guards),
         cmocka_unit_test(test_vesc_host_config_and_terminal_ports),
         cmocka_unit_test(test_vesc_host_adapters_nothing_called),
+        cmocka_unit_test(test_vesc6_var_store_protocol),
         cmocka_unit_test(test_vesc_host_motor_setters),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
