@@ -1190,6 +1190,140 @@ static void test_decoded_inputs_negative_side(void **state) {
     assert_int_equal(vesc_comm_process_command(comm, adc, sizeof(adc)), EDGE_OK);
 }
 
+/* Every port fails, to reach each command's error propagation rather than its happy path. */
+static edge_status_t fail_get_values(void *self, uint32_t mask, vesc_values_t *out) {
+    (void)self;
+    (void)mask;
+    (void)out;
+    return EDGE_EIO;
+}
+
+static edge_status_t fail_get_setup(void *self, vesc_setup_values_t *out) {
+    (void)self;
+    (void)out;
+    return EDGE_EIO;
+}
+
+static edge_status_t fail_get_stats(void *self, vesc_stats_t *out) {
+    (void)self;
+    (void)out;
+    return EDGE_EIO;
+}
+
+static edge_status_t fail_void_self(void *self) {
+    (void)self;
+    return EDGE_EIO;
+}
+
+static edge_status_t fail_float(void *self, float value) {
+    (void)self;
+    (void)value;
+    return EDGE_EIO;
+}
+
+static edge_status_t fail_stream_out(void *self, uint8_t *out, size_t buf_size, size_t *out_len) {
+    (void)self;
+    (void)out;
+    (void)buf_size;
+    (void)out_len;
+    return EDGE_EIO;
+}
+
+static edge_status_t fail_stream_in(void *self, const uint8_t *in, size_t len) {
+    (void)self;
+    (void)in;
+    (void)len;
+    return EDGE_EIO;
+}
+
+static edge_status_t fail_terminal(void *self, const char *cmd) {
+    (void)self;
+    (void)cmd;
+    return EDGE_EIO;
+}
+
+static edge_status_t fail_forward(void *self, uint8_t target_id, const uint8_t *data, size_t len) {
+    (void)self;
+    (void)target_id;
+    (void)data;
+    (void)len;
+    return EDGE_EIO;
+}
+
+/*
+ * Every port that can fail, failing. Each command has an error arm of its own - a port that cannot
+ * answer has to have its error come back out - and nothing may go on the wire while that happens,
+ * because a reply built from an uninitialised local would be worse than an error. This is the arm
+ * the happy-path walks never take.
+ */
+static void test_every_command_propagates_a_port_failure(void **state) {
+    (void)state;
+    mock_comm_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    mock_config_ctx_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+
+    edge_stream_tx_port_t tx_port = {.write = mock_stream_write, .self = &ctx};
+    vesc_motor_provider_port_t motor_port = {.get_values = fail_get_values,
+                                             .get_setup_values = fail_get_setup,
+                                             .get_stats = fail_get_stats,
+                                             .reset_stats = fail_void_self,
+                                             .set_duty = fail_float,
+                                             .set_current = fail_float,
+                                             .set_current_rel = fail_float,
+                                             .set_current_brake = fail_float,
+                                             .set_rpm = fail_float,
+                                             .set_pos = fail_float,
+                                             .set_handbrake = fail_float,
+                                             .self = &ctx};
+    vesc_config_provider_port_t config_port = {.get_mcconf = fail_stream_out,
+                                               .set_mcconf = fail_stream_in,
+                                               .get_appconf = fail_stream_out,
+                                               .set_appconf = fail_stream_in,
+                                               .get_mcconf_default = fail_stream_out,
+                                               .get_appconf_default = fail_stream_out,
+                                               .set_appconf_nostore = fail_stream_in,
+                                               .self = &cfg};
+    vesc_comm_ops_port_t ops_port = {
+        .terminal_cmd = fail_terminal, .forward_can = fail_forward, .self = NULL};
+
+    vesc_comm_t *comm = test_comm_alloc();
+    vesc_comm_construct(comm, EDGE_MOD_VESC_COMM, 10u, &tx_port, &motor_port, NULL, &config_port,
+                        &ops_port, &test_identity);
+    assert_int_equal(vesc_comm_init(comm), EDGE_OK);
+
+    static const uint8_t commands[] = {COMM_GET_VALUES,
+                                       COMM_GET_VALUES_SETUP,
+                                       COMM_GET_STATS,
+                                       COMM_RESET_STATS,
+                                       COMM_SET_DUTY,
+                                       COMM_SET_CURRENT,
+                                       COMM_SET_CURRENT_REL,
+                                       COMM_SET_CURRENT_BRAKE,
+                                       COMM_SET_RPM,
+                                       COMM_SET_POS,
+                                       COMM_SET_HANDBRAKE,
+                                       COMM_GET_MCCONF,
+                                       COMM_GET_MCCONF_DEFAULT,
+                                       COMM_GET_APPCONF,
+                                       COMM_GET_APPCONF_DEFAULT,
+                                       COMM_SET_MCCONF,
+                                       COMM_SET_APPCONF,
+                                       COMM_SET_APPCONF_NO_STORE,
+                                       COMM_TERMINAL_CMD,
+                                       COMM_FORWARD_CAN};
+
+    for (size_t i = 0u; i < sizeof(commands) / sizeof(commands[0]); i++) {
+        uint8_t payload[17] = {0};
+        payload[0] = commands[i];
+        const size_t before = ctx.tx_count;
+        const edge_status_t status = vesc_comm_process_command(comm, payload, sizeof(payload));
+        /* The failure comes back out, and no reply is built from it. */
+        assert_true(status != EDGE_OK);
+        assert_int_equal(ctx.tx_count, before);
+    }
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -1201,6 +1335,7 @@ int main(void) {
         cmocka_unit_test(test_setup_values_framing),
         cmocka_unit_test(test_every_handled_command_id_is_reachable),
         cmocka_unit_test(test_commands_without_optional_ports),
+        cmocka_unit_test(test_every_command_propagates_a_port_failure),
         cmocka_unit_test(test_decoded_inputs_negative_side),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
