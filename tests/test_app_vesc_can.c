@@ -278,6 +278,70 @@ static void test_vesc_can_sends_and_guards(void **state) {
     assert_int_equal(app.module.power_off(&app.module), EDGE_OK);
 }
 
+/*
+ * The dispatch loop's remaining branches: the frames that are not for this controller, the ones
+ * the length guard leaves alone, the two commands the earlier case does not send, the broadcast
+ * id, and the no-receiver guard. The receive mock consumes what it hands out, so each call drains
+ * one frame and the loop then finds nothing queued.
+ */
+static void test_vesc_can_rx_dispatch_branches(void **state) {
+    (void)state;
+
+    /* Without a receiver the call is a no-op rather than a dereference. */
+    assert_int_equal(vesc_can_process_incoming(NULL), EDGE_OK);
+    vesc_can_app_t no_port;
+    vesc_can_construct(&no_port, EDGE_MOD_VESC_CAN, 20u, NULL, NULL);
+    assert_int_equal(vesc_can_process_incoming(&no_port), EDGE_OK);
+
+    mock_can_bus_t bus;
+    memset(&bus, 0, sizeof(bus));
+    vesc_can_port_t port = {.self = &bus, .send_frame = mock_send, .receive_frame = mock_receive};
+    vesc_can_config_t cfg = {.controller_id = 5u};
+    vesc_can_app_t app;
+    vesc_can_construct(&app, EDGE_MOD_VESC_CAN, 20u, &cfg, &port);
+    assert_int_equal(vesc_can_init(&app), EDGE_OK);
+
+    /* Addressed to another controller: filtered, and nothing is marked received. */
+    bus.rx_id = ((uint32_t)CAN_PACKET_SET_DUTY << 8) | 99u;
+    bus.rx_len = 4u;
+    bus.rx_data[2] = 0xC3u;
+    bus.rx_data[3] = 0x50u;
+    bus.has_rx = true;
+    app.new_cmd_received = false;
+    assert_int_equal(vesc_can_process_incoming(&app), EDGE_OK);
+    assert_false(app.new_cmd_received);
+
+    /* Duty: 50000 / 1e5 = 0.5. */
+    bus.rx_id = ((uint32_t)CAN_PACKET_SET_DUTY << 8) | 5u;
+    bus.has_rx = true;
+    assert_int_equal(vesc_can_process_incoming(&app), EDGE_OK);
+    assert_true(app.new_cmd_received);
+    assert_float_equal(app.last_set_duty, 0.5f, 0.0001f);
+
+    /* Rpm is taken whole: 3000 stays 3000. */
+    bus.rx_id = ((uint32_t)CAN_PACKET_SET_RPM << 8) | 5u;
+    bus.rx_data[2] = (uint8_t)(3000 >> 8);
+    bus.rx_data[3] = (uint8_t)(3000 & 0xFF);
+    bus.has_rx = true;
+    assert_int_equal(vesc_can_process_incoming(&app), EDGE_OK);
+    assert_float_equal(app.last_set_rpm, 3000.0f, 0.0001f);
+
+    /* The broadcast id is accepted as well as the controller's own. */
+    bus.rx_id = ((uint32_t)CAN_PACKET_SET_DUTY << 8) | 255u;
+    bus.rx_data[2] = 0x00u;
+    bus.rx_data[3] = 0x64u; /* 100 -> 0.001 */
+    bus.has_rx = true;
+    assert_int_equal(vesc_can_process_incoming(&app), EDGE_OK);
+    assert_float_equal(app.last_set_duty, 0.001f, 0.0001f);
+
+    /* Too short to carry a value: the length guard leaves the command as it was. */
+    bus.rx_id = ((uint32_t)CAN_PACKET_SET_RPM << 8) | 5u;
+    bus.rx_len = 2u;
+    bus.has_rx = true;
+    assert_int_equal(vesc_can_process_incoming(&app), EDGE_OK);
+    assert_float_equal(app.last_set_rpm, 3000.0f, 0.0001f);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -285,6 +349,7 @@ int main(void) {
         cmocka_unit_test(test_vesc_can_sends_and_guards),
         cmocka_unit_test(test_vesc_can_status_broadcast),
         cmocka_unit_test(test_vesc_can_rx_command),
+        cmocka_unit_test(test_vesc_can_rx_dispatch_branches),
         cmocka_unit_test(test_vesc_can_send_buffer_framing),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
