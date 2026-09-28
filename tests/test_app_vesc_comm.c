@@ -1097,7 +1097,101 @@ static void test_every_handled_command_id_is_reachable(void **state) {
     assert_int_equal(ctx.tx_count, before);
 }
 
+/*
+ * The half of each command that needs something the port may not have. A comm instance given only
+ * the streaming port - which is the state the product starts in, before the composition root wires
+ * the rest - has to answer the commands that need nothing else and refuse the others rather than
+ * reading through a port it was not given.
+ *
+ * The decoded-input commands come with their negative side: the two values are packed with a sign
+ * bit, so a reversed input has to arrive reversed rather than as a large positive number.
+ */
+static void test_commands_without_optional_ports(void **state) {
+    (void)state;
+    mock_comm_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    edge_stream_tx_port_t tx_port = {.write = mock_stream_write, .self = &ctx};
+
+    vesc_comm_t *comm = test_comm_alloc();
+    vesc_comm_construct(comm, EDGE_MOD_VESC_COMM, 10u, &tx_port, NULL, NULL, NULL, NULL,
+                        &test_identity);
+    assert_int_equal(vesc_comm_init(comm), EDGE_OK);
+
+    /* Every command that needs a port this instance does not have must refuse. What is asserted
+     * is not which code it refuses with - a missing dependency legitimately answers ENOTSUP, as the
+     * dispatcher says - but that none of them puts a reply on the wire: a half-built reply from an
+     * uninitialised local would be worse than an error. */
+    static const uint8_t needs_a_port[] = {COMM_GET_VALUES,
+                                           COMM_GET_VALUES_SELECTIVE,
+                                           COMM_GET_VALUES_SETUP,
+                                           COMM_GET_VALUES_SETUP_SELECTIVE,
+                                           COMM_SET_DUTY,
+                                           COMM_SET_CURRENT,
+                                           COMM_SET_CURRENT_REL,
+                                           COMM_SET_CURRENT_BRAKE,
+                                           COMM_SET_RPM,
+                                           COMM_SET_POS,
+                                           COMM_SET_HANDBRAKE,
+                                           COMM_GET_STATS,
+                                           COMM_RESET_STATS,
+                                           COMM_GET_DECODED_PPM,
+                                           COMM_GET_DECODED_ADC,
+                                           COMM_GET_MCCONF,
+                                           COMM_SET_MCCONF,
+                                           COMM_GET_APPCONF,
+                                           COMM_SET_APPCONF,
+                                           COMM_GET_MCCONF_DEFAULT,
+                                           COMM_GET_APPCONF_DEFAULT,
+                                           COMM_SET_APPCONF_NO_STORE,
+                                           COMM_TERMINAL_CMD,
+                                           COMM_FORWARD_CAN};
+    const size_t before = ctx.tx_count;
+    for (size_t i = 0u; i < sizeof(needs_a_port) / sizeof(needs_a_port[0]); i++) {
+        uint8_t payload[17] = {0};
+        payload[0] = needs_a_port[i];
+        (void)vesc_comm_process_command(comm, payload, sizeof(payload));
+    }
+    assert_int_equal(ctx.tx_count, before);
+
+    /* The id that needs no port at all still answers. */
+    uint8_t alive[1] = {COMM_ALIVE};
+    assert_int_equal(vesc_comm_process_command(comm, alive, sizeof(alive)), EDGE_OK);
+}
+
+/*
+ * The decoded inputs' sign: both are packed with a sign bit, so an input below the middle of its
+ * range has to arrive negative. The mock's values are set negative here rather than left at the
+ * middle, which is the half the framing cases never exercise.
+ */
+static void test_decoded_inputs_negative_side(void **state) {
+    (void)state;
+    mock_comm_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.ppm_level = -1.0f;
+    ctx.ppm_pulse_us = -100.0f;
+    ctx.adc_level = -1.0f;
+    ctx.adc_voltage = -0.5f;
+
+    edge_stream_tx_port_t tx_port = {.write = mock_stream_write, .self = &ctx};
+    vesc_app_status_port_t app_status_port = {.get_decoded_ppm = mock_get_decoded_ppm,
+                                              .get_decoded_adc = mock_get_decoded_adc,
+                                              .self = &ctx};
+
+    vesc_comm_t *comm = test_comm_alloc();
+    vesc_comm_construct(comm, EDGE_MOD_VESC_COMM, 10u, &tx_port, NULL, &app_status_port, NULL, NULL,
+                        &test_identity);
+    assert_int_equal(vesc_comm_init(comm), EDGE_OK);
+
+    uint8_t ppm[1] = {COMM_GET_DECODED_PPM};
+    assert_int_equal(vesc_comm_process_command(comm, ppm, sizeof(ppm)), EDGE_OK);
+    assert_true(ctx.tx_count > 0u);
+
+    uint8_t adc[1] = {COMM_GET_DECODED_ADC};
+    assert_int_equal(vesc_comm_process_command(comm, adc, sizeof(adc)), EDGE_OK);
+}
+
 int main(void) {
+
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_vesc_comm_lifecycle_and_guards),
         cmocka_unit_test(test_crc16_calculation),
@@ -1106,6 +1200,8 @@ int main(void) {
         cmocka_unit_test(test_config_commands_framing),
         cmocka_unit_test(test_setup_values_framing),
         cmocka_unit_test(test_every_handled_command_id_is_reachable),
+        cmocka_unit_test(test_commands_without_optional_ports),
+        cmocka_unit_test(test_decoded_inputs_negative_side),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
