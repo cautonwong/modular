@@ -1170,6 +1170,31 @@ static void test_foc_run_pid_speed(void **state) {
     pid.d_filter = 0.0f;
     foc_run_pid_speed(&pid, &p, true, true, 1500.0f, 700.0f, 0.001f, &iq);
     assert_true(iq < 0.0f);
+    p.allow_braking = false;
+
+    /* The ramp comes down as well as up: 700 toward 200 moves one step, not to the target. */
+    pid.set_rpm = 700.0f;
+    foc_run_pid_speed(&pid, &p, true, true, 0.0f, 200.0f, 0.001f, &iq);
+    assert_float_equal(pid.set_rpm, 699.0f, 1e-4f);
+
+    /* Without the index the openloop limit holds the setpoint, whichever way it points. */
+    pid.set_rpm = 5000.0f;
+    foc_run_pid_speed(&pid, &p, true, false, 0.0f, 5000.0f, 0.001f, &iq);
+    assert_float_equal(pid.set_rpm, 700.0f, 1e-4f);
+    pid.set_rpm = -5000.0f;
+    foc_run_pid_speed(&pid, &p, true, false, 0.0f, -5000.0f, 0.001f, &iq);
+    assert_float_equal(pid.set_rpm, -700.0f, 1e-4f);
+
+    /* An inverted direction swaps the limits, so the clamp is the negated pair and the
+     * truncation is what holds the setpoint, at both ends. */
+    p.invert_direction = true;
+    pid.set_rpm = 200000.0f;
+    foc_run_pid_speed(&pid, &p, true, true, 0.0f, 200000.0f, 0.001f, &iq);
+    assert_float_equal(pid.set_rpm, 100000.0f, 1.0f);
+    pid.set_rpm = -200000.0f;
+    foc_run_pid_speed(&pid, &p, true, true, 0.0f, -200000.0f, 0.001f, &iq);
+    assert_float_equal(pid.set_rpm, -100000.0f, 1.0f);
+    p.invert_direction = false;
 }
 
 /*
@@ -1989,6 +2014,37 @@ static void test_foc_svpwm_duty_clamps(void **state) {
     assert_true(dc >= 0.0f && dc <= t_max);
 }
 
+/*
+ * foc_step_towards, the reference's utils_step_towards: one step toward the goal at a time, and
+ * the step that would pass the goal lands on it instead. Both directions, each asserted one call
+ * at a time so a wrong threshold cannot hide behind the next call.
+ */
+static void test_foc_step_towards_branches(void **state) {
+    (void)state;
+    float v = 0.0f;
+
+    foc_step_towards(&v, 10.0f, 3.0f);
+    assert_float_equal(v, 3.0f, 1e-6f);
+    foc_step_towards(&v, 10.0f, 3.0f);
+    assert_float_equal(v, 6.0f, 1e-6f);
+    foc_step_towards(&v, 10.0f, 3.0f);
+    assert_float_equal(v, 9.0f, 1e-6f);
+    /* 9 + 3 would pass the goal: it stops on it. */
+    foc_step_towards(&v, 10.0f, 3.0f);
+    assert_float_equal(v, 10.0f, 1e-6f);
+
+    /* Away from the goal it moves one step rather than the whole way. */
+    foc_step_towards(&v, -10.0f, 3.0f);
+    assert_float_equal(v, 7.0f, 1e-6f);
+    /* 7 - 3 would pass it: it stops on it. */
+    foc_step_towards(&v, 6.0f, 3.0f);
+    assert_float_equal(v, 6.0f, 1e-6f);
+
+    /* Already there: neither direction moves it. */
+    foc_step_towards(&v, 6.0f, 3.0f);
+    assert_float_equal(v, 6.0f, 1e-6f);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -2008,6 +2064,7 @@ int main(void) {
         cmocka_unit_test(test_foc_observer_adjust_params),
         cmocka_unit_test(test_foc_pll_tracks_phase_rate),
         cmocka_unit_test(test_foc_run_pid_speed),
+        cmocka_unit_test(test_foc_step_towards_branches),
         cmocka_unit_test(test_foc_run_fw_matches_reference),
         cmocka_unit_test(test_foc_apply_mtpa),
         cmocka_unit_test(test_foc_battery_level),
