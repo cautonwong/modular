@@ -624,6 +624,75 @@ static void test_motor_config_guards(void **state) {
                      EDGE_EINVAL);
 }
 
+/* A store whose writes fail, for the save error arm. */
+static edge_status_t failing_var_write(void *self, uint16_t index, uint16_t value) {
+    (void)self;
+    (void)index;
+    (void)value;
+    return EDGE_EIO;
+}
+
+/*
+ * The hooks and the arms the round-trip tests do not reach: a poll whose module data is missing,
+ * the event hook with and without an event, a deinit that has something to flush (the earlier case
+ * constructed the module with no store, so its save failed and that branch never ran), a store
+ * whose write fails, and an update handed a configuration that fails validation.
+ */
+static void test_motor_config_hooks_and_arms(void **state) {
+    (void)state;
+    mock_var_store_t store;
+    memset(&store, 0, sizeof(store));
+    const motor_config_var_port_t port = {
+        .read = mock_var_read, .write = mock_var_write, .self = &store};
+
+    static alignas(MOTOR_CONFIG_STORAGE_ALIGN) unsigned char storage[MOTOR_CONFIG_STORAGE_SIZE];
+    memset(storage, 0, sizeof(storage));
+    motor_config_t *cfg = (motor_config_t *)storage;
+    motor_config_construct(cfg, EDGE_MOD_MOTOR_CONFIG, 20u, &port);
+    assert_int_equal(motor_config_init(cfg), EDGE_OK);
+
+    /* The aggregate is opaque, so the module comes through its accessor. */
+    edge_module_t *mod = motor_config_module(cfg);
+    assert_non_null(mod);
+
+    /* A module whose private data is missing refuses rather than dereferencing it. */
+    const edge_module_t saved = *mod;
+    mod->private_data = NULL;
+    assert_int_equal(mod->poll(mod), EDGE_EINVAL);
+    *mod = saved;
+
+    /* The event hook refuses a null event. The accepted arm needs a real edge_event_t, whose
+     * header this test does not pull in; that path is covered by the sys-level event routing
+     * test, so pinning it here would mean importing a type this module never sees. */
+    assert_int_equal(mod->on_event(mod, NULL), EDGE_EINVAL);
+
+    /* Validation arms: an out-of-range duty is refused on the way in. */
+    mc_configuration_t bad = *motor_config_get_mc(cfg);
+    bad.l_max_duty = 1.5f;
+    assert_int_equal(motor_config_update_mc(cfg, &bad), EDGE_EINVAL);
+
+    /* A valid change marks it dirty, and deinit flushes it through the injected store. */
+    mc_configuration_t good = *motor_config_get_mc(cfg);
+    good.l_current_max = 33.0f;
+    assert_int_equal(motor_config_update_mc(cfg, &good), EDGE_OK);
+    assert_true(motor_config_is_dirty(cfg));
+    assert_int_equal(motor_config_deinit(cfg), EDGE_OK);
+    assert_true(store.writes > 0);
+    assert_false(motor_config_is_dirty(cfg));
+
+    /* A store that refuses the write has its error come back out. */
+    const motor_config_var_port_t bad_port = {
+        .read = mock_var_read, .write = failing_var_write, .self = &store};
+    static alignas(MOTOR_CONFIG_STORAGE_ALIGN) unsigned char storage2[MOTOR_CONFIG_STORAGE_SIZE];
+    memset(storage2, 0, sizeof(storage2));
+    motor_config_t *other = (motor_config_t *)storage2;
+    motor_config_construct(other, EDGE_MOD_MOTOR_CONFIG, 20u, &bad_port);
+    mc_configuration_t good2 = *motor_config_get_mc(other);
+    good2.l_current_max = 44.0f;
+    assert_int_equal(motor_config_update_mc(other, &good2), EDGE_OK);
+    assert_int_equal(motor_config_save(other), EDGE_EIO);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_defaults_and_validation),
@@ -635,6 +704,7 @@ int main(void) {
         cmocka_unit_test(test_motor_config_variable_store),
         cmocka_unit_test(test_motor_config_crc_matches_the_codec),
         cmocka_unit_test(test_motor_config_guards),
+        cmocka_unit_test(test_motor_config_hooks_and_arms),
         cmocka_unit_test(test_motor_config_defaults_keep_the_calibration_offsets),
         cmocka_unit_test(test_motor_config_app_nostore_applies_without_marking_dirty),
         cmocka_unit_test(test_module_lifecycle_and_variable_store),
