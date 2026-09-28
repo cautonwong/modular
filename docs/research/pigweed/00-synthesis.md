@@ -65,7 +65,46 @@ pigweed 值得借的是**记账与门禁的纪律**，不值得借的是**它的
 6. **B2** 模块级可见性白名单（1–2 天）
 7. **B3** 模块元数据表（1 天，**先确定两个真实消费者**）
 
-## 6. 抽检记录（子代理的话不算证据）
+## 6. 追加：backend / 多 RTOS 这一轴（来自后续追问）
+
+它「支持多 RTOS」= 4 个家族（embOS / FreeRTOS / ThreadX / Zephyr）+ host 的 STL + baremetal，
+做法是**按 façade × 按 RTOS 各开一个模块**（共 ~16 个 RTOS 专有模块），同一 façade **一次构建只能选一个**
+（构建变量 / Bazel `label_flag`）。对比我们：同为 4 个家族（互有对方没有的那一个：它有 embOS 无 RTEMS，
+我们有 RTEMS 无 embOS），但我们是**四个端口 + 组合根装配**，同样做到「业务代码只见 `edge_*`」（我们靠
+`ci.yml` 的 forbidden-include 守卫硬失败，它靠构建图）。
+
+能学的是**三件小事**：
+
+| 学什么 | 怎么做 | 为什么 |
+|---|---|---|
+| 端口头里写「适配者必须提供什么」 | 在每个消费者定义端口头的注释里逐条声明哪个函数/宏由实现方负责（它在 `pw_sys_io/public/.../sys_io.h` 里逐行标注） | 我们现在把这些放在 `check_consumer_ports.py` 里；放进头文件让实现者第一眼就看到 |
+| 每个端口一份「已知适配者」索引 | 仿 `pw_*/backends.rst`，在 `docs/` 维护「端口 → 谁实现了它 → 哪个测试覆盖」 | 现在这个知识散在 `product/*/glue.c` 与 `docs/architecture.md` 里 |
+| 把 RTOS/平台差异显式列成对照表 | 我们已经有了（`docs/rtos-ports.md` 四列对照），保持它随着新端口更新 | 它这份文档是四个 backend 差异的**唯一**汇总处，避免差异藏在各模块里 |
+
+**不学**：按「关注点 × RTOS」开模块（ThreadX 下我们只有 1 个端口，它拆成 `pw_thread_threadx`+`pw_sync_threadx`+
+`pw_chrono_threadx` 三个目标）—— 我们一个端口 + 一个产品就是同一件事，拆开只会让「谁实现它」更难找。
+
+## 7. 方法论层面真正该学的四条（比任何具体步骤都值钱）
+
+1. **把约定变成可执行检查，并且让检查本身也被检查**。它有 `pw module check`（PWCK002 有 `.cc` 就必须有
+   test、PWCK004 必须有文档、PWCK005 必须有 `public/` 头），我们有 `check_guard_coverage.py`（每个 guard
+   必须有失败夹具）—— 两者互补，都应该有。
+2. **规则必须给存量迁移路径**。它自己承认「Many Pigweed modules do not currently conform…migrated over
+   time」，也就是新规则只对新模块生效 —— 这就是负债。我们加新守卫时应先出 `--report` 量化爆炸半径、再按 area 分批，
+   这一条已经写进 A2/B2 的风险栏。
+3. **元数据要有机器可校验的形状，且必须有第二个消费者**。它的 `seed_metadata.json`/`module_metadata.json`
+   都有 schema 与生成器；反过来，没有消费者的登记表会烂掉。
+4. **决策的「提案期」和「终态」是制度，不是文风**。SEED 强制写 Alternatives（含不采纳的后果），并把
+   `rejected` 也归档、`Accepted` 后禁改 —— 我们 `docs/adr.md` 目前只有结论行。
+
+### 与我们当前工作直接相关的一条（新）
+
+它用模块元数据的 `status` 字段表达生命周期（stable / experimental / …）。我们正在做 bldc 移植，而
+`docs/bldc-migration.md` 已经在**手工**维护「任务 → 判据 → 实测 → 偏差去向」这张表 —— 同一形状可以机器可读化：
+把「模块 / 已迁移 / 待迁移 / 豁免（附 ticket）」变成一份 `ci/*.json` 表，由脚本做双向校验（目录↔条目）。
+这比引入它整套 `module_metadata.json` 便宜得多，且**立刻有消费方**（移植任务清单 + 覆盖率豁免 + CI 矩阵）。
+
+## 8. 抽检记录（子代理的话不算证据）
 
 pigweed 侧引用 13 处全部 **PASS**：`docs/sphinx/facades.rst:145-149`（依赖注入优先）、
 `module_structure.rst:170-202`（public_overrides 段）、`pw_module/.../check.py:151/169`（PWCK002/004）、
