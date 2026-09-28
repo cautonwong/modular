@@ -32,16 +32,16 @@ int main(void) {
     vesc6_make_var_port(&vars, &glue);
 
     /* The configuration's memory is the composition root's to provide, not the module's. */
-    static alignas(
-        MOTOR_CONFIG_STORAGE_ALIGN) unsigned char config_storage[MOTOR_CONFIG_STORAGE_SIZE];
+    alignas(
+        MOTOR_CONFIG_STORAGE_ALIGN) static unsigned char config_storage[MOTOR_CONFIG_STORAGE_SIZE];
     motor_config_t *config = (motor_config_t *)config_storage;
     motor_config_construct(config, EDGE_MOD_MOTOR_CONFIG, 30u, &vars);
     if (motor_config_init(config) != EDGE_OK) {
         return 11;
     }
 
-    static alignas(
-        TIMEOUT_GUARD_STORAGE_ALIGN) unsigned char guard_storage[TIMEOUT_GUARD_STORAGE_SIZE];
+    alignas(
+        TIMEOUT_GUARD_STORAGE_ALIGN) static unsigned char guard_storage[TIMEOUT_GUARD_STORAGE_SIZE];
     timeout_guard_t *guard = (timeout_guard_t *)guard_storage;
     timeout_guard_construct(guard, EDGE_MOD_TIMEOUT_GUARD, 5u, NULL, 500u, 5.0f, 1000u);
     if (timeout_guard_init(guard) != EDGE_OK) {
