@@ -107,6 +107,71 @@ bool soc_stm32f4_tim_set_duty_counts(soc_stm32f4_tim_regs_t *tim, uint32_t ccr1,
 void soc_stm32f4_tim_enable_outputs(soc_stm32f4_tim_regs_t *tim);
 void soc_stm32f4_tim_disable_outputs(soc_stm32f4_tim_regs_t *tim);
 
+/*
+ * The ADC, same treatment: RM0090's chapter 13.13 for the register map and the fields - SR in
+ * 13.13.1 (JEOC is bit 2), CR1 in 13.13.2 (JEOCIE is bit 7, ADON bit 0), CR2 in 13.13.3
+ * (JEXTSEL 19:16, JEXTEN 21:20), SMPR1/2 in 13.13.4, JSQR in 13.13.7 (JL 21:20, JSQ1 19:15,
+ * JSQ2 14:10, JSQ3 9:5, JSQ4 4:0) and JDRx in 13.13.9.
+ *
+ * The reference's own setup is the caller here: one injected channel per ADC, sampled three times
+ * over (hw_60_core.c:205-213 configures ADC1 channel 10, ADC2 channel 11 and ADC3 channel 12, each
+ * at three injected ranks), triggered from the timer, with the conversion times it asks for
+ * (ADC_SampleTime_15Cycles, hw_60_core.c:174). It configures no multi-mode, so each ADC is
+ * independent and every one of them is triggered on its own.
+ */
+typedef struct soc_stm32f4_adc_regs {
+    volatile uint32_t sr;    /* 0x00 */
+    volatile uint32_t cr1;   /* 0x04 */
+    volatile uint32_t cr2;   /* 0x08 */
+    volatile uint32_t smpr1; /* 0x0C */
+    volatile uint32_t smpr2; /* 0x10 */
+    volatile uint32_t jofr1; /* 0x14 */
+    volatile uint32_t jofr2; /* 0x18 */
+    volatile uint32_t jofr3; /* 0x1C */
+    volatile uint32_t jofr4; /* 0x20 */
+    volatile uint32_t htr;   /* 0x24 */
+    volatile uint32_t ltr;   /* 0x28 */
+    volatile uint32_t sqr1;  /* 0x2C */
+    volatile uint32_t sqr2;  /* 0x30 */
+    volatile uint32_t sqr3;  /* 0x34 */
+    volatile uint32_t jsqr;  /* 0x38 */
+    volatile uint32_t jdr1;  /* 0x3C */
+    volatile uint32_t jdr2;  /* 0x40 */
+    volatile uint32_t jdr3;  /* 0x44 */
+    volatile uint32_t jdr4;  /* 0x48 */
+} soc_stm32f4_adc_regs_t;
+
+_Static_assert(offsetof(soc_stm32f4_adc_regs_t, cr1) == 0x04u, "CR1 is at 0x04 (RM0090 13.13.2)");
+_Static_assert(offsetof(soc_stm32f4_adc_regs_t, cr2) == 0x08u, "CR2 is at 0x08 (RM0090 13.13.3)");
+_Static_assert(offsetof(soc_stm32f4_adc_regs_t, smpr1) == 0x0Cu,
+               "SMPR1 is at 0x0C (RM0090 13.13.4)");
+_Static_assert(offsetof(soc_stm32f4_adc_regs_t, jsqr) == 0x38u, "JSQR is at 0x38 (RM0090 13.13.7)");
+_Static_assert(offsetof(soc_stm32f4_adc_regs_t, jdr1) == 0x3Cu, "JDR1 is at 0x3C (RM0090 13.13.9)");
+_Static_assert(sizeof(soc_stm32f4_adc_regs_t) == 0x4Cu, "the block ends after JDR4");
+
+typedef struct soc_stm32f4_adc_config {
+    uint8_t channel;     /* the injected channel; the reference uses 10, 11 and 12 */
+    uint8_t samples;     /* injected ranks, 1 to 4; the reference fills three */
+    uint8_t sample_time; /* the SMPR field, 0 to 7; the reference asks for 15 cycles (1) */
+    bool jeoc_interrupt; /* enable the end-of-injected-conversion interrupt */
+} soc_stm32f4_adc_config_t;
+
+/* Returns the number of injected ranks programmed, or 0 when the configuration is refused, in the
+ * same terms as the timer above. The injected sequence is one channel repeated `samples` times,
+ * and the trigger is TIM1_TRGO on the rising edge. */
+uint32_t soc_stm32f4_adc_init_injected(soc_stm32f4_adc_regs_t *adc,
+                                       const soc_stm32f4_adc_config_t *config);
+/* The converted values, in rank order, from JDR1 upwards. */
+bool soc_stm32f4_adc_read_injected(const soc_stm32f4_adc_regs_t *adc, uint8_t samples,
+                                   uint16_t *out);
+/* The end-of-injected-conversion interrupt is one vector for all three ADCs
+ * (SOC_STM32F4_ADC_IRQn), so the hook is one function and it is told which ADC it is servicing. */
+void soc_stm32f4_adc_set_injected_handler(void (*handler)(void *ctx, uint32_t adc_index),
+                                          void *ctx);
+/* Clears the flag and forwards to the hook. Called with the ADC's own register block and its
+ * index, so the vector table's entry and the three blocks stay the caller's business. */
+void soc_stm32f4_adc_service_injected_isr(soc_stm32f4_adc_regs_t *adc, uint32_t adc_index);
+
 #ifdef __cplusplus
 }
 #endif
