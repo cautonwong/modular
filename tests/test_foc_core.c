@@ -2045,6 +2045,77 @@ static void test_foc_step_towards_branches(void **state) {
     assert_float_equal(v, 6.0f, 1e-6f);
 }
 
+/*
+ * The guards foc_core_init keeps before it accepts a configuration, and the ones the command
+ * setters keep while the core is not running. Each is a single return, so each gets its own call.
+ */
+static void test_foc_core_init_and_command_guards(void **state) {
+    (void)state;
+
+    mock_inverter_t inv_mock = {0};
+    foc_inverter_port_t inv_port = {
+        .set_duty = mock_set_duty, .set_phase_state = mock_set_phase_state, .self = &inv_mock};
+    mock_current_sensor_t cs_mock = {.v_bus = 24.0f};
+    foc_current_port_t cs_port = {
+        .read_currents = mock_read_currents, .read_vbus = mock_read_vbus, .self = &cs_mock};
+    mock_rotor_sensor_t rs_mock = {0};
+    foc_rotor_port_t rs_port = {.read_angle = mock_read_angle, .self = &rs_mock};
+
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.1f,
+                        .current_ki = 100.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .sensorless_mode = false};
+    foc_core_t foc;
+
+    /* No current sensor: refused. */
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, (void *)0, &inv_port, (void *)0, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_EINVAL);
+
+    /* Sensorless off and no rotor sensor: refused as well. */
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &cfg, &inv_port, &cs_port, (void *)0);
+    assert_int_equal(foc_core_init(&foc), EDGE_EINVAL);
+
+    /* An out-of-range parameter is not only refused: the core says which fault it is. */
+    foc_config_t bad = cfg;
+    bad.r_ohm = 0.0f;
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &bad, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_EINVAL);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_FAULT);
+    assert_true((foc.faults & FOC_FAULT_INVALID_CONFIG) != 0u);
+
+    /* An uninitialised core refuses every command rather than acting on stale state. */
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_set_current(&foc, 1.0f, 0.0f), EDGE_EBUSY);
+    assert_int_equal(foc_core_set_rpm(&foc, 1000.0f), EDGE_EBUSY);
+    assert_int_equal(foc_core_set_pos(&foc, 10.0f), EDGE_EBUSY);
+    assert_int_equal(foc_core_set_handbrake(&foc, 1.0f), EDGE_EBUSY);
+    assert_int_equal(foc_core_set_duty(&foc, 0.5f), EDGE_EBUSY);
+
+    /* The poll keeps its own guard for a module with no data behind it. */
+    edge_module_t *mod = foc_core_module(&foc);
+    const edge_module_t saved = *mod;
+    mod->private_data = NULL;
+    assert_int_equal(mod->poll(mod), EDGE_EINVAL);
+    *mod = saved;
+
+    /* Running: duty is clamped to the configured maximum at both ends. */
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    assert_int_equal(foc_core_set_duty(&foc, 2.0f), EDGE_OK);
+    assert_float_equal(foc.target_duty, cfg.duty_max, 1e-6f);
+    assert_int_equal(foc_core_set_duty(&foc, -2.0f), EDGE_OK);
+    assert_float_equal(foc.target_duty, -cfg.duty_max, 1e-6f);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -2077,6 +2148,7 @@ int main(void) {
         cmocka_unit_test(test_foc_hfi_adjust_angle_matches_reference),
         cmocka_unit_test(test_foc_fft_bins_match_reference),
         cmocka_unit_test(test_foc_core_guards),
+        cmocka_unit_test(test_foc_core_init_and_command_guards),
         cmocka_unit_test(test_foc_math_helper_branches),
         cmocka_unit_test(test_foc_math_sat_lambda_combination),
         cmocka_unit_test(test_foc_core_loop_and_module_failures),
