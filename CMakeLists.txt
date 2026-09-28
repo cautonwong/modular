@@ -212,6 +212,7 @@ if(TARGET water_meter_host)
     target_link_libraries(water_meter_host PRIVATE pal_os)
 endif()
 edge_add_product(vesc_host family bldc board example infra flash digital_filter vesc_buffer apps foc_core vesc_comm motor_config timeout_guard throttle motor_id ppm adc_input vesc_can nunchuk pas balance vesc_terminal vesc_bms)
+edge_add_product(vesc6_stm32f4 family bldc board vesc6 apps motor_config timeout_guard)
 
 
 if(EDGE_MODULE_BUILD_THREADX)
@@ -307,6 +308,7 @@ endif()
 
 if(EDGE_MODULE_BUILD_ARM_CORTEX_M4)
     edge_add_arm_firmware(example_cortex_m4 example cortex-m4 .github/arm/cortex-m4.ld)
+    edge_add_arm_firmware(vesc6_stm32f4_fw vesc6_stm32f4 cortex-m4 .github/arm/stm32f4.ld)
 endif()
 
 if(EDGE_MODULE_BUILD_ARM_CORTEX_M4_QEMU)
