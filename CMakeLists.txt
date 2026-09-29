@@ -36,9 +36,22 @@ elseif(EDGE_MODULE_BUILD_ARM_CORTEX_M4 OR EDGE_MODULE_BUILD_ARM_CORTEX_M4_QEMU
        OR EDGE_MODULE_BUILD_FREERTOS_QEMU OR EDGE_MODULE_BUILD_THREADX_QEMU)
     set(EDGE_ARM_CPU cortex-m4)
 endif()
+
+# The reference's own ARM builds pass the single-precision FPU and the constant-precision flag
+# (ChibiOS os/common/ports/ARMCMx/compilers/GCC/rules.mk:35), and they do it for the whole build
+# rather than for one target - which matters here, because an object built with one float ABI does
+# not link against one built with another. Emulator builds keep their arithmetic in software: they
+# are not the part the reference configures. `softfp` rather than `hard` keeps every object in this
+# repository mutually compatible and changes no arithmetic, only the register an argument arrives
+# in.
+if(EDGE_MODULE_BUILD_ARM_CORTEX_M4)
+    list(APPEND EDGE_ARM_FLOAT_FLAGS -mfpu=fpv4-sp-d16 -mfloat-abi=softfp
+         -fsingle-precision-constant)
+endif()
 if(DEFINED EDGE_ARM_CPU)
-    add_compile_options(-mcpu=${EDGE_ARM_CPU} -mthumb -mno-unaligned-access -fstack-usage)
-    add_link_options(-mcpu=${EDGE_ARM_CPU} -mthumb)
+    add_compile_options(-mcpu=${EDGE_ARM_CPU} -mthumb -mno-unaligned-access -fstack-usage
+                        ${EDGE_ARM_FLOAT_FLAGS})
+    add_link_options(-mcpu=${EDGE_ARM_CPU} -mthumb ${EDGE_ARM_FLOAT_FLAGS})
 endif()
 
 function(edge_enable_quality target)

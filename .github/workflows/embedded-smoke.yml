@@ -111,13 +111,14 @@ jobs:
           python3 .github/scripts/check_size.py build-m4-stm32/vesc6_stm32f4_fw 1048576 131072
           NM_TOOL=arm-none-eabi-nm \
             python3 .github/scripts/check_no_dynamic_memory.py build-m4-stm32/vesc6_stm32f4_fw
-      # A regression gate, not the reference's limit: 4600 is the measured count plus a little
-      # room. The reference's own 15 us at 168 MHz - 2520 cycles - is what the port is aiming at,
-      # and the gap between the two is written down in docs/bldc-migration.md.
+      # A regression gate, not the reference's limit: 2400 is the measured count plus a little
+      # room. The reference's own 15 us at 168 MHz is 2520 cycles, so with the reference's build
+      # flags this port is inside the budget - docs/bldc-migration.md has both numbers and what
+      # changed between them.
       - name: Fast-loop instruction budget
         run: |
           python3 .github/scripts/check_fast_loop_budget.py build-m4-stm32/vesc6_stm32f4_fw \
-            --max-cycles 4600 \
+            --max-cycles 2400 \
             --report build-m4-stm32/fast-loop.json
       - name: Upload Cortex-M4 QEMU image
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
