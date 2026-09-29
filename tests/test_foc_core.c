@@ -2116,6 +2116,97 @@ static void test_foc_core_init_and_command_guards(void **state) {
     assert_float_equal(foc.target_duty, -cfg.duty_max, 1e-6f);
 }
 
+/*
+ * Open-loop drive: the reference integrates the electrical angle at the commanded speed and applies
+ * the current there (mcpwm_foc.c:3607-3609), which is how it turns a motor without asking where the
+ * rotor is. Every number below is that arithmetic rather than a tolerance around it.
+ */
+static void test_foc_core_openloop(void **state) {
+    (void)state;
+    mock_inverter_t inv_mock = {0};
+    foc_inverter_port_t inv_port = {
+        .set_duty = mock_set_duty, .set_phase_state = mock_set_phase_state, .self = &inv_mock};
+    mock_current_sensor_t cs_mock = {.v_bus = 24.0f};
+    foc_current_port_t cs_port = {
+        .read_currents = mock_read_currents, .read_vbus = mock_read_vbus, .self = &cs_mock};
+    mock_rotor_sensor_t rs_mock = {0};
+    foc_rotor_port_t rs_port = {.read_angle = mock_read_angle, .self = &rs_mock};
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.1f,
+                        .current_ki = 100.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .sensorless_mode = false,
+                        .speed_pid = {.current_max_scale = 1.0f}};
+    foc_core_t foc;
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    /* The setter: electrical rpm becomes rad/s as rpm * 2*pi/60, and the q target is the current.
+     */
+    assert_int_equal(foc_core_set_openloop_current(&foc, 5.0f, 600.0f), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_RUNNING_OPENLOOP);
+    assert_float_equal(foc.target_iq, 5.0f, 1e-6f);
+    assert_float_equal(foc.openloop_speed, 600.0f * (float)((2.0 * M_PI) / 60.0), 1e-3f);
+
+    /* One cycle: the angle advances by dt * speed from zero and the current is applied there. */
+    const float dt = 0.000050f;
+    const float step = foc.openloop_speed * dt;
+    assert_int_equal(foc_core_fast_loop(&foc, dt), EDGE_OK);
+    assert_float_equal(foc.openloop_angle, step, 1e-6f);
+    assert_float_equal(foc.last_angle_rad, step, 1e-6f);
+
+    /* It keeps integrating and stays normalised: a turn takes 2*pi/step = 2000 cycles at this
+     * speed, so 5000 more of them wrap and come back inside the range. */
+    for (int i = 0; i < 5000; i++) {
+        assert_int_equal(foc_core_fast_loop(&foc, dt), EDGE_OK);
+    }
+    assert_true(foc.openloop_angle >= -(float)M_PI);
+    assert_true(foc.openloop_angle < (float)M_PI);
+    float expected = 5001.0f * step;
+    while (expected >= (float)M_PI) {
+        expected -= 2.0f * (float)M_PI;
+    }
+    while (expected < -(float)M_PI) {
+        expected += 2.0f * (float)M_PI;
+    }
+    assert_float_equal(foc.openloop_angle, expected, 1e-3f);
+
+    /* The truncation: a current past the configuration's limit comes back as the limit, because
+     * this command - unlike the current command - does truncate. */
+    assert_int_equal(foc_core_set_openloop_current(&foc, 1000.0f, 600.0f), EDGE_OK);
+    assert_float_equal(foc.target_iq, cfg.current_max_a * cfg.speed_pid.current_max_scale, 1e-4f);
+    assert_int_equal(foc_core_set_openloop_current(&foc, -1000.0f, 600.0f), EDGE_OK);
+    assert_float_equal(foc.target_iq, -cfg.current_max_a * cfg.speed_pid.current_max_scale, 1e-4f);
+
+    /* Below cc_min_current the mode is selected and the motor is not started: the setpoint is
+     * written, the state is left where it was. */
+    assert_int_equal(foc_core_stop(&foc), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_IDLE);
+    cfg.cc_min_current = 0.05f;
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    assert_int_equal(foc_core_set_openloop_current(&foc, 0.01f, 600.0f), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_IDLE);
+    assert_float_equal(foc.target_iq, 0.01f, 1e-6f);
+    assert_int_equal(foc_core_set_openloop_current(&foc, 0.1f, 600.0f), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_RUNNING_OPENLOOP);
+
+    /* Refusals: no aggregate, and one that was never initialized. */
+    assert_int_equal(foc_core_set_openloop_current(NULL, 1.0f, 1.0f), EDGE_EINVAL);
+    foc_core_t uninitialized;
+    foc_core_construct(&uninitialized, EDGE_MOD_FOC_CORE, 10u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_set_openloop_current(&uninitialized, 1.0f, 1.0f), EDGE_EBUSY);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -2149,6 +2240,7 @@ int main(void) {
         cmocka_unit_test(test_foc_fft_bins_match_reference),
         cmocka_unit_test(test_foc_core_guards),
         cmocka_unit_test(test_foc_core_init_and_command_guards),
+        cmocka_unit_test(test_foc_core_openloop),
         cmocka_unit_test(test_foc_math_helper_branches),
         cmocka_unit_test(test_foc_math_sat_lambda_combination),
         cmocka_unit_test(test_foc_core_loop_and_module_failures),

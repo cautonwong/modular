@@ -310,6 +310,8 @@ edge_status_t foc_core_init(foc_core_t *self) {
     self->iq_integral = 0.0f;
     self->faults = FOC_FAULT_NONE;
     self->state = FOC_STATE_IDLE;
+    self->openloop_angle = 0.0f;
+    self->openloop_speed = 0.0f;
 
     (void)self->inverter->set_phase_state(self->inverter->self, false);
 
@@ -447,6 +449,20 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
      */
     if (self->state == FOC_STATE_HANDBRAKE) {
         angle_rad = 0.0f;
+    } else if (self->state == FOC_STATE_RUNNING_OPENLOOP) {
+        /*
+         * Open loop: the angle is integrated at the commanded electrical speed and normalised,
+         * exactly as the reference does (mcpwm_foc.c:3607-3609), and it is the angle the current
+         * is applied at. The rotor is not asked where it is, which is the point of the mode.
+         */
+        self->openloop_angle += dt * self->openloop_speed;
+        while (self->openloop_angle < -(float)M_PI) {
+            self->openloop_angle += 2.0f * (float)M_PI;
+        }
+        while (self->openloop_angle >= (float)M_PI) {
+            self->openloop_angle -= 2.0f * (float)M_PI;
+        }
+        angle_rad = self->openloop_angle;
     }
 
     self->last_angle_rad = angle_rad;
@@ -848,6 +864,46 @@ edge_status_t foc_core_set_handbrake(foc_core_t *self, float brake_current_a) {
      */
     self->target_iq = brake_current_a;
     self->state = FOC_STATE_HANDBRAKE;
+    return EDGE_OK;
+}
+
+edge_status_t foc_core_set_openloop_current(foc_core_t *self, float current_a, float rpm) {
+    if (self == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    if (self->state == FOC_STATE_FAULT || self->state == FOC_STATE_UNINITIALIZED) {
+        return EDGE_EBUSY;
+    }
+
+    /*
+     * Reference mcpwm_foc_set_openloop_current (mcpwm_foc.c:878-894). Unlike the current command
+     * this one does truncate, to the current limit scaled by the factor the speed loop also reads
+     * (l_current_max_scale, which this port keeps in the speed parameters because that is where
+     * the reference reads it). The speed is electrical rpm - RPM2RADPS_f is rpm * 2*pi/60, with no
+     * pole factor - and direction is not applied here: the reference's own callers pass the
+     * inverted rpm, which is where this port applies DIR_MULT as well.
+     *
+     * The angle is where the integration resumes, so this call leaves it alone.
+     */
+    const float limit = self->config.current_max_a * self->config.speed_pid.current_max_scale;
+    float iq = current_a;
+    if (iq > limit) {
+        iq = limit;
+    }
+    if (iq < -limit) {
+        iq = -limit;
+    }
+    self->target_id = 0.0f;
+    self->target_iq = iq;
+    self->openloop_speed = rpm * (float)((2.0 * M_PI) / 60.0);
+
+    /* Too small a current does not start the motor: the reference selects the mode and returns,
+     * which here leaves the state where it was - the one part of the setter that is not a
+     * straight assignment. */
+    if (fabsf(iq) < self->config.cc_min_current) {
+        return EDGE_OK;
+    }
+    self->state = FOC_STATE_RUNNING_OPENLOOP;
     return EDGE_OK;
 }
 
