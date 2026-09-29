@@ -10,11 +10,16 @@
  * low byte of the identifier: ADC_IT_JEOC is 0x0407, so JEOCIE is bit 7 of CR1 and the flag it
  * pairs with is bit 2 of SR (ADC_FLAG_JEOC, 0x04).
  */
+#define SOC_ADC_SR_EOC (1u << 1)
 #define SOC_ADC_SR_JEOC (1u << 2)
 
 #define SOC_ADC_CR1_ADON (1u << 0)
 #define SOC_ADC_CR1_JEOCIE (1u << 7)
 
+/* Software start of a regular conversion is bit 30 of CR2, and the two bits below it are the
+ * external trigger's edge selection, which this leaves disabled. */
+#define SOC_ADC_CR2_SWSTART (1u << 30)
+#define SOC_ADC_CR2_EXTEN_MASK (3u << 28)
 #define SOC_ADC_CR2_JEXTEN_RISING (1u << 20)
 #define SOC_ADC_CR2_JEXTSEL_TIM1_TRGO (1u << 16)
 
@@ -24,6 +29,12 @@
 #define SOC_ADC_JSQR_JSQ3_SHIFT 5u
 #define SOC_ADC_JSQR_JSQ4_SHIFT 0u
 #define SOC_ADC_JSQR_JSQ_MASK 0x1Fu
+
+/* The regular sequence: its length in SQR1's L field (23:20, one less than the count) and each
+ * rank's channel in SQR3's five-bit fields, the first rank at bit 0 (RM0090 13.13.6). */
+#define SOC_ADC_SQR1_L_SHIFT 20u
+#define SOC_ADC_SQR3_SQ1_SHIFT 0u
+#define SOC_ADC_SQR_SQ_MASK 0x1Fu
 
 /* One injected conversion per rank, all of them on the same channel: the reference's own sequence
  * (hw_60_core.c:205-213) is that channel at ranks 1, 2 and 3. */
@@ -90,6 +101,42 @@ void soc_stm32f4_adc_set_injected_handler(void (*handler)(void *ctx, uint32_t ad
                                           void *ctx) {
     injected_handler = handler;
     injected_handler_ctx = ctx;
+}
+
+uint32_t soc_stm32f4_adc_init_regular(soc_stm32f4_adc_regs_t *adc, uint8_t channel,
+                                      uint8_t sample_time) {
+    if (adc == NULL || channel > 17u || sample_time > 7u) {
+        return 0u;
+    }
+
+    adc_set_sample_time(adc, channel, sample_time);
+    /* A sequence of one: the length field is the count minus one (RM0090 13.13.6), and the
+     * channel goes in the first rank of SQR3. The external trigger for the regular group stays
+     * disabled, because the read below starts the conversion itself. */
+    adc->sqr1 = 0u << SOC_ADC_SQR1_L_SHIFT;
+    adc->sqr3 = ((uint32_t)channel & SOC_ADC_SQR_SQ_MASK) << SOC_ADC_SQR3_SQ1_SHIFT;
+    adc->cr2 &= ~SOC_ADC_CR2_EXTEN_MASK;
+    return 1u;
+}
+
+bool soc_stm32f4_adc_read_regular(soc_stm32f4_adc_regs_t *adc, uint16_t *out) {
+    if (adc == NULL || out == NULL || (adc->cr1 & SOC_ADC_CR1_ADON) == 0u) {
+        return false;
+    }
+
+    adc->cr2 |= SOC_ADC_CR2_SWSTART;
+    /* Bounded, so a part that never converts is reported rather than waited on forever. The
+     * count is a guard rather than a timing constant: a conversion is a few hundred nanoseconds. */
+    for (uint32_t spin = 0u; spin < 100000u; ++spin) {
+        if ((adc->sr & SOC_ADC_SR_EOC) != 0u) {
+            /* EOC is cleared by writing zero to it (RM0090 13.13.1); the ones elsewhere in this
+             * write are no-ops on the part. */
+            adc->sr = ~SOC_ADC_SR_EOC;
+            *out = (uint16_t)(adc->dr & 0xFFFFu);
+            return true;
+        }
+    }
+    return false;
 }
 
 void soc_stm32f4_adc_service_injected_isr(soc_stm32f4_adc_regs_t *adc, uint32_t adc_index) {

@@ -139,6 +139,7 @@ typedef struct soc_stm32f4_adc_regs {
     volatile uint32_t jdr2;  /* 0x40 */
     volatile uint32_t jdr3;  /* 0x44 */
     volatile uint32_t jdr4;  /* 0x48 */
+    volatile uint32_t dr;    /* 0x4C */
 } soc_stm32f4_adc_regs_t;
 
 _Static_assert(offsetof(soc_stm32f4_adc_regs_t, cr1) == 0x04u, "CR1 is at 0x04 (RM0090 13.13.2)");
@@ -147,7 +148,8 @@ _Static_assert(offsetof(soc_stm32f4_adc_regs_t, smpr1) == 0x0Cu,
                "SMPR1 is at 0x0C (RM0090 13.13.4)");
 _Static_assert(offsetof(soc_stm32f4_adc_regs_t, jsqr) == 0x38u, "JSQR is at 0x38 (RM0090 13.13.7)");
 _Static_assert(offsetof(soc_stm32f4_adc_regs_t, jdr1) == 0x3Cu, "JDR1 is at 0x3C (RM0090 13.13.9)");
-_Static_assert(sizeof(soc_stm32f4_adc_regs_t) == 0x4Cu, "the block ends after JDR4");
+_Static_assert(sizeof(soc_stm32f4_adc_regs_t) == 0x50u,
+               "the block ends after DR (RM0090 13.13.10)");
 
 typedef struct soc_stm32f4_adc_config {
     uint8_t channel;     /* the injected channel; the reference uses 10, 11 and 12 */
@@ -171,6 +173,20 @@ void soc_stm32f4_adc_set_injected_handler(void (*handler)(void *ctx, uint32_t ad
 /* Clears the flag and forwards to the hook. Called with the ADC's own register block and its
  * index, so the vector table's entry and the three blocks stay the caller's business. */
 void soc_stm32f4_adc_service_injected_isr(soc_stm32f4_adc_regs_t *adc, uint32_t adc_index);
+
+/*
+ * One regular channel, converted on demand: the sequence is programmed here, and a conversion is
+ * started and waited for inside the read. The reference reads its supply voltage and temperatures
+ * through the regular sequence with DMA filling ADC_Value (hw_60_core.c:176-181 programs the
+ * channels), which is a way of fetching the same sample rather than a different measurement - and
+ * what consumes this is a port that only ever wants the latest value.
+ *
+ * Returns the sequence length programmed, or 0 when the configuration is refused. */
+uint32_t soc_stm32f4_adc_init_regular(soc_stm32f4_adc_regs_t *adc, uint8_t channel,
+                                      uint8_t sample_time);
+/* Starts one conversion and waits for its end-of-conversion flag, with a bounded wait so a part
+ * that never converts is reported rather than hung on. */
+bool soc_stm32f4_adc_read_regular(soc_stm32f4_adc_regs_t *adc, uint16_t *out);
 
 #ifdef __cplusplus
 }
