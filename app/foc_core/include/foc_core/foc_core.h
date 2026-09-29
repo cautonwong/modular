@@ -277,6 +277,14 @@ typedef struct foc_core {
     float openloop_speed;
 
     /*
+     * Reference m_motor_released and m_current_off_delay (mcpwm_foc.c:823, :3972). Releasing is a
+     * request: it zeroes the setpoints and sets the flag, and the control loop then decides - the
+     * delay counts down and, with every setpoint below the minimum, it stops the modulation.
+     */
+    bool motor_released;
+    float current_off_delay;
+
+    /*
      * Reference mcpwm_foc.c:4139-4146: the detection's sample accumulator, which the control
      * loop adds to on every cycle it ran - the current and voltage vector magnitudes that cycle
      * produced. The resistance measurement reads and clears it; nothing else reads it.
@@ -432,6 +440,9 @@ edge_status_t foc_core_set_duty(foc_core_t *self, float duty_target);
 edge_status_t foc_core_set_rpm(foc_core_t *self, float rpm_target);
 edge_status_t foc_core_set_pos(foc_core_t *self, float pos_target_deg);
 edge_status_t foc_core_set_handbrake(foc_core_t *self, float brake_current_a);
+/* Reference mcpwm_foc_release_motor (mcpwm_foc.c:819): zeroes both current setpoints, asks for the
+ * release, and leaves the control loop to carry it out. */
+edge_status_t foc_core_release_motor(foc_core_t *self);
 /* Reference mcpwm_foc_set_openloop_current (mcpwm_foc.c:878): an electrical speed and the q-axis
  * current to drive at it. Unlike the current command it truncates, and a current below
  * cc_min_current selects the mode without starting the motor. */
