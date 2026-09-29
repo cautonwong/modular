@@ -1342,6 +1342,179 @@ static void test_vesc6_var_store_protocol(void **state) {
     vesc6_make_var_port(NULL, &glue);
 }
 
+/*
+ * The vesc6 product's hardware adapters, against blocks of RAM laid out as the register maps the
+ * soc header asserts against the manual. That is the only place these can run without the part,
+ * and it is where the arithmetic between the control loop and the hardware gets pinned.
+ */
+static soc_stm32f4_tim_regs_t vesc6_tim_regs;
+static soc_stm32f4_adc_regs_t vesc6_adc_regs[3];
+
+/* Bound and configured exactly as the product does it, so the period the duties are scaled by and
+ * the enabled ADCs are the real ones. */
+static void vesc6_glue_with_hardware(vesc6_glue_state_t *glue, board_vesc6_t *board) {
+    memset(&vesc6_tim_regs, 0, sizeof(vesc6_tim_regs));
+    memset(vesc6_adc_regs, 0, sizeof(vesc6_adc_regs));
+    assert_int_equal(board_vesc6_init(board), EDGE_OK);
+    vesc6_glue_init(glue, board);
+    glue->tim = &vesc6_tim_regs;
+    for (uint32_t phase = 0u; phase < 3u; ++phase) {
+        glue->adc_current[phase] = &vesc6_adc_regs[phase];
+    }
+
+    const soc_stm32f4_tim_config_t tim_config = {
+        .timer_clk_hz = SOC_STM32F4_TIM_CLK_HZ,
+        .switching_freq_hz = 25000u,
+        .deadtime_ns = glue->deadtime_ns,
+    };
+    glue->period = soc_stm32f4_tim_init(glue->tim, &tim_config);
+    assert_int_equal(glue->period, 3360u);
+    for (uint32_t phase = 0u; phase < 3u; ++phase) {
+        const soc_stm32f4_adc_config_t adc_config = {.channel = (uint8_t)(10u + phase),
+                                                     .samples = VESC6_CURRENT_RANKS,
+                                                     .sample_time = 1u,
+                                                     .jeoc_interrupt = true};
+        assert_int_equal(soc_stm32f4_adc_init_injected(glue->adc_current[phase], &adc_config),
+                         VESC6_CURRENT_RANKS);
+    }
+}
+
+static void test_vesc6_inverter_adapter(void **state) {
+    (void)state;
+    board_vesc6_t board;
+    vesc6_glue_state_t glue;
+    vesc6_glue_with_hardware(&glue, &board);
+
+    foc_inverter_port_t port;
+    vesc6_make_inverter_port(&port, &glue);
+    assert_non_null(port.set_duty);
+    assert_non_null(port.set_phase_state);
+
+    /* Duties are fractions of the period, rounded to the nearest count: a half of 3360 is 1680,
+     * a quarter is 840 and three quarters are 2520, in the order TIM1 drives them. */
+    assert_int_equal(port.set_duty(port.self, 0.5f, 0.25f, 0.75f), EDGE_OK);
+    assert_int_equal(vesc6_tim_regs.ccr1, 1680u);
+    assert_int_equal(vesc6_tim_regs.ccr2, 840u);
+    assert_int_equal(vesc6_tim_regs.ccr3, 2520u);
+
+    /* Outside nought to one the compare saturates rather than wrapping past the period. */
+    assert_int_equal(port.set_duty(port.self, -1.0f, 1.0f, 2.0f), EDGE_OK);
+    assert_int_equal(vesc6_tim_regs.ccr1, 0u);
+    assert_int_equal(vesc6_tim_regs.ccr2, 3360u);
+    assert_int_equal(vesc6_tim_regs.ccr3, 3360u);
+
+    /* The phase outputs: MOE is refused while the board's dead time is unknown, and allowed once
+     * the composition root has given one. */
+    assert_int_equal(port.set_phase_state(port.self, true), EDGE_ENOTSUP);
+    assert_int_equal((vesc6_tim_regs.bdtr & 0x8000u), 0u);
+    glue.deadtime_ns = 660.0f;
+    assert_int_equal(port.set_phase_state(port.self, true), EDGE_OK);
+    assert_int_equal((vesc6_tim_regs.bdtr & 0x8000u), 0x8000u);
+    assert_int_equal(port.set_phase_state(port.self, false), EDGE_OK);
+    assert_int_equal((vesc6_tim_regs.bdtr & 0x8000u), 0u);
+
+    /* Nothing to drive, and nothing to construct into. */
+    assert_int_equal(port.set_duty(NULL, 0.5f, 0.5f, 0.5f), EDGE_EINVAL);
+    assert_int_equal(port.set_phase_state(NULL, true), EDGE_EINVAL);
+    vesc6_glue_state_t bare;
+    board_vesc6_t bare_board;
+    assert_int_equal(board_vesc6_init(&bare_board), EDGE_OK);
+    vesc6_glue_init(&bare, &bare_board); /* no timer bound */
+    foc_inverter_port_t bare_port;
+    vesc6_make_inverter_port(&bare_port, &bare);
+    assert_int_equal(bare_port.set_duty(bare_port.self, 0.5f, 0.5f, 0.5f), EDGE_EINVAL);
+    assert_int_equal(bare_port.set_phase_state(bare_port.self, false), EDGE_EINVAL);
+    vesc6_make_inverter_port(NULL, &glue);
+}
+
+static void test_vesc6_current_adapter(void **state) {
+    (void)state;
+    board_vesc6_t board;
+    vesc6_glue_state_t glue;
+    vesc6_glue_with_hardware(&glue, &board);
+
+    foc_current_port_t port;
+    vesc6_make_current_port(&port, &glue);
+    assert_non_null(port.read_currents);
+    assert_non_null(port.read_vbus);
+
+    /* The hook reads the finished ADC's ranks into the snapshot, and mid-scale is zero amperes. */
+    for (uint32_t phase = 0u; phase < 3u; ++phase) {
+        vesc6_adc_regs[phase].jdr1 = VESC6_CURRENT_MID_SCALE;
+        vesc6_adc_regs[phase].jdr2 = VESC6_CURRENT_MID_SCALE;
+        vesc6_adc_regs[phase].jdr3 = VESC6_CURRENT_MID_SCALE;
+        vesc6_adc_injected_hook(&glue, phase);
+    }
+    float ia = 1.0f;
+    float ib = 2.0f;
+    float ic = 3.0f;
+    assert_int_equal(port.read_currents(port.self, &ia, &ib, &ic), EDGE_OK);
+    assert_float_equal(ia, 0.0f, 1e-6f);
+    assert_float_equal(ib, 0.0f, 1e-6f);
+    assert_float_equal(ic, 0.0f, 1e-6f);
+
+    /* A hundred counts either side of mid-scale. The board's scale is (3.3/4095)/(0.0005*20) =
+     * 0.080586 A per count, so 100 counts are 8.0586 A and the sign survives. */
+    for (uint32_t rank = 1u; rank <= 3u; ++rank) {
+        (&vesc6_adc_regs[0].jdr1)[rank - 1u] = VESC6_CURRENT_MID_SCALE + 100u;
+        (&vesc6_adc_regs[1].jdr1)[rank - 1u] = VESC6_CURRENT_MID_SCALE - 100u;
+    }
+    vesc6_adc_injected_hook(&glue, 0u);
+    vesc6_adc_injected_hook(&glue, 1u);
+    assert_int_equal(port.read_currents(port.self, &ia, &ib, &ic), EDGE_OK);
+    assert_float_equal(ia, 8.0586f, 1e-3f);
+    assert_float_equal(ib, -8.0586f, 1e-3f);
+
+    /* The hook ignores an index it has no ADC for, and a null context. */
+    vesc6_adc_injected_hook(&glue, 3u);
+    vesc6_adc_injected_hook(NULL, 0u);
+
+    /* The supply voltage: nothing is bound in this product, so the port says so; bound, it reads
+     * the conversion and scales it with the board's divider. 1000 counts of a 39.0 k to 2.2 k
+     * divider at a 3.3 V reference is 1000 * (3.3/4095) * (41200/2200) = 15.0924 V. */
+    float v_bus = 0.0f;
+    assert_int_equal(port.read_vbus(port.self, &v_bus), EDGE_EINVAL);
+    glue.adc_vbus = &vesc6_adc_regs[0];
+    vesc6_adc_regs[0].dr = 1000u;
+    vesc6_adc_regs[0].sr = 0x02u;
+    assert_int_equal(port.read_vbus(port.self, &v_bus), EDGE_OK);
+    assert_float_equal(v_bus, 15.0924f, 1e-3f);
+    /* The flag was consumed by that read, so the next one finds nothing to convert. */
+    assert_int_equal(port.read_vbus(port.self, &v_bus), EDGE_EIO);
+
+    /* Refusals. */
+    assert_int_equal(port.read_currents(NULL, &ia, &ib, &ic), EDGE_EINVAL);
+    assert_int_equal(port.read_currents(port.self, NULL, &ib, &ic), EDGE_EINVAL);
+    assert_int_equal(port.read_vbus(NULL, &v_bus), EDGE_EINVAL);
+    assert_int_equal(port.read_vbus(port.self, NULL), EDGE_EINVAL);
+    vesc6_glue_state_t bare;
+    board_vesc6_t bare_board;
+    assert_int_equal(board_vesc6_init(&bare_board), EDGE_OK);
+    vesc6_glue_init(&bare, &bare_board);
+    foc_current_port_t bare_port;
+    vesc6_make_current_port(&bare_port, &bare);
+    assert_int_equal(bare_port.read_currents(bare_port.self, &ia, &ib, &ic), EDGE_OK);
+    assert_int_equal(bare_port.read_vbus(bare_port.self, &v_bus), EDGE_EINVAL);
+    vesc6_make_current_port(NULL, &glue);
+}
+
+static void test_vesc6_rotor_adapter(void **state) {
+    (void)state;
+    board_vesc6_t board;
+    assert_int_equal(board_vesc6_init(&board), EDGE_OK);
+    vesc6_glue_state_t glue;
+    vesc6_glue_init(&glue, &board);
+
+    foc_rotor_port_t port;
+    vesc6_make_rotor_port(&port, &glue);
+    assert_non_null(port.read_angle);
+    float angle = 0.0f;
+    float rpm = 0.0f;
+    /* No hall or encoder driver: an angle is the one thing here that must not be approximated. */
+    assert_int_equal(port.read_angle(port.self, &angle, &rpm), EDGE_ENOTSUP);
+    vesc6_make_rotor_port(NULL, &glue);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -1364,6 +1537,9 @@ int main(void) {
         cmocka_unit_test(test_vesc_host_config_and_terminal_ports),
         cmocka_unit_test(test_vesc_host_adapters_nothing_called),
         cmocka_unit_test(test_vesc6_var_store_protocol),
+        cmocka_unit_test(test_vesc6_inverter_adapter),
+        cmocka_unit_test(test_vesc6_current_adapter),
+        cmocka_unit_test(test_vesc6_rotor_adapter),
         cmocka_unit_test(test_vesc_host_motor_setters),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
