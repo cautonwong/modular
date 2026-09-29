@@ -85,6 +85,19 @@ extern void EDGE_SYSTICK_HANDLER(void);
 #define EDGE_VECT_SYSTICK default_handler
 #endif
 
+/*
+ * The STM32F4's ADC interrupt is IRQn 18, i.e. hardware vector 34 and therefore index 32 in the
+ * table below (handlers[i] is vector i + 2). A firmware that has an injected conversion to read
+ * points this at the soc's service routine; without it the vector is a no-op rather than a hang,
+ * because a conversion that nobody reads is a silent loss and not a fault.
+ */
+#if defined(EDGE_ADC_ISR)
+extern void EDGE_ADC_ISR(void);
+#define EDGE_VECT_ADC EDGE_ADC_ISR
+#else
+#define EDGE_VECT_ADC default_handler
+#endif
+
 // clang-format off
 __attribute__((used, section(".isr_vector"))) const edge_vector_table_t edge_vector_table = {
     .initial_sp = (uint32_t)&_estack,
@@ -124,7 +137,7 @@ __attribute__((used, section(".isr_vector"))) const edge_vector_table_t edge_vec
         [29] = default_handler,
         [30] = default_handler,
         [31] = default_handler,
-        [32] = default_handler,
+        [32] = EDGE_VECT_ADC, /* vector 34: ADC (IRQn 18) */
         [33] = default_handler,
         [34] = default_handler,
         [35] = default_handler,
