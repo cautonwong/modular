@@ -46,7 +46,16 @@ typedef enum {
      * rotor instead of driving it (mcpwm_foc.c:3602). Appended last so that no existing
      * value is renumbered.
      */
-    FOC_STATE_HANDBRAKE
+    FOC_STATE_HANDBRAKE,
+
+    /*
+     * Reference CONTROL_MODE_OPENLOOP, the mode mcpwm_foc_set_openloop_current selects
+     * (mcpwm_foc.c:882). A mode rather than a command: the loop integrates the electrical angle
+     * from the commanded speed and drives the current at that angle (mcpwm_foc.c:3607-3609),
+     * which is how a motor is turned without knowing where the rotor is. Appended last, for the
+     * same reason as the value above.
+     */
+    FOC_STATE_RUNNING_OPENLOOP
 } foc_state_t;
 
 typedef enum {
@@ -259,6 +268,15 @@ typedef struct foc_core {
     float phase_override_rad;
 
     /*
+     * Open-loop drive: the reference's m_openloop_angle and m_openloop_speed (mcpwm_foc.c:884,
+     * :3607). The angle is integrated by the control loop at the commanded electrical speed and
+     * normalised, and it is the angle the current is applied at. Both start at zero, as the
+     * reference's own state does.
+     */
+    float openloop_angle;
+    float openloop_speed;
+
+    /*
      * Reference mcpwm_foc.c:4139-4146: the detection's sample accumulator, which the control
      * loop adds to on every cycle it ran - the current and voltage vector magnitudes that cycle
      * produced. The resistance measurement reads and clears it; nothing else reads it.
@@ -414,6 +432,10 @@ edge_status_t foc_core_set_duty(foc_core_t *self, float duty_target);
 edge_status_t foc_core_set_rpm(foc_core_t *self, float rpm_target);
 edge_status_t foc_core_set_pos(foc_core_t *self, float pos_target_deg);
 edge_status_t foc_core_set_handbrake(foc_core_t *self, float brake_current_a);
+/* Reference mcpwm_foc_set_openloop_current (mcpwm_foc.c:878): an electrical speed and the q-axis
+ * current to drive at it. Unlike the current command it truncates, and a current below
+ * cc_min_current selects the mode without starting the motor. */
+edge_status_t foc_core_set_openloop_current(foc_core_t *self, float current_a, float rpm);
 edge_status_t foc_core_stop(foc_core_t *self);
 edge_status_t foc_core_clear_faults(foc_core_t *self);
 
