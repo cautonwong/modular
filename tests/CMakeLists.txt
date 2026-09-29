@@ -101,6 +101,7 @@ edge_add_host_test(test_app_balance SOURCES test_app_balance.c DEPS app_balance)
 edge_add_host_test(test_app_vesc_terminal SOURCES test_app_vesc_terminal.c DEPS app_vesc_terminal)
 edge_add_host_test(test_infra_vesc_buffer SOURCES test_infra_vesc_buffer.c DEPS infra_vesc_buffer)
 edge_add_host_test(test_app_vesc_bms SOURCES test_app_vesc_bms.c DEPS app_vesc_bms)
+edge_add_host_test(test_pal_rtos_riot SOURCES test_pal_rtos_riot.c DEPS edge_test_contract pal_rtos_riot)
 
 # Every product's glue is in the coverage scope, so every trampoline is exercised
 # here instead of living only inside a product executable.

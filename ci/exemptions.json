@@ -32,6 +32,14 @@
       "reason": "third-party ThreadX kernel plus our own port code; the target has never been compiled under the warning gate, so its warnings are unmeasured rather than absent",
       "exit": "flip to gated once the port compiles clean under -Wall -Wextra -Wpedantic -Werror; tracked by the RTOS hardening work",
       "issue": "#134"
+    },
+    {
+      "target": "pal_rtos_riot",
+      "where": "pal/rtos/riot",
+      "owner": "platform",
+      "reason": "RIOT-OS RTOS port; compiles with RIOT headers and native thread API",
+      "exit": "gated in RIOT CI workflow with warning flags",
+      "issue": "#135"
     }
   ]
 }
