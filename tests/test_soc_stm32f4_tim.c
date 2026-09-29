@@ -44,6 +44,14 @@ static void test_soc_stm32f4_tim_center_aligned_setup(void **state) {
     assert_int_equal(regs.ccmr2, 0x6868u);
     /* CCER = CC1E | CC1NE | CC2E | CC2NE | CC3E | CC3NE: the three phases and their complements. */
     assert_int_equal(regs.ccer, 0x555u);
+    /* The dead-time encoding is the reference's own arithmetic (conf_general.c
+     * conf_general_calculate_deadtime) applied to a 5.952380952 ns timebase: 660 ns truncates to
+     * 110, 1500 ns falls in the second range to 0x80 | (1500 / 11.904761 - 64) = 0xBE, and
+     * 10000 ns is past every range, where the reference writes the maximum. */
+    assert_int_equal(soc_stm32f4_calc_deadtime_reg(660.0f, 168000000u), 110u);
+    assert_int_equal(soc_stm32f4_calc_deadtime_reg(1500.0f, 168000000u), 0xBEu);
+    assert_int_equal(soc_stm32f4_calc_deadtime_reg(10000.0f, 168000000u), 0xFFu);
+
     /* BDTR = the dead time the helper encodes, with both off-state selections on, and MOE clear:
      * a configured timer, and a motor that is not being driven. */
     assert_int_equal(regs.bdtr, (uint32_t)soc_stm32f4_calc_deadtime_reg(vesc6_ish.deadtime_ns,
