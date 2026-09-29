@@ -4,6 +4,9 @@
 > 决策源 [`adr.md`](adr.md)（D1-D85）；实现差异**只**记录在
 > [`adr-conformance.md`](adr-conformance.md)。本文是**计划与判据**，不是差异视图，
 > 因此这里不列偏差清单。
+>
+> 知识图谱全量符号审计与覆盖矩阵：[`bldc-migration-coverage-matrix.md`](bldc-migration-coverage-matrix.md)
+> Pigweed 与 GitNexus 技术调研报告：[`research/modular-pigweed-gitnexus-survey.md`](research/modular-pigweed-gitnexus-survey.md)
 
 ## 1. 任务
 
@@ -529,7 +532,7 @@ util/crc.c 的 crc16，端口已在 `vesc_can` 里有一份位算式副本。
 | 切片 | 内容 |
 |---|---|
 | D1 | **达成**：`product/vesc6_stm32f4` 已存在（family bldc / board vesc6），装配 `board_vesc6` + `motor_config` + `timeout_guard` 并交给 bldc 家族的调度器；`main()` 显式装配，模块状态全部由组合根提供。交叉编译实测：ELF32/ARM，入口 `0x8000239`（低 flash），text 22148 / data 1072 / bss 2680，bin 23220/1048576 flash 与 3752/131072 RAM，零动态分配 PASS（163 符号）；同一份 main 在 host 上退出 0。**未含**控制面与协议：它们的端口是 ADC/PWM/UART 读取，而 soc/stm32f4 仍只是算术与地址宏（D2） |
-| D2 | `soc/stm32f4`：TIM1/TIM8 互补 PWM、三路 ADC 注入采样、IRQ 转发（现为 31 行纯算术） |
+| D2 | **达成**：`soc/stm32f4` 已有寄存器级驱动 —— TIM1/TIM8 互补 PWM（中心对齐、参考自己的 `UDIS` 包住三路写入含第二定时器的 1,3,2 相序、MOE 输出使能）与三路 ADC 注入采样及其转换完成中断；寄存器映射的偏移对 RM0090 做 `_Static_assert`，字段按章引用。**并已接进产品**（`product/vesc6_stm32f4`：绑定 TIM1 与三路 ADC、按 `foc_f_zv` 设频、装注入中断钩子填快照、在其上装配 FOC；交叉编译 46064 字节 text、零动态分配 PASS）。**两处“不猜”**：vbus 的规则通道在本 checkout 内无法确定（参考的 `ADC_Value` 索引是 DMA 缓冲位置而非通道号）→ `read_vbus` 如实拒绝、控制环因此不下发命令；板级死区 `board/vesc6` 未携带 → 相输出拒绝使能（MOE 是唯一会让电机带电的位，死区猜错就是直通）。另登记：配置存储暂为 RAM（待 flash 驱动）、电流零点为 2048 中值（无标定流程）、有感模式因无霍尔/编码器角度源而拒绝。引用来源逐处注明（RM0090 + 参考源码行号 + 所用 StdPeriph/ChibiOS 源码）；死区编码已改为与参考 `conf_general_calculate_deadtime` 逐字一致（原作四舍五入，660ns@168MHz 是 110 而非 111） |
 | D3 | board 处置：`board/vesc4`/`board/vesc_unity` 已登记为「保留但不绑定」，`board/vesc6` 登记为「保留并指向 D1」（带触发条件）——均在下方处置表中 |
 | D4 | 实时预算：原版 15µs @168MHz 的快环节拍；目前仓库内无任何基准工程 |
 
