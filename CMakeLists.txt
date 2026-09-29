@@ -212,7 +212,7 @@ if(TARGET water_meter_host)
     target_link_libraries(water_meter_host PRIVATE pal_os)
 endif()
 edge_add_product(vesc_host family bldc board example infra flash digital_filter vesc_buffer apps foc_core vesc_comm motor_config timeout_guard motor_id ppm adc_input vesc_can nunchuk pas balance vesc_terminal vesc_bms)
-edge_add_product(vesc6_stm32f4 family bldc board vesc6 apps motor_config timeout_guard)
+edge_add_product(vesc6_stm32f4 family bldc board vesc6 apps foc_core motor_config timeout_guard)
 
 
 if(EDGE_MODULE_BUILD_THREADX)
