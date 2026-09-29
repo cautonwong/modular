@@ -2207,6 +2207,114 @@ static void test_foc_core_openloop(void **state) {
     assert_int_equal(foc_core_set_openloop_current(&uninitialized, 1.0f, 1.0f), EDGE_EBUSY);
 }
 
+/*
+ * The release path. In the reference mcpwm_foc_release_motor is a request rather than an action:
+ * it zeroes both setpoints and sets the flag, and the control loop carries it out by stopping the
+ * modulation once no setpoint is above the minimum and the off-delay has run out
+ * (mcpwm_foc.c:819-824 and :3952-3975). Nothing here is approximated - the cycle counts below are
+ * the delay divided by dt.
+ */
+static void test_foc_core_release_and_modulation_off(void **state) {
+    (void)state;
+    mock_inverter_t inv_mock = {0};
+    foc_inverter_port_t inv_port = {
+        .set_duty = mock_set_duty, .set_phase_state = mock_set_phase_state, .self = &inv_mock};
+    mock_current_sensor_t cs_mock = {.v_bus = 24.0f};
+    foc_current_port_t cs_port = {
+        .read_currents = mock_read_currents, .read_vbus = mock_read_vbus, .self = &cs_mock};
+    mock_rotor_sensor_t rs_mock = {0};
+    foc_rotor_port_t rs_port = {.read_angle = mock_read_angle, .self = &rs_mock};
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.1f,
+                        .current_ki = 100.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .cc_min_current = 0.05f,
+                        .sensorless_mode = true};
+    const float dt = 0.00005f;
+    foc_core_t foc;
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    /* Driving: the control loop is what enables the phases. */
+    assert_int_equal(foc_core_set_current(&foc, 5.0f, 0.0f), EDGE_OK);
+    assert_int_equal(foc_core_fast_loop(&foc, dt), EDGE_OK);
+    assert_true(inv_mock.enabled);
+
+    /* The release itself only asks: the setpoints go to zero, the flag goes up, the mode becomes
+     * current, and the phases are still live at that point. */
+    assert_int_equal(foc_core_release_motor(&foc), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_RUNNING_CURRENT);
+    assert_true(foc.motor_released);
+    assert_float_equal(foc.target_iq, 0.0f, 1e-6f);
+    assert_float_equal(foc.target_id, 0.0f, 1e-6f);
+
+    /* One cycle with no delay armed: every setpoint is below the minimum, so the loop takes the
+     * modulation off and the phases go quiet - not driven at zero. */
+    assert_int_equal(foc_core_fast_loop(&foc, dt), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_IDLE);
+    assert_false(inv_mock.enabled);
+
+    /* Armed, the same state keeps driving until the delay runs out. 0.1 s at 50 us is 2000
+     * cycles; the arming is COMM_SET_CURRENT_OFF_DELAY's in the reference, which this port has not
+     * wired, so the field is set here. */
+    assert_int_equal(foc_core_set_current(&foc, 5.0f, 0.0f), EDGE_OK);
+    assert_int_equal(foc_core_fast_loop(&foc, dt), EDGE_OK);
+    assert_int_equal(foc_core_release_motor(&foc), EDGE_OK);
+    foc.current_off_delay = 0.1f;
+    assert_int_equal(foc_core_fast_loop(&foc, dt), EDGE_OK);
+    assert_true(inv_mock.enabled);
+    int cycles = 1;
+    for (; cycles < 100; ++cycles) {
+        assert_int_equal(foc_core_fast_loop(&foc, dt), EDGE_OK);
+    }
+    assert_true(inv_mock.enabled); /* a hundred cycles is a tenth of the delay */
+    while (inv_mock.enabled && cycles < 2100) {
+        assert_int_equal(foc_core_fast_loop(&foc, dt), EDGE_OK);
+        ++cycles;
+    }
+    /* 0.1 / 5e-5 = 2000, within a couple of cycles of float accumulation in either direction. */
+    assert_true(cycles >= 1990);
+    assert_true(cycles <= 2010);
+
+    /* The minimum is raised when the release asked for it and the configuration has none set: the
+     * reference keeps a floor of 0.001 so that a released motor is not held by noise. */
+    cfg.cc_min_current = 0.0f;
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    assert_int_equal(foc_core_set_current(&foc, 0.0005f, 0.0f), EDGE_OK);
+    assert_int_equal(foc_core_fast_loop(&foc, dt), EDGE_OK);
+    assert_true(inv_mock.enabled); /* not released, and no floor: 0.0005 is above zero */
+    assert_int_equal(foc_core_release_motor(&foc), EDGE_OK);
+    foc.current_off_delay = 0.0f;
+    assert_int_equal(foc_core_fast_loop(&foc, dt), EDGE_OK);
+    assert_false(inv_mock.enabled); /* with the floor in place it is below the minimum */
+
+    /* Duty, rpm and position are not in the reference's list, so a zeroed setpoint in one of them
+     * does not stop the modulation. */
+    cfg.cc_min_current = 0.05f;
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    assert_int_equal(foc_core_set_duty(&foc, 0.0f), EDGE_OK);
+    assert_int_equal(foc_core_fast_loop(&foc, dt), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_RUNNING_DUTY);
+    assert_true(inv_mock.enabled);
+
+    /* Refusals. */
+    assert_int_equal(foc_core_release_motor(NULL), EDGE_EINVAL);
+    foc_core_t uninitialized;
+    foc_core_construct(&uninitialized, EDGE_MOD_FOC_CORE, 10u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_release_motor(&uninitialized), EDGE_EBUSY);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -2241,6 +2349,7 @@ int main(void) {
         cmocka_unit_test(test_foc_core_guards),
         cmocka_unit_test(test_foc_core_init_and_command_guards),
         cmocka_unit_test(test_foc_core_openloop),
+        cmocka_unit_test(test_foc_core_release_and_modulation_off),
         cmocka_unit_test(test_foc_math_helper_branches),
         cmocka_unit_test(test_foc_math_sat_lambda_combination),
         cmocka_unit_test(test_foc_core_loop_and_module_failures),

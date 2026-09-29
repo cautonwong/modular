@@ -312,6 +312,8 @@ edge_status_t foc_core_init(foc_core_t *self) {
     self->state = FOC_STATE_IDLE;
     self->openloop_angle = 0.0f;
     self->openloop_speed = 0.0f;
+    self->motor_released = false;
+    self->current_off_delay = 0.0f;
 
     (void)self->inverter->set_phase_state(self->inverter->self, false);
 
@@ -353,6 +355,31 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
     } else {
         self->res_temp_comp = self->config.r_ohm;
         self->current_ki_temp_comp = self->config.current_ki;
+    }
+
+    /*
+     * Reference timer_update (mcpwm_foc.c:3952-3975), the rest of which is the block above: the
+     * delay counts down, and once it has - with no setpoint above the minimum - the motor is
+     * released by stopping the modulation outright, so the phases go quiet instead of being driven
+     * at zero. The mode list is the reference's own and does not include duty, rpm or position.
+     *
+     * `i_fw_set` is compared unsigned of abs, as the reference writes it (mcpwm_foc.c:3970): a
+     * negative field-weakening setpoint keeps the modulation on.
+     */
+    foc_step_towards(&self->current_off_delay, 0.0f, dt);
+    const bool current_family = self->state == FOC_STATE_RUNNING_CURRENT ||
+                                self->state == FOC_STATE_HANDBRAKE ||
+                                self->state == FOC_STATE_RUNNING_OPENLOOP;
+    if (!self->phase_override && current_family) {
+        float min_current = self->config.cc_min_current;
+        if (min_current < 0.001f && self->motor_released) {
+            min_current = 0.001f;
+        }
+        if (fabsf(self->target_iq) < min_current && fabsf(self->target_id) < min_current &&
+            self->i_fw_set < min_current && self->current_off_delay < dt) {
+            self->state = FOC_STATE_IDLE;
+            (void)self->inverter->set_phase_state(self->inverter->self, false);
+        }
     }
 
     /* 1. Read sensors via consumer ports */
@@ -864,6 +891,27 @@ edge_status_t foc_core_set_handbrake(foc_core_t *self, float brake_current_a) {
      */
     self->target_iq = brake_current_a;
     self->state = FOC_STATE_HANDBRAKE;
+    return EDGE_OK;
+}
+
+edge_status_t foc_core_release_motor(foc_core_t *self) {
+    if (self == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    if (self->state == FOC_STATE_FAULT || self->state == FOC_STATE_UNINITIALIZED) {
+        return EDGE_EBUSY;
+    }
+
+    /*
+     * Reference mcpwm_foc_release_motor (mcpwm_foc.c:819-824): the mode becomes CURRENT with both
+     * axes at zero, and `motor_released` is set. That flag is what the release itself waits on -
+     * the control loop is what actually stops the modulation, once the setpoints are seen to be
+     * below the minimum and the off-delay has run out.
+     */
+    self->target_id = 0.0f;
+    self->target_iq = 0.0f;
+    self->motor_released = true;
+    self->state = FOC_STATE_RUNNING_CURRENT;
     return EDGE_OK;
 }
 
