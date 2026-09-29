@@ -154,11 +154,56 @@ static void test_soc_stm32f4_adc_refuses_impossible_configs(void **state) {
     assert_int_equal(adc.jsqr, 10u << 15);
 }
 
+static void test_soc_stm32f4_adc_regular_conversion(void **state) {
+    (void)state;
+    memset(&adc, 0, sizeof(adc));
+    soc_stm32f4_adc_config_t injected = vesc6_ish;
+    injected.jeoc_interrupt = false;
+    assert_int_equal(soc_stm32f4_adc_init_injected(&adc, &injected), 3u);
+
+    /* The supply voltage's channel, on the regular sequence: a length of one, the channel in the
+     * first rank of SQR3, and the external trigger left off because the read starts it. */
+    assert_int_equal(soc_stm32f4_adc_init_regular(&adc, 11u, 1u), 1u);
+    assert_int_equal(adc.sqr1, 0u);
+    assert_int_equal(adc.sqr3, 11u);
+    assert_int_equal((adc.cr2 & 0x30000000u), 0u);
+    /* Channel 11 is field 1 of SMPR1, i.e. three bits in, so field 0 (10) and field 1 (11) both
+     * carry the 15-cycle setting. */
+    assert_int_equal(adc.smpr1, 0x9u);
+
+    /* A conversion: the read starts it, takes the data register, and clears the flag it waited
+     * for. The status bits are cleared by writing zero to them, so the write carries ones
+     * elsewhere. */
+    adc.dr = 0x0ABCu;
+    adc.sr = 0x02u;
+    uint16_t value = 0u;
+    assert_true(soc_stm32f4_adc_read_regular(&adc, &value));
+    assert_int_equal(value, 0x0ABCu);
+    assert_int_equal((adc.cr2 & 0x40000000u), 0x40000000u); /* SWSTART was written */
+    assert_int_equal((adc.sr & 0x02u), 0u);                 /* and EOC is clear again */
+
+    /* A part that never sets the flag is reported, not waited on forever. */
+    assert_false(soc_stm32f4_adc_read_regular(&adc, &value));
+
+    /* Refusals, and nothing written by any of them. */
+    assert_int_equal(soc_stm32f4_adc_init_regular(NULL, 11u, 1u), 0u);
+    assert_int_equal(soc_stm32f4_adc_init_regular(&adc, 18u, 1u), 0u);
+    assert_int_equal(soc_stm32f4_adc_init_regular(&adc, 11u, 8u), 0u);
+    assert_false(soc_stm32f4_adc_read_regular(NULL, &value));
+    assert_false(soc_stm32f4_adc_read_regular(&adc, NULL));
+    /* A block that was never enabled does not start a conversion at all. */
+    soc_stm32f4_adc_regs_t off;
+    memset(&off, 0, sizeof(off));
+    assert_false(soc_stm32f4_adc_read_regular(&off, &value));
+    assert_int_equal(off.cr2, 0u);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_soc_stm32f4_adc_injected_setup),
         cmocka_unit_test(test_soc_stm32f4_adc_reads_the_ranks),
         cmocka_unit_test(test_soc_stm32f4_adc_isr_forwards),
+        cmocka_unit_test(test_soc_stm32f4_adc_regular_conversion),
         cmocka_unit_test(test_soc_stm32f4_adc_refuses_impossible_configs),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
