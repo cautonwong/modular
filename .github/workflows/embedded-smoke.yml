@@ -90,6 +90,35 @@ jobs:
               -kernel build-m4/meter_mps2_fw || rc=$?
           echo "firmware exit status: $rc"
           test "$rc" -eq 0
+      # The VESC6 firmware is its own target: the M4 flag also carries the example product, which
+      # pulls the host PAL, so this builds the one target deliberately rather than all of them.
+      - name: Configure STM32F4 firmware
+        env:
+          CCACHE_DIR: ${{ github.workspace }}/.ccache
+        run: |
+          cmake -S . -B build-m4-stm32 -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=.github/arm/arm-none-eabi.cmake \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DEDGE_MODULE_BUILD_ARM_CORTEX_M4=ON \
+            -DEDGE_MODULE_BUILD_TESTS=OFF \
+            -DEDGE_MODULE_BUILD_EXAMPLE=OFF \
+            -DEDGE_MODULE_ENABLE_WERROR=ON
+      - name: Build and check the VESC6 firmware
+        run: |
+          cmake --build build-m4-stm32 --target vesc6_stm32f4_fw --parallel
+          arm-none-eabi-size build-m4-stm32/vesc6_stm32f4_fw
+          python3 .github/scripts/check_size.py build-m4-stm32/vesc6_stm32f4_fw 1048576 131072
+          NM_TOOL=arm-none-eabi-nm \
+            python3 .github/scripts/check_no_dynamic_memory.py build-m4-stm32/vesc6_stm32f4_fw
+      # A regression gate, not the reference's limit: 4600 is the measured count plus a little
+      # room. The reference's own 15 us at 168 MHz - 2520 cycles - is what the port is aiming at,
+      # and the gap between the two is written down in docs/bldc-migration.md.
+      - name: Fast-loop instruction budget
+        run: |
+          python3 .github/scripts/check_fast_loop_budget.py build-m4-stm32/vesc6_stm32f4_fw \
+            --max-cycles 4600 \
+            --report build-m4-stm32/fast-loop.json
       - name: Upload Cortex-M4 QEMU image
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
