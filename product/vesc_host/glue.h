@@ -51,6 +51,14 @@ typedef struct vesc_host_glue_state {
      * fields; the composition root points these at the constructed apps. */
     const ppm_app_t *ppm;
     const adc_input_app_t *adc;
+
+    /*
+     * The configuration a measurement runs in: the flux-linkage procedure replaces the
+     * aggregate's own configuration and wants it back afterwards, so the product that owns the
+     * aggregate keeps the copy (glue.c, id_enter_measurement_config).
+     */
+    foc_config_t saved_foc_config;
+    bool foc_config_saved;
 } vesc_host_glue_state_t;
 
 void vesc_host_make_flash_sector_port(flash_sector_port_t *out, vesc_host_glue_state_t *state);
@@ -113,7 +121,8 @@ void vesc_host_make_can_port(vesc_can_port_t *out, vesc_host_glue_state_t *state
  * Motor identification's port, wired to the FOC aggregate: the procedures drive the motor through
  * it and read the sample accumulator the control loop fills.
  */
-void vesc_host_make_motor_id_measure_port(motor_id_measure_port_t *out, foc_core_t *foc);
+void vesc_host_make_motor_id_measure_port(motor_id_measure_port_t *out,
+                                          vesc_host_glue_state_t *state);
 void vesc_host_make_nunchuk_port(nunchuk_port_t *out, vesc_host_glue_state_t *state);
 void vesc_host_make_pas_port(pas_port_t *out, vesc_host_glue_state_t *state);
 void vesc_host_make_balance_port(balance_port_t *out, vesc_host_glue_state_t *state);

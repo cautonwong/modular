@@ -614,10 +614,14 @@ static void test_vesc_host_simulated_adapters(void **state) {
     assert_int_equal(faults, foc_core_get_faults(&foc));
 
     /* The motor-identification port is wired to this test's FOC aggregate: every callback is one
-     * thing the measurement procedures do to the motor. */
+     * thing the measurement procedures do to the motor. The port's own state is the product's,
+     * because a measurement replaces and restores the aggregate's configuration through it. */
+    vesc_host_glue_state_t id_glue;
+    memset(&id_glue, 0, sizeof(id_glue));
+    id_glue.foc = &foc;
     motor_id_measure_port_t id_m;
-    vesc_host_make_motor_id_measure_port(&id_m, &foc);
-    assert_ptr_equal(id_m.self, &foc);
+    vesc_host_make_motor_id_measure_port(&id_m, &id_glue);
+    assert_ptr_equal(id_m.self, &id_glue);
     assert_non_null(id_m.set_phase_override);
     assert_non_null(id_m.set_current);
     assert_non_null(id_m.reset_samples);
@@ -872,8 +876,11 @@ static void test_vesc_host_motor_id_detection(void **state) {
     foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &cfg, &inverter, &current, &rotor);
     assert_int_equal(foc_core_init(&foc), EDGE_OK);
 
+    vesc_host_glue_state_t id_glue;
+    memset(&id_glue, 0, sizeof(id_glue));
+    id_glue.foc = &foc;
     motor_id_measure_port_t id_m;
-    vesc_host_make_motor_id_measure_port(&id_m, &foc);
+    vesc_host_make_motor_id_measure_port(&id_m, &id_glue);
     motor_id_app_t id_app;
     motor_id_construct(&id_app, EDGE_MOD_MOTOR_ID, 40u, &id_m);
     assert_int_equal(motor_id_init(&id_app), EDGE_OK);
@@ -1515,6 +1522,100 @@ static void test_vesc6_rotor_adapter(void **state) {
     vesc6_make_rotor_port(NULL, &glue);
 }
 
+/*
+ * The flux-linkage callbacks the port carries beyond the resistance four: each is one thing the
+ * procedure does to the aggregate, so each is checked against the aggregate's own state rather than
+ * against a return value.
+ */
+static void test_vesc_host_motor_id_flux_adapters(void **state) {
+    (void)state;
+    vesc_host_glue_state_t glue;
+    memset(&glue, 0, sizeof(glue));
+    glue.v_bus = 24.0f;
+    foc_virtual_motor_init(&glue.vmotor, 0.05f, 0.00005f, 1.0e-6f, 7, 0.0005f);
+
+    foc_inverter_port_t inverter;
+    vesc_host_make_inverter_port(&inverter, &glue);
+    foc_current_port_t current;
+    vesc_host_make_current_port(&current, &glue);
+    foc_rotor_port_t rotor;
+    vesc_host_make_rotor_port(&rotor, &glue);
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 1.0e-6f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.1f,
+                        .current_ki = 50.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .sensorless_mode = false};
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &cfg, &inverter, &current, &rotor);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    glue.foc = &foc;
+
+    motor_id_measure_port_t port;
+    vesc_host_make_motor_id_measure_port(&port, &glue);
+
+    /* The temporary configuration: sensorless with the supplied gains, and back again. */
+    assert_false(foc.config.sensorless_mode);
+    const float kp_before = foc.config.current_kp;
+    assert_int_equal(port.enter_measurement_config(port.self, 0.25f, 12.5f), EDGE_OK);
+    assert_true(foc.config.sensorless_mode);
+    assert_float_equal(foc.config.current_kp, 0.25f, 1e-6f);
+    assert_float_equal(foc.config.current_ki, 12.5f, 1e-6f);
+    assert_int_equal(port.leave_measurement_config(port.self), EDGE_OK);
+    assert_false(foc.config.sensorless_mode);
+    assert_float_equal(foc.config.current_kp, kp_before, 1e-6f);
+    /* Leaving again has nothing to put back, and says so. */
+    assert_int_equal(port.leave_measurement_config(port.self), EDGE_EINVAL);
+
+    /* Open loop through the port, and the readbacks it feeds. */
+    assert_int_equal(port.set_openloop_current(port.self, 3.0f, 600.0f), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_RUNNING_OPENLOOP);
+    assert_float_equal(foc.openloop_speed, 600.0f * (float)(2.0 * 3.14159265358979323846 / 60.0),
+                       1e-3f);
+
+    float v_d = 1.0f;
+    float v_q = 1.0f;
+    float i_d = 1.0f;
+    float i_q = 1.0f;
+    float duty = 1.0f;
+    float rad_s = 0.0f;
+    assert_int_equal(port.read_vdq(port.self, &v_d, &v_q), EDGE_OK);
+    assert_int_equal(port.read_idq(port.self, &i_d, &i_q), EDGE_OK);
+    assert_int_equal(port.read_duty(port.self, &duty), EDGE_OK);
+    assert_int_equal(port.read_speed_rad_s(port.self, &rad_s), EDGE_OK);
+    /* The FOC reports mechanical rpm, so the pole pairs are applied before RPM2RADPS_f: 1234 rpm on
+     * a fourteen-pole motor is 8638 electrical rpm, i.e. 904.6 rad/s. */
+    foc.last_rpm = 1234.0f;
+    assert_int_equal(port.read_speed_rad_s(port.self, &rad_s), EDGE_OK);
+    assert_float_equal(rad_s, 8638.0f * (float)(2.0 * 3.14159265358979323846 / 60.0), 1e-2f);
+
+    /* The null cases: nothing to read into, and no aggregate behind the state. */
+    assert_int_equal(port.read_vdq(port.self, NULL, &v_q), EDGE_EINVAL);
+    assert_int_equal(port.read_idq(port.self, &i_d, NULL), EDGE_EINVAL);
+    assert_int_equal(port.read_duty(port.self, NULL), EDGE_EINVAL);
+    assert_int_equal(port.read_speed_rad_s(port.self, NULL), EDGE_EINVAL);
+    assert_int_equal(port.read_vdq(NULL, &v_d, &v_q), EDGE_EINVAL);
+    vesc_host_glue_state_t bare;
+    memset(&bare, 0, sizeof(bare)); /* no aggregate behind the port */
+    motor_id_measure_port_t bare_port;
+    vesc_host_make_motor_id_measure_port(&bare_port, &bare);
+    assert_int_equal(bare_port.set_openloop_current(bare_port.self, 1.0f, 1.0f), EDGE_EINVAL);
+    assert_int_equal(bare_port.enter_measurement_config(bare_port.self, 1.0f, 1.0f), EDGE_EINVAL);
+    assert_int_equal(bare_port.read_duty(bare_port.self, &duty), EDGE_EINVAL);
+    /* Constructing into nothing is a no-op rather than a write through a null. */
+    vesc_host_make_motor_id_measure_port(NULL, &glue);
+    vesc_host_make_motor_id_measure_port(&bare_port, NULL);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -1540,6 +1641,7 @@ int main(void) {
         cmocka_unit_test(test_vesc6_inverter_adapter),
         cmocka_unit_test(test_vesc6_current_adapter),
         cmocka_unit_test(test_vesc6_rotor_adapter),
+        cmocka_unit_test(test_vesc_host_motor_id_flux_adapters),
         cmocka_unit_test(test_vesc_host_motor_setters),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
