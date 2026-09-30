@@ -117,3 +117,14 @@ edge_add_host_test(test_product_glue SOURCES test_product_glue.c
     ../product/vesc6_stm32f4/glue.c
     DEPS app_dlt645 app_meter_core app_modbus_slave app_pulse_meter app_relay app_foc_core app_vesc_comm app_motor_config app_ppm app_adc_input app_vesc_can app_motor_id app_nunchuk app_pas app_balance app_vesc_terminal app_vesc_bms infra_flash infra_gpio infra_uart infra_vesc_buffer board_vesc6)
 target_include_directories(test_product_glue PRIVATE ${EDGE_ROOT}/product ${EDGE_ROOT}/product/meter_gateway_host ${EDGE_ROOT}/product/water_meter_host ${EDGE_ROOT}/product/vesc_host)
+
+#
+# The HFI sample tables are generated from the reference and checked in, and the generator has had a
+# --check mode for that purpose from the start - regenerating into memory and comparing - with
+# nothing running it. A drift between the tables and the generator is the kind of difference that
+# reads as a mystery in a measurement's last digits, so it fails the suite instead.
+#
+add_test(NAME generated_hfi_tables_in_sync
+    COMMAND python3 ${EDGE_ROOT}/tools/gen_hfi_from_reference.py --check)
+set_tests_properties(generated_hfi_tables_in_sync PROPERTIES
+    WORKING_DIRECTORY ${EDGE_ROOT})
