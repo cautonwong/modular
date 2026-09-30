@@ -693,6 +693,29 @@ static void test_motor_config_hooks_and_arms(void **state) {
     assert_int_equal(motor_config_save(other), EDGE_EIO);
 }
 
+/*
+ * A stored stream whose signature is not this port's is not a configuration: it is refused rather
+ * than decoded. The reference reads the same field first (confgenerator.c appends and checks the
+ * signature before anything else), which is what makes an older or foreign dump fail closed instead
+ * of turning the wrong bytes into a plausible configuration.
+ */
+static void test_motor_config_refuses_a_foreign_signature(void **state) {
+    (void)state;
+    mc_configuration_t mc;
+    app_configuration_t app;
+    motor_config_set_defaults(&mc, &app);
+
+    uint8_t buffer[MOTOR_CONFIG_BUFFER_SIZE];
+    size_t len = 0u;
+    assert_int_equal(motor_config_serialize_mc(&mc, buffer, sizeof(buffer), &len), EDGE_OK);
+    assert_int_equal(motor_config_deserialize_mc(&mc, buffer, len), EDGE_OK);
+
+    /* The same bytes with the signature's first byte changed: the right length, the right shape,
+     * and not this configuration. */
+    buffer[0] = (uint8_t)(buffer[0] ^ 0xFFu);
+    assert_int_equal(motor_config_deserialize_mc(&mc, buffer, len), EDGE_EINVAL);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_defaults_and_validation),
@@ -705,6 +728,7 @@ int main(void) {
         cmocka_unit_test(test_motor_config_crc_matches_the_codec),
         cmocka_unit_test(test_motor_config_guards),
         cmocka_unit_test(test_motor_config_hooks_and_arms),
+        cmocka_unit_test(test_motor_config_refuses_a_foreign_signature),
         cmocka_unit_test(test_motor_config_defaults_keep_the_calibration_offsets),
         cmocka_unit_test(test_motor_config_app_nostore_applies_without_marking_dirty),
         cmocka_unit_test(test_module_lifecycle_and_variable_store),
