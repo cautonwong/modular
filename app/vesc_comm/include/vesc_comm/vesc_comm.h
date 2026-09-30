@@ -433,6 +433,14 @@ typedef struct vesc_comm_ops_port {
                                                   float erpm_per_sec, float resistance_ohm,
                                                   float inductance_h,
                                                   vesc_detect_flux_result_t *result);
+    /*
+     * COMM_DETECT_MOTOR_FLUX_LINKAGE: the same measurement with the motor commutated from its rotor
+     * sensor. Its reply is a single number - the reference's own handler sends the linkage and
+     * nothing else - and its procedure reports success as a bool, so the codec treats anything but
+     * success as a zero.
+     */
+    edge_status_t (*detect_flux_linkage)(void *self, float current_a, float min_rpm, float duty,
+                                         float resistance_ohm, float *linkage_wb);
     void *self;
 } vesc_comm_ops_port_t;
 
