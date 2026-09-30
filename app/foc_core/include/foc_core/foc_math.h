@@ -255,6 +255,14 @@ typedef struct foc_hfi_state {
 void foc_hfi_configure(foc_hfi_state_t *hfi, uint8_t foc_hfi_samples);
 
 /*
+ * Reference util/utils_math.h:273 utils_angle_difference_rad, literally: the difference wrapped
+ * into
+ * [-pi, pi] by the two while loops rather than by a modulo, with the reference's double M_PI. HFI's
+ * angle tracker chooses between the two bins with it, and uses it again for the flip test.
+ */
+float foc_angle_difference(float angle1, float angle2);
+
+/*
  * Reference foc_math.c:766 foc_hfi_adjust_angle: HFI's angle tracker. A proportional term and a
  * double integrator pull the injected frame's angle towards the error the current measurement
  * reports, and the double integrator is bounded by the fast speed estimate - which is what keeps
