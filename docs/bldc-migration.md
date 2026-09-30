@@ -143,7 +143,7 @@ clang-format --dry-run     # 格式
 | B2 | HFI 无感启动（原版 `m_hfi` 有一整套状态机） |
 | B3 | 弱磁（`foc_run_fw`）、MTPA 接回控制环（原版含 iq 重投影） |
 | B4 | 电感饱和/凸极补偿、温度补偿（`foc_temp_comp`） |
-| B5 | 检测流程：`COMM_DETECT_MOTOR_{PARAM,R_L,FLUX_LINKAGE}` 与 `foc_detect_*`。**已完成**：电阻测量（`mcpwm_foc_measure_resistance` :1797-1908）、开环磁链测量（`conf_general_measure_flux_linkage_openloop` :967-1316）与**有感磁链测量**（`conf_general_measure_flux_linkage` :742-899，四趟升速 + `switch_done` + 2000ms 聚合，`linkage = (avg_v − avg_i·res·2)/(√3·ω)`），三者都是协作状态机、每个出口还原临时配置；`COMM_DETECT_MOTOR_FLUX_LINKAGE_OPENLOOP` 已接线。**未完成**：有感磁链的**产品 glue 与 COMM_DETECT_MOTOR_FLUX_LINKAGE 命令**（过程本体已移植、单测已过，接线按电阻测量的同一顺序留下一步 ✓）、霍尔（无霍尔端口）、电感与 R_L/PARAM（经 `mcpwm_foc_measure_inductance`，随 B2 的 HFI）、`APPLY_ALL_FOC`（同列） |
+| B5 | 检测流程：`COMM_DETECT_MOTOR_{PARAM,R_L,FLUX_LINKAGE}` 与 `foc_detect_*`。**已完成**：电阻测量（`mcpwm_foc_measure_resistance` :1797-1908）、开环磁链测量（`conf_general_measure_flux_linkage_openloop` :967-1316）与**有感磁链测量**（`conf_general_measure_flux_linkage` :742-899，四趟升速 + `switch_done` + 2000ms 聚合，`linkage = (avg_v − avg_i·res·2)/(√3·ω)`），三者都是协作状态机、每个出口还原临时配置；`COMM_DETECT_MOTOR_FLUX_LINKAGE_OPENLOOP` 与 `COMM_DETECT_MOTOR_FLUX_LINKAGE` 均已接线（后者回包只有一个 linkage，与参考的处理函数一致）。**未完成**：霍尔（无霍尔端口）、电感与 R_L/PARAM（经 `mcpwm_foc_measure_inductance`，随 B2 的 HFI）、`APPLY_ALL_FOC`（同列）。**已知不回迁的一处**：有感过程重试时调的启动限值（`sl_min_erpm`/`sl_cycle_int_limit`/延迟换相模式）在本仓库的 FOC 配置里没有对应字段（那套属于参考的无感启动调节），端口回调因此是**有文档的 no-op** ✓ |
 | B6 | 控制模式语义：`l_current_max` 斜坡、按 duty 降流、`COMM_SET_CURRENT_REL`、handbrake 语义 |
 
 #### B3 进展（弱磁 + MTPA 已接入控制环）
