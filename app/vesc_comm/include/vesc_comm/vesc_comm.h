@@ -408,11 +408,31 @@ typedef struct vesc_config_provider_port {
  * Commands that act on the product rather than on the motor. Kept apart from the
  * configuration port because the consumer is a different module: here it is the terminal.
  */
+/*
+ * COMM_DETECT_MOTOR_FLUX_LINKAGE_OPENLOOP's result. The reference's procedure hands back the
+ * linkage it measured while driving, the same measurement taken with the phases off, how many
+ * samples the second one had, and whether the measurement is to be trusted; the command layer then
+ * decides which number goes on the wire (comm/commands.c:2304-2314).
+ */
+typedef struct vesc_detect_flux_result {
+    float linkage_wb;
+    float linkage_undriven_wb;
+    float undriven_samples;
+    bool valid;
+} vesc_detect_flux_result_t;
+
 typedef struct vesc_comm_ops_port {
     edge_status_t (*terminal_cmd)(void *self, const char *cmd);
     /* COMM_FORWARD_CAN: hand a whole packet to another controller over CAN. `data` is the
      * payload after the target id, which the codec has already peeled off. */
     edge_status_t (*forward_can)(void *self, uint8_t target_id, const uint8_t *data, size_t len);
+    /* COMM_DETECT_MOTOR_FLUX_LINKAGE_OPENLOOP: run the open-loop flux-linkage measurement. The
+     * reference blocks its command thread until it comes back, so an implementation that advances
+     * the measurement to its end before returning is what that looks like from here. */
+    edge_status_t (*detect_flux_linkage_openloop)(void *self, float current_a, float duty,
+                                                  float erpm_per_sec, float resistance_ohm,
+                                                  float inductance_h,
+                                                  vesc_detect_flux_result_t *result);
     void *self;
 } vesc_comm_ops_port_t;
 

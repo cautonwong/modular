@@ -443,6 +443,57 @@ static edge_status_t ops_forward_can(void *self, uint8_t target_id, const uint8_
     return vesc_can_send_buffer(ctx->can, target_id, data, len, 0u);
 }
 
+/*
+ * COMM_DETECT_MOTOR_FLUX_LINKAGE_OPENLOOP. The reference blocks its command thread on the procedure
+ * while the control loop keeps running in its own interrupt; here the two are advanced together,
+ * the control loop at the rate the product runs it at and the procedure one millisecond at a time.
+ * Twenty control cycles per millisecond is the host product's own fifty-microsecond period.
+ */
+static edge_status_t ops_detect_flux_linkage_openloop(void *self, float current_a, float duty,
+                                                      float erpm_per_sec, float resistance_ohm,
+                                                      float inductance_h,
+                                                      vesc_detect_flux_result_t *result) {
+    vesc_host_ops_ctx_t *ctx = (vesc_host_ops_ctx_t *)self;
+    if (ctx == (void *)0 || ctx->glue == (void *)0 || ctx->motor_id == (void *)0 ||
+        ctx->glue->foc == (void *)0 || result == (void *)0) {
+        return EDGE_EINVAL;
+    }
+
+    foc_core_t *foc = ctx->glue->foc;
+    motor_id_app_t *app = ctx->motor_id;
+    const float foc_dt = 0.000050f;
+    const uint32_t cycles_per_ms = 20u;
+
+    /* A resistance or inductance of zero means "take the configuration's", which is the one the
+     * composition root built the aggregate from. */
+    if (motor_id_measure_flux_linkage_openloop(app, current_a, duty, erpm_per_sec, resistance_ohm,
+                                               inductance_h, foc->config.r_ohm, foc->config.l_henry,
+                                               foc->config.duty_max) != EDGE_OK) {
+        return EDGE_EINVAL;
+    }
+
+    /* Bounded by the procedure's own longest phase - fifteen seconds of spin-up plus the rest -
+     * with room to spare, so a measurement that never finishes cannot hang the caller. */
+    for (uint32_t ms = 0u; ms < 40000u; ++ms) {
+        if (app->state == MOTOR_ID_STATE_COMPLETE || app->state == MOTOR_ID_STATE_FAILED) {
+            break;
+        }
+        for (uint32_t cycle = 0u; cycle < cycles_per_ms; ++cycle) {
+            (void)foc_core_fast_loop(foc, foc_dt);
+            foc_virtual_motor_step(&ctx->glue->vmotor, foc->v_alpha, foc->v_beta, 0.0f, foc_dt,
+                                   0.0f);
+        }
+        (void)motor_id_step(app, 0.001f);
+    }
+
+    const motor_id_result_t *measured = motor_id_get_result(app);
+    result->linkage_wb = measured->flux_linkage_wb;
+    result->linkage_undriven_wb = measured->linkage_undriven_wb;
+    result->undriven_samples = measured->undriven_samples;
+    result->valid = measured->valid;
+    return EDGE_OK;
+}
+
 void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_host_ops_ctx_t *ctx) {
     if (out == (void *)0) {
         return;
@@ -451,6 +502,7 @@ void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_host_ops_ctx_t *ctx
     *out = (vesc_comm_ops_port_t){
         .terminal_cmd = ops_terminal_cmd,
         .forward_can = ops_forward_can,
+        .detect_flux_linkage_openloop = ops_detect_flux_linkage_openloop,
         .self = ctx,
     };
 }

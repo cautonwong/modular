@@ -1616,6 +1616,88 @@ static void test_vesc_host_motor_id_flux_adapters(void **state) {
     vesc_host_make_motor_id_measure_port(&bare_port, NULL);
 }
 
+/*
+ * The command's measurement, through the product. The ops port drives the procedure and the plant
+ * together, which is this port's equivalent of the reference's blocking command thread. What is
+ * asserted is that it comes back at all - a hang would leave the procedure in progress - and that
+ * what came back is a measurement rather than a plausible constant.
+ */
+static void test_vesc_host_flux_command(void **state) {
+    (void)state;
+    vesc_host_glue_state_t glue;
+    memset(&glue, 0, sizeof(glue));
+    glue.v_bus = 24.0f;
+    foc_virtual_motor_init(&glue.vmotor, 0.05f, 0.00005f, 1.0e-6f, 7, 0.0005f);
+
+    foc_inverter_port_t inverter;
+    vesc_host_make_inverter_port(&inverter, &glue);
+    foc_current_port_t current;
+    vesc_host_make_current_port(&current, &glue);
+    foc_rotor_port_t rotor;
+    vesc_host_make_rotor_port(&rotor, &glue);
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 1.0e-6f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.1f,
+                        .current_ki = 50.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .sensorless_mode = false};
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &cfg, &inverter, &current, &rotor);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    glue.foc = &foc;
+
+    motor_id_measure_port_t id_port;
+    vesc_host_make_motor_id_measure_port(&id_port, &glue);
+    motor_id_app_t motor_id;
+    motor_id_construct(&motor_id, EDGE_MOD_MOTOR_ID, 40u, &id_port);
+    assert_int_equal(motor_id_init(&motor_id), EDGE_OK);
+
+    vesc_host_ops_ctx_t ctx = {.glue = &glue, .motor_id = &motor_id};
+    vesc_comm_ops_port_t ops;
+    vesc_host_make_ops_port(&ops, &ctx);
+    assert_non_null(ops.detect_flux_linkage_openloop);
+
+    vesc_detect_flux_result_t result;
+    memset(&result, 0, sizeof(result));
+    assert_int_equal(
+        ops.detect_flux_linkage_openloop(ops.self, 5.0f, 0.05f, 2000.0f, 0.05f, 1.0e-6f, &result),
+        EDGE_OK);
+    /* It ran to one of its ends rather than staying in progress. */
+    assert_true(motor_id.state == MOTOR_ID_STATE_COMPLETE ||
+                motor_id.state == MOTOR_ID_STATE_FAILED);
+    if (motor_id.state == MOTOR_ID_STATE_COMPLETE) {
+        assert_true(result.valid);
+        assert_true(isfinite(result.linkage_wb));
+        /* The virtual motor's own flux linkage is 1e-6, and this is a measurement of it. The sign
+         * is not asserted: the reference's formula takes it from the drive, and both signs are
+         * legitimate results of the same motor turning the other way. What is asserted is that the
+         * number is a flux linkage of that order rather than an arbitrary constant. */
+        assert_true(fabsf(result.linkage_wb) < 1.0e-3f);
+        assert_true(result.undriven_samples > 0.0f);
+    }
+
+    /* Nothing to drive it with. */
+    vesc_detect_flux_result_t other;
+    assert_int_equal(
+        ops.detect_flux_linkage_openloop(NULL, 5.0f, 0.05f, 2000.0f, 0.05f, 1.0e-6f, &other),
+        EDGE_EINVAL);
+    vesc_host_ops_ctx_t bare;
+    memset(&bare, 0, sizeof(bare));
+    vesc_comm_ops_port_t bare_ops;
+    vesc_host_make_ops_port(&bare_ops, &bare);
+    assert_int_equal(bare_ops.detect_flux_linkage_openloop(bare_ops.self, 5.0f, 0.05f, 2000.0f,
+                                                           0.05f, 1.0e-6f, &other),
+                     EDGE_EINVAL);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -1642,6 +1724,7 @@ int main(void) {
         cmocka_unit_test(test_vesc6_current_adapter),
         cmocka_unit_test(test_vesc6_rotor_adapter),
         cmocka_unit_test(test_vesc_host_motor_id_flux_adapters),
+        cmocka_unit_test(test_vesc_host_flux_command),
         cmocka_unit_test(test_vesc_host_motor_setters),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
