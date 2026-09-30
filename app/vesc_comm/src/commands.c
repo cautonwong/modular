@@ -272,6 +272,62 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
         return self->ops->terminal_cmd(self->ops->self, (const char *)(data + 1u));
     }
 
+    case COMM_DETECT_MOTOR_FLUX_LINKAGE_OPENLOOP: {
+        /*
+         * Reference comm/commands.c:2296-2322. The request is the current, the electrical speed
+         * per second, the duty to spin up to and the resistance; the inductance is optional and is
+         * read only when the packet is long enough to hold it. The reply is the command id followed
+         * by the linkage the caller settled on, and then the three encoder values the sensored
+         * measurement fills in.
+         *
+         * Those three have no source here, and the reference at this point is reading its own
+         * uninitialised locals for them - a real defect on its side that this port does not
+         * reproduce: it sends zero, one and false, and says so in the confluence view.
+         */
+        if (self->ops == (void *)0 || self->ops->detect_flux_linkage_openloop == (void *)0) {
+            return EDGE_ENOTSUP;
+        }
+        if (len < 16u) {
+            return EDGE_EINVAL;
+        }
+
+        size_t index = 1;
+        const float current = buffer_get_float32(data, 1e3, &index);
+        const float erpm_per_sec = buffer_get_float32(data, 1e3, &index);
+        const float duty = buffer_get_float32(data, 1e3, &index);
+        const float resistance = buffer_get_float32(data, 1e6, &index);
+        float inductance = 0.0f;
+        if (len >= (uint32_t)index + 4u) {
+            inductance = buffer_get_float32(data, 1e8, &index);
+        }
+
+        vesc_detect_flux_result_t flux;
+        memset(&flux, 0, sizeof(flux));
+        if (self->ops->detect_flux_linkage_openloop(self->ops->self, current, duty, erpm_per_sec,
+                                                    resistance, inductance, &flux) != EDGE_OK) {
+            flux.valid = false;
+            flux.linkage_wb = 0.0f;
+        }
+
+        /* The caller's own rules (:2304-2314): a fault means zero, a measurement with too few
+         * undriven samples is replaced by the undriven one, and an untrusted result is zero. */
+        float linkage = flux.linkage_wb;
+        if (!flux.valid) {
+            linkage = 0.0f;
+        } else if (flux.undriven_samples > 60.0f) {
+            linkage = flux.linkage_undriven_wb;
+        }
+
+        uint8_t *const reply = self->cmd_reply_buf;
+        size_t out = 0;
+        reply[out++] = COMM_DETECT_MOTOR_FLUX_LINKAGE_OPENLOOP;
+        buffer_append_float32(reply, linkage, 1e7, &out);
+        buffer_append_float32(reply, 0.0f, 1e6, &out);
+        buffer_append_float32(reply, 0.0f, 1e6, &out);
+        reply[out++] = 0u;
+        return send_reply(self, out);
+    }
+
     case COMM_FORWARD_CAN: {
         if (self->ops == (void *)0 || self->ops->forward_can == (void *)0) {
             return EDGE_ENOTSUP;

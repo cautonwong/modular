@@ -15,6 +15,7 @@
 #include "edge/modules.h"
 #include <stdio.h>
 
+#include "vesc_buffer/buffer.h"
 #include "vesc_comm/vesc_comm.h"
 
 typedef struct mock_comm_ctx {
@@ -1324,6 +1325,124 @@ static void test_every_command_propagates_a_port_failure(void **state) {
     }
 }
 
+/*
+ * COMM_DETECT_MOTOR_FLUX_LINKAGE_OPENLOOP. The measurement itself belongs to the product; what is
+ * checked here is the framing of the request and the caller's three rules for choosing which number
+ * goes back (comm/commands.c:2304-2314).
+ */
+typedef struct mock_flux_ctx {
+    float current;
+    float duty;
+    float erpm_per_sec;
+    float resistance;
+    float inductance;
+    int calls;
+    vesc_detect_flux_result_t result;
+    edge_status_t status;
+} mock_flux_ctx_t;
+
+static edge_status_t mock_detect_flux(void *self, float current_a, float duty, float erpm_per_sec,
+                                      float resistance_ohm, float inductance_h,
+                                      vesc_detect_flux_result_t *result) {
+    mock_flux_ctx_t *ctx = (mock_flux_ctx_t *)self;
+    ctx->calls++;
+    ctx->current = current_a;
+    ctx->duty = duty;
+    ctx->erpm_per_sec = erpm_per_sec;
+    ctx->resistance = resistance_ohm;
+    ctx->inductance = inductance_h;
+    if (ctx->status != EDGE_OK) {
+        return ctx->status;
+    }
+    *result = ctx->result;
+    return EDGE_OK;
+}
+
+/* The reply's payload, found by its command id so the framing either side of it does not matter. */
+static bool reply_carries(const mock_comm_ctx_t *ctx, uint8_t id, float value, float scale) {
+    for (int32_t at = 0; at + 1 < (int32_t)ctx->tx_len; ++at) {
+        if (ctx->tx_buf[at] == id) {
+            int32_t index = at + 1;
+            const float got = vesc_buffer_get_float32(ctx->tx_buf, scale, &index);
+            return fabsf(got - value) < 1e-4f;
+        }
+    }
+    return false;
+}
+
+static void test_detect_flux_linkage_openloop_command(void **state) {
+    (void)state;
+    mock_comm_ctx_t tx;
+    memset(&tx, 0, sizeof(tx));
+    edge_stream_tx_port_t tx_port = {.write = mock_stream_write, .self = &tx};
+    mock_flux_ctx_t flux;
+    memset(&flux, 0, sizeof(flux));
+    vesc_comm_ops_port_t ops_port = {.terminal_cmd = mock_terminal_cmd,
+                                     .forward_can = mock_forward_can,
+                                     .detect_flux_linkage_openloop = mock_detect_flux,
+                                     .self = &flux};
+    vesc_comm_t *comm = test_comm_alloc();
+    vesc_comm_construct(comm, EDGE_MOD_VESC_COMM, 10u, &tx_port, NULL, NULL, NULL, &ops_port,
+                        &test_identity);
+    assert_int_equal(vesc_comm_init(comm), EDGE_OK);
+
+    /* The request as the reference frames it: current, electrical speed per second, duty and
+     * resistance, all at 1e3 except the resistance. */
+    uint8_t req[32];
+    int32_t len = 0;
+    req[len++] = COMM_DETECT_MOTOR_FLUX_LINKAGE_OPENLOOP;
+    vesc_buffer_append_float32(req, 5.0f, 1e3, &len);
+    vesc_buffer_append_float32(req, 2000.0f, 1e3, &len);
+    vesc_buffer_append_float32(req, 0.5f, 1e3, &len);
+    vesc_buffer_append_float32(req, 0.05f, 1e6, &len);
+    assert_int_equal(vesc_comm_process_command(comm, req, (size_t)len), EDGE_OK);
+    assert_int_equal(flux.calls, 1);
+    assert_float_equal(flux.current, 5.0f, 1e-2f);
+    assert_float_equal(flux.erpm_per_sec, 2000.0f, 1.0f);
+    assert_float_equal(flux.duty, 0.5f, 1e-3f);
+    assert_float_equal(flux.resistance, 0.05f, 1e-5f);
+    /* No inductance in this packet, so the procedure is told to take the configuration's. */
+    assert_float_equal(flux.inductance, 0.0f, 1e-9f);
+
+    /* Enough undriven samples: the undriven measurement is the one that goes back. */
+    flux.result.valid = true;
+    flux.result.linkage_wb = 0.02f;
+    flux.result.linkage_undriven_wb = 0.012f;
+    flux.result.undriven_samples = 100.0f;
+    assert_int_equal(vesc_comm_process_command(comm, req, (size_t)len), EDGE_OK);
+    assert_true(reply_carries(&tx, COMM_DETECT_MOTOR_FLUX_LINKAGE_OPENLOOP, 0.012f, 1e7));
+
+    /* Too few: the driven measurement stands. */
+    flux.result.undriven_samples = 10.0f;
+    assert_int_equal(vesc_comm_process_command(comm, req, (size_t)len), EDGE_OK);
+    assert_true(reply_carries(&tx, COMM_DETECT_MOTOR_FLUX_LINKAGE_OPENLOOP, 0.02f, 1e7));
+
+    /* Not trusted, or a failed call: zero. */
+    flux.result.valid = false;
+    assert_int_equal(vesc_comm_process_command(comm, req, (size_t)len), EDGE_OK);
+    assert_true(reply_carries(&tx, COMM_DETECT_MOTOR_FLUX_LINKAGE_OPENLOOP, 0.0f, 1e7));
+    flux.result.valid = true;
+    flux.status = EDGE_EIO;
+    assert_int_equal(vesc_comm_process_command(comm, req, (size_t)len), EDGE_OK);
+    assert_true(reply_carries(&tx, COMM_DETECT_MOTOR_FLUX_LINKAGE_OPENLOOP, 0.0f, 1e7));
+
+    /* The inductance, when the packet carries it, arrives at its own scale. */
+    flux.status = EDGE_OK;
+    int32_t with_ind = len;
+    vesc_buffer_append_float32(req, 1.5e-5f, 1e8, &with_ind);
+    assert_int_equal(vesc_comm_process_command(comm, req, (size_t)with_ind), EDGE_OK);
+    assert_float_equal(flux.inductance, 1.5e-5f, 1e-8f);
+
+    /* Without the callback the command says it cannot, which is what an unknown command does. */
+    vesc_comm_ops_port_t no_flux = {
+        .terminal_cmd = mock_terminal_cmd, .forward_can = mock_forward_can, .self = &flux};
+    vesc_comm_t *other = test_comm_alloc2();
+    vesc_comm_construct(other, EDGE_MOD_VESC_COMM, 10u, &tx_port, NULL, NULL, NULL, &no_flux,
+                        &test_identity);
+    assert_int_equal(vesc_comm_init(other), EDGE_OK);
+    assert_int_equal(vesc_comm_process_command(other, req, (size_t)len), EDGE_ENOTSUP);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -1337,6 +1456,7 @@ int main(void) {
         cmocka_unit_test(test_commands_without_optional_ports),
         cmocka_unit_test(test_every_command_propagates_a_port_failure),
         cmocka_unit_test(test_decoded_inputs_negative_side),
+        cmocka_unit_test(test_detect_flux_linkage_openloop_command),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

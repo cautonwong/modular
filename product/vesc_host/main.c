@@ -309,6 +309,10 @@ int main(void) {
     if (motor_id_init(&motor_id) != EDGE_OK) {
         return 18;
     }
+    /* The flux-linkage command drives the procedure and the plant together, so the ops context
+     * carries both once they exist. */
+    ops_ctx.glue = &glue_state;
+    ops_ctx.motor_id = &motor_id;
 
     nunchuk_app_t nunchuk_app;
     nunchuk_config_t nunchuk_cfg = {.deadband = 0.05f, .timeout_s = 0.2f};

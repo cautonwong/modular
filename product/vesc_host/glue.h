@@ -98,6 +98,14 @@ void vesc_host_make_var_port(motor_config_var_port_t *out, flash_emul_t *emul);
 typedef struct vesc_host_ops_ctx {
     vesc_terminal_app_t *term;
     vesc_can_app_t *can;
+    /*
+     * The flux-linkage measurement needs both the procedure and the plant: the aggregate it drives,
+     * the virtual motor that answers, and the product state they both live in. The reference's
+     * command thread blocks while its control loop keeps running in an interrupt, so the equivalent
+     * here is to advance the two together.
+     */
+    vesc_host_glue_state_t *glue;
+    motor_id_app_t *motor_id;
 } vesc_host_ops_ctx_t;
 void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_host_ops_ctx_t *ctx);
 void vesc_host_make_inverter_port(foc_inverter_port_t *out, vesc_host_glue_state_t *state);
