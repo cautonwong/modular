@@ -714,6 +714,217 @@ static void test_motor_id_flux_arms(void **state) {
     assert_int_equal(app.state, MOTOR_ID_STATE_COMPLETE);
 }
 
+/*
+ * The sensored flux-linkage procedure (conf_general.c:742-899). Its plant is a motor that spins up
+ * when it is driven, and the two things worth pinning are that it averages two thousand
+ * milliseconds of bus voltage times duty before dividing, and that a motor which never reaches half
+ * the target costs one attempt and then a release before the next one is tried.
+ */
+typedef struct mock_sensored_plant {
+    float duty;
+    float duty_target;
+    float v_bus;
+    float rpm;
+    bool stuck; /* never reaches half the target: the attempt must give up */
+    bool running;
+    int enter_calls;
+    int leave_calls;
+    int release_calls;
+    int stop_calls;
+    float last_sl_min_erpm;
+    float last_sl_cycle_limit;
+    bool last_delay_comm_mode;
+} mock_sensored_plant_t;
+
+static edge_status_t sensored_read_duty(void *self, float *duty_now) {
+    mock_sensored_plant_t *p = (mock_sensored_plant_t *)self;
+    if (!p->stuck && p->duty < p->duty_target) {
+        p->duty += 0.05f;
+        if (p->duty > p->duty_target) {
+            p->duty = p->duty_target;
+        }
+    }
+    *duty_now = p->stuck ? 0.1f : p->duty;
+    return EDGE_OK;
+}
+
+static edge_status_t sensored_read_vbus(void *self, float *v_bus) {
+    *v_bus = ((mock_sensored_plant_t *)self)->v_bus;
+    return EDGE_OK;
+}
+
+static edge_status_t sensored_read_rpm(void *self, float *rpm) {
+    *rpm = ((mock_sensored_plant_t *)self)->rpm;
+    return EDGE_OK;
+}
+
+static edge_status_t sensored_read_idq(void *self, float *i_d, float *i_q) {
+    (void)self;
+    *i_d = 0.0f;
+    *i_q = 0.0f;
+    return EDGE_OK;
+}
+
+static edge_status_t sensored_enter(void *self) {
+    mock_sensored_plant_t *p = (mock_sensored_plant_t *)self;
+    p->enter_calls++;
+    p->running = true;
+    return EDGE_OK;
+}
+
+static edge_status_t sensored_leave(void *self) {
+    ((mock_sensored_plant_t *)self)->leave_calls++;
+    return EDGE_OK;
+}
+
+static edge_status_t sensored_release(void *self) {
+    mock_sensored_plant_t *p = (mock_sensored_plant_t *)self;
+    p->release_calls++;
+    p->running = false;
+    return EDGE_OK;
+}
+
+static edge_status_t sensored_is_running(void *self, bool *running) {
+    *running = ((mock_sensored_plant_t *)self)->running;
+    return EDGE_OK;
+}
+
+static edge_status_t sensored_set_limits(void *self, float sl_min_erpm, float sl_cycle_limit,
+                                         bool delay_comm_mode) {
+    mock_sensored_plant_t *p = (mock_sensored_plant_t *)self;
+    p->last_sl_min_erpm = sl_min_erpm;
+    p->last_sl_cycle_limit = sl_cycle_limit;
+    p->last_delay_comm_mode = delay_comm_mode;
+    return EDGE_OK;
+}
+
+static edge_status_t sensored_set_current(void *self, float iq) {
+    (void)self;
+    (void)iq;
+    return EDGE_OK;
+}
+
+static uint32_t sensored_no_fault(void *self) {
+    (void)self;
+    return 0u;
+}
+
+static edge_status_t sensored_stop(void *self) {
+    mock_sensored_plant_t *p = (mock_sensored_plant_t *)self;
+    p->stop_calls++;
+    p->running = false;
+    return EDGE_OK;
+}
+
+/* The resistance callbacks the port still has to carry, unused by this procedure. */
+static edge_status_t sensored_unused_phase(void *self, float angle_rad, bool enable) {
+    (void)self;
+    (void)angle_rad;
+    (void)enable;
+    return EDGE_OK;
+}
+
+static edge_status_t sensored_unused_reset(void *self) {
+    (void)self;
+    return EDGE_OK;
+}
+
+static edge_status_t sensored_unused_read(void *self, float *i_sum, float *v_sum, uint32_t *count) {
+    (void)self;
+    (void)i_sum;
+    (void)v_sum;
+    (void)count;
+    return EDGE_OK;
+}
+
+static motor_id_measure_port_t make_sensored_port(mock_sensored_plant_t *plant) {
+    return (motor_id_measure_port_t){
+        .self = plant,
+        .set_phase_override = sensored_unused_phase,
+        .set_current = sensored_set_current,
+        .reset_samples = sensored_unused_reset,
+        .read_samples = sensored_unused_read,
+        .get_fault = sensored_no_fault,
+        .stop = sensored_stop,
+        .leave_measurement_config = sensored_leave,
+        .read_duty = sensored_read_duty,
+        .read_idq = sensored_read_idq,
+        .read_vbus = sensored_read_vbus,
+        .read_rpm = sensored_read_rpm,
+        .release_motor = sensored_release,
+        .is_running = sensored_is_running,
+        .set_startup_limits = sensored_set_limits,
+        .enter_sensored_measurement_config = sensored_enter,
+    };
+}
+
+static void run_sensored_to_end(motor_id_app_t *app) {
+    for (int ms = 0;
+         ms < 60000 && app->state != MOTOR_ID_STATE_COMPLETE && app->state != MOTOR_ID_STATE_FAILED;
+         ms++) {
+        assert_int_equal(motor_id_step(app, 0.001f), EDGE_OK);
+    }
+}
+
+static void test_motor_id_flux_linkage_sensored(void **state) {
+    (void)state;
+    /* A bus of 24 V, a duty target of 0.5 and five hundred rpm: the average voltage is 12 V, the
+     * current is zero, so the linkage is 12 / (sqrt(3) * 500 * 2*pi/60) = 0.13232. */
+    mock_sensored_plant_t plant = {
+        .duty = 0.0f, .duty_target = 0.5f, .v_bus = 24.0f, .rpm = 500.0f};
+    motor_id_measure_port_t port = make_sensored_port(&plant);
+    motor_id_app_t app;
+    motor_id_construct(&app, EDGE_MOD_MOTOR_ID, 40u, &port);
+    assert_int_equal(motor_id_init(&app), EDGE_OK);
+
+    assert_int_equal(motor_id_measure_flux_linkage_sensored(&app, 5.0f, 0.5f, 500.0f, 0.05f, 0.0f),
+                     EDGE_OK);
+    run_sensored_to_end(&app);
+
+    assert_int_equal(app.state, MOTOR_ID_STATE_COMPLETE);
+    const motor_id_result_t *result = motor_id_get_result(&app);
+    assert_true(result->valid);
+    assert_float_equal(result->flux_linkage_wb, 0.13232f, 1e-4f);
+    assert_int_equal(plant.enter_calls, 1);
+    assert_int_equal(plant.leave_calls, 1);
+    assert_int_equal(plant.release_calls, 0); /* the first attempt started it */
+
+    /* A motor that never reaches half the target costs an attempt and a release, and the limits the
+     * next attempt runs under are the reference's own. */
+    mock_sensored_plant_t stuck = {
+        .duty_target = 0.5f, .v_bus = 24.0f, .rpm = 500.0f, .stuck = true};
+    motor_id_measure_port_t stuck_port = make_sensored_port(&stuck);
+    motor_id_app_t stuck_app;
+    motor_id_construct(&stuck_app, EDGE_MOD_MOTOR_ID, 40u, &stuck_port);
+    assert_int_equal(motor_id_init(&stuck_app), EDGE_OK);
+    assert_int_equal(
+        motor_id_measure_flux_linkage_sensored(&stuck_app, 5.0f, 0.5f, 500.0f, 0.05f, 0.0f),
+        EDGE_OK);
+    for (int i = 0; i < 2100; i++) {
+        assert_int_equal(motor_id_step(&stuck_app, 0.001f), EDGE_OK);
+    }
+    /* Four attempts, each after a release, and the last one has run out of tries. */
+    run_sensored_to_end(&stuck_app);
+    assert_int_equal(stuck_app.state, MOTOR_ID_STATE_FAILED);
+    assert_false(motor_id_get_result(&stuck_app)->valid);
+    assert_int_equal(stuck.release_calls, 3);
+    assert_int_equal(stuck.leave_calls, 1);
+    assert_float_equal(stuck.last_sl_min_erpm, 2000.0f, 1e-3f); /* 4 * min_erpm */
+    assert_true(stuck.last_delay_comm_mode);
+
+    /* Refusals: no aggregate, and a port that cannot do it. */
+    assert_int_equal(motor_id_measure_flux_linkage_sensored(NULL, 5.0f, 0.5f, 500.0f, 0.05f, 0.0f),
+                     EDGE_EINVAL);
+    mock_plant_t plain = {.r_ohm = 0.05f, .accumulate = true};
+    motor_id_measure_port_t plain_port = make_port(&plain);
+    motor_id_app_t plain_app;
+    motor_id_construct(&plain_app, EDGE_MOD_MOTOR_ID, 40u, &plain_port);
+    assert_int_equal(motor_id_init(&plain_app), EDGE_OK);
+    assert_int_equal(
+        motor_id_measure_flux_linkage_sensored(&plain_app, 5.0f, 0.5f, 500.0f, 0.05f, 0.0f),
+        EDGE_EINVAL);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -725,6 +936,7 @@ int main(void) {
         cmocka_unit_test(test_motor_id_flux_gives_up_when_it_must),
         cmocka_unit_test(test_motor_id_flux_needs_its_ports),
         cmocka_unit_test(test_motor_id_flux_arms),
+        cmocka_unit_test(test_motor_id_flux_linkage_sensored),
         cmocka_unit_test(test_motor_id_aborts_on_a_fault),
         cmocka_unit_test(test_motor_id_sample_timeout_publishes_an_invalid_result),
         cmocka_unit_test(test_motor_id_hooks_and_accessor_guards),

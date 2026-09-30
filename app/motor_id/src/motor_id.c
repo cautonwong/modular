@@ -14,8 +14,9 @@
  * expression is written here, with the same literals. */
 #define MOTOR_ID_RPM_TO_RAD_S (2.0 * 3.14159265358979323846 / 60.0)
 
-/* Defined below with the flux-linkage procedure; the tick switch dispatches to it. */
+/* Defined below with the flux-linkage procedures; the tick switch dispatches to them. */
 static void motor_id_flux_tick(motor_id_app_t *app);
+static void motor_id_sensored_tick(motor_id_app_t *app);
 
 static edge_status_t motor_id_poll(edge_module_t *mod) {
     (void)mod;
@@ -116,6 +117,13 @@ static void motor_id_tick(motor_id_app_t *app) {
         motor_id_flux_tick(app);
         return;
 
+    case MOTOR_ID_STATE_SENSORED_CONFIG:
+    case MOTOR_ID_STATE_SENSORED_RELEASE:
+    case MOTOR_ID_STATE_SENSORED_SPINUP:
+    case MOTOR_ID_STATE_SENSORED_SAMPLE:
+        motor_id_sensored_tick(app);
+        return;
+
     case MOTOR_ID_STATE_RAMP:
         /*
          * :1818-1834. The reference's while loop steps the setpoint, checks the fault and sleeps
@@ -185,6 +193,8 @@ static void motor_id_tick(motor_id_app_t *app) {
         return;
     }
 }
+
+static void motor_id_sensored_tick(motor_id_app_t *app);
 
 void motor_id_construct(motor_id_app_t *app, uint32_t module_id, uint32_t priority,
                         const motor_id_measure_port_t *measure_port) {
@@ -631,6 +641,255 @@ edge_status_t motor_id_measure_flux_linkage_openloop(motor_id_app_t *app, float 
         return EDGE_EINVAL;
     }
     app->state = MOTOR_ID_STATE_FLUX_CONFIG;
+    return EDGE_OK;
+}
+
+/* --- the sensored flux-linkage procedure, conf_general.c:742-899 ------------------------------ */
+#define MOTOR_ID_SENSORED_CONFIG_MS 500u   /* :763-769, the wait for the fault to clear */
+#define MOTOR_ID_SENSORED_RELEASE_MS 1000u /* the wait_for_motor_release bound, then the sleep */
+#define MOTOR_ID_SENSORED_ATTEMPTS 4u      /* :795, the first plus three retries */
+#define MOTOR_ID_SENSORED_SWITCH_MS 2000u  /* :843, no switch by now means the attempt failed */
+#define MOTOR_ID_SENSORED_TIMEOUT_MS 5000u /* :848 */
+#define MOTOR_ID_SENSORED_SAMPLE_MS 2000u  /* :875 */
+
+static void motor_id_sensored_fail(motor_id_app_t *app) {
+    app->result.valid = false;
+    motor_id_stop_motor(app);
+    if (app->measure_port.leave_measurement_config != (void *)0) {
+        (void)app->measure_port.leave_measurement_config(app->measure_port.self);
+    }
+    app->state = MOTOR_ID_STATE_FAILED;
+}
+
+/*
+ * The start-up limits each attempt loosens (conf_general.c:807-826): the first changes only the
+ * cycle integral limit, the second also doubles the minimum electrical speed and drops the limit to
+ * twenty, the third quadruples the speed and switches the commutation mode to its delay setting.
+ * What the first attempt leaves alone is passed as the caller's own min_erpm, which is the value
+ * the command reads out of the configuration.
+ */
+static void motor_id_sensored_apply_attempt(motor_id_app_t *app) {
+    const motor_id_measure_port_t *p = &app->measure_port;
+    if (p->set_startup_limits == (void *)0) {
+        return;
+    }
+    if (app->sensored_pass == 1u) {
+        (void)p->set_startup_limits(p->self, app->sensored_min_erpm, 250.0f, false);
+    } else if (app->sensored_pass == 2u) {
+        (void)p->set_startup_limits(p->self, 2.0f * app->sensored_min_erpm, 20.0f, false);
+    } else if (app->sensored_pass == 3u) {
+        (void)p->set_startup_limits(p->self, 4.0f * app->sensored_min_erpm, 20.0f, true);
+    }
+}
+
+/* One millisecond of the sensored flux-linkage procedure. */
+static void motor_id_sensored_tick(motor_id_app_t *app) {
+    const motor_id_measure_port_t *p = &app->measure_port;
+    switch (app->state) {
+    case MOTOR_ID_STATE_SENSORED_CONFIG:
+        /*
+         * :763-775: the configuration is installed, then up to five hundred milliseconds are spent
+         * waiting for the fault to clear. If it has not, the old configuration goes back and the
+         * procedure reports that it could not measure - there is no linkage to publish.
+         */
+        if (p->get_fault(p->self) == 0u || ++app->ms >= MOTOR_ID_SENSORED_CONFIG_MS) {
+            if (p->get_fault(p->self) != 0u) {
+                motor_id_sensored_fail(app);
+                return;
+            }
+            app->ms = 0u;
+            app->sensored_pass = 0u;
+            app->sensored_switch_done = false;
+            (void)p->set_current(p->self, app->sensored_current_a);
+            motor_id_sensored_apply_attempt(app);
+            app->state = MOTOR_ID_STATE_SENSORED_SPINUP;
+        }
+        return;
+
+    case MOTOR_ID_STATE_SENSORED_RELEASE: {
+        /*
+         * :796-826: release the motor and wait for it, bounded by the second the reference allows.
+         * The staged configuration is installed again there as well, which here is a no-op: it
+         * never left. The drive resumes in the spin-up state, which spends the second it sleeps
+         * first.
+         */
+        bool running = false;
+        if (p->release_motor != (void *)0) {
+            (void)p->release_motor(p->self);
+        }
+        if (p->is_running != (void *)0) {
+            (void)p->is_running(p->self, &running);
+        }
+        if (running) {
+            if (++app->ms >= MOTOR_ID_SENSORED_RELEASE_MS) {
+                motor_id_sensored_fail(app);
+            }
+            return;
+        }
+        app->ms = 0u;
+        app->flux_cnt_ms = 0u;
+        app->sensored_switch_done = false;
+        (void)p->set_current(p->self, app->sensored_current_a);
+        motor_id_sensored_apply_attempt(app);
+        app->state = MOTOR_ID_STATE_SENSORED_SPINUP;
+        return;
+    }
+
+    case MOTOR_ID_STATE_SENSORED_SPINUP: {
+        /*
+         * :819-856. The reference sleeps a second after releasing the motor before it drives again,
+         * then per millisecond: reads the duty, switches the commutation mode once the duty is
+         * halfway to the target, and gives up on this attempt if the switch has not happened within
+         * two seconds or at five seconds altogether.
+         */
+        if (app->ms < MOTOR_ID_SENSORED_RELEASE_MS) {
+            ++app->ms;
+            return;
+        }
+
+        float duty = 0.0f;
+        (void)p->read_duty(p->self, &duty);
+        const float duty_now = fabsf(duty);
+        ++app->flux_cnt_ms;
+
+        if (duty_now >= (app->sensored_duty / 2.0f) && !app->sensored_switch_done) {
+            if (p->set_startup_limits != (void *)0) {
+                (void)p->set_startup_limits(p->self, app->sensored_min_erpm, 20.0f, true);
+            }
+            app->sensored_switch_done = true;
+        }
+
+        if (duty_now >= app->sensored_duty) {
+            app->ms = 0u;
+            app->sensored_avg_voltage = 0.0f;
+            app->sensored_avg_rpm = 0.0f;
+            app->sensored_avg_current = 0.0f;
+            app->sensored_samples = 0.0f;
+            app->state = MOTOR_ID_STATE_SENSORED_SAMPLE;
+            return;
+        }
+
+        const bool gave_up =
+            (!app->sensored_switch_done && app->flux_cnt_ms > MOTOR_ID_SENSORED_SWITCH_MS) ||
+            app->flux_cnt_ms >= MOTOR_ID_SENSORED_TIMEOUT_MS;
+        if (gave_up) {
+            if ((app->sensored_pass + 1u) >= MOTOR_ID_SENSORED_ATTEMPTS) {
+                motor_id_sensored_fail(app);
+                return;
+            }
+            ++app->sensored_pass;
+            app->ms = 0u;
+            app->flux_cnt_ms = 0u;
+            app->sensored_switch_done = false;
+            app->state = MOTOR_ID_STATE_SENSORED_RELEASE;
+            return;
+        }
+
+        /* :853-856: the current is re-armed every millisecond, and a fault aborts the procedure. */
+        (void)p->set_current(p->self, app->sensored_current_a);
+        if (p->get_fault(p->self) != 0u) {
+            motor_id_sensored_fail(app);
+        }
+        return;
+    }
+
+    case MOTOR_ID_STATE_SENSORED_SAMPLE: {
+        /*
+         * :875-894: two thousand milliseconds of the bus voltage times the duty, the mechanical rpm
+         * and the total current, averaged; then the measured current's own drop over the winding -
+         * twice, for the two phases it flows through - comes off the voltage, and the linkage is
+         * that over sqrt(3) times the angular speed. The current is the FOC's own filtered id and
+         * iq, which is what the reference's total current is made of too.
+         */
+        float v_bus = 0.0f;
+        float duty = 0.0f;
+        float rpm = 0.0f;
+        float i_d = 0.0f;
+        float i_q = 0.0f;
+        (void)p->read_vbus(p->self, &v_bus);
+        (void)p->read_duty(p->self, &duty);
+        (void)p->read_rpm(p->self, &rpm);
+        (void)p->read_idq(p->self, &i_d, &i_q);
+        app->sensored_avg_voltage += v_bus * duty;
+        app->sensored_avg_rpm += rpm;
+        app->sensored_avg_current += sqrtf(i_d * i_d + i_q * i_q);
+        app->sensored_samples += 1.0f;
+        if (++app->ms < MOTOR_ID_SENSORED_SAMPLE_MS) {
+            return;
+        }
+
+        app->sensored_avg_voltage /= app->sensored_samples;
+        app->sensored_avg_rpm /= app->sensored_samples;
+        app->sensored_avg_current /= app->sensored_samples;
+        app->sensored_avg_voltage -= app->sensored_avg_current * app->sensored_res_ohm * 2.0f;
+        app->result.flux_linkage_wb =
+            app->sensored_avg_voltage /
+            (sqrtf(3.0f) * app->sensored_avg_rpm * (float)MOTOR_ID_RPM_TO_RAD_S);
+        app->result.valid = true;
+        motor_id_stop_motor(app);
+        if (p->leave_measurement_config != (void *)0) {
+            (void)p->leave_measurement_config(p->self);
+        }
+        app->state = MOTOR_ID_STATE_COMPLETE;
+        return;
+    }
+
+    default:
+        return;
+    }
+}
+
+edge_status_t motor_id_measure_flux_linkage_sensored(motor_id_app_t *app, float current_a,
+                                                     float duty, float min_erpm, float res_ohm,
+                                                     float config_res_ohm) {
+    if (app == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    const motor_id_measure_port_t *p = &app->measure_port;
+    if (p->enter_sensored_measurement_config == (void *)0 || p->read_vbus == (void *)0 ||
+        p->read_rpm == (void *)0 || p->release_motor == (void *)0 || p->is_running == (void *)0 ||
+        p->set_startup_limits == (void *)0 || p->set_current == (void *)0 ||
+        p->read_duty == (void *)0 || p->read_idq == (void *)0 || p->get_fault == (void *)0 ||
+        p->stop == (void *)0 || p->leave_measurement_config == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    if (app->state != MOTOR_ID_STATE_IDLE && app->state != MOTOR_ID_STATE_COMPLETE &&
+        app->state != MOTOR_ID_STATE_FAILED) {
+        return EDGE_EBUSY;
+    }
+
+    /* The resistance is the caller's, or the configuration's when none is supplied. */
+    if (res_ohm <= 0.0f) {
+        res_ohm = config_res_ohm;
+    }
+    if (res_ohm <= 0.0f) {
+        app->state = MOTOR_ID_STATE_FAILED;
+        return EDGE_EINVAL;
+    }
+
+    app->result.valid = false;
+    app->sensored_current_a = current_a;
+    app->sensored_duty = duty;
+    app->sensored_min_erpm = min_erpm;
+    app->sensored_res_ohm = res_ohm;
+    app->sensored_pass = 0u;
+    app->sensored_switch_done = false;
+    app->sensored_avg_voltage = 0.0f;
+    app->sensored_avg_rpm = 0.0f;
+    app->sensored_avg_current = 0.0f;
+    app->sensored_samples = 0.0f;
+    app->ms = 0u;
+    app->ms_accum = 0.0f;
+    app->flux_cnt_ms = 0u;
+    app->stop_after = true;
+
+    /* The configuration the procedure measures in goes in before the first phase, and comes back on
+     * every exit path. */
+    if (p->enter_sensored_measurement_config(p->self) != EDGE_OK) {
+        app->state = MOTOR_ID_STATE_FAILED;
+        return EDGE_EINVAL;
+    }
+    app->state = MOTOR_ID_STATE_SENSORED_CONFIG;
     return EDGE_OK;
 }
 

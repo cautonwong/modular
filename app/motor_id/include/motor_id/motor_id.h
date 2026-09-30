@@ -55,7 +55,18 @@ typedef enum motor_id_state {
     MOTOR_ID_STATE_FLUX_UNDRIVEN,
     MOTOR_ID_STATE_FLUX_OBSERVER,
     MOTOR_ID_STATE_FLUX_STOP,
-    MOTOR_ID_STATE_FLUX_BACK_EMF
+    MOTOR_ID_STATE_FLUX_BACK_EMF,
+
+    /*
+     * conf_general_measure_flux_linkage (conf_general.c:742-899), the sensored variant: install a
+     * configuration that commutes from the rotor sensor, then four attempts to spin the motor up -
+     * each of the last three releases it, loosens a start-up limit and drives again - and finally
+     * two thousand milliseconds of averaging at the duty the caller asked for.
+     */
+    MOTOR_ID_STATE_SENSORED_CONFIG,
+    MOTOR_ID_STATE_SENSORED_RELEASE,
+    MOTOR_ID_STATE_SENSORED_SPINUP,
+    MOTOR_ID_STATE_SENSORED_SAMPLE
 } motor_id_state_t;
 
 typedef struct motor_id_result {
@@ -114,6 +125,25 @@ typedef struct motor_id_measure_port {
     edge_status_t (*read_idq)(void *self, float *i_d, float *i_q);
     edge_status_t (*read_duty)(void *self, float *duty_now);
     edge_status_t (*read_speed_rad_s)(void *self, float *rad_s);
+    /*
+     * The sensored variant (conf_general.c:742-899) needs four more things and one more answer:
+     *
+     *   read_vbus             GET_INPUT_VOLTAGE() multiplies the bus voltage by the duty (:877)
+     *   release_motor         mc_interface_release_motor before each retry (:796-826)
+     *   is_running            the wait_for_motor_release(1.0) that follows it
+     *   set_startup_limits    the per-attempt sl_min_erpm / sl_cycle_int_limit / comm_mode values
+     *
+     * and entering the measurement has to say whether the configuration should commute from the
+     * rotor sensor or sensorless. The sensored variant is a procedure of its own, so it has an
+     * entry of its own rather than a flag on the other one's.
+     */
+    edge_status_t (*read_vbus)(void *self, float *v_bus);
+    edge_status_t (*read_rpm)(void *self, float *rpm);
+    edge_status_t (*release_motor)(void *self);
+    edge_status_t (*is_running)(void *self, bool *running);
+    edge_status_t (*set_startup_limits)(void *self, float sl_min_erpm, float sl_cycle_int_limit,
+                                        bool delay_comm_mode);
+    edge_status_t (*enter_sensored_measurement_config)(void *self);
 } motor_id_measure_port_t;
 
 typedef struct motor_id_app {
@@ -160,6 +190,19 @@ typedef struct motor_id_app {
     /* The reference writes -1, -2 or -3 into the linkage on its three failed exits (:1125,:1133,
      * :1140) and zero otherwise; this keeps that number rather than folding it into valid. */
     float flux_fail_reason;
+
+    /* The sensored variant's own state: its arguments, which attempt it is on, and the three sums
+     * its averaging phase fills. */
+    float sensored_current_a;
+    float sensored_duty;
+    float sensored_min_erpm;
+    float sensored_res_ohm;
+    uint32_t sensored_pass;
+    bool sensored_switch_done;
+    float sensored_avg_voltage;
+    float sensored_avg_rpm;
+    float sensored_avg_current;
+    float sensored_samples;
 } motor_id_app_t;
 
 void motor_id_construct(motor_id_app_t *app, uint32_t module_id, uint32_t priority,
@@ -189,6 +232,17 @@ edge_status_t motor_id_measure_flux_linkage_openloop(motor_id_app_t *app, float 
                                                      float duty, float erpm_per_sec, float res_ohm,
                                                      float ind_h, float config_res_ohm,
                                                      float config_ind_h, float config_duty_max);
+
+/*
+ * conf_general_measure_flux_linkage (conf_general.c:742-899): the same measurement with the motor
+ * commutated from its rotor sensor instead of open loop. It returns the linkage through the same
+ * result struct - the driven linkage is the only number it produces - and reports success through
+ * the state, so a run that could not spin the motor up ends in MOTOR_ID_STATE_FAILED with nothing
+ * valid in the result.
+ */
+edge_status_t motor_id_measure_flux_linkage_sensored(motor_id_app_t *app, float current_a,
+                                                     float duty, float min_erpm, float res_ohm,
+                                                     float config_res_ohm);
 
 edge_status_t motor_id_measure_r_l(motor_id_app_t *app);
 edge_status_t motor_id_measure_flux_linkage(motor_id_app_t *app);
