@@ -239,7 +239,20 @@ typedef struct foc_hfi_state {
     float angle;
     float double_integrator;
     bool ready;
+    /* The sample table the configuration selects: how many samples the transform runs over and how
+     * many steps of the reference's table one of them advances, which the state machine reads. */
+    int samples;
+    int table_fact;
 } foc_hfi_state_t;
+
+/*
+ * The sample-table selection, reference mcpwm_foc.c:133-166 update_hfi_samples. The reference
+ * memsets the whole state and then sets the two fields, so a run of this resets the tracker with
+ * them - which is what the reference does when the configuration changes under it. A value the
+ * three cases do not cover leaves both at zero, exactly as that switch without a default does; the
+ * consumer of the two numbers is the state machine, which is the next piece of this port.
+ */
+void foc_hfi_configure(foc_hfi_state_t *hfi, uint8_t foc_hfi_samples);
 
 /*
  * Reference foc_math.c:766 foc_hfi_adjust_angle: HFI's angle tracker. A proportional term and a

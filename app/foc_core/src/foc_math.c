@@ -1,5 +1,7 @@
 #include "foc_core/foc_math.h"
+
 #include <math.h>
+#include <string.h>
 
 /*
  * Reference firmware: util/utils_math.c `utils_fast_sincos_better`. The FOC ISR
@@ -352,6 +354,30 @@ void foc_observer_adjust_params(float r_ohm, float l_henry, float lambda_wb, flo
  */
 float foc_temp_comp_factor(float motor_temp_c, float base_temp_c) {
     return 1.0 + 0.00386 * (motor_temp_c - base_temp_c);
+}
+
+void foc_hfi_configure(foc_hfi_state_t *hfi, uint8_t foc_hfi_samples) {
+    if (hfi == (void *)0) {
+        return;
+    }
+    memset(hfi, 0, sizeof(*hfi));
+    switch (foc_hfi_samples) {
+    case 0u: /* HFI_SAMPLES_8 */
+        hfi->samples = 8;
+        hfi->table_fact = 4;
+        break;
+    case 1u: /* HFI_SAMPLES_16 */
+        hfi->samples = 16;
+        hfi->table_fact = 2;
+        break;
+    case 2u: /* HFI_SAMPLES_32 */
+        hfi->samples = 32;
+        hfi->table_fact = 1;
+        break;
+    default:
+        /* The reference's switch has no default, so anything else leaves the two at zero. */
+        break;
+    }
 }
 
 void foc_hfi_adjust_angle(float ang_err, float max_err, float gain, float speed_est_fast, float dt,
