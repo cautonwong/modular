@@ -494,6 +494,51 @@ static edge_status_t ops_detect_flux_linkage_openloop(void *self, float current_
     return EDGE_OK;
 }
 
+/*
+ * COMM_DETECT_MOTOR_FLUX_LINKAGE: the sensored measurement, driven the same way as the open-loop
+ * one
+ * - the procedure and the plant advance together. The procedure reports success as a bool, which
+ * here is the state it ends in: anything but complete is a failure, and the reply is then a zero.
+ */
+static edge_status_t ops_detect_flux_linkage(void *self, float current_a, float min_rpm, float duty,
+                                             float resistance_ohm, float *linkage_wb) {
+    vesc_host_ops_ctx_t *ctx = (vesc_host_ops_ctx_t *)self;
+    if (ctx == (void *)0 || ctx->glue == (void *)0 || ctx->motor_id == (void *)0 ||
+        ctx->glue->foc == (void *)0 || linkage_wb == (void *)0) {
+        return EDGE_EINVAL;
+    }
+
+    foc_core_t *foc = ctx->glue->foc;
+    motor_id_app_t *app = ctx->motor_id;
+    const float foc_dt = 0.000050f;
+    const uint32_t cycles_per_ms = 20u;
+
+    if (motor_id_measure_flux_linkage_sensored(app, current_a, duty, min_rpm, resistance_ohm,
+                                               foc->config.r_ohm) != EDGE_OK) {
+        return EDGE_EINVAL;
+    }
+
+    /* Bounded by the procedure's own worst case - the four attempts at up to six seconds each plus
+     * the averaging - with room to spare, so a measurement that never finishes cannot hang. */
+    for (uint32_t ms = 0u; ms < 60000u; ++ms) {
+        if (app->state == MOTOR_ID_STATE_COMPLETE || app->state == MOTOR_ID_STATE_FAILED) {
+            break;
+        }
+        for (uint32_t cycle = 0u; cycle < cycles_per_ms; ++cycle) {
+            (void)foc_core_fast_loop(foc, foc_dt);
+            foc_virtual_motor_step(&ctx->glue->vmotor, foc->v_alpha, foc->v_beta, 0.0f, foc_dt,
+                                   0.0f);
+        }
+        (void)motor_id_step(app, 0.001f);
+    }
+
+    if (app->state != MOTOR_ID_STATE_COMPLETE) {
+        return EDGE_EIO;
+    }
+    *linkage_wb = motor_id_get_result(app)->flux_linkage_wb;
+    return EDGE_OK;
+}
+
 void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_host_ops_ctx_t *ctx) {
     if (out == (void *)0) {
         return;
@@ -503,6 +548,7 @@ void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_host_ops_ctx_t *ctx
         .terminal_cmd = ops_terminal_cmd,
         .forward_can = ops_forward_can,
         .detect_flux_linkage_openloop = ops_detect_flux_linkage_openloop,
+        .detect_flux_linkage = ops_detect_flux_linkage,
         .self = ctx,
     };
 }
@@ -852,6 +898,78 @@ static edge_status_t id_read_speed_rad_s(void *self, float *rad_s) {
     return EDGE_OK;
 }
 
+/*
+ * The sensored flux-linkage procedure's own callbacks. Three of them read what the aggregate
+ * already publishes, one asks it to release the motor and one asks whether it has; the last saves
+ * the configuration and commutes from the rotor sensor instead of sensorless, which is the one
+ * thing that differs between the two flux-linkage procedures.
+ */
+static edge_status_t id_read_vbus(void *self, float *v_bus) {
+    foc_core_t *foc = id_foc(self);
+    if (foc == (void *)0 || v_bus == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    *v_bus = foc->last_v_bus;
+    return EDGE_OK;
+}
+
+/* The reference reads mc_interface_get_rpm(), which is mechanical, and multiplies it by
+ * RPM2RADPS_f itself; this hands over the same quantity. */
+static edge_status_t id_read_rpm(void *self, float *rpm) {
+    foc_core_t *foc = id_foc(self);
+    if (foc == (void *)0 || rpm == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    *rpm = foc->last_rpm;
+    return EDGE_OK;
+}
+
+static edge_status_t id_release_motor(void *self) {
+    return foc_core_release_motor(id_foc(self));
+}
+
+static edge_status_t id_is_running(void *self, bool *running) {
+    foc_core_t *foc = id_foc(self);
+    if (foc == (void *)0 || running == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    const foc_state_t state = foc->state;
+    *running = state == FOC_STATE_RUNNING_CURRENT || state == FOC_STATE_RUNNING_DUTY ||
+               state == FOC_STATE_RUNNING_RPM || state == FOC_STATE_RUNNING_POS ||
+               state == FOC_STATE_HANDBRAKE || state == FOC_STATE_RUNNING_OPENLOOP;
+    return EDGE_OK;
+}
+
+/*
+ * The per-attempt start-up limits, which this port has nowhere to put: they tune the reference's
+ * sensorless start (sl_min_erpm, sl_cycle_int_limit and a delayed commutation mode), and this
+ * controller does not use any of the three. The callback answers that it was given them and changes
+ * nothing, which is recorded in the conformance view - the four attempts then differ by the release
+ * and the re-drive rather than by a different tune.
+ */
+static edge_status_t id_set_startup_limits(void *self, float sl_min_erpm, float sl_cycle_limit,
+                                           bool delay_comm_mode) {
+    (void)self;
+    (void)sl_min_erpm;
+    (void)sl_cycle_limit;
+    (void)delay_comm_mode;
+    return EDGE_OK;
+}
+
+static edge_status_t id_enter_sensored_measurement_config(void *self) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    if (s == (void *)0 || s->foc == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    s->saved_foc_config = s->foc->config;
+    s->foc_config_saved = true;
+    /* This board has no hall driver, but the host simulation has a rotor sensor, so the procedure
+     * can run here the way it runs on a board that does. The reference picks a specific sensored
+     * mode; this port's configuration says only whether the angle comes from the sensor. */
+    s->foc->config.sensorless_mode = false;
+    return EDGE_OK;
+}
+
 void vesc_host_make_motor_id_measure_port(motor_id_measure_port_t *out,
                                           vesc_host_glue_state_t *state) {
     if (out == (void *)0 || state == (void *)0) {
@@ -872,6 +990,12 @@ void vesc_host_make_motor_id_measure_port(motor_id_measure_port_t *out,
         .read_idq = id_read_idq,
         .read_duty = id_read_duty,
         .read_speed_rad_s = id_read_speed_rad_s,
+        .read_vbus = id_read_vbus,
+        .read_rpm = id_read_rpm,
+        .release_motor = id_release_motor,
+        .is_running = id_is_running,
+        .set_startup_limits = id_set_startup_limits,
+        .enter_sensored_measurement_config = id_enter_sensored_measurement_config,
     };
 }
 

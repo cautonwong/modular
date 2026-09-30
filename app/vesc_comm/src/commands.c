@@ -272,6 +272,40 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
         return self->ops->terminal_cmd(self->ops->self, (const char *)(data + 1u));
     }
 
+    case COMM_DETECT_MOTOR_FLUX_LINKAGE: {
+        /*
+         * Reference comm/commands.c:2165-2185. The request is the current, the minimum rpm, the
+         * duty to spin up to and the resistance, at the scales its handler reads them at; the reply
+         * is the command id and the linkage, and nothing else - unlike the open-loop variant, which
+         * also sends the three encoder values. The caller's own rule is the last line of the
+         * reference's handler: a measurement that did not succeed is sent as zero.
+         */
+        if (self->ops == (void *)0 || self->ops->detect_flux_linkage == (void *)0) {
+            return EDGE_ENOTSUP;
+        }
+        if (len < 16u) {
+            return EDGE_EINVAL;
+        }
+
+        size_t index = 1;
+        const float current = buffer_get_float32(data, 1e3, &index);
+        const float min_rpm = buffer_get_float32(data, 1e3, &index);
+        const float duty = buffer_get_float32(data, 1e3, &index);
+        const float resistance = buffer_get_float32(data, 1e6, &index);
+
+        float linkage = 0.0f;
+        if (self->ops->detect_flux_linkage(self->ops->self, current, min_rpm, duty, resistance,
+                                           &linkage) != EDGE_OK) {
+            linkage = 0.0f;
+        }
+
+        uint8_t *const reply = self->cmd_reply_buf;
+        size_t out = 0;
+        reply[out++] = COMM_DETECT_MOTOR_FLUX_LINKAGE;
+        buffer_append_float32(reply, linkage, 1e7, &out);
+        return send_reply(self, out);
+    }
+
     case COMM_DETECT_MOTOR_FLUX_LINKAGE_OPENLOOP: {
         /*
          * Reference comm/commands.c:2296-2322. The request is the current, the electrical speed
