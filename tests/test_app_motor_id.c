@@ -923,6 +923,28 @@ static void test_motor_id_flux_linkage_sensored(void **state) {
     assert_int_equal(
         motor_id_measure_flux_linkage_sensored(&plain_app, 5.0f, 0.5f, 500.0f, 0.05f, 0.0f),
         EDGE_EINVAL);
+
+    /*
+     * A resistance of zero means the configuration's; a second run while one is in progress is
+     * refused; and a run whose resistance comes from nowhere is refused rather than driven.
+     */
+    mock_sensored_plant_t supplied = {.duty_target = 0.5f, .v_bus = 24.0f, .rpm = 500.0f};
+    motor_id_measure_port_t supplied_port = make_sensored_port(&supplied);
+    motor_id_app_t supplied_app;
+    motor_id_construct(&supplied_app, EDGE_MOD_MOTOR_ID, 40u, &supplied_port);
+    assert_int_equal(motor_id_init(&supplied_app), EDGE_OK);
+    assert_int_equal(
+        motor_id_measure_flux_linkage_sensored(&supplied_app, 5.0f, 0.5f, 500.0f, 0.0f, 0.05f),
+        EDGE_OK);
+    assert_int_equal(
+        motor_id_measure_flux_linkage_sensored(&supplied_app, 5.0f, 0.5f, 500.0f, 0.05f, 0.0f),
+        EDGE_EBUSY);
+    run_sensored_to_end(&supplied_app);
+    assert_int_equal(supplied_app.state, MOTOR_ID_STATE_COMPLETE);
+    assert_float_equal(motor_id_get_result(&supplied_app)->flux_linkage_wb, 0.13232f, 1e-4f);
+    assert_int_equal(
+        motor_id_measure_flux_linkage_sensored(&supplied_app, 5.0f, 0.5f, 500.0f, 0.0f, 0.0f),
+        EDGE_EINVAL);
 }
 
 int main(void) {
