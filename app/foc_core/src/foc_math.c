@@ -356,6 +356,17 @@ float foc_temp_comp_factor(float motor_temp_c, float base_temp_c) {
     return 1.0 + 0.00386 * (motor_temp_c - base_temp_c);
 }
 
+float foc_angle_difference(float angle1, float angle2) {
+    float difference = angle1 - angle2;
+    while (difference < -(float)M_PI) {
+        difference += 2.0f * (float)M_PI;
+    }
+    while (difference > (float)M_PI) {
+        difference -= 2.0f * (float)M_PI;
+    }
+    return difference;
+}
+
 void foc_hfi_configure(foc_hfi_state_t *hfi, uint8_t foc_hfi_samples) {
     if (hfi == (void *)0) {
         return;

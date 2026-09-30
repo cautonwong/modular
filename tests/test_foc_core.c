@@ -2348,6 +2348,37 @@ static void test_foc_hfi_configure(void **state) {
     foc_hfi_configure(NULL, 0u); /* nothing to configure */
 }
 
+/*
+ * The wrapped angle difference, which HFI's tracker uses to choose between its two bins and to
+ * decide its flip. The boundaries are the interesting part: a difference of exactly pi stays, and
+ * anything past it comes back around rather than growing.
+ */
+static void test_foc_angle_difference(void **state) {
+    (void)state;
+    const float pi = 3.14159265358979323846f;
+
+    assert_float_equal(foc_angle_difference(0.5f, 0.25f), 0.25f, 1e-6f);
+    assert_float_equal(foc_angle_difference(0.25f, 0.5f), -0.25f, 1e-6f);
+    assert_float_equal(foc_angle_difference(1.0f, 1.0f), 0.0f, 1e-6f);
+
+    /* A whole turn apart is no difference at all, and three quarters of one is minus a quarter. */
+    assert_float_equal(foc_angle_difference(2.0f * pi + 0.5f, 0.5f), 0.0f, 1e-4f);
+    assert_float_equal(foc_angle_difference(0.5f, 1.5f * pi), 0.5f - 1.5f * pi + 2.0f * pi, 1e-4f);
+
+    /* Exactly pi stays; a hair past it comes back from the other side. */
+    assert_float_equal(foc_angle_difference(pi, 0.0f), pi, 1e-4f);
+    assert_true(foc_angle_difference(pi + 0.001f, 0.0f) < 0.0f);
+
+    /* Every result lies in the range, which is what the two loops are for. */
+    for (int i = -40; i <= 40; ++i) {
+        for (int j = -40; j <= 40; ++j) {
+            const float difference = foc_angle_difference((float)i * 0.5f, (float)j * 0.7f);
+            assert_true(difference >= -pi - 1e-4f);
+            assert_true(difference <= pi + 1e-4f);
+        }
+    }
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -2379,6 +2410,7 @@ int main(void) {
         cmocka_unit_test(test_foc_core_temp_compensation),
         cmocka_unit_test(test_foc_hfi_adjust_angle_matches_reference),
         cmocka_unit_test(test_foc_hfi_configure),
+        cmocka_unit_test(test_foc_angle_difference),
         cmocka_unit_test(test_foc_fft_bins_match_reference),
         cmocka_unit_test(test_foc_core_guards),
         cmocka_unit_test(test_foc_core_init_and_command_guards),
