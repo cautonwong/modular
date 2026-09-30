@@ -182,7 +182,7 @@ int main(void) {
 
     /* Motor identification drives the FOC aggregate, so its port is built from it. */
     motor_id_measure_port_t id_m_port;
-    vesc_host_make_motor_id_measure_port(&id_m_port, &foc);
+    vesc_host_make_motor_id_measure_port(&id_m_port, &glue_state);
 
     vesc_motor_provider_port_t motor_port;
     vesc_host_make_motor_provider_port(&motor_port, &foc);

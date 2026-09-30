@@ -364,6 +364,356 @@ static void test_motor_id_hooks_and_accessor_guards(void **state) {
     assert_ptr_equal(motor_id_module(NULL), NULL);
 }
 
+/*
+ * The flux-linkage procedure (conf_general.c:967-1316), phase by phase. The plant here is what the
+ * reference watches: a duty that rises as the open-loop speed does until the target is reached - at
+ * which point the procedure averages what it drove with, stops the phases and measures again - and
+ * the three ways it gives up. Every expected number is the reference's own arithmetic.
+ */
+typedef enum mock_duty_mode {
+    MOCK_DUTY_RISES, /* duty = rpm / 2000, so 0.5 is reached at 1000 rpm */
+    MOCK_DUTY_FLAT,  /* duty never moves */
+    MOCK_DUTY_DROPS  /* rises to 0.3 and then falls, which is the -2 exit */
+} mock_duty_mode_t;
+
+typedef struct mock_flux_plant {
+    mock_duty_mode_t mode;
+    float baseline_duty; /* what the motor draws standing still, before the ramp */
+    float spinup_duty;   /* and what it draws while spinning up, in the flat mode */
+    uint32_t fault_after_openloop_calls;
+    bool config_entered;
+    int enter_calls;
+    int leave_calls;
+    float kp_in;
+    float ki_in;
+    int openloop_calls;
+    float last_openloop_current;
+    float last_openloop_rpm;
+    float v_q;
+    float rad_s;
+    /* Set when the procedure stops the motor. Afterwards the fixture reports a duty at the bottom
+     * of the range, which is what a coasting motor looks like - and what the undriven measurement's
+     * 0.02 guard is there to select. */
+    bool stopped;
+    /* The baseline phase reads the duty a thousand times before the spin-up asks for it, and those
+     * thousand are the standstill measurement; the reads after them belong to the drive. */
+    int duty_reads;
+} mock_flux_plant_t;
+
+static float mock_flux_duty(const mock_flux_plant_t *p) {
+    if (p->stopped) {
+        return 0.01f;
+    }
+    /* While the baseline is being measured - the first thousand reads - the motor is standing
+     * still, whatever the drive has been asked for. */
+    if (p->duty_reads <= 1000) {
+        return p->baseline_duty;
+    }
+    switch (p->mode) {
+    case MOCK_DUTY_RISES:
+        return p->last_openloop_rpm / 2000.0f;
+    case MOCK_DUTY_DROPS:
+        return (p->last_openloop_rpm < 600.0f) ? 0.3f : 0.05f;
+    default:
+        return p->spinup_duty;
+    }
+}
+
+static edge_status_t mock_enter_config(void *self, float current_kp, float current_ki) {
+    mock_flux_plant_t *p = (mock_flux_plant_t *)self;
+    p->config_entered = true;
+    p->enter_calls++;
+    p->kp_in = current_kp;
+    p->ki_in = current_ki;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_leave_config(void *self) {
+    mock_flux_plant_t *p = (mock_flux_plant_t *)self;
+    p->config_entered = false;
+    p->leave_calls++;
+    return EDGE_OK;
+}
+
+/* The reference ramps the speed by erpm_per_sec / 1000 per millisecond and expects the caller to
+ * have applied the direction, so this records what it was given. */
+static edge_status_t mock_set_openloop(void *self, float current_a, float rpm) {
+    mock_flux_plant_t *p = (mock_flux_plant_t *)self;
+    p->openloop_calls++;
+    p->last_openloop_current = current_a;
+    p->last_openloop_rpm = rpm;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_read_vdq(void *self, float *v_d, float *v_q) {
+    mock_flux_plant_t *p = (mock_flux_plant_t *)self;
+    *v_d = 0.0f;
+    *v_q = p->v_q;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_read_idq(void *self, float *i_d, float *i_q) {
+    (void)self;
+    *i_d = 0.0f;
+    *i_q = 0.0f;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_read_duty(void *self, float *duty_now) {
+    mock_flux_plant_t *p = (mock_flux_plant_t *)self;
+    p->duty_reads++;
+    *duty_now = mock_flux_duty(p);
+    return EDGE_OK;
+}
+
+static edge_status_t mock_read_speed(void *self, float *rad_s) {
+    *rad_s = ((const mock_flux_plant_t *)self)->rad_s;
+    return EDGE_OK;
+}
+
+static uint32_t mock_flux_fault(void *self) {
+    const mock_flux_plant_t *p = (const mock_flux_plant_t *)self;
+    if (p->fault_after_openloop_calls != 0u &&
+        (uint32_t)p->openloop_calls >= p->fault_after_openloop_calls) {
+        return 7u;
+    }
+    return 0u;
+}
+
+/* The stop the procedure asks for: the fixture's motor coasts from here on. */
+static edge_status_t mock_flux_stop(void *self) {
+    ((mock_flux_plant_t *)self)->stopped = true;
+    return EDGE_OK;
+}
+
+/* The resistance measurement's four callbacks are part of the same port, and motor_id_init asks for
+ * them whatever procedure is about to run; the flux cases here do not use them. */
+static edge_status_t mock_flux_unused_set_phase_override(void *self, float angle_rad, bool enable) {
+    (void)self;
+    (void)angle_rad;
+    (void)enable;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_flux_unused_set_current(void *self, float iq) {
+    (void)self;
+    (void)iq;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_flux_unused_reset_samples(void *self) {
+    (void)self;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_flux_unused_read_samples(void *self, float *i_sum, float *v_sum,
+                                                   uint32_t *count) {
+    (void)self;
+    (void)i_sum;
+    (void)v_sum;
+    (void)count;
+    return EDGE_OK;
+}
+
+static motor_id_measure_port_t make_flux_port(mock_flux_plant_t *plant) {
+    return (motor_id_measure_port_t){
+        .self = plant,
+        .set_phase_override = mock_flux_unused_set_phase_override,
+        .set_current = mock_flux_unused_set_current,
+        .reset_samples = mock_flux_unused_reset_samples,
+        .read_samples = mock_flux_unused_read_samples,
+        .enter_measurement_config = mock_enter_config,
+        .leave_measurement_config = mock_leave_config,
+        .set_openloop_current = mock_set_openloop,
+        .read_vdq = mock_read_vdq,
+        .read_idq = mock_read_idq,
+        .read_duty = mock_read_duty,
+        .read_speed_rad_s = mock_read_speed,
+        .get_fault = mock_flux_fault,
+        .stop = mock_flux_stop,
+    };
+}
+
+/* The procedure runs on milliseconds, so the test advances it a millisecond at a time. */
+static void run_flux_ms(motor_id_app_t *app) {
+    assert_int_equal(motor_id_step(app, 0.001f), EDGE_OK);
+}
+
+static void run_flux_to_end(motor_id_app_t *app) {
+    for (int ms = 0;
+         ms < 60000 && app->state != MOTOR_ID_STATE_COMPLETE && app->state != MOTOR_ID_STATE_FAILED;
+         ms++) {
+        run_flux_ms(app);
+    }
+}
+
+static void test_motor_id_flux_linkage_openloop(void **state) {
+    (void)state;
+    /* A volt of q axis at a thousand electrical rpm: 1 / (1000 * 2*pi/60) = 9.5493e-3. */
+    mock_flux_plant_t plant = {.mode = MOCK_DUTY_RISES,
+                               .baseline_duty = 0.1f,
+                               .spinup_duty = 0.1f,
+                               .v_q = 1.0f,
+                               .rad_s = 1000.0f * (float)(2.0 * 3.14159265358979323846 / 60.0)};
+    motor_id_measure_port_t port = make_flux_port(&plant);
+    motor_id_app_t app;
+    motor_id_construct(&app, EDGE_MOD_MOTOR_ID, 40u, &port);
+    assert_int_equal(motor_id_init(&app), EDGE_OK);
+
+    assert_int_equal(motor_id_measure_flux_linkage_openloop(&app, 5.0f, 0.5f, 2000.0f, 0.05f, 1e-5f,
+                                                            0.0f, 0.0f, 1.0f),
+                     EDGE_OK);
+    run_flux_to_end(&app);
+
+    assert_int_equal(app.state, MOTOR_ID_STATE_COMPLETE);
+    const motor_id_result_t *result = motor_id_get_result(&app);
+    assert_true(result->valid);
+    /* The spin-up left the ramp at the speed where the duty reached the target: 0.5 * 2000, and
+     * 1000 electrical rpm is 104.7198 rad/s. */
+    assert_float_equal(app.flux_rpm_now, 1000.0f, 2.0f);
+    assert_float_equal(app.flux_duty_still, 0.1f, 1e-3f);
+    /* Ten thousand milliseconds of a volt on the q axis, and ten thousand samples. */
+    assert_float_equal(app.flux_samples, 10000.0f, 1.0f);
+    assert_float_equal(app.flux_vq_sum, 10000.0f, 1.0f);
+    assert_float_equal(result->flux_linkage_wb, 9.5493e-3f, 1e-4f);
+    assert_float_equal(result->linkage_undriven_wb, 9.5493e-3f, 1e-4f);
+    assert_float_equal(result->undriven_samples, 2000.0f, 1.0f);
+    /* The temporary configuration went in once and came back out once. */
+    assert_int_equal(plant.enter_calls, 1);
+    assert_int_equal(plant.leave_calls, 1);
+    assert_false(plant.config_entered);
+    /* The ramp holds the speed at zero, which is what makes it a standstill measurement. */
+    assert_float_equal(plant.last_openloop_current, 5.0f, 1e-3f);
+    assert_true(plant.last_openloop_rpm > 0.0f);
+}
+
+static void test_motor_id_flux_gives_up_when_it_must(void **state) {
+    (void)state;
+
+    /* -1: the spin-up never reaches the target within fifteen seconds. The speed ramp is slow
+     * enough here that the twelve-thousand exit does not come first. */
+    mock_flux_plant_t slow = {
+        .mode = MOCK_DUTY_FLAT, .baseline_duty = 0.1f, .spinup_duty = 0.1f, .rad_s = 100.0f};
+    motor_id_measure_port_t slow_port = make_flux_port(&slow);
+    motor_id_app_t slow_app;
+    motor_id_construct(&slow_app, EDGE_MOD_MOTOR_ID, 40u, &slow_port);
+    assert_int_equal(motor_id_init(&slow_app), EDGE_OK);
+    assert_int_equal(motor_id_measure_flux_linkage_openloop(&slow_app, 5.0f, 0.9f, 0.1f, 0.05f,
+                                                            1e-5f, 0.0f, 0.0f, 1.0f),
+                     EDGE_OK);
+    run_flux_to_end(&slow_app);
+    assert_int_equal(slow_app.state, MOTOR_ID_STATE_FAILED);
+    assert_float_equal(slow_app.flux_fail_reason, -1.0f, 1e-6f);
+    assert_false(motor_id_get_result(&slow_app)->valid);
+    assert_int_equal(slow.leave_calls, 1);
+
+    /* -2: the duty falls to well under the highest it reached, after four seconds. */
+    mock_flux_plant_t drop = {
+        .mode = MOCK_DUTY_DROPS, .baseline_duty = 0.1f, .spinup_duty = 0.1f, .rad_s = 100.0f};
+    motor_id_measure_port_t drop_port = make_flux_port(&drop);
+    motor_id_app_t drop_app;
+    motor_id_construct(&drop_app, EDGE_MOD_MOTOR_ID, 40u, &drop_port);
+    assert_int_equal(motor_id_init(&drop_app), EDGE_OK);
+    assert_int_equal(motor_id_measure_flux_linkage_openloop(&drop_app, 5.0f, 0.9f, 2000.0f, 0.05f,
+                                                            1e-5f, 0.0f, 0.0f, 1.0f),
+                     EDGE_OK);
+    run_flux_to_end(&drop_app);
+    assert_int_equal(drop_app.state, MOTOR_ID_STATE_FAILED);
+    assert_float_equal(drop_app.flux_fail_reason, -2.0f, 1e-6f);
+    assert_int_equal(drop.leave_calls, 1);
+
+    /* -3: the target is not above what the motor already drew standing still, so there is nothing
+     * to spin up to. The baseline is 0.45 and the target 0.4, which is under 0.45 * 1.1. */
+    mock_flux_plant_t still = {
+        .mode = MOCK_DUTY_FLAT, .baseline_duty = 0.45f, .spinup_duty = 0.3f, .rad_s = 100.0f};
+    motor_id_measure_port_t still_port = make_flux_port(&still);
+    motor_id_app_t still_app;
+    motor_id_construct(&still_app, EDGE_MOD_MOTOR_ID, 40u, &still_port);
+    assert_int_equal(motor_id_init(&still_app), EDGE_OK);
+    assert_int_equal(motor_id_measure_flux_linkage_openloop(&still_app, 5.0f, 0.4f, 2000.0f, 0.05f,
+                                                            1e-5f, 0.0f, 0.0f, 1.0f),
+                     EDGE_OK);
+    run_flux_to_end(&still_app);
+    assert_int_equal(still_app.state, MOTOR_ID_STATE_FAILED);
+    assert_float_equal(still_app.flux_fail_reason, -3.0f, 1e-6f);
+    assert_int_equal(still.leave_calls, 1);
+
+    /* A fault during the ramp stops it as well, and the configuration still comes back. */
+    mock_flux_plant_t faulty = {.mode = MOCK_DUTY_FLAT,
+                                .baseline_duty = 0.1f,
+                                .spinup_duty = 0.1f,
+                                .fault_after_openloop_calls = 1u,
+                                .rad_s = 100.0f};
+    motor_id_measure_port_t faulty_port = make_flux_port(&faulty);
+    motor_id_app_t faulty_app;
+    motor_id_construct(&faulty_app, EDGE_MOD_MOTOR_ID, 40u, &faulty_port);
+    assert_int_equal(motor_id_init(&faulty_app), EDGE_OK);
+    assert_int_equal(motor_id_measure_flux_linkage_openloop(&faulty_app, 5.0f, 0.5f, 2000.0f, 0.05f,
+                                                            1e-5f, 0.0f, 0.0f, 1.0f),
+                     EDGE_OK);
+    run_flux_to_end(&faulty_app);
+    assert_int_equal(faulty_app.state, MOTOR_ID_STATE_FAILED);
+    assert_int_equal(motor_id_get_fault(&faulty_app), 7u);
+    assert_int_equal(faulty.leave_calls, 1);
+}
+
+static void test_motor_id_flux_needs_its_ports(void **state) {
+    (void)state;
+    motor_id_app_t app;
+    motor_id_construct(&app, EDGE_MOD_MOTOR_ID, 40u, NULL);
+    assert_int_equal(motor_id_init(&app), EDGE_EINVAL);
+    /* A port without the flux callbacks cannot run the flux procedure, and says so. */
+    mock_plant_t plant = {.r_ohm = 0.05f, .accumulate = true};
+    motor_id_measure_port_t port = make_port(&plant);
+    motor_id_app_t resistance_only;
+    motor_id_construct(&resistance_only, EDGE_MOD_MOTOR_ID, 40u, &port);
+    assert_int_equal(motor_id_init(&resistance_only), EDGE_OK);
+    assert_int_equal(motor_id_measure_flux_linkage_openloop(&resistance_only, 5.0f, 0.5f, 2000.0f,
+                                                            0.05f, 1e-5f, 0.0f, 0.0f, 1.0f),
+                     EDGE_EINVAL);
+    assert_int_equal(motor_id_measure_flux_linkage_openloop(NULL, 5.0f, 0.5f, 2000.0f, 0.05f, 1e-5f,
+                                                            0.0f, 0.0f, 1.0f),
+                     EDGE_EINVAL);
+}
+
+/*
+ * The arms the runs above do not reach: the resistance and inductance defaults when none are
+ * supplied, a duty capped at nine tenths of what the configuration allows, a second run started
+ * from the state an earlier one left, and the busy refusal while one is in progress.
+ */
+static void test_motor_id_flux_arms(void **state) {
+    (void)state;
+    mock_flux_plant_t plant = {
+        .mode = MOCK_DUTY_FLAT, .baseline_duty = 0.1f, .spinup_duty = 0.1f, .rad_s = 100.0f};
+    motor_id_measure_port_t port = make_flux_port(&plant);
+    motor_id_app_t app;
+    motor_id_construct(&app, EDGE_MOD_MOTOR_ID, 40u, &port);
+    assert_int_equal(motor_id_init(&app), EDGE_OK);
+
+    /* The resistance and inductance come from the configuration, and 0.95 is over the 0.18 cap, so
+     * the target is the cap - which this duty never reaches, so the run times out like -1. */
+    assert_int_equal(motor_id_measure_flux_linkage_openloop(&app, 5.0f, 0.95f, 1.0f, 0.0f, 0.0f,
+                                                            0.05f, 1e-5f, 0.2f),
+                     EDGE_OK);
+    run_flux_to_end(&app);
+    assert_int_equal(app.state, MOTOR_ID_STATE_FAILED);
+    assert_float_equal(app.flux_fail_reason, -1.0f, 1e-6f);
+
+    /* A second run from the failed state is allowed: only one in progress is busy. */
+    plant.mode = MOCK_DUTY_RISES;
+    plant.duty_reads = 0;
+    plant.stopped = false;
+    plant.last_openloop_rpm = 0.0f;
+    assert_int_equal(motor_id_measure_flux_linkage_openloop(&app, 5.0f, 0.5f, 2000.0f, 0.05f, 1e-5f,
+                                                            0.0f, 0.0f, 1.0f),
+                     EDGE_OK);
+    assert_int_equal(motor_id_measure_flux_linkage_openloop(&app, 5.0f, 0.5f, 2000.0f, 0.05f, 1e-5f,
+                                                            0.0f, 0.0f, 1.0f),
+                     EDGE_EBUSY);
+    run_flux_to_end(&app);
+    assert_int_equal(app.state, MOTOR_ID_STATE_COMPLETE);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -371,6 +721,10 @@ int main(void) {
         cmocka_unit_test(test_motor_id_ramp_rate_is_the_reference_timing),
         cmocka_unit_test(test_motor_id_measures_a_known_resistance),
         cmocka_unit_test(test_motor_id_keeps_the_motor_running_when_asked),
+        cmocka_unit_test(test_motor_id_flux_linkage_openloop),
+        cmocka_unit_test(test_motor_id_flux_gives_up_when_it_must),
+        cmocka_unit_test(test_motor_id_flux_needs_its_ports),
+        cmocka_unit_test(test_motor_id_flux_arms),
         cmocka_unit_test(test_motor_id_aborts_on_a_fault),
         cmocka_unit_test(test_motor_id_sample_timeout_publishes_an_invalid_result),
         cmocka_unit_test(test_motor_id_hooks_and_accessor_guards),

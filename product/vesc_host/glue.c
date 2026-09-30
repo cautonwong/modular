@@ -683,49 +683,143 @@ void vesc_host_make_can_port(vesc_can_port_t *out, vesc_host_glue_state_t *state
 }
 
 /* Motor ID Measure Port Adaptors: the reference's measurement procedures run against the FOC
- * aggregate, so each callback is one thing those procedures do to the motor. */
+ * aggregate, so each callback is one thing those procedures do to the motor. The port's own state
+ * is this product's, and it reaches the aggregate through it - the flux-linkage procedure needs
+ * somewhere to keep the configuration it temporarily replaces. */
+static foc_core_t *id_foc(void *self) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    return (s != (void *)0) ? s->foc : (void *)0;
+}
+
 static edge_status_t id_set_phase_override(void *self, float angle_rad, bool enable) {
-    foc_core_set_phase_override((foc_core_t *)self, angle_rad, enable);
+    foc_core_set_phase_override(id_foc(self), angle_rad, enable);
     return EDGE_OK;
 }
 
 /* The reference holds id at zero and ramps iq (mcpwm_foc.c:1805-1807). */
 static edge_status_t id_set_current(void *self, float iq) {
-    return foc_core_set_current((foc_core_t *)self, iq, 0.0f);
+    return foc_core_set_current(id_foc(self), iq, 0.0f);
 }
 
 static edge_status_t id_reset_samples(void *self) {
-    foc_core_reset_detect_samples((foc_core_t *)self);
+    foc_core_reset_detect_samples(id_foc(self));
     return EDGE_OK;
 }
 
 static edge_status_t id_read_samples(void *self, float *i_sum, float *v_sum, uint32_t *count) {
-    foc_core_read_detect_samples((foc_core_t *)self, i_sum, v_sum, count);
+    foc_core_read_detect_samples(id_foc(self), i_sum, v_sum, count);
     return EDGE_OK;
 }
 
 static uint32_t id_get_fault(void *self) {
     /* The procedures compare this against "no fault", which is zero, so the FOC's fault bits
      * serve as they are rather than being translated into the reference's fault_code enum. */
-    return foc_core_get_faults((foc_core_t *)self);
+    return foc_core_get_faults(id_foc(self));
 }
 
 static edge_status_t id_stop(void *self) {
-    return foc_core_stop((foc_core_t *)self);
+    return foc_core_stop(id_foc(self));
 }
 
-void vesc_host_make_motor_id_measure_port(motor_id_measure_port_t *out, foc_core_t *foc) {
-    if (out == (void *)0 || foc == (void *)0) {
+/*
+ * The temporary configuration a measurement runs in. This product's live configuration is the FOC
+ * aggregate's own - the composition root builds it once from motor_config - so entering saves the
+ * three fields the procedure is about to change and leaving puts them back. The reference edits
+ * the same live configuration (conf_general.c:1007-1016): sensorless, the current gains computed
+ * from the supplied resistance and inductance, and cross-coupling decoupling off, which this port
+ * does not carry as a configuration field.
+ */
+static edge_status_t id_enter_measurement_config(void *self, float current_kp, float current_ki) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    if (s == (void *)0 || s->foc == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    s->saved_foc_config = s->foc->config;
+    s->foc_config_saved = true;
+    s->foc->config.sensorless_mode = true;
+    s->foc->config.current_kp = current_kp;
+    s->foc->config.current_ki = current_ki;
+    return EDGE_OK;
+}
+
+static edge_status_t id_leave_measurement_config(void *self) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    if (s == (void *)0 || s->foc == (void *)0 || !s->foc_config_saved) {
+        return EDGE_EINVAL;
+    }
+    s->foc->config = s->saved_foc_config;
+    s->foc_config_saved = false;
+    return EDGE_OK;
+}
+
+static edge_status_t id_set_openloop_current(void *self, float current_a, float rpm) {
+    return foc_core_set_openloop_current(id_foc(self), current_a, rpm);
+}
+
+static edge_status_t id_read_vdq(void *self, float *v_d, float *v_q) {
+    foc_core_t *foc = id_foc(self);
+    if (foc == (void *)0 || v_d == (void *)0 || v_q == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    *v_d = foc->v_d;
+    *v_q = foc->v_q;
+    return EDGE_OK;
+}
+
+static edge_status_t id_read_idq(void *self, float *i_d, float *i_q) {
+    foc_core_t *foc = id_foc(self);
+    if (foc == (void *)0 || i_d == (void *)0 || i_q == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    *i_d = foc->last_id;
+    *i_q = foc->last_iq;
+    return EDGE_OK;
+}
+
+static edge_status_t id_read_duty(void *self, float *duty_now) {
+    foc_core_t *foc = id_foc(self);
+    if (foc == (void *)0 || duty_now == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    *duty_now = foc->duty_now;
+    return EDGE_OK;
+}
+
+/*
+ * The electrical angular speed the undriven measurement divides by (conf_general.c:1216). The FOC
+ * reports mechanical rpm, so the pole pairs are applied first - the same conversion the speed loop
+ * does - and that is what RPM2RADPS_f takes.
+ */
+static edge_status_t id_read_speed_rad_s(void *self, float *rad_s) {
+    foc_core_t *foc = id_foc(self);
+    if (foc == (void *)0 || rad_s == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    const float erpm = foc->last_rpm * ((float)foc->config.si_motor_poles / 2.0f);
+    *rad_s = erpm * (float)(2.0 * 3.14159265358979323846 / 60.0);
+    return EDGE_OK;
+}
+
+void vesc_host_make_motor_id_measure_port(motor_id_measure_port_t *out,
+                                          vesc_host_glue_state_t *state) {
+    if (out == (void *)0 || state == (void *)0) {
         return;
     }
     *out = (motor_id_measure_port_t){
-        .self = foc,
+        .self = state,
         .set_phase_override = id_set_phase_override,
         .set_current = id_set_current,
         .reset_samples = id_reset_samples,
         .read_samples = id_read_samples,
         .get_fault = id_get_fault,
         .stop = id_stop,
+        .enter_measurement_config = id_enter_measurement_config,
+        .leave_measurement_config = id_leave_measurement_config,
+        .set_openloop_current = id_set_openloop_current,
+        .read_vdq = id_read_vdq,
+        .read_idq = id_read_idq,
+        .read_duty = id_read_duty,
+        .read_speed_rad_s = id_read_speed_rad_s,
     };
 }
 
