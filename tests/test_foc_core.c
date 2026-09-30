@@ -2315,6 +2315,39 @@ static void test_foc_core_release_and_modulation_off(void **state) {
     assert_int_equal(foc_core_release_motor(&uninitialized), EDGE_EBUSY);
 }
 
+/*
+ * The HFI sample table, which the configuration selects: eight, sixteen or thirty-two samples with
+ * a matching table factor. The reference memsets the whole state before it sets them, so the
+ * tracker starts over with them - and a value the three cases do not cover leaves both at zero,
+ * which is what a switch without a default does.
+ */
+static void test_foc_hfi_configure(void **state) {
+    (void)state;
+    foc_hfi_state_t hfi = {
+        .angle = 1.0f, .double_integrator = 2.0f, .ready = true, .samples = 99, .table_fact = 99};
+
+    foc_hfi_configure(&hfi, 0u); /* HFI_SAMPLES_8 */
+    assert_int_equal(hfi.samples, 8);
+    assert_int_equal(hfi.table_fact, 4);
+    assert_float_equal(hfi.angle, 0.0f, 1e-9f);
+    assert_float_equal(hfi.double_integrator, 0.0f, 1e-9f);
+    assert_false(hfi.ready);
+
+    foc_hfi_configure(&hfi, 1u); /* HFI_SAMPLES_16 */
+    assert_int_equal(hfi.samples, 16);
+    assert_int_equal(hfi.table_fact, 2);
+
+    foc_hfi_configure(&hfi, 2u); /* HFI_SAMPLES_32 */
+    assert_int_equal(hfi.samples, 32);
+    assert_int_equal(hfi.table_fact, 1);
+
+    foc_hfi_configure(&hfi, 9u); /* not one of the three */
+    assert_int_equal(hfi.samples, 0);
+    assert_int_equal(hfi.table_fact, 0);
+
+    foc_hfi_configure(NULL, 0u); /* nothing to configure */
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -2345,6 +2378,7 @@ int main(void) {
         cmocka_unit_test(test_foc_temp_comp_factor),
         cmocka_unit_test(test_foc_core_temp_compensation),
         cmocka_unit_test(test_foc_hfi_adjust_angle_matches_reference),
+        cmocka_unit_test(test_foc_hfi_configure),
         cmocka_unit_test(test_foc_fft_bins_match_reference),
         cmocka_unit_test(test_foc_core_guards),
         cmocka_unit_test(test_foc_core_init_and_command_guards),
