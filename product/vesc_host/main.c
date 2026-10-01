@@ -84,14 +84,19 @@ int main(void) {
      * emulation over the flash sectors above, with a variable table enumerating the reference's
      * virtual address base (conf_general.c:50, :72).
      */
-    static uint16_t mcconf_var_table[VESC_HOST_MCCONF_VARS];
+    static uint16_t mcconf_var_table[VESC_HOST_MCCONF_VARS + VESC_HOST_BACKUP_VARS];
     for (size_t i = 0u; i < VESC_HOST_MCCONF_VARS; i++) {
         mcconf_var_table[i] = (uint16_t)(VESC_HOST_MCCONF_BASE + i);
+    }
+    /* The backup block's words are the same list's tail, at the reference's own base for them. */
+    for (size_t i = 0u; i < VESC_HOST_BACKUP_VARS; i++) {
+        mcconf_var_table[VESC_HOST_MCCONF_VARS + i] = (uint16_t)(VESC_HOST_BACKUP_BASE + i);
     }
     static flash_emul_t flash_store;
     flash_emul_construct(
         &flash_store, &flash_sectors,
-        (flash_var_table_t){.virtual_addresses = mcconf_var_table, .count = VESC_HOST_MCCONF_VARS},
+        (flash_var_table_t){.virtual_addresses = mcconf_var_table,
+                            .count = VESC_HOST_MCCONF_VARS + VESC_HOST_BACKUP_VARS},
         0u);
     if (flash_emul_init(&flash_store) != EDGE_OK) {
         return 11;
@@ -209,6 +214,38 @@ int main(void) {
         return 11;
     }
     glue_state.foc = &foc;
+
+    /*
+     * The backup block, reference conf_general_read_backup_data (conf_general.c:100-146): read back
+     * word by word, restored through the aggregate's own validity rule - each field stands on its
+     * own flag - and then stored again with the flags written for the whole block, which is what
+     * the reference's boot path does once it has repaired what it could. A block that cannot be
+     * read at all is treated as empty rather than as something to trust.
+     *
+     * The store itself is the port below, and the aggregate calls it from its power_off - the same
+     * shutdown-only point the reference's own store is called from.
+     */
+    foc_storage_port_t backup_store;
+    vesc_host_make_backup_store_port(&backup_store, &flash_store);
+    foc_core_set_storage_port(&foc, &backup_store);
+
+    uint8_t backup_block[FOC_BACKUP_BLOCK_BYTES];
+    memset(backup_block, 0, sizeof(backup_block));
+    for (size_t i = 0u; i < VESC_HOST_BACKUP_VARS; i++) {
+        uint16_t word = 0u;
+        if (flash_emul_read(&flash_store, (uint16_t)(VESC_HOST_BACKUP_BASE + i), &word) !=
+            EDGE_OK) {
+            memset(backup_block, 0, sizeof(backup_block));
+            break;
+        }
+        backup_block[2u * i] = (uint8_t)(word >> 8);
+        backup_block[2u * i + 1u] = (uint8_t)word;
+    }
+
+    (void)foc_core_backup_restore(&foc, backup_block, sizeof(backup_block));
+    if (foc_core_backup_serialize(&foc, backup_block, sizeof(backup_block)) != 0u) {
+        (void)backup_store.store_backup(backup_store.self, backup_block, sizeof(backup_block));
+    }
 
     /* Motor identification drives the FOC aggregate, so its port is built from it. */
     motor_id_measure_port_t id_m_port;

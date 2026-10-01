@@ -87,12 +87,22 @@ void vesc_host_make_config_port(vesc_config_provider_port_t *out, motor_config_t
  * enumerates base + i for every two bytes of the configuration (conf_general.c:72). */
 #define VESC_HOST_MCCONF_BASE 1000u
 #define VESC_HOST_MCCONF_VARS (sizeof(mc_configuration_t) / 2u)
+/* The reference's own base for the backup block (conf_general.c:55), above the configuration's. */
+#define VESC_HOST_BACKUP_BASE 6000u
+#define VESC_HOST_BACKUP_VARS (FOC_BACKUP_BLOCK_BYTES / 2u)
 
 /* The motor NTC's filter, hwconf/hw.h:639. Boards that need a faster response override it
  * (the m600 sets 0.001), so it is a board parameter and belongs here rather than in the app. */
 #define VESC_HOST_MOTOR_TEMP_LPF 0.01
 
 void vesc_host_make_var_port(motor_config_var_port_t *out, flash_emul_t *emul);
+
+/*
+ * Where the aggregate's backup block lands: the same emulated EEPROM, at the reference's own base
+ * for it. One callback, because the block's format is the aggregate's - this only moves its words,
+ * each pair high byte first, which is what the reference does with its packed struct (:181-182).
+ */
+void vesc_host_make_backup_store_port(foc_storage_port_t *out, flash_emul_t *emul);
 
 /*
  * COMM_TERMINAL_CMD and COMM_FORWARD_CAN run through the product: the terminal, and the
