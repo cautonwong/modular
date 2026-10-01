@@ -3,6 +3,10 @@
 #include <math.h>
 #include <string.h>
 
+/* The 32-point table the DFT bins and the HFI excitation index. It lives above the functions that
+ * read it rather than beside the bins, because the excitation reads it too. */
+#include "hfi_tables.h"
+
 /*
  * Reference firmware: util/utils_math.c `utils_fast_sincos_better`. The FOC ISR
  * uses this variant, not the one-pass `utils_fast_sincos`: the parabola fit alone
@@ -367,6 +371,80 @@ float foc_angle_difference(float angle1, float angle2) {
     return difference;
 }
 
+bool foc_saturate_vector_2d(float *x, float *y, float max) {
+    bool retval = false;
+    float mag = NORM2_f(*x, *y);
+    max = fabsf(max);
+
+    if (mag < 1e-10f) {
+        mag = 1e-10f;
+    }
+
+    if (mag > max) {
+        const float f = max / mag;
+        *x *= f;
+        *y *= f;
+        retval = true;
+    }
+
+    return retval;
+}
+
+float foc_hfi_voltage(const foc_hfi_state_t *hfi, const foc_hfi_excite_in_t *in) {
+    float hfi_voltage;
+    if (hfi->est_done_cnt < in->start_samples) {
+        hfi_voltage = in->hfi_voltage_start;
+    } else {
+        hfi_voltage = FOC_MAP(fabsf(in->iq), -0.01f, in->current_max, in->hfi_voltage_run,
+                              in->hfi_voltage_max);
+    }
+
+    foc_truncate_number_abs(&hfi_voltage, in->v_bus * (1.0f - fabsf(in->duty_now)) * SQRT3_BY_2 *
+                                              (2.0f / 3.0f) * 0.95f);
+    return hfi_voltage;
+}
+
+void foc_hfi_excite_six_vector(foc_hfi_state_t *hfi, const foc_hfi_excite_in_t *in, float *v_alpha,
+                               float *v_beta) {
+    const float hfi_voltage = foc_hfi_voltage(hfi, in);
+    const float c = foc_utils_tab_cos_32_1[hfi->ind * hfi->table_fact];
+    const float s = foc_utils_tab_sin_32_1[hfi->ind * hfi->table_fact];
+
+    if (hfi->is_samp_n) {
+        const float sample_now = c * in->i_alpha + s * in->i_beta;
+        const float di = sample_now - hfi->prev_sample;
+
+        hfi->buffer_current[hfi->ind] = di;
+
+        if (di > 0.01f) {
+            /* The inverse of the inductance, not the inductance: the measurement carries a DC
+             * offset, and taking the inverse first keeps that offset out of the other bins. */
+            hfi->buffer[hfi->ind] = (in->f_zv * di) / hfi_voltage;
+        }
+
+        hfi->ind++;
+        if (hfi->ind == hfi->samples) {
+            hfi->ind = 0;
+            hfi->ready = true;
+        }
+
+        *v_alpha += hfi_voltage * c;
+        *v_beta += hfi_voltage * s;
+    } else {
+        hfi->prev_sample = c * in->i_alpha + s * in->i_beta;
+
+        *v_alpha -= hfi_voltage * c;
+        *v_beta -= hfi_voltage * s;
+    }
+
+    /*
+     * Reference mcpwm_foc.c:4972, written there against the modulation vector: the same limit in
+     * volts, because the modulation is this vector times 1.5/v_bus.
+     */
+    (void)foc_saturate_vector_2d(v_alpha, v_beta, SQRT3_BY_2 * 0.95f * (2.0f / 3.0f) * in->v_bus);
+    hfi->is_samp_n = !hfi->is_samp_n;
+}
+
 void foc_hfi_configure(foc_hfi_state_t *hfi, uint8_t foc_hfi_samples) {
     if (hfi == (void *)0) {
         return;
@@ -417,7 +495,6 @@ void foc_hfi_adjust_angle(float ang_err, float max_err, float gain, float speed_
 }
 
 /* The generated excitation tables, included next to their only consumer rather than at the top. */
-#include "hfi_tables.h"
 
 /*
  * Reference util/utils_math.c:509-597. The DFT bins HFI computes its angle error from - bin 0 the

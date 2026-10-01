@@ -2379,6 +2379,152 @@ static void test_foc_angle_difference(void **state) {
     }
 }
 
+/*
+ * The 2D saturation the reference applies to its modulation before the SVM: a vector inside the
+ * limit is left alone, one outside is scaled down onto it, and a vector at the origin takes the
+ * magnitude floor instead of dividing by zero.
+ */
+static void test_foc_saturate_vector_2d(void **state) {
+    (void)state;
+    float x = 0.3f, y = 0.4f;
+    assert_false(foc_saturate_vector_2d(&x, &y, 1.0f));
+    assert_float_equal(x, 0.3f, 1e-6f);
+    assert_float_equal(y, 0.4f, 1e-6f);
+
+    /* 0.6, 0.8 has magnitude 1; a limit of 0.5 halves both. */
+    x = 0.6f;
+    y = 0.8f;
+    assert_true(foc_saturate_vector_2d(&x, &y, 0.5f));
+    assert_float_equal(x, 0.3f, 1e-6f);
+    assert_float_equal(y, 0.4f, 1e-6f);
+
+    /* The limit is taken as an absolute value. */
+    x = 2.0f;
+    y = 0.0f;
+    assert_true(foc_saturate_vector_2d(&x, &y, -1.0f));
+    assert_float_equal(x, 1.0f, 1e-6f);
+
+    /* At the origin the magnitude floor keeps the division away, and nothing moves. */
+    x = 0.0f;
+    y = 0.0f;
+    assert_false(foc_saturate_vector_2d(&x, &y, 1.0f));
+    assert_float_equal(x, 0.0f, 1e-9f);
+}
+
+/*
+ * The excitation voltage: the start-up value while the estimate warms up, then a ramp across |iq|
+ * from run to max, either way truncated by what the current duty leaves of the bus.
+ */
+static void test_foc_hfi_voltage(void **state) {
+    (void)state;
+    foc_hfi_excite_in_t in = {.f_zv = 20000.0f,
+                              .hfi_voltage_start = 4.0f,
+                              .hfi_voltage_run = 2.0f,
+                              .hfi_voltage_max = 6.0f,
+                              .current_max = 10.0f,
+                              .iq = 0.0f,
+                              .v_bus = 50.0f,
+                              .duty_now = 0.0f,
+                              .start_samples = 10};
+    foc_hfi_state_t hfi = {0};
+
+    /* Warming up: the start-up voltage, untouched because 50 V leaves far more than 4 V. */
+    assert_float_equal(foc_hfi_voltage(&hfi, &in), 4.0f, 1e-5f);
+
+    /* Done: iq = 0 does not map to exactly the run voltage - the map's lower bound is -0.01, so
+     * zero sits one part in a thousand above it, as the reference's does. iq = current_max maps
+     * to the maximum. */
+    hfi.est_done_cnt = 10;
+    assert_float_equal(foc_hfi_voltage(&hfi, &in), 2.003996f, 1e-5f);
+    in.iq = 10.0f;
+    assert_float_equal(foc_hfi_voltage(&hfi, &in), 6.0f, 1e-5f);
+
+    /* The duty truncation bites: at full duty the bus is claimed and nothing is left. */
+    in.duty_now = 1.0f;
+    assert_float_equal(foc_hfi_voltage(&hfi, &in), 0.0f, 1e-6f);
+
+    /* Half the duty leaves 50*(1-0.5)*sqrt(3)/2*(2/3)*0.95 = 13.7 V, so the 6 V stands. */
+    in.duty_now = 0.5f;
+    assert_float_equal(foc_hfi_voltage(&hfi, &in), 6.0f, 1e-5f);
+}
+
+/*
+ * The six-vector excitation's two halves alternate through is_samp_n, which the reference toggles
+ * once per cycle after the branch: one cycle stores the sample the next one measures against and
+ * drives the opposite voltage, the next one measures, accumulates into the buffer and drives along
+ * the table. The buffer holds the inverse inductance, so it is written only when the measured step
+ * is above the reference's threshold.
+ */
+static void test_foc_hfi_excite_six_vector(void **state) {
+    (void)state;
+    foc_hfi_state_t hfi = {0};
+    foc_hfi_configure(&hfi, 2u); /* 32 samples, table factor 1 */
+    assert_int_equal(hfi.samples, 32);
+    assert_false(hfi.ready);
+
+    foc_hfi_excite_in_t in = {.f_zv = 20000.0f,
+                              .hfi_voltage_start = 4.0f,
+                              .hfi_voltage_run = 2.0f,
+                              .hfi_voltage_max = 6.0f,
+                              .current_max = 10.0f,
+                              .iq = 0.0f,
+                              .v_bus = 50.0f,
+                              .duty_now = 0.0f,
+                              .i_alpha = 0.05f,
+                              .i_beta = 0.0f,
+                              .start_samples = 10};
+
+    /* First cycle: is_samp_n is false, so the sample is stored and the voltage opposes the table.
+     * The table starts at cos=1, sin=0, so the sample is exactly i_alpha and the drive is on the
+     * alpha axis. */
+    float v_alpha = 0.0f, v_beta = 0.0f;
+    foc_hfi_excite_six_vector(&hfi, &in, &v_alpha, &v_beta);
+    assert_float_equal(hfi.prev_sample, 0.05f, 1e-6f);
+    assert_float_equal(v_alpha, -4.0f, 1e-5f);
+    assert_float_equal(v_beta, 0.0f, 1e-5f);
+    assert_true(hfi.is_samp_n);
+    assert_int_equal(hfi.ind, 0);
+
+    /* Second cycle: it measures, and it measures at the same table angle the previous cycle
+     * stored its sample at - the buffer holds how the current at that angle changed between
+     * cycles, not how it differs between neighbouring angles. With alpha moving from 0.05 to 0.10
+     * the step is 0.05 A, and the start-up voltage is still the 4 V of the configuration. */
+    in.i_alpha = 0.10f;
+    v_alpha = 0.0f;
+    v_beta = 0.0f;
+    foc_hfi_excite_six_vector(&hfi, &in, &v_alpha, &v_beta);
+    assert_int_equal(hfi.ind, 1);
+    assert_float_equal(hfi.buffer_current[0], 0.05f, 1e-6f);
+    assert_float_equal(hfi.buffer[0], (20000.0f * 0.05f) / 4.0f, 1e-3f);
+    assert_float_equal(v_alpha, 4.0f, 1e-5f);
+    assert_false(hfi.is_samp_n);
+
+    /* A step below the reference's 0.01 threshold is recorded as a current but not as an inverse.
+     */
+    foc_hfi_state_t still = {0};
+    foc_hfi_configure(&still, 2u);
+    foc_hfi_excite_in_t tiny = in;
+    tiny.i_alpha = 0.0f;
+    tiny.i_beta = 0.0f;
+    float a = 0.0f, b = 0.0f;
+    foc_hfi_excite_six_vector(&still, &tiny, &a, &b); /* stores prev_sample = 0 */
+    a = 0.0f;
+    b = 0.0f;
+    foc_hfi_excite_six_vector(&still, &tiny, &a, &b); /* di = 0, below the threshold */
+    assert_float_equal(still.buffer_current[0], 0.0f, 1e-9f);
+    assert_float_equal(still.buffer[0], 0.0f, 1e-9f);
+    assert_int_equal(still.ind, 1);
+
+    /* The buffer wraps after the configured number of samples and reports ready. The halves
+     * alternate, so filling the buffer takes two calls per sample. */
+    float pa = 0.0f, pb = 0.0f;
+    for (int i = 0; i < 2 * hfi.samples && !hfi.ready; ++i) {
+        foc_hfi_excite_six_vector(&hfi, &in, &pa, &pb);
+    }
+    assert_true(hfi.ready);
+    assert_int_equal(hfi.ind, 0);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -2411,6 +2557,9 @@ int main(void) {
         cmocka_unit_test(test_foc_hfi_adjust_angle_matches_reference),
         cmocka_unit_test(test_foc_hfi_configure),
         cmocka_unit_test(test_foc_angle_difference),
+        cmocka_unit_test(test_foc_saturate_vector_2d),
+        cmocka_unit_test(test_foc_hfi_voltage),
+        cmocka_unit_test(test_foc_hfi_excite_six_vector),
         cmocka_unit_test(test_foc_fft_bins_match_reference),
         cmocka_unit_test(test_foc_core_guards),
         cmocka_unit_test(test_foc_core_init_and_command_guards),

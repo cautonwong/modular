@@ -243,7 +243,68 @@ typedef struct foc_hfi_state {
      * many steps of the reference's table one of them advances, which the state machine reads. */
     int samples;
     int table_fact;
+    /* The reference's hfi_state_t, the fields its six-vector path and tracking half read. The
+     * V2/V3 and V4/V5 fields (sign_last_sample, cos_last, sin_last, prev_sample_d) are absent with
+     * those modes: they sample at an instant this port has no contract for, so it refuses them
+     * rather than approximating them, and a field nothing reads would be dead state. */
+    float buffer[32];
+    float buffer_current[32];
+    int ind;
+    bool is_samp_n;
+    float prev_sample;
+    int est_done_cnt;
+    float observer_zero_time;
+    int flip_cnt;
 } foc_hfi_state_t;
+
+/*
+ * Reference util/utils_math.h:229 utils_saturate_vector_2d: scale a 2D vector down to a maximum
+ * magnitude, leaving it alone when it is already inside. The magnitude has a floor so a vector at
+ * the origin cannot divide by zero, and max is taken as an absolute value. True when it scaled.
+ */
+bool foc_saturate_vector_2d(float *x, float *y, float max);
+
+/*
+ * What the excitation reads. These are the reference's own inputs at mcpwm_foc.c:4788-4994 - the
+ * configuration's HFI voltages and frequency, the measured currents and iq, the bus and duty - so
+ * the excitation itself stays a pure function of them and the state it owns.
+ */
+typedef struct foc_hfi_excite_in {
+    float f_zv;
+    float hfi_voltage_start;
+    float hfi_voltage_run;
+    float hfi_voltage_max;
+    float current_max;
+    float iq;
+    float v_bus;
+    float duty_now;
+    float i_alpha;
+    float i_beta;
+    int start_samples;
+} foc_hfi_excite_in_t;
+
+/*
+ * Reference mcpwm_foc.c:4808-4815: the excitation voltage, either the start-up voltage while the
+ * estimate is still warming up or a ramp from foc_hfi_voltage_run to foc_hfi_voltage_max across
+ * the measured |iq|, truncated by how much of the bus the current duty leaves free.
+ */
+float foc_hfi_voltage(const foc_hfi_state_t *hfi, const foc_hfi_excite_in_t *in);
+
+/*
+ * Reference mcpwm_foc.c:4939-4970, the six-vector branch of the injected-ADC HFI block: every
+ * cycle either samples the current along the injected frame's table angle and accumulates it, or
+ * stores the previous sample and drives the opposite voltage - and the two halves alternate
+ * through is_samp_n, which the reference toggles once after the branch, here too. The voltage is
+ * added to the caller's alpha/beta in volts, which is the same place the reference's
+ * `mod_alpha_v7 += hfi_voltage * c * voltage_normalize` puts it: its modulation space is this
+ * port's voltage space times 1.5/v_bus.
+ *
+ * This is the branch FOC_AMB_MODE_SIX_VECTOR (the default) and FOC_SENSOR_MODE_HFI_START take. The
+ * V2/V3 and V4/V5 branches sample at another instant than this port's current contract offers, so
+ * they are not ported.
+ */
+void foc_hfi_excite_six_vector(foc_hfi_state_t *hfi, const foc_hfi_excite_in_t *in, float *v_alpha,
+                               float *v_beta);
 
 /*
  * The sample-table selection, reference mcpwm_foc.c:133-166 update_hfi_samples. The reference
