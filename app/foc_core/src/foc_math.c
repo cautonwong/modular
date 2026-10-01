@@ -371,6 +371,118 @@ float foc_angle_difference(float angle1, float angle2) {
     return difference;
 }
 
+void foc_hfi_update(foc_hfi_state_t *hfi, const foc_hfi_update_in_t *in, foc_observer_t *observer) {
+    /*
+     * Reference mcpwm_foc.c:4220-4225: above the HFI speed the angle is the observer's, and the
+     * tracker is tied to the fast speed estimate, so HFI hands over as the motor speeds up instead
+     * of holding an angle the observer has already left behind.
+     */
+    const float rpm_abs = fabsf(in->speed_est_fast * 60.0f / (2.0f * (float)M_PI));
+
+    if (rpm_abs > in->sl_erpm_hfi) {
+        hfi->angle = in->phase_now_observer;
+        hfi->double_integrator = -in->speed_est_fast;
+    }
+
+    if (!hfi->ready) {
+        return;
+    }
+
+    const bool est_done = hfi->est_done_cnt >= in->start_samples;
+
+    /*
+     * Reference mcpwm_foc.c:4231-4258: the V4/V5 and V2/V3 modes do their update in the interrupt
+     * and leave this one empty, which is why the reference's two branches there are comments. This
+     * port does not implement their interrupt half - it samples at an instant this port's current
+     * contract does not offer - so those modes are refused wholesale, which is behaviourally the
+     * same thing: with no excitation filling the buffer, ready never arrives and the first guard
+     * above returns anyway.
+     */
+    if (in->mode == FOC_HFI_MODE_REFUSED && est_done) {
+        return;
+    }
+
+    if (!(in->amb_mode_six_vector || est_done)) {
+        return;
+    }
+
+    float real_bin1 = 0.0f, imag_bin1 = 0.0f, real_bin2 = 0.0f, imag_bin2 = 0.0f;
+    switch (hfi->samples) {
+    case 8:
+        foc_fft8_bin1(hfi->buffer, &real_bin1, &imag_bin1);
+        foc_fft8_bin2(hfi->buffer, &real_bin2, &imag_bin2);
+        break;
+    case 16:
+        foc_fft16_bin1(hfi->buffer, &real_bin1, &imag_bin1);
+        foc_fft16_bin2(hfi->buffer, &real_bin2, &imag_bin2);
+        break;
+    case 32:
+        foc_fft32_bin1(hfi->buffer, &real_bin1, &imag_bin1);
+        foc_fft32_bin2(hfi->buffer, &real_bin2, &imag_bin2);
+        break;
+    default:
+        /* Not configured: foc_hfi_configure leaves both at zero for a value it does not know, and
+         * the reference's own function pointers would be null there. */
+        return;
+    }
+
+    const float angle_bin_1 = -foc_fast_atan2(imag_bin1, real_bin1);
+
+    /* The reference's commented-out mag_bin_1 is read by its plotting hooks only, which are not
+     * ported, so it is not computed here. */
+    float angle_bin_2 = -foc_fast_atan2(imag_bin2, real_bin2) / 2.0;
+
+    /*
+     * Assuming this runs much faster than it takes to fill the buffer, the angle lags half a
+     * buffer behind in phase; the reference compensates with the PLL speed and the sampling
+     * period, which is half the switching period unless the interrupt samples in V0 and V7.
+     */
+    float dt_sw;
+    if (in->control_sample_mode_v0_v7) {
+        dt_sw = 1.0 / in->f_zv;
+    } else {
+        dt_sw = 1.0 / (in->f_zv / 2.0);
+    }
+    angle_bin_2 += in->pll_speed * ((float)hfi->samples / 2.0) * dt_sw;
+
+    /* The second harmonic cannot tell an angle from its 180-degree twin; the one already held
+     * decides. */
+    if (fabsf(foc_angle_difference(angle_bin_2 + M_PI, hfi->angle)) <
+        fabsf(foc_angle_difference(angle_bin_2, hfi->angle))) {
+        angle_bin_2 += M_PI;
+    }
+
+    /*
+     * While the estimate is warming up the first harmonic - which is based on saturation and only
+     * accurate at low current - says whether the tracked angle is on the right side, and how often
+     * it disagreed is what settles the twin once the tally is large enough.
+     */
+    if (hfi->est_done_cnt < in->start_samples) {
+        hfi->est_done_cnt++;
+
+        if (fabsf(foc_angle_difference(angle_bin_2, angle_bin_1)) > (M_PI / 2.0)) {
+            hfi->flip_cnt++;
+        }
+    }
+
+    if (hfi->est_done_cnt >= in->start_samples) {
+        if (hfi->flip_cnt >= (in->start_samples / 2)) {
+            angle_bin_2 += M_PI;
+        }
+        hfi->flip_cnt = 0;
+
+        if (in->mode == FOC_HFI_MODE_START) {
+            float s = 0.0f, c = 0.0f;
+            foc_fast_sincos(angle_bin_2, &s, &c);
+            observer->x1 = c * in->flux_linkage;
+            observer->x2 = s * in->flux_linkage;
+        }
+    }
+
+    hfi->angle = angle_bin_2;
+    foc_norm_angle_rad(&hfi->angle);
+}
+
 bool foc_saturate_vector_2d(float *x, float *y, float max) {
     bool retval = false;
     float mag = NORM2_f(*x, *y);

@@ -2525,6 +2525,264 @@ static void test_foc_hfi_excite_six_vector(void **state) {
     assert_int_equal(hfi.ind, 0);
 }
 
+/*
+ * The tracking half's guards, in the reference's order: the speed handover happens even before the
+ * buffer is ready, and below the speed nothing happens at all until it is.
+ */
+static void test_foc_hfi_update_gates(void **state) {
+    (void)state;
+    foc_hfi_state_t hfi = {0};
+    foc_observer_t observer = {0};
+    foc_hfi_update_in_t in = {.mode = FOC_HFI_MODE_TRACK,
+                              .amb_mode_six_vector = true,
+                              .control_sample_mode_v0_v7 = false,
+                              .start_samples = 10,
+                              .sl_erpm_hfi = 2000.0f,
+                              .speed_est_fast = 0.0f,
+                              .phase_now_observer = 1.25f,
+                              .pll_speed = 0.0f,
+                              .f_zv = 20000.0f,
+                              .flux_linkage = 0.01f};
+
+    /* Not ready, no speed: nothing moves. */
+    hfi.angle = 0.5f;
+    foc_hfi_update(&hfi, &in, &observer);
+    assert_float_equal(hfi.angle, 0.5f, 1e-6f);
+
+    /* Above foc_sl_erpm_hfi the angle is the observer's and the tracker's integrator is tied to
+     * the fast speed estimate - and 500 rad/s is 4775 rpm, over the 2000 of the configuration. */
+    in.speed_est_fast = 500.0f;
+    foc_hfi_update(&hfi, &in, &observer);
+    assert_float_equal(hfi.angle, 1.25f, 1e-6f);
+    assert_float_equal(hfi.double_integrator, -500.0f, 1e-6f);
+
+    /* A refused mode leaves the angle alone once the estimate is warm, whatever else is set. */
+    in.mode = FOC_HFI_MODE_REFUSED;
+    in.speed_est_fast = 0.0f;
+    hfi.est_done_cnt = 10;
+    hfi.angle = 0.5f;
+    foc_hfi_update(&hfi, &in, &observer);
+    assert_float_equal(hfi.angle, 0.5f, 1e-6f);
+
+    /* And in six-vector mode with the estimate still warming, which is the one way past that
+     * guard, the buffer still has to be ready - so prepare it and check that it is driven. */
+    in.mode = FOC_HFI_MODE_TRACK;
+    hfi.ready = true;
+    hfi.samples = 32;
+    hfi.table_fact = 1;
+    hfi.est_done_cnt = 0;
+    foc_hfi_update(&hfi, &in, &observer);
+    assert_true(hfi.est_done_cnt == 1);
+}
+
+/*
+ * The angle itself. The buffer is filled with a signal whose second harmonic has twice a known
+ * angle's phase, which is what the injected voltage produces, and the tracker is asked to recover
+ * it: the direction is the reference's own - it negates the arctangent and halves it - so the
+ * recovered angle is the injected one. The bins this runs on carry their own differential evidence
+ * against the reference (four patterns by nine bins by real and imaginary, bit for bit).
+ */
+static void test_foc_hfi_update_tracks_the_injected_angle(void **state) {
+    (void)state;
+    const float injected = 0.6f;
+
+    for (int sign = 0; sign < 2; ++sign) {
+        const float angle = sign == 0 ? injected : -1.1f;
+        foc_hfi_state_t hfi = {0};
+        foc_observer_t observer = {0};
+        foc_hfi_configure(&hfi, 2u); /* 32 samples, table factor 1 */
+        hfi.ready = true;
+        hfi.angle = angle; /* the twin is chosen against the angle already held */
+
+        for (int k = 0; k < 32; ++k) {
+            const float table_angle = 2.0f * (float)M_PI * (float)k / 32.0f;
+            hfi.buffer[k] = cosf(2.0f * (table_angle - angle));
+        }
+
+        const foc_hfi_update_in_t in = {.mode = FOC_HFI_MODE_TRACK,
+                                        .amb_mode_six_vector = true,
+                                        .control_sample_mode_v0_v7 = false,
+                                        .start_samples = 10,
+                                        .sl_erpm_hfi = 2000.0f,
+                                        .speed_est_fast = 0.0f,
+                                        .phase_now_observer = 0.0f,
+                                        .pll_speed = 0.0f,
+                                        .f_zv = 20000.0f,
+                                        .flux_linkage = 0.01f};
+        hfi.est_done_cnt = 10; /* warm, so no flip counting interferes */
+
+        foc_hfi_update(&hfi, &in, &observer);
+        assert_float_equal(foc_angle_difference(hfi.angle, angle), 0.0f, 2e-3f);
+    }
+}
+
+/*
+ * Two more of the reference's decisions. The first harmonic says whether the tracked angle is on
+ * the right side, and once the tally says it is not, the estimate is flipped by pi - after which
+ * the tally starts over. In HFI_START the same estimate seeds the observer with the flux linkage.
+ */
+static void test_foc_hfi_update_flips_and_seeds(void **state) {
+    (void)state;
+    foc_hfi_state_t hfi = {0};
+    foc_observer_t observer = {0};
+    foc_hfi_configure(&hfi, 2u);
+    hfi.ready = true;
+    hfi.angle = 0.3f;
+
+    const foc_hfi_update_in_t in = {.mode = FOC_HFI_MODE_START,
+                                    .amb_mode_six_vector = true,
+                                    .control_sample_mode_v0_v7 = false,
+                                    .start_samples = 4,
+                                    .sl_erpm_hfi = 2000.0f,
+                                    .speed_est_fast = 0.0f,
+                                    .phase_now_observer = 0.0f,
+                                    .pll_speed = 0.0f,
+                                    .f_zv = 20000.0f,
+                                    .flux_linkage = 0.01f};
+
+    /* A signal whose fundamental is a quarter turn from the tracked angle, so every cycle the
+     * tally disagrees, and the estimate one step short of warm. */
+    for (int k = 0; k < 32; ++k) {
+        const float table_angle = 2.0f * (float)M_PI * (float)k / 32.0f;
+        hfi.buffer[k] = cosf(table_angle - (hfi.angle + 1.0f));
+    }
+    hfi.est_done_cnt = 3;
+    hfi.flip_cnt = 2; /* start_samples / 2 */
+
+    foc_hfi_update(&hfi, &in, &observer);
+
+    /* The tally reached the start count and had disagreed, so the estimate flipped and the tally
+     * restarted; and because this is HFI_START, the observer was seeded with that estimate. */
+    assert_int_equal(hfi.est_done_cnt, 4);
+    assert_int_equal(hfi.flip_cnt, 0);
+    assert_float_equal(fabsf(observer.x1) * fabsf(observer.x1) +
+                           fabsf(observer.x2) * fabsf(observer.x2),
+                       0.01f * 0.01f, 1e-6f);
+
+    /* The flux linkage keeps the sign of each component, as the reference's seed does. */
+    float s = 0.0f, c = 0.0f;
+    foc_fast_sincos(hfi.angle, &s, &c);
+    assert_float_equal(observer.x1, c * 0.01f, 1e-5f);
+    assert_float_equal(observer.x2, s * 0.01f, 1e-5f);
+}
+
+/*
+ * The rest of the tracking half's branches: the 8 and 16 sample tables, the compensation's other
+ * sampling period when the interrupt samples in V0 and V7, a sample count nothing configured (the
+ * reference's function pointers would be null there), and the cycle where the tally has not
+ * disagreed enough to flip.
+ */
+static void test_foc_hfi_update_other_branches(void **state) {
+    (void)state;
+    foc_observer_t observer = {0};
+    const float injected = 0.4f;
+
+    /* Eight samples: the table is every fourth entry of the same 32-point one. */
+    for (int variant = 0; variant < 2; ++variant) {
+        foc_hfi_state_t hfi = {0};
+        foc_hfi_configure(&hfi, variant == 0 ? 0u : 1u);
+        assert_int_equal(hfi.samples, variant == 0 ? 8 : 16);
+        hfi.ready = true;
+        hfi.angle = injected;
+        hfi.est_done_cnt = 10;
+
+        for (int k = 0; k < hfi.samples; ++k) {
+            const float table_angle = 2.0f * (float)M_PI * (float)k / (float)hfi.samples;
+            hfi.buffer[k] = cosf(2.0f * (table_angle - injected));
+        }
+
+        const foc_hfi_update_in_t in = {.mode = FOC_HFI_MODE_TRACK,
+                                        .amb_mode_six_vector = true,
+                                        .control_sample_mode_v0_v7 = false,
+                                        .start_samples = 10,
+                                        .sl_erpm_hfi = 2000.0f,
+                                        .speed_est_fast = 0.0f,
+                                        .phase_now_observer = 0.0f,
+                                        .pll_speed = 0.0f,
+                                        .f_zv = 20000.0f,
+                                        .flux_linkage = 0.01f};
+
+        foc_hfi_update(&hfi, &in, &observer);
+        assert_float_equal(foc_angle_difference(hfi.angle, injected), 0.0f, 5e-3f);
+    }
+
+    /* Sampling in V0 and V7 halves the period the compensation works with; the angle is still
+     * recovered, which is what says the other branch was the one taken. */
+    foc_hfi_state_t hfi = {0};
+    foc_hfi_configure(&hfi, 2u);
+    hfi.ready = true;
+    hfi.angle = injected;
+    hfi.est_done_cnt = 10;
+    for (int k = 0; k < 32; ++k) {
+        const float table_angle = 2.0f * (float)M_PI * (float)k / 32.0f;
+        hfi.buffer[k] = cosf(2.0f * (table_angle - injected));
+    }
+    const foc_hfi_update_in_t in = {.mode = FOC_HFI_MODE_TRACK,
+                                    .amb_mode_six_vector = true,
+                                    .control_sample_mode_v0_v7 = true,
+                                    .start_samples = 10,
+                                    .sl_erpm_hfi = 2000.0f,
+                                    .speed_est_fast = 0.0f,
+                                    .phase_now_observer = 0.0f,
+                                    .pll_speed = 0.0f,
+                                    .f_zv = 20000.0f,
+                                    .flux_linkage = 0.01f};
+    foc_hfi_update(&hfi, &in, &observer);
+    assert_float_equal(foc_angle_difference(hfi.angle, injected), 0.0f, 5e-3f);
+
+    /*
+     * The compensation itself: the angle is offset by the PLL speed over half a buffer's worth of
+     * sampling periods, which is half a switching period - or a whole one when the interrupt
+     * samples in V0 and V7. Both branches are measured against the same run with no PLL speed.
+     */
+    for (int v0_v7 = 0; v0_v7 < 2; ++v0_v7) {
+        foc_hfi_state_t still = {0};
+        foc_hfi_configure(&still, 2u);
+        still.ready = true;
+        still.angle = injected;
+        still.est_done_cnt = 10;
+        for (int k = 0; k < 32; ++k) {
+            const float table_angle = 2.0f * (float)M_PI * (float)k / 32.0f;
+            still.buffer[k] = cosf(2.0f * (table_angle - injected));
+        }
+
+        foc_hfi_update_in_t moving = in;
+        moving.control_sample_mode_v0_v7 = v0_v7 == 1;
+        moving.pll_speed = 30.0f;
+        foc_hfi_update(&still, &moving, &observer);
+
+        const float dt_sw =
+            moving.control_sample_mode_v0_v7 ? 1.0f / 20000.0f : 1.0f / (20000.0f / 2.0f);
+        const float expected = 30.0f * (32.0f / 2.0f) * dt_sw;
+        assert_float_equal(foc_angle_difference(still.angle, injected), expected, 2e-4f);
+    }
+
+    /* A sample count nothing selected leaves the angle where it was, as a null function pointer
+     * would in the reference. */
+    foc_hfi_state_t unset = {0};
+    unset.ready = true;
+    unset.angle = 0.75f;
+    unset.est_done_cnt = 10;
+    foc_hfi_update(&unset, &in, &observer);
+    assert_float_equal(unset.angle, 0.75f, 1e-6f);
+
+    /* Warm, and this cycle's disagreement is not there to be counted: the tally keeps its value
+     * rather than flipping. */
+    foc_hfi_state_t warm = {0};
+    foc_hfi_configure(&warm, 2u);
+    warm.ready = true;
+    warm.angle = injected;
+    warm.est_done_cnt = 10;
+    warm.flip_cnt = 7;
+    for (int k = 0; k < 32; ++k) {
+        const float table_angle = 2.0f * (float)M_PI * (float)k / 32.0f;
+        warm.buffer[k] = cosf(2.0f * (table_angle - injected));
+    }
+    foc_hfi_update(&warm, &in, &observer);
+    assert_int_equal(warm.est_done_cnt, 10);
+    assert_int_equal(warm.flip_cnt, 0); /* reset once the tally was consulted */
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -2560,6 +2818,10 @@ int main(void) {
         cmocka_unit_test(test_foc_saturate_vector_2d),
         cmocka_unit_test(test_foc_hfi_voltage),
         cmocka_unit_test(test_foc_hfi_excite_six_vector),
+        cmocka_unit_test(test_foc_hfi_update_gates),
+        cmocka_unit_test(test_foc_hfi_update_tracks_the_injected_angle),
+        cmocka_unit_test(test_foc_hfi_update_flips_and_seeds),
+        cmocka_unit_test(test_foc_hfi_update_other_branches),
         cmocka_unit_test(test_foc_fft_bins_match_reference),
         cmocka_unit_test(test_foc_core_guards),
         cmocka_unit_test(test_foc_core_init_and_command_guards),
