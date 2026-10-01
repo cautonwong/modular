@@ -128,3 +128,12 @@ add_test(NAME generated_hfi_tables_in_sync
     COMMAND python3 ${EDGE_ROOT}/tools/gen_hfi_from_reference.py --check)
 set_tests_properties(generated_hfi_tables_in_sync PROPERTIES
     WORKING_DIRECTORY ${EDGE_ROOT})
+
+# The same for the configuration headers, which are the other set of checked-in artifacts taken from
+# the reference. Their check compares against what clang-format would leave on disk, because that is
+# what the write path produces - a check that compared the raw generation would call every formatted
+# file out of date.
+add_test(NAME generated_motor_config_headers_in_sync
+    COMMAND python3 ${EDGE_ROOT}/tools/gen_mcconf_from_reference.py --check)
+set_tests_properties(generated_motor_config_headers_in_sync PROPERTIES
+    WORKING_DIRECTORY ${EDGE_ROOT})
