@@ -134,6 +134,20 @@ edge_status_t motor_config_load(motor_config_t *self) {
         return EDGE_EINVAL;
     }
 
+    /*
+     * A store that answers zero for words it never held hands back an all-zero image, and with the
+     * initial value the reference uses the CRC of an all-zero image is itself zero - so the check
+     * above accepts it. A configuration whose every field is zero is not a configuration, and the
+     * odds of a real image carrying a zero CRC are the odds this rule is wrong, so it is read as
+     * what it is: a blank store, which is a failed read and not a configuration to trust. Both
+     * products report a blank one by failing rather than by answering zeros; this is for the stores
+     * that do the latter.
+     */
+    if (self->staging_mc.crc == 0u) {
+        motor_config_set_defaults(&self->mcconf, &self->appconf);
+        return EDGE_ENOENT;
+    }
+
     self->mcconf = self->staging_mc;
     self->is_dirty = false;
     return EDGE_OK;
@@ -170,6 +184,11 @@ edge_status_t motor_config_load_app(motor_config_t *self) {
 
     if (self->staging_app.crc != motor_config_app_crc(&self->staging_app)) {
         return EDGE_EINVAL;
+    }
+
+    /* The motor configuration's blank-image rule, for the same store answering the same zeros. */
+    if (self->staging_app.crc == 0u) {
+        return EDGE_ENOENT;
     }
 
     self->appconf = self->staging_app;
@@ -297,7 +316,21 @@ edge_status_t motor_config_apply_app_stream(motor_config_t *self, const uint8_t 
     if (status != EDGE_OK) {
         return status;
     }
-    return motor_config_update_app(self, &self->staging_app);
+    status = motor_config_update_app(self, &self->staging_app);
+    if (status != EDGE_OK) {
+        return status;
+    }
+
+    /*
+     * The reference stores for COMM_SET_APPCONF and not for its _NO_STORE sibling
+     * (commands.c:633-635), and ignores whether the store succeeded - the reply reports the
+     * configuration's acceptance, not the write. Storing the applied configuration is the same
+     * bytes the reference writes, because it stores the buffer it is about to apply.
+     */
+    if (self->vars != (void *)0 && self->vars->write != (void *)0) {
+        (void)motor_config_save_app(self);
+    }
+    return EDGE_OK;
 }
 
 edge_status_t motor_config_apply_app_stream_nostore(motor_config_t *self, const uint8_t *buf,
