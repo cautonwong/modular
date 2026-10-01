@@ -2021,13 +2021,15 @@ static void test_vesc_host_detects_r_and_l(void **state) {
 
     /*
      * The inductance this returns is twice what the same machine yields when the measurement is
-     * driven on its own: test_vesc_host_measures_a_known_motor gets 45 uH from this plant while the
-     * composed sequence reports 89.6, so the sequence's inductance is open rather than asserted.
-     * What has been ruled out by measurement: the switching frequency and the sample period as a
-     * pair (a direct run at 10 kHz and 50 us still returns 45 uH), the excitation's duty (a direct
-     * run at 0.6 does too), the loop rate, and the sign conventions. What is left is the resistance
-     * half that runs first - its own temporary current-loop gains, or what its drive leaves in the
-     * machine - and that is where the next pass starts.
+     * driven on its own, and the probes that narrowed that down are worth keeping. Ruled out by
+     * measurement on this same harness: the duty (0.3 and the 0.3417 the walk settles on both
+     * return 45.0 uH), the pass count (a single run of 200 samples - the twenty passes - does too),
+     * the switching frequency against the sample period, the loop rate, the rotor (holding it
+     * changes nothing) and the sign conventions. What is left is state a previous run leaves
+     * behind: the same single measurement repeated twice on one harness writes no samples at all
+     * the first time (the result is inf) and 89.95 the second, and a walk of eight duties before
+     * its final measurement gives 89.96. So the next pass belongs at what one measurement leaves in
+     * the aggregate or the plant, not at the bins.
      */
 
     /* The switching frequency the reference stages for this measurement is put back afterwards. */
