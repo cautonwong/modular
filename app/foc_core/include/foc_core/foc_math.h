@@ -307,6 +307,50 @@ void foc_hfi_excite_six_vector(foc_hfi_state_t *hfi, const foc_hfi_excite_in_t *
                                float *v_beta);
 
 /*
+ * What the tracking half distinguishes among the reference's six HFI sensor modes. It is not the
+ * configuration's enum: three of those values mean the same thing here as each other (the modes
+ * whose update happens in the interrupt with a current this port has no contract for are refused),
+ * and a caller that had to hand over the raw value would be handing over a numbering this app does
+ * not own. The glue maps mc_foc_sensor_mode onto these.
+ */
+typedef enum {
+    FOC_HFI_MODE_TRACK = 0, /* FOC_SENSOR_MODE_HFI: track the angle, do not touch the observer */
+    FOC_HFI_MODE_START,   /* FOC_SENSOR_MODE_HFI_START: seeds the observer on the first estimate */
+    FOC_HFI_MODE_REFUSED, /* HFI_V2..HFI_V5: their branch is not ported */
+} foc_hfi_mode_t;
+
+/*
+ * What the tracking half reads: the configuration's HFI speed and sample thresholds, the two angles
+ * it hands over between, the voltage frequency its compensation needs, and the flux linkage the
+ * HFI_START seed writes into the observer.
+ */
+typedef struct foc_hfi_update_in {
+    foc_hfi_mode_t mode;
+    bool amb_mode_six_vector;
+    bool control_sample_mode_v0_v7;
+    int start_samples;
+    float sl_erpm_hfi;
+    float speed_est_fast;
+    float phase_now_observer;
+    float pll_speed;
+    float f_zv;
+    float flux_linkage;
+} foc_hfi_update_in_t;
+
+/*
+ * Reference mcpwm_foc.c:4218-4310 hfi_update, the thread half: it turns the sample buffer the
+ * injected interrupt filled into an angle. Above foc_sl_erpm_hfi the angle is the observer's and
+ * the tracker's integrator is tied to the fast speed estimate, so HFI hands over as the motor
+ * speeds up; below it the buffer's second harmonic is halved into an angle, compensated for the
+ * half buffer of lag, disambiguated from its 180-degree twin against the angle already held, and
+ * the flip tally decides whether that twin is the right one while the estimate is still warming up.
+ * In HFI_START the first estimate also seeds the observer with the flux linkage it is tracking.
+ *
+ * The reference's dt is unused (its thread ignores it) and its plotting hooks are not ported.
+ */
+void foc_hfi_update(foc_hfi_state_t *hfi, const foc_hfi_update_in_t *in, foc_observer_t *observer);
+
+/*
  * The sample-table selection, reference mcpwm_foc.c:133-166 update_hfi_samples. The reference
  * memsets the whole state and then sets the two fields, so a run of this resets the tracker with
  * them - which is what the reference does when the configuration changes under it. A value the
