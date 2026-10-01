@@ -995,8 +995,11 @@ static void test_vesc_host_masked_value_adapters(void **state) {
     assert_int_equal(setup.fault, (uint8_t)telem.faults);
     assert_int_equal(setup.controller_id, 1u);
     assert_int_equal(setup.num_vescs, 1u);
+    /* The harness ran the loop for ten milliseconds and never covered a whole metre: the tachometer
+     * scale here is millimetres per sector, and the odometer counts whole metres as the reference's
+     * does. The runtime is that ten milliseconds, summed from the loop's dt. */
     assert_int_equal(setup.odometer_m, 0u);
-    assert_int_equal(setup.uptime_ms, 0u);
+    assert_int_equal(setup.uptime_ms, 10u);
     assert_int_equal(port.get_setup_values(NULL, &setup), EDGE_EINVAL);
     assert_int_equal(port.get_setup_values(port.self, NULL), EDGE_EINVAL);
 }

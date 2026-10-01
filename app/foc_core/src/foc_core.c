@@ -621,6 +621,28 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
     self->tachometer += diff;
     self->tachometer_abs += (diff < 0) ? -diff : diff;
 
+    /*
+     * The backup counters, reference mc_interface.c:2570-2578. What the reference calls the
+     * absolute distance is the tachometer's absolute count scaled to metres (:1650-1656) - the same
+     * scale this port's host glue uses for the telemetry - and it truncates that to whole metres
+     * before taking the difference, which is what makes the odometer survive the tachometer's own
+     * wrap. The runtime is the reference's wall clock there; here it is the loop's dt summed, the
+     * same difference the energy counters carry.
+     *
+     * This is accumulated in the loop rather than stored here: the reference keeps the block in RAM
+     * and writes it from its shutdown path only, and the module's power_off is that path in this
+     * architecture, so a product is what persists it.
+     */
+    const float tacho_scale =
+        (self->config.si_wheel_diameter * (float)M_PI) /
+        (3.0f * (float)self->config.si_motor_poles * self->config.si_gear_ratio);
+    const uint64_t distance_whole_m = (uint64_t)((float)self->tachometer_abs * tacho_scale);
+    if (distance_whole_m > self->backup_distance_last_m) {
+        self->backup_odometer_m += distance_whole_m - self->backup_distance_last_m;
+    }
+    self->backup_distance_last_m = distance_whole_m;
+    self->backup_uptime_us += (uint64_t)(dt * 1000000.0f);
+
     /* 5. Park Transform */
     float sin_th = 0.0f, cos_th = 0.0f;
     foc_fast_sincos(angle_rad, &sin_th, &cos_th);
@@ -1405,6 +1427,26 @@ void foc_core_read_hfi_bins(const foc_core_t *self, float *offset, float *real_b
     if (current_mean != (void *)0) {
         *current_mean = real_current0;
     }
+}
+
+void foc_core_get_backup(const foc_core_t *self, uint64_t *odometer_m, uint32_t *uptime_ms) {
+    if (self == (void *)0) {
+        return;
+    }
+    if (odometer_m != (void *)0) {
+        *odometer_m = self->backup_odometer_m;
+    }
+    if (uptime_ms != (void *)0) {
+        *uptime_ms = (uint32_t)(self->backup_uptime_us / 1000u);
+    }
+}
+
+void foc_core_set_backup(foc_core_t *self, uint64_t odometer_m, uint32_t uptime_ms) {
+    if (self == (void *)0) {
+        return;
+    }
+    self->backup_odometer_m = odometer_m;
+    self->backup_uptime_us = (uint64_t)uptime_ms * 1000u;
 }
 
 void foc_core_read_detect_samples(const foc_core_t *self, float *i_sum, float *v_sum,

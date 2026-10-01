@@ -3073,6 +3073,80 @@ static void test_foc_core_brake_current_mode(void **state) {
     assert_int_equal(foc.br_no_duty_samples >= 100u, 1);
 }
 
+/*
+ * The backup counters, reference mc_interface.c:2570-2578. What is deterministic here - and so what
+ * is asserted - is the round trip of the stored pair, that a stationary motor adds no distance at
+ * all, and that a spinning one with a wheel big enough to cross a metre per sector does add it. The
+ * odometer counts whole metres, which is what the reference truncates its distance to before taking
+ * the difference.
+ */
+static void test_foc_core_backup_counters(void **state) {
+    (void)state;
+    sim_context_t sim;
+    sim.v_bus = 24.0f;
+    sim.inv.enabled = false;
+    foc_virtual_motor_init(&sim.vm, 0.05f, 0.00005f, 0.005f, 7, 0.0005f);
+
+    foc_inverter_port_t inv_port = {
+        .set_duty = sim_set_duty, .set_phase_state = sim_set_phase_state, .self = &sim};
+    foc_current_port_t cs_port = {
+        .read_currents = sim_read_currents, .read_vbus = sim_read_vbus, .self = &sim};
+    foc_rotor_port_t rs_port = {.read_angle = sim_read_angle, .self = &sim};
+
+    /* A wheel big enough that one tachometer sector crosses a whole metre. */
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 1000.0f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = 300.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = true};
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    /* The stored pair round-trips exactly, in metres and milliseconds. */
+    foc_core_set_backup(&foc, 123456u, 98765u);
+    uint64_t odometer_m = 0u;
+    uint32_t uptime_ms = 0u;
+    foc_core_get_backup(&foc, &odometer_m, &uptime_ms);
+    assert_float_equal((double)odometer_m, 123456.0, 0.0);
+    assert_int_equal(uptime_ms, 98765u);
+    foc_core_set_backup(&foc, 0u, 0u);
+
+    /* The difference is the guard: with the last distance parked far above the current one - which
+     * is what a tachometer wrap looks like - the odometer adds nothing rather than jumping
+     * backwards, and the reference's own re-basing puts the next cycle back on the current
+     * distance. */
+    foc_core_set_backup(&foc, 0u, 0u);
+    foc.backup_distance_last_m = 1000000u;
+    assert_int_equal(foc_core_fast_loop(&foc, 5e-5f), EDGE_OK);
+    foc_virtual_motor_step(&sim.vm, foc.mod_alpha_raw, foc.mod_beta_raw, 0.0f, 5e-5f, 0.0f);
+    foc_core_get_backup(&foc, &odometer_m, &uptime_ms);
+    assert_int_equal(odometer_m, 0u);
+    assert_true(foc.backup_distance_last_m < 1000000u);
+
+    /* Driving it turns the tachometer, and with this wheel each sector is a whole metre. */
+    assert_int_equal(foc_core_set_current(&foc, 8.0f, 0.0f), EDGE_OK);
+    for (int step = 0; step < 2000; ++step) {
+        assert_int_equal(foc_core_fast_loop(&foc, 5e-5f), EDGE_OK);
+        foc_virtual_motor_step(&sim.vm, foc.mod_alpha_raw, foc.mod_beta_raw, 0.0f, 5e-5f, 0.0f);
+    }
+    foc_core_get_backup(&foc, &odometer_m, &uptime_ms);
+    assert_true(odometer_m > 0u);
+    /* The one cycle above and these two thousand: 2001 of fifty microseconds, in whole
+     * milliseconds. */
+    assert_int_equal(uptime_ms, 100u);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -3116,6 +3190,7 @@ int main(void) {
         cmocka_unit_test(test_hfi_tracks_a_standing_rotor_and_hands_over),
         cmocka_unit_test(test_foc_core_read_hfi_bins),
         cmocka_unit_test(test_foc_core_brake_current_mode),
+        cmocka_unit_test(test_foc_core_backup_counters),
         cmocka_unit_test(test_foc_fft_bins_match_reference),
         cmocka_unit_test(test_foc_core_guards),
         cmocka_unit_test(test_foc_core_init_and_command_guards),

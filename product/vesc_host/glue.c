@@ -336,12 +336,13 @@ static edge_status_t config_set_appconf_nostore(void *self, const uint8_t *in, s
  * mc_interface_get_battery_level(). Fields this product has no source for are named zeros with
  * their reasons rather than guesses:
  *   temp_motor    the filtered motor NTC reading the product's sampler delivers
- *   odometer_m    needs a persisted counter, and the reference's own accumulation site has not
- *                 been located yet; inventing one would be inventing the number
- *   uptime_ms     this module is given no clock
  *   num_vescs     stays 1: the reference aggregates unexpired CAN status frames, and this
  *                 product has no CAN status receive path
  *   controller_id 1 until the app configuration reaches this adapter
+ * The two backup counters come from the aggregate, which accumulates them as the reference's
+ * mc_interface does: the odometer in whole metres from the tachometer's absolute count, and the
+ * runtime summed from the loop's dt where the reference reads its own clock. Persisting the block
+ * is the product's job at power_off, which the reference also only does from its shutdown path.
  * The battery level uses the bus voltage where the reference filters a slower input voltage;
  * this port has no such filter, which is recorded in adr-conformance.md.
  */
@@ -381,8 +382,11 @@ static edge_status_t motor_get_setup_values(void *self, vesc_setup_values_t *out
     out->battery_level =
         foc_battery_level(foc->config.si_battery_type, foc->config.si_battery_cells,
                           foc->config.si_battery_ah, telem.v_bus, &out->wh_batt_left);
-    out->odometer_m = 0u;
-    out->uptime_ms = 0u;
+    uint64_t odometer_m = 0u;
+    uint32_t uptime_ms = 0u;
+    foc_core_get_backup(foc, &odometer_m, &uptime_ms);
+    out->odometer_m = (uint32_t)odometer_m;
+    out->uptime_ms = uptime_ms;
     return EDGE_OK;
 }
 
