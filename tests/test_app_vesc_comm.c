@@ -1515,6 +1515,102 @@ static void test_detect_flux_linkage_command(void **state) {
     assert_int_equal(vesc_comm_process_command(other, req, (size_t)len), EDGE_ENOTSUP);
 }
 
+/*
+ * COMM_DETECT_MOTOR_R_L: the request carries nothing, and the reply is the resistance, the
+ * inductance and the difference between the two axes, each at its own scale.
+ */
+typedef struct mock_r_l_ctx {
+    int calls;
+    vesc_detect_r_l_result_t result;
+    edge_status_t status;
+} mock_r_l_ctx_t;
+
+static edge_status_t mock_detect_r_l(void *self, vesc_detect_r_l_result_t *result) {
+    mock_r_l_ctx_t *ctx = (mock_r_l_ctx_t *)self;
+    ctx->calls++;
+    if (ctx->status != EDGE_OK) {
+        return ctx->status;
+    }
+    *result = ctx->result;
+    return EDGE_OK;
+}
+
+/*
+ * The reply's three numbers. Every occurrence of the command id is tried, because a float's bytes
+ * can hold the id's value too - the reply is the command id followed by three of them, and only
+ * one of those positions parses to the triplet that was sent.
+ */
+static bool r_l_reply_carries(const mock_comm_ctx_t *ctx, float r, float l, float diff) {
+    for (int32_t at = 0; at + 13 <= (int32_t)ctx->tx_len; ++at) {
+        if (ctx->tx_buf[at] != COMM_DETECT_MOTOR_R_L) {
+            continue;
+        }
+        int32_t index = at + 1;
+        const float got_r = vesc_buffer_get_float32(ctx->tx_buf, 1e6, &index);
+        const float got_l = vesc_buffer_get_float32(ctx->tx_buf, 1e3, &index);
+        const float got_diff = vesc_buffer_get_float32(ctx->tx_buf, 1e3, &index);
+        if (fabsf(got_r - r) < 1e-4f && fabsf(got_l - l) < 1e-3f &&
+            fabsf(got_diff - diff) < 1e-3f) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void test_detect_r_l_command(void **state) {
+    (void)state;
+    mock_comm_ctx_t tx;
+    memset(&tx, 0, sizeof(tx));
+    edge_stream_tx_port_t tx_port = {.write = mock_stream_write, .self = &tx};
+    mock_r_l_ctx_t rl;
+    memset(&rl, 0, sizeof(rl));
+    vesc_comm_ops_port_t ops_port = {.terminal_cmd = mock_terminal_cmd,
+                                     .forward_can = mock_forward_can,
+                                     .detect_r_l = mock_detect_r_l,
+                                     .self = &rl};
+    vesc_comm_t *comm = test_comm_alloc();
+    vesc_comm_construct(comm, EDGE_MOD_VESC_COMM, 10u, &tx_port, NULL, NULL, NULL, &ops_port,
+                        &test_identity);
+    assert_int_equal(vesc_comm_init(comm), EDGE_OK);
+
+    const uint8_t req[1] = {COMM_DETECT_MOTOR_R_L};
+    assert_int_equal(vesc_comm_process_command(comm, req, sizeof(req)), EDGE_OK);
+    assert_int_equal(rl.calls, 1);
+
+    rl.result.valid = true;
+    rl.result.r_ohm = 0.052f;
+    rl.result.l_uh = 45.0f;
+    rl.result.ld_lq_diff_uh = 20.0f;
+    /* The capture holds every packet this session sent, so it is cleared before each reply is read
+     * back - the reply's own id appears in earlier ones too. */
+    memset(&tx, 0, sizeof(tx));
+    assert_int_equal(vesc_comm_process_command(comm, req, sizeof(req)), EDGE_OK);
+    assert_true(r_l_reply_carries(&tx, 0.052f, 45.0f, 20.0f));
+
+    /* A failed call fills nothing, so all three are zero - the reference's own locals are the same
+     * way, its difference being one it never reached. */
+    rl.status = EDGE_EIO;
+    memset(&tx, 0, sizeof(tx));
+    assert_int_equal(vesc_comm_process_command(comm, req, sizeof(req)), EDGE_OK);
+    assert_true(r_l_reply_carries(&tx, 0.0f, 0.0f, 0.0f));
+    /* An untrusted answer leaves the first two at zero while the difference stays as the
+     * measurement left it. */
+    rl.status = EDGE_OK;
+    rl.result.valid = false;
+    memset(&tx, 0, sizeof(tx));
+    assert_int_equal(vesc_comm_process_command(comm, req, sizeof(req)), EDGE_OK);
+    assert_true(r_l_reply_carries(&tx, 0.0f, 0.0f, 20.0f));
+
+    /* Without the callback the command says it cannot, as an unported one does. */
+    vesc_comm_ops_port_t no_r_l = {
+        .terminal_cmd = mock_terminal_cmd, .forward_can = mock_forward_can, .self = &rl};
+    vesc_comm_t *bare = test_comm_alloc();
+    vesc_comm_construct(bare, EDGE_MOD_VESC_COMM, 10u, &tx_port, NULL, NULL, NULL, &no_r_l,
+                        &test_identity);
+    assert_int_equal(vesc_comm_init(bare), EDGE_OK);
+    assert_int_equal(vesc_comm_process_command(bare, req, sizeof(req)), EDGE_ENOTSUP);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -1530,6 +1626,7 @@ int main(void) {
         cmocka_unit_test(test_decoded_inputs_negative_side),
         cmocka_unit_test(test_detect_flux_linkage_openloop_command),
         cmocka_unit_test(test_detect_flux_linkage_command),
+        cmocka_unit_test(test_detect_r_l_command),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

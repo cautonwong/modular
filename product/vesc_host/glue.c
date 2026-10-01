@@ -539,6 +539,62 @@ static edge_status_t ops_detect_flux_linkage(void *self, float current_a, float 
     return EDGE_OK;
 }
 
+/*
+ * COMM_DETECT_MOTOR_R_L. The reference stages a copy of its configuration with the motor type set
+ * to FOC and the switching frequency at ten kilohertz - a lower frequency means less dead-time
+ * distortion and more current available to measure inductance with - runs the composed sequence,
+ * and puts the configuration back before it replies (:2128-2140). The staging is the glue's here
+ * rather than the command layer's, because the command layer reaches the motor only through this
+ * port.
+ *
+ * The plant is stepped with mod_alpha_raw, as the inductance measurement's own closed loop is: the
+ * excitation is what it measures itself with.
+ */
+static edge_status_t ops_detect_r_l(void *self, vesc_detect_r_l_result_t *result) {
+    vesc_host_ops_ctx_t *ctx = (vesc_host_ops_ctx_t *)self;
+    if (ctx == (void *)0 || ctx->glue == (void *)0 || ctx->motor_id == (void *)0 ||
+        ctx->glue->foc == (void *)0 || result == (void *)0) {
+        return EDGE_EINVAL;
+    }
+
+    foc_core_t *foc = ctx->glue->foc;
+    motor_id_app_t *app = ctx->motor_id;
+    /* The switching frequency is the ten kilohertz above, so the interrupt runs at twice it - the
+     * host product's own fifty-microsecond period. */
+    const float foc_dt = 0.000050f;
+    const uint32_t cycles_per_ms = 20u;
+
+    const foc_config_t saved = foc->config;
+    foc->config.f_zv = 10000.0f;
+    memset(result, 0, sizeof(*result));
+
+    edge_status_t status = motor_id_measure_r_l(app, foc->config.current_max_a);
+    if (status == EDGE_OK) {
+        /* Bounded by the sequence's own longest run, so a measurement that never finishes cannot
+         * hang the caller. */
+        for (uint32_t ms = 0u; ms < 40000u; ++ms) {
+            if (app->state == MOTOR_ID_STATE_COMPLETE || app->state == MOTOR_ID_STATE_FAILED) {
+                break;
+            }
+            for (uint32_t cycle = 0u; cycle < cycles_per_ms; ++cycle) {
+                (void)foc_core_fast_loop(foc, foc_dt);
+                foc_virtual_motor_step(&ctx->glue->vmotor, foc->mod_alpha_raw, foc->mod_beta_raw,
+                                       0.0f, foc_dt, 0.0f);
+            }
+            (void)motor_id_step(app, 0.001f);
+        }
+
+        const motor_id_result_t *measured = motor_id_get_result(app);
+        result->r_ohm = measured->r_ohm;
+        result->l_uh = measured->ind_uh;
+        result->ld_lq_diff_uh = measured->ld_lq_diff_uh;
+        result->valid = measured->valid;
+    }
+
+    foc->config = saved;
+    return status;
+}
+
 void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_host_ops_ctx_t *ctx) {
     if (out == (void *)0) {
         return;
@@ -549,6 +605,7 @@ void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_host_ops_ctx_t *ctx
         .forward_can = ops_forward_can,
         .detect_flux_linkage_openloop = ops_detect_flux_linkage_openloop,
         .detect_flux_linkage = ops_detect_flux_linkage,
+        .detect_r_l = ops_detect_r_l,
         .self = ctx,
     };
 }
