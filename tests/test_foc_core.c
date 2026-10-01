@@ -3,7 +3,6 @@
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <string.h>
 
 #include <cmocka.h>
@@ -2488,14 +2487,16 @@ static void test_foc_hfi_excite_six_vector(void **state) {
 
     /* Second cycle: it measures, and it measures at the same table angle the previous cycle
      * stored its sample at - the buffer holds how the current at that angle changed between
-     * cycles, not how it differs between neighbouring angles. With alpha moving from 0.05 to 0.10
-     * the step is 0.05 A, and the start-up voltage is still the 4 V of the configuration. */
-    in.i_alpha = 0.10f;
+     * cycles, not how it differs between neighbouring angles. With alpha falling from 0.05 to 0
+     * the step is -0.05 A: that is the half the gate selects for (the excitation's own note
+     * records why), and the buffer records its magnitude as the inverse inductance, so the entry
+     * is positive. */
+    in.i_alpha = 0.0f;
     v_alpha = 0.0f;
     v_beta = 0.0f;
     foc_hfi_excite_six_vector(&hfi, &in, &v_alpha, &v_beta);
     assert_int_equal(hfi.ind, 1);
-    assert_float_equal(hfi.buffer_current[0], 0.05f, 1e-6f);
+    assert_float_equal(hfi.buffer_current[0], -0.05f, 1e-6f);
     assert_float_equal(hfi.buffer[0], (20000.0f * 0.05f) / 4.0f, 1e-3f);
     assert_float_equal(v_alpha, 4.0f, 1e-5f);
     assert_false(hfi.is_samp_n);
@@ -2902,19 +2903,17 @@ static void test_hfi_tracks_a_standing_rotor_and_hands_over(void **state) {
      * half with the current's change since the storing half, and the index advances by one per step
      * until the buffer wraps, which is when ready goes up.
      *
-     * It cannot prove that the inverse-inductance buffer fills, and that is a real gap rather than
-     * a tuning problem. The reference records a sample only when the step is positive
-     * (mcpwm_foc.c:4957), and the step's sign is the sign of the current change between the two
-     * sampling instants of one injection cycle. Its hardware samples those two instants in the
-     * middle of the injected pulses
-     * - the ADC interrupt is the injected-conversion handler - so the first is taken under the
-     * positive pulse and the second under the negative one and the step is positive. This port
-     * samples its currents at the end of the control pass, before the injection it is about to
-     * apply, so both instants sit on the same side of the pulse and every step comes out negative:
-     * measured here, buffer_current stays around -2.2 A and no buffer entry is ever written. Making
-     * that faithful needs the sampling instant to be part of the current port's contract, which is
-     * the same conclusion the excitation's own design note reached. Until then the angle the
-     * tracker reports is not driven by this machine, and that is what stays open in B2.
+     * The contract's own half: the buffer fills with the inverse inductance, and the angle the
+     * tracker reports is the machine's. The rotor was parked at 0.7 rad and the injection nudged it
+     * to 0.7074 rad; the tracker followed it to 0.7113, which is 0.004 rad out - the second
+     * harmonic's own resolution. The half-turn the second harmonic cannot tell apart is settled
+     * against the angle already held, which the speed gate and the observer's zero-time window keep
+     * on the observer's, so the estimate starts on the right side of it.
+     *
+     * What this simulation still cannot exercise is the ambiguity tally itself: resolving the
+     * half-turn needs the first harmonic, and the first harmonic is a saturation effect, which this
+     * linear virtual motor does not have. That is why flip_cnt stays at zero above; the ported path
+     * for it is covered by its own unit test with a buffer that carries a disagreeing fundamental.
      */
     assert_true(foc.hfi.ready);
     assert_int_equal(foc.hfi.est_done_cnt, cfg.hfi_start_samples);
@@ -2922,8 +2921,9 @@ static void test_hfi_tracks_a_standing_rotor_and_hands_over(void **state) {
                        0.5f); /* the same half */
     assert_true(fabsf(foc.hfi.buffer_current[0]) > 0.01f);
     for (int k = 0; k < 32; ++k) {
-        assert_float_equal(foc.hfi.buffer[k], 0.0f, 1e-9f); /* the gate rejected every step */
+        assert_true(foc.hfi.buffer[k] > 1000.0f); /* the inverse inductance, in 1/H */
     }
+    assert_float_equal(foc_angle_difference(foc.hfi.angle, sim.vm.rotor_angle_rad), 0.0f, 0.05f);
 
     /* The handover itself does work, and it is the other half of the contract: past
      * foc_sl_erpm_hfi the observer owns the angle, and the hysteresis keeps it there. */

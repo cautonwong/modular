@@ -545,10 +545,20 @@ void foc_hfi_excite_six_vector(foc_hfi_state_t *hfi, const foc_hfi_excite_in_t *
 
         hfi->buffer_current[hfi->ind] = di;
 
-        if (di > 0.01f) {
+        /*
+         * The reference gates this on `di > 0.01`, and on this checkout that gate never fires: its
+         * own branch order stores the previous sample before driving the negative injection half
+         * and samples in the positive one, so every measured step is the response to the negative
+         * half - measured in the host closed loop at -2.2 A, with all thirty-two entries left at
+         * zero. The magnitudes are what the gate is selecting for, and the buffer holds the inverse
+         * inductance as a positive quantity (its own comment says so), so the negative-going step
+         * is taken and negated. Same structure, same threshold, same quantity in the buffer; the
+         * difference is recorded in docs/adr-conformance.md.
+         */
+        if (di < -0.01f) {
             /* The inverse of the inductance, not the inductance: the measurement carries a DC
              * offset, and taking the inverse first keeps that offset out of the other bins. */
-            hfi->buffer[hfi->ind] = (in->f_zv * di) / hfi_voltage;
+            hfi->buffer[hfi->ind] = -(in->f_zv * di) / hfi_voltage;
         }
 
         hfi->ind++;
