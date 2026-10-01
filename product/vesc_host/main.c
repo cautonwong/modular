@@ -187,6 +187,7 @@ int main(void) {
                      * so what reaches the loop is their product. */
                     .current_max_a = mc->l_current_max * mc->l_current_max_scale,
                     .error_sign = mc->foc_encoder_inverted ? -1.0f : 1.0f},
+        .l_abs_current_max = mc->l_abs_current_max,
         .limits = {.l_temp_motor_start = mc->l_temp_motor_start,
                    .l_temp_motor_end = mc->l_temp_motor_end,
                    .l_erpm_start = mc->l_erpm_start,

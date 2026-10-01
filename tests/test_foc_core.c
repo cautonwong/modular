@@ -3461,6 +3461,71 @@ static void test_foc_pos_pid_matches_the_reference(void **state) {
     assert_float_equal(iq, 0.017287286f, 1e-5f);
 }
 
+/*
+ * The modulation-off delay's arming: mcpwm_foc_set_current_off_delay (mcpwm_foc.c:1114) and the
+ * trailing call in the relative-current path that reaches it (mc_interface.c:748). Two things the
+ * reference does are asserted here: the arming takes the *larger* of what is already armed and what
+ * is asked, so a relative command can only postpone the switching-off and never bring it forward;
+ * and it arms only when the commanded current is above cc_min_current on the absolute scale, which
+ * is what l_abs_current_max is the scale of.
+ */
+static void test_foc_core_current_off_delay_arming(void **state) {
+    (void)state;
+
+    mock_inverter_t inv = {0};
+    mock_current_sensor_t cs = {0};
+    mock_rotor_sensor_t rs = {0};
+
+    foc_inverter_port_t inv_port = {
+        .set_duty = mock_set_duty, .set_phase_state = mock_set_phase_state, .self = &inv};
+    foc_current_port_t cs_port = {
+        .read_currents = mock_read_currents, .read_vbus = mock_read_vbus, .self = &cs};
+    foc_rotor_port_t rs_port = {.read_angle = mock_read_angle, .self = &rs};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 54.0f,
+                        .current_min_a = -54.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.1f,
+                        .current_ki = 100.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .l_abs_current_max = 130.0f,
+                        .limits = DERIVATION_LIMITS,
+                        .sensorless_mode = false};
+
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    assert_float_equal(foc.current_off_delay, 0.0f, 1e-9f);
+
+    /* A command whose absolute current is below cc_min_current does not arm it. */
+    foc.duty_now = 0.0f;
+    assert_int_equal(foc_core_set_current_rel(&foc, 0.0f), EDGE_OK);
+    assert_float_equal(foc.current_off_delay, 0.0f, 1e-9f);
+
+    /* One above it arms the reference's tenth of a second. */
+    assert_int_equal(foc_core_set_current_rel(&foc, 1.0f), EDGE_OK);
+    assert_float_equal(foc.current_off_delay, 0.1f, 1e-6f);
+
+    /* The arming is a maximum: a shorter ask leaves it where it is, a longer one raises it. */
+    foc_core_arm_current_off_delay(&foc, 0.05f);
+    assert_float_equal(foc.current_off_delay, 0.1f, 1e-6f);
+    foc_core_arm_current_off_delay(&foc, 1.0f);
+    assert_float_equal(foc.current_off_delay, 1.0f, 1e-6f);
+
+    /* And the loop it feeds takes it down again, which is what makes it a delay rather than a
+     * latch. */
+    (void)foc_core_fast_loop(&foc, 0.001f);
+    assert_true(foc.current_off_delay < 1.0f);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -3518,6 +3583,7 @@ int main(void) {
         cmocka_unit_test(test_foc_svpwm_duty_clamps),
         cmocka_unit_test(test_foc_pos_pid_matches_the_reference),
         cmocka_unit_test(test_foc_core_update_limits_matches_the_reference),
+        cmocka_unit_test(test_foc_core_current_off_delay_arming),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
