@@ -461,6 +461,18 @@ typedef struct vesc_comm_ops_port {
      * to its end before returning is what that looks like from here.
      */
     edge_status_t (*detect_r_l)(void *self, vesc_detect_r_l_result_t *result);
+
+    /*
+     * The all-in-one detection (comm/commands.c:2328-2347, conf_general_detect_apply_all_foc_can).
+     * It lives behind the product because everything it composes is a measurement over that
+     * product's own hardware: the DC-offset calibration is its current sensor's, the resistance and
+     * inductance run and the flux linkage drive its own inverter. What it reports back is the
+     * reference's own int16 - zero for a run that completed, negative for one that did not, which
+     * is the value that function starts at.
+     */
+    edge_status_t (*detect_apply_all_foc)(void *self, bool detect_can, float max_power_loss,
+                                          float min_current_in, float max_current_in,
+                                          float openloop_rpm, float sl_erpm, int16_t *result);
     void *self;
 } vesc_comm_ops_port_t;
 

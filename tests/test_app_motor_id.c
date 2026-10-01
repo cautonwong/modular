@@ -1416,6 +1416,33 @@ static void test_motor_id_measure_r_l_edge_exits(void **state) {
     assert_int_equal(plant.leave_gains_calls, 1);
 }
 
+/*
+ * The gains a detection exists to produce, against the reference's own output: conf_general.c's
+ * conf_general_calc_apply_foc_cc_kp_ki_gain was compiled verbatim - a flat struct in place of
+ * mc_configuration - and run on these three inputs. The observer's gain is compared in millions
+ * because it is a number in the tens of millions in volts per weber, where the last float digit is
+ * noise; the third case is what the crossover argument is for, half the bandwidth and kp and ki
+ * both doubled with it.
+ */
+static void test_motor_id_gains_match_the_reference(void **state) {
+    (void)state;
+
+    motor_id_gains_t g = motor_id_calc_apply_foc_gains(0.045f, 0.000045f, 0.004f, 1000.0f);
+    assert_float_equal(g.current_kp, 0.0450000018f, 1e-7f);
+    assert_float_equal(g.current_ki, 45.0f, 1e-5f);
+    assert_float_equal(g.observer_gain / 1e6f, 62.499992f, 1e-4f);
+
+    g = motor_id_calc_apply_foc_gains(0.0125f, 0.000018f, 0.00123f, 1000.0f);
+    assert_float_equal(g.current_kp, 0.0180000011f, 1e-7f);
+    assert_float_equal(g.current_ki, 12.5f, 1e-5f);
+    assert_float_equal(g.observer_gain / 1e6f, 660.982208f, 1e-3f);
+
+    g = motor_id_calc_apply_foc_gains(0.1f, 0.0002f, 0.02f, 500.0f);
+    assert_float_equal(g.current_kp, 0.399999976f, 1e-6f);
+    assert_float_equal(g.current_ki, 200.0f, 1e-4f);
+    assert_float_equal(g.observer_gain / 1e6f, 2.5f, 1e-5f);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -1440,6 +1467,7 @@ int main(void) {
         cmocka_unit_test(test_motor_id_measure_r_l_runs_the_whole_sequence),
         cmocka_unit_test(test_motor_id_inductance_failure_paths),
         cmocka_unit_test(test_motor_id_measure_r_l_edge_exits),
+        cmocka_unit_test(test_motor_id_gains_match_the_reference),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

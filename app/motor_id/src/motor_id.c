@@ -1330,6 +1330,26 @@ uint32_t motor_id_get_fault(const motor_id_app_t *app) {
     return (app != (void *)0) ? app->fault_code : 0u;
 }
 
+/*
+ * conf_general.c:1513, conf_general_calc_apply_foc_cc_kp_ki_gain, line for line. The crossover
+ * arrives in microseconds, which is the reference's own unit (it is called with 1000, a
+ * millisecond), and the bandwidth it means is the reciprocal of that in seconds. The observer's
+ * gain is the one term that is not a frequency: it is 1e-3 over the linkage squared, scaled back up
+ * by 1e6, which is the reference's own scaling for the field.
+ */
+motor_id_gains_t motor_id_calc_apply_foc_gains(float r_ohm, float l_henry, float flux_linkage_wb,
+                                               float tc_us) {
+    motor_id_gains_t gains = {0};
+
+    const float bw = 1.0f / (tc_us * 1e-6f);
+
+    gains.current_kp = l_henry * bw;
+    gains.current_ki = r_ohm * bw;
+    gains.observer_gain = (1.0e-3f / (flux_linkage_wb * flux_linkage_wb)) * 1e6f;
+
+    return gains;
+}
+
 edge_module_t *motor_id_module(motor_id_app_t *app) {
     return (app != (void *)0) ? &app->module : (void *)0;
 }
