@@ -193,6 +193,8 @@ void foc_core_construct(foc_core_t *self, uint32_t module_id, uint32_t priority,
         };
         self->config.pll_kp = 2000.0f;
         self->config.pll_ki = 30000.0f;
+        /* mcconf_default.h's absolute current ceiling, `MCCONF_L_MAX_ABS_CURRENT`, 130 A. */
+        self->config.l_abs_current_max = 130.0f;
         /*
          * The override derivation's inputs, at the reference's own defaults (mcconf_defaults.h,
          * generated from motor/mcconf_default.h - the numbers are its, not a choice made here). The
@@ -1292,6 +1294,18 @@ void foc_core_update_limits(foc_core_t *self) {
     self->lo_current_min = lo_min;
 }
 
+void foc_core_arm_current_off_delay(foc_core_t *self, float delay_sec) {
+    if (self == (void *)0) {
+        return;
+    }
+
+    /* mcpwm_foc.c:1114 keeps the larger of the two, so an already-armed delay is never shortened.
+     */
+    if (self->current_off_delay < delay_sec) {
+        self->current_off_delay = delay_sec;
+    }
+}
+
 edge_status_t foc_core_set_current_rel(foc_core_t *self, float rel) {
     if (self == (void *)0) {
         return EDGE_EINVAL;
@@ -1310,14 +1324,19 @@ edge_status_t foc_core_set_current_rel(foc_core_t *self, float rel) {
                            : fabsf(self->lo_current_min);
 
     /*
-     * The reference then calls mc_interface_set_current(), so DIR_MULT and the rest of
-     * that path apply - DIR_MULT is the glue's job here. Its trailing
-     * set_current_off_delay(0.1), gated by l_abs_current_max and cc_min_current, only
-     * feeds the field-weakening modulation extension (mcpwm_foc.c:3953/3970 read
-     * m_current_off_delay, and m_motor_released with it); nothing reads such a delay
-     * here, so it is recorded as pending B3 rather than carried as dead state.
+     * The reference then calls mc_interface_set_current(), so DIR_MULT and the rest of that path
+     * apply - DIR_MULT is the glue's job here - and then arms the modulation-off delay when the
+     * commanded current is above cc_min_current on its absolute scale (mc_interface.c:748). That
+     * reader exists now: the release gate switches the modulation off only once every setpoint is
+     * below the minimum and the delay has run out, which is what this keeps it from doing
+     * immediately.
      */
-    return foc_core_set_current(self, rel * base, 0.0f);
+    const edge_status_t status = foc_core_set_current(self, rel * base, 0.0f);
+    if (status == EDGE_OK &&
+        fabsf(rel * self->config.l_abs_current_max) > self->config.limits.cc_min_current) {
+        foc_core_arm_current_off_delay(self, 0.1f);
+    }
+    return status;
 }
 
 edge_status_t foc_core_set_rpm(foc_core_t *self, float rpm_target) {

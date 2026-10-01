@@ -208,6 +208,14 @@ typedef struct foc_config {
     uint8_t mtpa_mode; /* FOC_MTPA_MODE_OFF / _IQ_TARGET / _IQ_MEASURED */
     float cc_min_current;
 
+    /*
+     * mcconf l_abs_current_max: the reference's absolute current ceiling, which is what its
+     * relative-current paths gate their modulation-off-delay arming on (mc_interface.c:748). It is
+     * not a limit this layer enforces - nothing clamps to it - it is the scale that gate is written
+     * in.
+     */
+    float l_abs_current_max;
+
     /* Battery description, for the setup-values battery level (mc_interface_get_battery_level).
      * The type values are the reference's BATTERY_TYPE order. */
     uint8_t si_battery_type;
@@ -608,6 +616,15 @@ edge_status_t foc_core_set_current(foc_core_t *self, float iq_target, float id_t
  * resolved in the codec. The result goes through the same path as set_current.
  */
 edge_status_t foc_core_set_current_rel(foc_core_t *self, float rel);
+
+/*
+ * The reference's mcpwm_foc_set_current_off_delay (mcpwm_foc.c:1114): keep the current controller
+ * from switching its modulation off for a target below cc_min_current for this long. It takes the
+ * larger of what is armed and what is asked - never a smaller one - which is why a relative current
+ * command can only postpone that switching-off and not bring it forward. The field and its reader
+ * are already here; this is the arming side of it.
+ */
+void foc_core_arm_current_off_delay(foc_core_t *self, float delay_sec);
 
 /*
  * The reference's update_override_limits (mc_interface.c:2245): the limits the control loop runs
