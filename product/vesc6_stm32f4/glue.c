@@ -162,8 +162,8 @@ static edge_status_t backup_store(void *self, const uint8_t *data, size_t len) {
     for (uint16_t i = 0u; i < VESC6_BACKUP_VARS; i++) {
         const uint16_t word =
             (uint16_t)(((uint16_t)data[2u * i] << 8) | (uint16_t)data[2u * i + 1u]);
-        state->values[VESC6_MCCONF_VARS + i] = word;
-        state->written[VESC6_MCCONF_VARS + i] = 1u;
+        state->values[VESC6_MCCONF_VARS + VESC6_APPCONF_VARS + i] = word;
+        state->written[VESC6_MCCONF_VARS + VESC6_APPCONF_VARS + i] = 1u;
     }
     return EDGE_OK;
 }
@@ -181,10 +181,10 @@ edge_status_t vesc6_backup_read(vesc6_glue_state_t *state, uint8_t *block, size_
     }
 
     for (uint16_t i = 0u; i < VESC6_BACKUP_VARS; i++) {
-        if (state->written[VESC6_MCCONF_VARS + i] == 0u) {
+        if (state->written[VESC6_MCCONF_VARS + VESC6_APPCONF_VARS + i] == 0u) {
             return EDGE_ENOENT;
         }
-        const uint16_t word = state->values[VESC6_MCCONF_VARS + i];
+        const uint16_t word = state->values[VESC6_MCCONF_VARS + VESC6_APPCONF_VARS + i];
         block[2u * i] = (uint8_t)(word >> 8);
         block[2u * i + 1u] = (uint8_t)word;
     }

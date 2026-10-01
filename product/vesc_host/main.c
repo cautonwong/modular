@@ -84,20 +84,27 @@ int main(void) {
      * emulation over the flash sectors above, with a variable table enumerating the reference's
      * virtual address base (conf_general.c:50, :72).
      */
-    static uint16_t mcconf_var_table[VESC_HOST_MCCONF_VARS + VESC_HOST_BACKUP_VARS];
+    static uint16_t
+        mcconf_var_table[VESC_HOST_MCCONF_VARS + VESC_HOST_APPCONF_VARS + VESC_HOST_BACKUP_VARS];
     for (size_t i = 0u; i < VESC_HOST_MCCONF_VARS; i++) {
         mcconf_var_table[i] = (uint16_t)(VESC_HOST_MCCONF_BASE + i);
     }
-    /* The backup block's words are the same list's tail, at the reference's own base for them. */
+    /* The application configuration's next, and the backup block's after it: the list is what tells
+     * the emulation which addresses exist, so all three ranges are in it. */
+    for (size_t i = 0u; i < VESC_HOST_APPCONF_VARS; i++) {
+        mcconf_var_table[VESC_HOST_MCCONF_VARS + i] = (uint16_t)(VESC_HOST_APPCONF_BASE + i);
+    }
     for (size_t i = 0u; i < VESC_HOST_BACKUP_VARS; i++) {
-        mcconf_var_table[VESC_HOST_MCCONF_VARS + i] = (uint16_t)(VESC_HOST_BACKUP_BASE + i);
+        mcconf_var_table[VESC_HOST_MCCONF_VARS + VESC_HOST_APPCONF_VARS + i] =
+            (uint16_t)(VESC_HOST_BACKUP_BASE + i);
     }
     static flash_emul_t flash_store;
-    flash_emul_construct(
-        &flash_store, &flash_sectors,
-        (flash_var_table_t){.virtual_addresses = mcconf_var_table,
-                            .count = VESC_HOST_MCCONF_VARS + VESC_HOST_BACKUP_VARS},
-        0u);
+    flash_emul_construct(&flash_store, &flash_sectors,
+                         (flash_var_table_t){.virtual_addresses = mcconf_var_table,
+                                             .count = VESC_HOST_MCCONF_VARS +
+                                                      VESC_HOST_APPCONF_VARS +
+                                                      VESC_HOST_BACKUP_VARS},
+                         0u);
     if (flash_emul_init(&flash_store) != EDGE_OK) {
         return 11;
     }

@@ -15,7 +15,8 @@
 #include "vesc_comm/vesc_comm.h" /* vesc_crc16, for the cross-check */
 
 /* A mock variable store: one uint16 per two configuration bytes, which is how the reference
- * persists a configuration (conf_general.c:436-520). */
+ * persists a configuration (conf_general.c:436-520). Large enough for both configurations, since
+ * the application one's words follow the motor one's (388 of them) in the same store. */
 #define MOCK_VAR_COUNT 512u
 
 typedef struct mock_var_store {
@@ -716,6 +717,88 @@ static void test_motor_config_refuses_a_foreign_signature(void **state) {
     assert_int_equal(motor_config_deserialize_mc(&mc, buffer, len), EDGE_EINVAL);
 }
 
+/*
+ * A store of its own for the application configuration's test, large enough for both
+ * configurations' words: the fixture's is sized for the motor one alone, and growing that one made
+ * the *other* tests' locals large enough to matter - which showed up as two of them failing with
+ * EDGE_EINVAL while this one was the only thing that actually needed the room.
+ */
+#define APP_TEST_VAR_COUNT 640u
+
+typedef struct app_test_store {
+    uint16_t values[APP_TEST_VAR_COUNT];
+    bool present;
+} app_test_store_t;
+
+static edge_status_t app_test_read(void *self, uint16_t index, uint16_t *value) {
+    app_test_store_t *store = (app_test_store_t *)self;
+    if (!store->present || index >= APP_TEST_VAR_COUNT) {
+        return EDGE_ENOENT;
+    }
+    *value = store->values[index];
+    return EDGE_OK;
+}
+
+static edge_status_t app_test_write(void *self, uint16_t index, uint16_t value) {
+    app_test_store_t *store = (app_test_store_t *)self;
+    if (index >= APP_TEST_VAR_COUNT) {
+        return EDGE_EINVAL;
+    }
+    store->values[index] = value;
+    return EDGE_OK;
+}
+
+/*
+ * The application configuration's own persistence, the twin of the motor one: what is stored comes
+ * back on the next boot, and a stored image whose CRC no longer matches falls back to the defaults
+ * - the reference's rule for both configurations (conf_general.c:335-374).
+ */
+static void test_motor_config_app_configuration_persists(void **state) {
+    (void)state;
+    static app_test_store_t store;
+    memset(&store, 0, sizeof(store));
+    store.present = true;
+    const motor_config_var_port_t port = {
+        .read = app_test_read, .write = app_test_write, .self = &store};
+
+    static alignas(
+        MOTOR_CONFIG_STORAGE_ALIGN) unsigned char first_storage[MOTOR_CONFIG_STORAGE_SIZE];
+    static alignas(
+        MOTOR_CONFIG_STORAGE_ALIGN) unsigned char second_storage[MOTOR_CONFIG_STORAGE_SIZE];
+    motor_config_t *first = (motor_config_t *)first_storage;
+    motor_config_t *second = (motor_config_t *)second_storage;
+
+    motor_config_construct(first, EDGE_MOD_MOTOR_CONFIG, 30u, &port);
+    assert_int_equal(motor_config_init(first), EDGE_OK);
+    assert_int_equal(motor_config_save(first), EDGE_OK);
+    assert_int_equal(motor_config_save_app(first), EDGE_OK);
+
+    /* The store holds the application configuration's words: one per two bytes, high byte first,
+     * the struct's own CRC included - the reference's own arrangement for both configurations. */
+    const app_configuration_t *stored = motor_config_get_app(first);
+    const uint8_t *bytes = (const uint8_t *)stored;
+    const uint16_t app_base = (uint16_t)(sizeof(mc_configuration_t) / 2u);
+    const size_t count = sizeof(*stored) / 2u;
+    for (size_t i = 0u; i < count; i++) {
+        const uint16_t expected =
+            (uint16_t)(((uint16_t)bytes[2u * i] << 8) | (uint16_t)bytes[2u * i + 1u]);
+        assert_int_equal(store.values[app_base + i], expected);
+    }
+
+    /* A second instance over the same store reads the whole application configuration back: the
+     * load succeeds and the configuration matches, byte for byte. */
+    motor_config_construct(second, EDGE_MOD_MOTOR_CONFIG, 30u, &port);
+    assert_int_equal(motor_config_load_app(second), EDGE_OK);
+    assert_memory_equal(motor_config_get_app(second), stored, sizeof(*stored));
+
+    /* A word inside the application configuration's half that no longer matches its CRC makes the
+     * load refuse - which is what the boot path turns into the defaults, the reference's rule for
+     * both configurations. */
+    store.values[app_base + 8u] ^= 0xFFFFu;
+    motor_config_construct(second, EDGE_MOD_MOTOR_CONFIG, 30u, &port);
+    assert_int_equal(motor_config_load_app(second), EDGE_EINVAL);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_defaults_and_validation),
@@ -732,6 +815,7 @@ int main(void) {
         cmocka_unit_test(test_motor_config_defaults_keep_the_calibration_offsets),
         cmocka_unit_test(test_motor_config_app_nostore_applies_without_marking_dirty),
         cmocka_unit_test(test_module_lifecycle_and_variable_store),
+        cmocka_unit_test(test_motor_config_app_configuration_persists),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

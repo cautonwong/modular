@@ -24,7 +24,11 @@
  * order - the block's words follow the configuration's.
  */
 #define VESC6_BACKUP_VARS (FOC_BACKUP_BLOCK_BYTES / 2u)
-#define VESC6_TOTAL_VARS (VESC6_MCCONF_VARS + VESC6_BACKUP_VARS)
+/* The application configuration's words sit between the two: this store is addressed by index, and
+ * the module that owns them reads them at the index right after the motor configuration's
+ * (motor_config.c, MOTOR_CONFIG_APP_BASE). */
+#define VESC6_APPCONF_VARS (sizeof(app_configuration_t) / 2u)
+#define VESC6_TOTAL_VARS (VESC6_MCCONF_VARS + VESC6_APPCONF_VARS + VESC6_BACKUP_VARS)
 
 /*
  * Where the ADC reads zero amperes: mid-scale, as the reference's own arithmetic has it
