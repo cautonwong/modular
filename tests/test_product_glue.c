@@ -1809,6 +1809,25 @@ static void test_vesc_host_flux_command_sensored(void **state) {
         EDGE_EINVAL);
 }
 
+/*
+ * The products carry the configuration's foc_sensor_mode across as this app's angle source, so the
+ * two enumerations have to name the same modes in the same order. They are written independently -
+ * the app may not include the generated one (D30) - which is exactly why the correspondence is
+ * asserted rather than only commented.
+ */
+static void test_sensor_mode_enumerations_line_up(void **state) {
+    (void)state;
+    assert_int_equal(FOC_SENSOR_MODE_SENSORLESS, FOC_ANGLE_SOURCE_SENSORLESS);
+    assert_int_equal(FOC_SENSOR_MODE_ENCODER, FOC_ANGLE_SOURCE_ENCODER);
+    assert_int_equal(FOC_SENSOR_MODE_HALL, FOC_ANGLE_SOURCE_HALL);
+    assert_int_equal(FOC_SENSOR_MODE_HFI, FOC_ANGLE_SOURCE_HFI);
+    assert_int_equal(FOC_SENSOR_MODE_HFI_START, FOC_ANGLE_SOURCE_HFI_START);
+    assert_int_equal(FOC_SENSOR_MODE_HFI_V2, FOC_ANGLE_SOURCE_HFI_V2);
+    assert_int_equal(FOC_SENSOR_MODE_HFI_V3, FOC_ANGLE_SOURCE_HFI_V3);
+    assert_int_equal(FOC_SENSOR_MODE_HFI_V4, FOC_ANGLE_SOURCE_HFI_V4);
+    assert_int_equal(FOC_SENSOR_MODE_HFI_V5, FOC_ANGLE_SOURCE_HFI_V5);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -1838,6 +1857,7 @@ int main(void) {
         cmocka_unit_test(test_vesc_host_flux_command),
         cmocka_unit_test(test_vesc_host_flux_command_sensored),
         cmocka_unit_test(test_vesc_host_motor_setters),
+        cmocka_unit_test(test_sensor_mode_enumerations_line_up),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
