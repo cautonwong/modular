@@ -121,6 +121,40 @@ writing).
    implementation uses the `edge_sys_*` prefix.
 ## Recorded deviations
 
+**The override derivation keeps three groups out, each for want of a source.** The limits the loop
+runs on are the reference's own wound-down values, derived in `foc_core_update_limits` from the duty,
+both ERPM cuts, the start-current decrease and the motor's temperature. Three groups of the
+reference's `update_override_limits` (mc_interface.c:2245) are not derived: the FET temperature's own
+two terms and the acceleration terms that exist so braking torque survives as the FETs heat, because
+this port has no FET sensor - which is the reference's own disabled case, where it keeps the
+configured values rather than deriving anything; the input-current group, whose only consumer is its
+own last term and that one runs off the timer task's filtered input current, which this port keeps
+unfiltered in its telemetry; and the BMS limits, which need a pack on the bus. Every missing term is
+one whose branch keeps the configured limit, so what the loop sees is what the reference would
+produce with those sources absent. B6, D31
+
+**An over-temperature motor zeroes the limits instead of raising a fault.** The reference's
+`update_override_limits` calls `mc_interface_fault_stop(FAULT_CODE_OVER_TEMP_MOTOR)` at
+mc_interface.c:2359 when the motor's temperature is past its end. This port has no fault entry for a
+layer to reach - the aggregate's state machine is what has to stop - so the limits go to zero, which
+is what stops the motor, and the product that reads the sensor declares the fault. The observable
+behaviour the loop cares about is the same; the fault code is raised one layer out. B6, D31
+
+**A six-step detection cannot run on a port with no six-step layer.** `COMM_DETECT_MOTOR_PARAM` stays
+refused, and not because nobody wrote it: the reference's `conf_general_detect_motor_param`
+(conf_general.c:514) stages `motor_type = MOTOR_TYPE_BLDC` with an integrating commutation mode and
+the `sl_*` sensorless limits, drives it with `mcpwm_switch_comm_mode`, and builds a hall table and a
+BEMF coupling constant from that drive. This port is FOC only and no product has halls. Its sibling
+`COMM_DETECT_APPLY_ALL_FOC` *is* implemented, because what it composes - the resistance and
+inductance, the flux linkage, the gains derived from them - all exist here. B5, D31
+
+**The all-in-one run's DC-offset calibration belongs to the product.** The reference's
+`conf_general_detect_apply_all_foc` opens with `mcpwm_foc_dc_cal` over the phase currents
+(conf_general.c:1747). The offsets and the mid-scale they are read against are what reads them, so
+in this architecture that calibration is the current port's own business and the callback the command
+reaches is the product's. A product whose sensor needs it calibrates there; nothing above that layer
+can tell whether it did. B5, D31
+
 **The zero image's CRC is zero.** Both loaders check a stored image by comparing the struct's own `crc` field against the CRC computed over it, which is the reference's own rule - and the CRC-16/CCITT-FALSE it uses, with a zero initial value, is itself zero over an all-zero image. A store that reported a blank image as *readable* rather than as a failed read would therefore have that image accepted as a valid configuration, of either kind. Both products' stores report a blank one by the read failing and not by the value - the emulated EEPROM returns `EDGE_ENOENT` for an unwritten variable, the board's table tracks which words were written - which is what keeps the rule sound here; anything that answered zeros instead would have to be looked at again. D31, C2
 
 **The BLDC detection pair.** `COMM_DETECT_MOTOR_PARAM` and `COMM_DETECT_APPLY_ALL_FOC` are refused
