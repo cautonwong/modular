@@ -773,16 +773,16 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
                           self->target_rpm, dt, &iq_cmd);
         self->target_iq = iq_cmd;
     } else if (self->state == FOC_STATE_RUNNING_POS) {
-        /* Position PID loop to compute target_iq */
-        float current_deg = angle_rad * (180.0f / (float)M_PI);
-        float err_pos = self->target_rpm - current_deg; /* using target_rpm as target_pos */
-        float iq_cmd = err_pos * 0.1f;
-        if (iq_cmd > self->config.current_max_a) {
-            iq_cmd = self->config.current_max_a;
-        }
-        if (iq_cmd < self->config.current_min_a) {
-            iq_cmd = self->config.current_min_a;
-        }
+        /*
+         * The reference's position loop, in radians as the reference's own inputs are: the setpoint
+         * arrives in degrees from the command (mcpwm_foc_set_pid_pos) and the measured angle is
+         * already radians here. The output is the loop's own within one unit scaled by the motor's
+         * current limit, which is why the reference has no clamp of its own here and neither does
+         * this - the MTPA and field-weakening stage below limits what reaches the PI.
+         */
+        float iq_cmd = 0.0f;
+        foc_run_pid_pos(&self->pos_pid, &self->config.pos_pid, true, true,
+                        self->target_rpm * ((float)M_PI / 180.0f), angle_rad, dt, &iq_cmd);
         self->target_iq = iq_cmd;
     }
 

@@ -360,6 +360,116 @@ float foc_temp_comp_factor(float motor_temp_c, float base_temp_c) {
     return 1.0 + 0.00386 * (motor_temp_c - base_temp_c);
 }
 
+/*
+ * The reference's position loop (motor/foc_math.c:385-508, foc_run_pid_control_pos), line for line.
+ * Its two differences from the speed loop above are the pair of D terms - one on the error, one on
+ * the measured angle, which damps the rotor's motion without waiting for the setpoint - and the
+ * anti-windup at the end, which leaves the proportional term at most one unit and gives the
+ * integral what is left of that unit.
+ *
+ * Angles are radians here as they are in the reference; the setpoint arrives in degrees from the
+ * command and the caller converts it, which is what mcpwm_foc_set_pid_pos does with p_pid_ang_div's
+ * 180/pi. With no encoder there is no index to find, so the found-branch is the one that runs and
+ * current_max_a is the runtime limit the product derived - l_current_max times l_current_max_scale,
+ * already multiplied together by the time it gets here.
+ */
+void foc_run_pid_pos(foc_pos_pid_t *pid, const foc_pos_pid_params_t *params, bool in_pos_mode,
+                     bool index_found, float angle_set_rad, float angle_now_rad, float dt,
+                     float *iq_set) {
+    /* PID is off. Return, and drop what the loop was holding (foc_math.c:395-402). */
+    if (!in_pos_mode) {
+        pid->i_term = 0.0f;
+        pid->prev_error = 0.0f;
+        pid->prev_proc = angle_now_rad;
+        pid->d_filter = 0.0f;
+        pid->d_filter_proc = 0.0f;
+        return;
+    }
+
+    float error = foc_angle_difference(angle_set_rad, angle_now_rad) * params->error_sign;
+
+    float kp = params->kp;
+    float ki = params->ki;
+    float kd = params->kd;
+    float kd_proc = params->kd_proc;
+
+    /*
+     * p_pid_gain_dec_angle: below that error the four gains wind down together, so a small
+     * remaining error does not get the full gain and the loop settles instead of hunting. The
+     * threshold is the angle divided by p_pid_ang_div (foc_math.c:420-433).
+     */
+    if (params->gain_dec_angle > 0.1f) {
+        float min_error = params->gain_dec_angle / params->ang_div;
+        float error_abs = fabsf(error);
+
+        if (error_abs < min_error) {
+            float scale = error_abs / min_error;
+            kp *= scale;
+            ki *= scale;
+            kd *= scale;
+            kd_proc *= scale;
+        }
+    }
+
+    float p_term = error * kp;
+    pid->i_term += error * (ki * dt);
+
+    /*
+     * The D term keeps its own interval, the one between *changes* of the error, because at low
+     * speed several control iterations run on the same position and dividing by dt each time would
+     * multiply the derivative (foc_math.c:436-449).
+     */
+    float d_term;
+    pid->dt_int += dt;
+    if (error == pid->prev_error) {
+        d_term = 0.0f;
+    } else {
+        d_term = (error - pid->prev_error) * (kd / pid->dt_int);
+        pid->dt_int = 0.0f;
+    }
+
+    /* Filter D */
+    pid->d_filter -= params->kd_filter * (pid->d_filter - d_term);
+    d_term = pid->d_filter;
+
+    /*
+     * Process D: the measured angle's own motion, subtracted from the output. It is the rotor
+     * moving, not the error, and the loop damps it directly (foc_math.c:452-464).
+     */
+    float d_term_proc;
+    pid->dt_int_proc += dt;
+    if (angle_now_rad == pid->prev_proc) {
+        d_term_proc = 0.0f;
+    } else {
+        d_term_proc = -foc_angle_difference(angle_now_rad, pid->prev_proc) * params->error_sign *
+                      (kd_proc / pid->dt_int_proc);
+        pid->dt_int_proc = 0.0f;
+    }
+
+    /* Filter D process */
+    pid->d_filter_proc -= params->kd_filter * (pid->d_filter_proc - d_term_proc);
+    d_term_proc = pid->d_filter_proc;
+
+    /* I-term wind-up protection: what the proportional term is using, the integral cannot
+     * (foc_math.c:467-470). */
+    float p_tmp = obs_truncate_abs(p_term, 1.0f);
+    pid->i_term = obs_truncate_abs(pid->i_term, 1.0f - fabsf(p_tmp));
+
+    /* Store previous error */
+    pid->prev_error = error;
+    pid->prev_proc = angle_now_rad;
+
+    /* Calculate output */
+    const float output = obs_truncate(p_term + pid->i_term + d_term + d_term_proc, -1.0f, 1.0f);
+
+    if (index_found) {
+        *iq_set = output * params->current_max_a;
+    } else {
+        /* Rotate at 40 % power until the encoder index is found (foc_math.c:505-506). */
+        *iq_set = 0.4f * params->current_max_a;
+    }
+}
+
 float foc_angle_difference(float angle1, float angle2) {
     float difference = angle1 - angle2;
     while (difference < -(float)M_PI) {

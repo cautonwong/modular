@@ -3242,6 +3242,91 @@ static void test_foc_core_backup_block(void **state) {
     assert_int_equal(uptime_ms, 7000u);               /* its own flag was intact */
 }
 
+/*
+ * The position loop against the reference's own output. These numbers are not read off the source:
+ * motor/foc_math.c's foc_run_pid_control_pos was compiled verbatim - its three utils_* helpers
+ * alongside it, and a flat struct in place of motor_all_state_t - and run on these inputs, in this
+ * order, on one piece of state. The first iteration is the loud one: the error steps from its
+ * initial zero, so both difference terms are at their largest and dominate the loop, which is the
+ * reference's own behaviour rather than an artefact of the harness.
+ */
+static void test_foc_pos_pid_matches_the_reference(void **state) {
+    (void)state;
+    const float dt = 1.0f / 25000.0f;
+    foc_pos_pid_params_t p = {.kp = 0.05f,
+                              .ki = 2.0f,
+                              .kd = 0.001f,
+                              .kd_proc = 0.0005f,
+                              .kd_filter = 0.5f,
+                              .gain_dec_angle = 0.0f,
+                              .ang_div = 1.0f,
+                              .current_max_a = 60.0f * 0.9f,
+                              .error_sign = 1.0f};
+    foc_pos_pid_t pid;
+    memset(&pid, 0, sizeof(pid));
+    float iq = 0.0f;
+
+    /* one_iter: the error's first step, both D terms at their largest, the output saturated. */
+    foc_run_pid_pos(&pid, &p, true, true, 1.0f, 0.8f, dt, &iq);
+    assert_float_equal(iq, -54.0f, 1e-4f);
+    assert_float_equal(pid.i_term, 1.59999981e-05f, 1e-7f);
+
+    /* twenty_iters: the loop has settled onto the setpoint. Twenty more iterations on the same
+     * state, which is what the harness ran after its single-iteration case. */
+    for (int i = 0; i < 20; i++) {
+        foc_run_pid_pos(&pid, &p, true, true, 1.0f, 0.8f, dt, &iq);
+    }
+    assert_float_equal(iq, 0.558015227f, 1e-4f);
+    assert_float_equal(pid.i_term, 0.000336000056f, 1e-7f);
+
+    /* wraps_negative: the setpoint is below zero and the rotor above it, so the angle difference
+     * goes the short way round through the wrap. */
+    for (int i = 0; i < 20; i++) {
+        foc_run_pid_pos(&pid, &p, true, true, -3.1f, 3.1f, dt, &iq);
+    }
+    assert_float_equal(iq, 0.249854416f, 1e-4f);
+
+    /* hold_still: neither the setpoint nor the measurement moves. */
+    for (int i = 0; i < 10; i++) {
+        foc_run_pid_pos(&pid, &p, true, true, 0.5f, 0.5f, dt, &iq);
+    }
+    assert_float_equal(iq, 0.105541095f, 1e-4f);
+    assert_float_equal(pid.d_filter_proc, 0.00158691243f, 1e-7f);
+
+    /* no_index: no encoder index to find, so the loop holds 40 % of the current limit. */
+    for (int i = 0; i < 3; i++) {
+        foc_run_pid_pos(&pid, &p, true, false, 1.0f, 0.8f, dt, &iq);
+    }
+    assert_float_equal(iq, 21.5999985f, 1e-3f);
+
+    /* gain_wind_down: below p_pid_gain_dec_angle / p_pid_ang_div the four gains wind down together.
+     */
+    p.gain_dec_angle = 5.0f;
+    p.ang_div = 180.0f;
+    for (int i = 0; i < 10; i++) {
+        foc_run_pid_pos(&pid, &p, true, true, 0.01f, 0.0f, dt, &iq);
+    }
+    assert_float_equal(iq, 0.0718551949f, 1e-4f);
+
+    /* inverted_encoder: mcconf foc_encoder_inverted negates the error and the processed D. */
+    p.error_sign = -1.0f;
+    for (int i = 0; i < 10; i++) {
+        foc_run_pid_pos(&pid, &p, true, true, 0.01f, 0.0f, dt, &iq);
+    }
+    assert_float_equal(iq, 0.017287286f, 1e-5f);
+
+    /* pid_off_resets: out of position mode the loop drops what it held, and the command it was
+     * last given stays where it is. */
+    for (int i = 0; i < 2; i++) {
+        foc_run_pid_pos(&pid, &p, false, true, 1.0f, 0.8f, dt, &iq);
+    }
+    assert_float_equal(pid.i_term, 0.0f, 1e-9f);
+    assert_float_equal(pid.d_filter, 0.0f, 1e-9f);
+    assert_float_equal(pid.d_filter_proc, 0.0f, 1e-9f);
+    assert_float_equal(pid.prev_proc, 0.8f, 1e-9f);
+    assert_float_equal(iq, 0.017287286f, 1e-5f);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -3297,6 +3382,7 @@ int main(void) {
         cmocka_unit_test(test_foc_core_loop_and_module_failures),
         cmocka_unit_test(test_foc_core_safety_guards_and_power_off),
         cmocka_unit_test(test_foc_svpwm_duty_clamps),
+        cmocka_unit_test(test_foc_pos_pid_matches_the_reference),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
