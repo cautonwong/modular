@@ -111,6 +111,35 @@ typedef enum {
     FOC_ANGLE_SOURCE_HFI_V5,
 } foc_sensor_mode_t;
 
+/*
+ * What the override derivation winds the current limits down by (foc_core_update_limits). The
+ * ceiling is not here: foc_config_t's current_max_a / current_min_a are it, already carrying
+ * whatever the product's own scaling decided - l_current_max * l_current_max_scale in the
+ * reference's terms.
+ */
+typedef struct foc_limit_params {
+    float l_temp_motor_start;     /* mcconf l_temp_motor_start, the motor temperature's knees */
+    float l_temp_motor_end;       /* mcconf l_temp_motor_end */
+    float l_erpm_start;           /* mcconf l_erpm_start, where both ERPM cuts begin */
+    float l_max_erpm;             /* mcconf l_max_erpm */
+    float l_min_erpm;             /* mcconf l_min_erpm */
+    float foc_start_curr_dec;     /* mcconf foc_start_curr_dec, below foc_start_curr_dec_rpm */
+    float foc_start_curr_dec_rpm; /* mcconf foc_start_curr_dec_rpm */
+    float l_duty_start;           /* mcconf l_duty_start against l_max_duty, the duty de-rating */
+    float l_max_duty;             /* mcconf l_max_duty */
+    float cc_min_current;         /* mcconf cc_min_current, the floor both limits keep */
+    float l_watt_max;             /* mcconf l_watt_max, over the input voltage */
+    float l_watt_min;             /* mcconf l_watt_min */
+    float l_in_current_max;       /* mcconf l_in_current_max */
+    float l_in_current_min;       /* mcconf l_in_current_min */
+    float
+        l_in_current_map_start; /* mcconf l_in_current_map_start, the i_in fraction it starts at */
+    float l_battery_cut_start;  /* mcconf l_battery_cut_start */
+    float l_battery_cut_end;    /* mcconf l_battery_cut_end */
+    float l_battery_regen_cut_start; /* mcconf l_battery_regen_cut_start */
+    float l_battery_regen_cut_end;   /* mcconf l_battery_regen_cut_end */
+} foc_limit_params_t;
+
 typedef struct foc_config {
     float r_ohm;
     float l_henry;
@@ -190,6 +219,13 @@ typedef struct foc_config {
 
     /* Position-loop parameters, handed to foc_run_pid_pos verbatim. */
     foc_pos_pid_params_t pos_pid;
+
+    /*
+     * What the override derivation winds the current limits down by (foc_core_update_limits). The
+     * ceiling itself is not here: current_max_a / current_min_a above are it, already carrying
+     * whatever the product's own scaling decided.
+     */
+    foc_limit_params_t limits;
 
     /* Reference: mcconf foc_pll_kp / foc_pll_ki, defaults 2000 / 30000
      * (motor/mcconf_default.h:284-288). */
@@ -348,6 +384,15 @@ typedef struct foc_core {
     foc_pll_t pll;
     foc_speed_pid_t speed_pid;
     foc_pos_pid_t pos_pid;
+
+    /*
+     * The limits the control loop actually runs on, the reference's lo_current_max / lo_current_min
+     * (mc_interface.c:2540-2541). foc_core_update_limits recomputes them from the configuration and
+     * what the machine is doing; everything that turns a fraction or a speed into a current reads
+     * these rather than the configuration's ceiling.
+     */
+    float lo_current_max;
+    float lo_current_min;
     float last_v_bus;
     float last_ia;
     float last_ib;
@@ -563,6 +608,16 @@ edge_status_t foc_core_set_current(foc_core_t *self, float iq_target, float id_t
  * resolved in the codec. The result goes through the same path as set_current.
  */
 edge_status_t foc_core_set_current_rel(foc_core_t *self, float rel);
+
+/*
+ * The reference's update_override_limits (mc_interface.c:2245): the limits the control loop runs
+ * on, which are foc_config_t's current_max_a / current_min_a wound down by what the machine is
+ * doing - the duty it is at, both ERPM cuts, the start-current decrease, the input current against
+ * the wattage and the battery cutoffs, and the motor's own temperature. Called once per control
+ * cycle, from where the reference calls it out of its timer task (:2607). What it does not derive,
+ * and why, is written down where the terms live.
+ */
+void foc_core_update_limits(foc_core_t *self);
 edge_status_t foc_core_set_duty(foc_core_t *self, float duty_target);
 edge_status_t foc_core_set_rpm(foc_core_t *self, float rpm_target);
 edge_status_t foc_core_set_pos(foc_core_t *self, float pos_target_deg);
