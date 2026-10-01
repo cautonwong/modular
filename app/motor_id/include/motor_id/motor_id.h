@@ -66,8 +66,45 @@ typedef enum motor_id_state {
     MOTOR_ID_STATE_SENSORED_CONFIG,
     MOTOR_ID_STATE_SENSORED_RELEASE,
     MOTOR_ID_STATE_SENSORED_SPINUP,
-    MOTOR_ID_STATE_SENSORED_SAMPLE
+    MOTOR_ID_STATE_SENSORED_SAMPLE,
+
+    /*
+     * mcpwm_foc_measure_inductance (:1909-2070): the temporary HFI configuration, its two
+     * one-millisecond waits, the wait for the first filled sample buffer (which gives up after a
+     * hundred milliseconds and carries on anyway, :1943-1950), and then one pass per ten of the
+     * requested samples - each of those zeroing the duty, checking the fault, waiting ten
+     * milliseconds and reading the transform's bins (:1956-2030).
+     */
+    MOTOR_ID_STATE_IND_CONFIG,
+    MOTOR_ID_STATE_IND_DUTY_ZERO,
+    MOTOR_ID_STATE_IND_WAIT_READY,
+    MOTOR_ID_STATE_IND_SAMPLE,
+    MOTOR_ID_STATE_IND_SAMPLE_WAIT,
+    MOTOR_ID_STATE_IND_SAMPLE_READ,
+    /* mcpwm_foc_measure_res_ind's ten milliseconds between zeroing the current and measuring
+     * inductance (:2350-2353). */
+    MOTOR_ID_STATE_RES_IND_SETTLE
 } motor_id_state_t;
+
+/*
+ * The two composed sequences, which the reference writes as nested calls and this port drives from
+ * its completion step:
+ *
+ *   measure_inductance_current (:2086-2104) runs whole measurements at an increasing duty until the
+ *   current they draw reaches the caller's goal, then one more at the last duty with the caller's
+ *   sample count.
+ *
+ *   measure_res_ind (:2320-2360) measures resistance at an increasing current until the current
+ *   exceeds 1/R, takes a final 200-sample resistance measurement at that current, stores it and
+ *   then measures inductance at the same current.
+ */
+typedef enum motor_id_chain {
+    MOTOR_ID_CHAIN_NONE = 0,
+    MOTOR_ID_CHAIN_IND_CURRENT,
+    MOTOR_ID_CHAIN_IND_FINAL,
+    MOTOR_ID_CHAIN_RES_SCAN,
+    MOTOR_ID_CHAIN_RES_FINAL
+} motor_id_chain_t;
 
 typedef struct motor_id_result {
     float r_ohm;
@@ -80,6 +117,15 @@ typedef struct motor_id_result {
     float flux_linkage_wb;
     float linkage_undriven_wb;
     float undriven_samples;
+    /*
+     * mcpwm_foc_measure_inductance (:2061-2069): the average of the two axis inductances and their
+     * difference, both scaled by 1e6 into microhenrys and by the reference's 0.9 factor, and the
+     * current it ran at. The factor is the reference's own note: the observer is more stable with
+     * an underestimated inductance (:2055-2060).
+     */
+    float ind_uh;
+    float ld_lq_diff_uh;
+    float ind_current_a;
     bool valid;
 } motor_id_result_t;
 
@@ -144,6 +190,37 @@ typedef struct motor_id_measure_port {
     edge_status_t (*set_startup_limits)(void *self, float sl_min_erpm, float sl_cycle_int_limit,
                                         bool delay_comm_mode);
     edge_status_t (*enter_sensored_measurement_config)(void *self);
+
+    /*
+     * Inductance (mcpwm_foc_measure_inductance, :1909-2070). The temporary configuration is the
+     * same save-and-restore pair the flux procedure's is, and what the procedure reads are the HFI
+     * transform's own outputs rather than raw plant quantities:
+     *
+     *   enter_inductance_config  the temporary configuration (:1918-1935): the HFI sensor and
+     *                            ambiguity modes, the three voltages computed from the caller's
+     * duty against the bus voltage, the speed and sampling-mode overrides and the
+     * switching-frequency clamp leave_inductance_config  the restore every exit path does
+     * (:2038-2052) set_duty                 mcpwm_foc_set_duty(0.0), how the reference holds the
+     * motor still so that the injection is the only voltage on it (:1940, :1960) is_hfi_ready the
+     * `while (!m_hfi.ready)` wait (:1943-1950) read_hfi_bins            bin 0 of the sample buffer
+     * - the mean of the inverse inductance - bin 2 of it - the saliency's second harmonic - and bin
+     * 0 of the current-step buffer, the mean measured step (:2004-2007)
+     */
+    edge_status_t (*enter_inductance_config)(void *self, float duty);
+    edge_status_t (*leave_inductance_config)(void *self);
+    edge_status_t (*set_duty)(void *self, float duty);
+    edge_status_t (*is_hfi_ready)(void *self, bool *ready);
+    edge_status_t (*read_hfi_bins)(void *self, float *offset, float *real_bin2, float *imag_bin2,
+                                   float *current_mean);
+    /*
+     * mcpwm_foc_measure_res_ind's own temporary configuration (:2322-2326 and its exit at :2357):
+     * the current loop's gains become very small ones for the scan, which is what lets the applied
+     * voltage be read as the resistance's own drop rather than as a controller's output. The
+     * reference edits the live configuration and restores it; the product does the same to the
+     * aggregate's, which is why this is a pair rather than a value.
+     */
+    edge_status_t (*enter_res_ind_gains)(void *self);
+    edge_status_t (*leave_res_ind_gains)(void *self);
 } motor_id_measure_port_t;
 
 typedef struct motor_id_app {
@@ -203,6 +280,35 @@ typedef struct motor_id_app {
     float sensored_avg_rpm;
     float sensored_avg_current;
     float sensored_samples;
+
+    /*
+     * The inductance procedure's own state (:1909-2070): its arguments, the sums its sampling
+     * passes fill, and the two waits' counters.
+     */
+    float ind_duty;
+    float ind_current_a;
+    uint32_t ind_samples;
+    uint32_t ind_iterations;
+    uint32_t ind_waited_ms;
+    float ind_l_sum;
+    float ind_diff_sum;
+    float ind_i_sum;
+
+    /*
+     * The composed sequences' progress: which chain is running, the current goal the inductance
+     * scan is aiming for, the duty it has reached, and the resistance chain's own scan state.
+     */
+    motor_id_chain_t chain;
+    uint32_t chain_samples;
+    float ind_goal_current_a;
+    float ind_scan_duty;
+    float res_ind_current_a;
+    float res_ind_r_tmp;
+    float res_ind_current_max_a;
+    float res_ind_last_current_a;
+    /* Whether the composed sequence's own current-loop gains are still in place, so that the single
+     * exit point puts them back once and only when it changed them. */
+    bool res_ind_gains_active;
 } motor_id_app_t;
 
 void motor_id_construct(motor_id_app_t *app, uint32_t module_id, uint32_t priority,
@@ -244,7 +350,16 @@ edge_status_t motor_id_measure_flux_linkage_sensored(motor_id_app_t *app, float 
                                                      float duty, float min_erpm, float res_ohm,
                                                      float config_res_ohm);
 
-edge_status_t motor_id_measure_r_l(motor_id_app_t *app);
+edge_status_t motor_id_measure_inductance(motor_id_app_t *app, float duty, uint32_t samples);
+edge_status_t motor_id_measure_inductance_current(motor_id_app_t *app, float curr_goal,
+                                                  uint32_t samples);
+
+/*
+ * The composed pair, mcpwm_foc_measure_res_ind (:2320-2360): a resistance measurement at an
+ * increasing current until the current exceeds 1/R, a final one at that current, and then an
+ * inductance measurement there. Ported only once its inductance half was.
+ */
+edge_status_t motor_id_measure_r_l(motor_id_app_t *app, float current_max_a);
 edge_status_t motor_id_measure_flux_linkage(motor_id_app_t *app);
 edge_status_t motor_id_detect_hall(motor_id_app_t *app);
 

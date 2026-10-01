@@ -17,6 +17,9 @@
 /* Defined below with the flux-linkage procedures; the tick switch dispatches to them. */
 static void motor_id_flux_tick(motor_id_app_t *app);
 static void motor_id_sensored_tick(motor_id_app_t *app);
+static void motor_id_ind_tick(motor_id_app_t *app);
+static void motor_id_chain_step(motor_id_app_t *app);
+static void motor_id_res_ind_release_gains(motor_id_app_t *app);
 
 static edge_status_t motor_id_poll(edge_module_t *mod) {
     (void)mod;
@@ -100,6 +103,7 @@ static void motor_id_publish_resistance(motor_id_app_t *app) {
         motor_id_stop_motor(app);
     }
     app->state = MOTOR_ID_STATE_COMPLETE;
+    motor_id_chain_step(app);
 }
 
 /* One millisecond of the reference's measure_resistance, whose blocking loop this projects. */
@@ -122,6 +126,16 @@ static void motor_id_tick(motor_id_app_t *app) {
     case MOTOR_ID_STATE_SENSORED_SPINUP:
     case MOTOR_ID_STATE_SENSORED_SAMPLE:
         motor_id_sensored_tick(app);
+        return;
+
+    case MOTOR_ID_STATE_IND_CONFIG:
+    case MOTOR_ID_STATE_IND_DUTY_ZERO:
+    case MOTOR_ID_STATE_IND_WAIT_READY:
+    case MOTOR_ID_STATE_IND_SAMPLE:
+    case MOTOR_ID_STATE_IND_SAMPLE_WAIT:
+    case MOTOR_ID_STATE_IND_SAMPLE_READ:
+    case MOTOR_ID_STATE_RES_IND_SETTLE:
+        motor_id_ind_tick(app);
         return;
 
     case MOTOR_ID_STATE_RAMP:
@@ -893,11 +907,379 @@ edge_status_t motor_id_measure_flux_linkage_sensored(motor_id_app_t *app, float 
     return EDGE_OK;
 }
 
-edge_status_t motor_id_measure_r_l(motor_id_app_t *app) {
+/*
+ * Inductance, mcpwm_foc_measure_inductance (:1909-2070). The reference switches the motor into an
+ * HFI configuration, waits for the sample buffer's first fill, and then reads the transform's own
+ * bins once per ten requested samples: bin 0 of the sample buffer is the mean of the inverse
+ * inductance, and the magnitude of bin 2 is twice the second harmonic that saliency puts on it, so
+ * the mean plus and minus that amplitude are the inverses of the two axis inductances. Bin 0 of the
+ * current-step buffer is the mean measured step, which is the current the pass ran at.
+ *
+ * The reference stores the measured resistance in its live configuration before measuring
+ * inductance and restores it on the way out (:2347-2349, :2358). Nothing outside that function can
+ * see the value - both writes are inside it - and the inductance measurement reads no resistance at
+ * all, so the port does not carry it.
+ */
+#define MOTOR_ID_IND_CONFIG_MS 1u           /* :1937 */
+#define MOTOR_ID_IND_DUTY_MS 1u             /* :1941 */
+#define MOTOR_ID_IND_READY_MS 100u          /* :1947, the wait's own give-up */
+#define MOTOR_ID_IND_SAMPLE_MS 10u          /* :1971 */
+#define MOTOR_ID_IND_MIN_SAMPLES 10u        /* :1955, and the pass size below */
+#define MOTOR_ID_IND_SCALE 0.9f             /* :2057 */
+#define MOTOR_ID_IND_SCAN_DUTY_START 0.02f  /* :2089 */
+#define MOTOR_ID_IND_SCAN_DUTY_END 0.5f     /* :2089, the walk's own bound */
+#define MOTOR_ID_IND_SCAN_DUTY_STEP 1.5f    /* :2089 */
+#define MOTOR_ID_IND_SCAN_DUTY_LIMIT 0.6f   /* :2090, which cannot bind below 0.5 */
+#define MOTOR_ID_IND_SCAN_SAMPLES 10u       /* :2092 */
+#define MOTOR_ID_RES_IND_CURRENT_START 2.0f /* :2328 */
+#define MOTOR_ID_RES_IND_CURRENT_STEP 1.5f  /* :2328 */
+#define MOTOR_ID_RES_IND_SCAN_SAMPLES 20u   /* :2331 */
+#define MOTOR_ID_RES_IND_FINAL_SAMPLES 200u /* :2345 */
+#define MOTOR_ID_RES_IND_SETTLE_MS 10u      /* :2352 */
+
+/* :1976-2002, the reference's own fault exit: the setpoints zeroed, the motor stopped, and the
+ * configuration put back before it returns the fault. */
+static void motor_id_ind_fail(motor_id_app_t *app) {
+    app->result.valid = false;
+    (void)app->measure_port.set_current(app->measure_port.self, 0.0f);
+    motor_id_stop_motor(app);
+    if (app->measure_port.leave_inductance_config != (void *)0) {
+        (void)app->measure_port.leave_inductance_config(app->measure_port.self);
+    }
+    app->chain = MOTOR_ID_CHAIN_NONE;
+    motor_id_res_ind_release_gains(app);
+    app->state = MOTOR_ID_STATE_FAILED;
+}
+
+/* :2357-2359, the exit every path of the composed sequence takes: the current loop's gains come
+ * back. A no-op for a measurement that never changed them. */
+static void motor_id_res_ind_release_gains(motor_id_app_t *app) {
+    if (!app->res_ind_gains_active) {
+        return;
+    }
+    app->res_ind_gains_active = false;
+    if (app->measure_port.leave_res_ind_gains != (void *)0) {
+        (void)app->measure_port.leave_res_ind_gains(app->measure_port.self);
+    }
+}
+
+/* :2020-2030: one pass's arithmetic, accumulated. The offset and the amplitude split the mean of
+ * the inverse inductance into the two axes, which the reference says replaces an approximation that
+ * only held for a small saliency (:2015-2019). */
+static void motor_id_ind_accumulate(motor_id_app_t *app) {
+    float offset = 0.0f;
+    float real_bin2 = 0.0f;
+    float imag_bin2 = 0.0f;
+    float current_mean = 0.0f;
+
+    if (app->measure_port.read_hfi_bins(app->measure_port.self, &offset, &real_bin2, &imag_bin2,
+                                        &current_mean) != EDGE_OK) {
+        motor_id_ind_fail(app);
+        return;
+    }
+
+    const float amplitude = sqrtf(real_bin2 * real_bin2 + imag_bin2 * imag_bin2) * 2.0f;
+    const float ld_est = 1.0f / (offset + amplitude);
+    const float lq_est = 1.0f / (offset - amplitude);
+
+    app->ind_l_sum += (ld_est + lq_est) / 2.0f;
+    app->ind_diff_sum += (lq_est - ld_est);
+    app->ind_i_sum += current_mean;
+    app->ind_iterations++;
+}
+
+/* :2032-2069: the current is zeroed and the configuration restored before the three results, which
+ * are the pass averages scaled into microhenrys by the reference's own factor. */
+static void motor_id_ind_publish(motor_id_app_t *app) {
+    const float iterations = (float)app->ind_iterations;
+
+    (void)app->measure_port.set_current(app->measure_port.self, 0.0f);
+    if (app->measure_port.leave_inductance_config != (void *)0) {
+        (void)app->measure_port.leave_inductance_config(app->measure_port.self);
+    }
+
+    app->result.ind_current_a = app->ind_i_sum / iterations;
+    app->result.ld_lq_diff_uh = (app->ind_diff_sum / iterations) * 1e6f * MOTOR_ID_IND_SCALE;
+    app->result.ind_uh = (app->ind_l_sum / iterations) * 1e6f * MOTOR_ID_IND_SCALE;
+    app->result.valid = (app->ind_iterations > 0u);
+
+    app->state = MOTOR_ID_STATE_COMPLETE;
+    motor_id_chain_step(app);
+}
+
+static void motor_id_ind_tick(motor_id_app_t *app) {
+    const motor_id_measure_port_t *p = &app->measure_port;
+
+    switch (app->state) {
+    case MOTOR_ID_STATE_IND_CONFIG:
+        /* The configuration went in on entry, and the reference waits a millisecond before zeroing
+         * the duty (:1936-1941). */
+        if (++app->ms >= MOTOR_ID_IND_CONFIG_MS) {
+            (void)p->set_duty(p->self, 0.0f);
+            app->ms = 0u;
+            app->state = MOTOR_ID_STATE_IND_DUTY_ZERO;
+        }
+        return;
+
+    case MOTOR_ID_STATE_IND_DUTY_ZERO:
+        if (++app->ms >= MOTOR_ID_IND_DUTY_MS) {
+            app->ms = 0u;
+            app->ind_waited_ms = 0u;
+            app->state = MOTOR_ID_STATE_IND_WAIT_READY;
+        }
+        return;
+
+    case MOTOR_ID_STATE_IND_WAIT_READY: {
+        /* :1943-1950: the wait gives up after a hundred milliseconds and carries on, which is what
+         * the reference's break does. */
+        bool ready = false;
+        (void)p->is_hfi_ready(p->self, &ready);
+        app->ind_waited_ms++;
+        if (ready || app->ind_waited_ms > MOTOR_ID_IND_READY_MS) {
+            app->ms = 0u;
+            app->state = MOTOR_ID_STATE_IND_SAMPLE;
+        }
+        return;
+    }
+
+    case MOTOR_ID_STATE_IND_SAMPLE: {
+        /* :1956-1966: the duty is zeroed and the fault checked at the top of each pass, before the
+         * pass's own ten milliseconds. */
+        (void)p->set_duty(p->self, 0.0f);
+        const uint32_t fault = p->get_fault(p->self);
+        if (fault != 0u) {
+            app->fault_code = fault;
+            motor_id_ind_fail(app);
+            return;
+        }
+        if (app->ind_iterations >= (app->ind_samples / MOTOR_ID_IND_MIN_SAMPLES)) {
+            motor_id_ind_publish(app);
+            return;
+        }
+        app->ms = 0u;
+        app->state = MOTOR_ID_STATE_IND_SAMPLE_WAIT;
+        return;
+    }
+
+    case MOTOR_ID_STATE_IND_SAMPLE_WAIT:
+        if (++app->ms >= MOTOR_ID_IND_SAMPLE_MS) {
+            app->ms = 0u;
+            app->state = MOTOR_ID_STATE_IND_SAMPLE_READ;
+        }
+        return;
+
+    case MOTOR_ID_STATE_IND_SAMPLE_READ:
+        motor_id_ind_accumulate(app);
+        if (app->state == MOTOR_ID_STATE_IND_SAMPLE_READ) {
+            app->state = MOTOR_ID_STATE_IND_SAMPLE;
+        }
+        return;
+
+    case MOTOR_ID_STATE_RES_IND_SETTLE:
+        /* :2350-2353: the current has been zeroed, ten milliseconds pass, and the inductance is
+         * measured at the current the final resistance was taken at. The sequence has no state of
+         * its own here, so the completion is what lets the next measurement start. */
+        if (++app->ms >= MOTOR_ID_RES_IND_SETTLE_MS) {
+            app->ms = 0u;
+            app->chain = MOTOR_ID_CHAIN_NONE;
+            app->state = MOTOR_ID_STATE_COMPLETE;
+            (void)motor_id_measure_inductance_current(app, app->res_ind_last_current_a,
+                                                      MOTOR_ID_RES_IND_FINAL_SAMPLES);
+        }
+        return;
+
+    default:
+        return;
+    }
+}
+
+/*
+ * The composed sequences' continuation. The reference writes both as nested blocking calls; here
+ * each sub-measurement is a state machine of its own, so what would be the next nested call is made
+ * when the previous one completes.
+ */
+static void motor_id_chain_step(motor_id_app_t *app) {
+    const bool failed = (app->state == MOTOR_ID_STATE_FAILED);
+
+    switch (app->chain) {
+    case MOTOR_ID_CHAIN_IND_CURRENT: {
+        /*
+         * :2089-2103: the walk starts at 0.02, takes half again while that is under 0.5, measures
+         * at each step, and takes that same duty for its final measurement with the caller's
+         * sample count - whether it stopped because the current reached the goal or because the
+         * walk ran out. Its own clamp to 0.6 cannot bind, the walk's bound being below it.
+         */
+        if (failed) {
+            app->chain = MOTOR_ID_CHAIN_NONE;
+            motor_id_res_ind_release_gains(app);
+            return;
+        }
+        const float duty_used = app->ind_scan_duty;
+        const float grown = duty_used * MOTOR_ID_IND_SCAN_DUTY_STEP;
+        const float next =
+            (grown > MOTOR_ID_IND_SCAN_DUTY_LIMIT) ? MOTOR_ID_IND_SCAN_DUTY_LIMIT : grown;
+
+        if (app->result.ind_current_a >= app->ind_goal_current_a ||
+            next >= MOTOR_ID_IND_SCAN_DUTY_END) {
+            app->chain = MOTOR_ID_CHAIN_IND_FINAL;
+            (void)motor_id_measure_inductance(app, duty_used, app->chain_samples);
+            return;
+        }
+        app->ind_scan_duty = next;
+        (void)motor_id_measure_inductance(app, next, MOTOR_ID_IND_SCAN_SAMPLES);
+        return;
+    }
+
+    case MOTOR_ID_CHAIN_IND_FINAL:
+        /* The measurement the walk settled on has completed, so the sequence is done. */
+        app->chain = MOTOR_ID_CHAIN_NONE;
+        motor_id_res_ind_release_gains(app);
+        return;
+
+    case MOTOR_ID_CHAIN_RES_SCAN:
+        /*
+         * :2328-2342: resistance is measured at 2 A and then half again times larger while that is
+         * under half the current limit, stopping as soon as the current it drew exceeds 1/R - and
+         * when the walk runs out the reference finishes at half the current limit instead. A zero
+         * result or a fault leaves by its own exit. The gains were changed for the scan and are put
+         * back on every path out of the whole sequence.
+         */
+        if (failed || app->result.r_ohm == 0.0f) {
+            app->chain = MOTOR_ID_CHAIN_NONE;
+            motor_id_res_ind_release_gains(app);
+            return;
+        }
+        if (app->res_ind_current_a > (1.0f / app->result.r_ohm)) {
+            app->res_ind_last_current_a = app->res_ind_current_a;
+        } else {
+            app->res_ind_current_a *= MOTOR_ID_RES_IND_CURRENT_STEP;
+            if (app->res_ind_current_a >= (app->res_ind_current_max_a / 2.0f)) {
+                app->res_ind_last_current_a = app->res_ind_current_max_a / 2.0f;
+            } else {
+                (void)motor_id_measure_resistance(app, app->res_ind_current_a,
+                                                  MOTOR_ID_RES_IND_SCAN_SAMPLES, false);
+                return;
+            }
+        }
+        app->chain = MOTOR_ID_CHAIN_RES_FINAL;
+        (void)motor_id_measure_resistance(app, app->res_ind_last_current_a,
+                                          MOTOR_ID_RES_IND_FINAL_SAMPLES, true);
+        return;
+
+    case MOTOR_ID_CHAIN_RES_FINAL:
+        /* :2345-2356: a zero or a fault ends the sequence; otherwise the inductance follows, after
+         * ten milliseconds at zero current. */
+        app->chain = MOTOR_ID_CHAIN_NONE;
+        if (failed || app->result.r_ohm == 0.0f) {
+            motor_id_res_ind_release_gains(app);
+            return;
+        }
+        app->state = MOTOR_ID_STATE_RES_IND_SETTLE;
+        app->ms = 0u;
+        return;
+
+    case MOTOR_ID_CHAIN_NONE:
+    default:
+        return;
+    }
+}
+
+edge_status_t motor_id_measure_inductance(motor_id_app_t *app, float duty, uint32_t samples) {
     if (app == (void *)0) {
         return EDGE_EINVAL;
     }
-    return EDGE_ENOTSUP;
+    const motor_id_measure_port_t *p = &app->measure_port;
+    if (p->enter_inductance_config == (void *)0 || p->leave_inductance_config == (void *)0 ||
+        p->set_duty == (void *)0 || p->is_hfi_ready == (void *)0 || p->read_hfi_bins == (void *)0 ||
+        p->set_current == (void *)0 || p->get_fault == (void *)0 || p->stop == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    if (app->state != MOTOR_ID_STATE_IDLE && app->state != MOTOR_ID_STATE_COMPLETE &&
+        app->state != MOTOR_ID_STATE_FAILED) {
+        return EDGE_EBUSY;
+    }
+    if (samples < MOTOR_ID_IND_MIN_SAMPLES) {
+        samples = MOTOR_ID_IND_MIN_SAMPLES;
+    }
+
+    app->result.valid = false;
+    app->ind_duty = duty;
+    app->ind_samples = samples;
+    app->ind_iterations = 0u;
+    app->ind_waited_ms = 0u;
+    app->ind_l_sum = 0.0f;
+    app->ind_diff_sum = 0.0f;
+    app->ind_i_sum = 0.0f;
+    app->ms = 0u;
+    app->ms_accum = 0.0f;
+
+    /* :1918-1937: the reference stops the PWM and installs the temporary configuration, then
+     * sleeps a millisecond before zeroing the duty. */
+    if (p->enter_inductance_config(p->self, duty) != EDGE_OK) {
+        app->state = MOTOR_ID_STATE_FAILED;
+        return EDGE_EINVAL;
+    }
+    app->state = MOTOR_ID_STATE_IND_CONFIG;
+    return EDGE_OK;
+}
+
+edge_status_t motor_id_measure_inductance_current(motor_id_app_t *app, float curr_goal,
+                                                  uint32_t samples) {
+    if (app == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    if (app->state != MOTOR_ID_STATE_IDLE && app->state != MOTOR_ID_STATE_COMPLETE &&
+        app->state != MOTOR_ID_STATE_FAILED) {
+        return EDGE_EBUSY;
+    }
+
+    app->chain = MOTOR_ID_CHAIN_IND_CURRENT;
+    app->ind_goal_current_a = curr_goal;
+    app->chain_samples = samples;
+    app->ind_scan_duty = MOTOR_ID_IND_SCAN_DUTY_START;
+
+    return motor_id_measure_inductance(app, MOTOR_ID_IND_SCAN_DUTY_START,
+                                       MOTOR_ID_IND_SCAN_SAMPLES);
+}
+
+edge_status_t motor_id_measure_r_l(motor_id_app_t *app, float current_max_a) {
+    if (app == (void *)0 || current_max_a <= 0.0f) {
+        return EDGE_EINVAL;
+    }
+    if (app->state != MOTOR_ID_STATE_IDLE && app->state != MOTOR_ID_STATE_COMPLETE &&
+        app->state != MOTOR_ID_STATE_FAILED) {
+        return EDGE_EBUSY;
+    }
+    const motor_id_measure_port_t *p = &app->measure_port;
+    if (p->enter_inductance_config == (void *)0 || p->read_hfi_bins == (void *)0 ||
+        p->enter_res_ind_gains == (void *)0 || p->leave_res_ind_gains == (void *)0) {
+        return EDGE_EINVAL;
+    }
+
+    /* :2322-2326: the current loop's gains for the scan, which every path out puts back. */
+    if (p->enter_res_ind_gains(p->self) != EDGE_OK) {
+        app->state = MOTOR_ID_STATE_FAILED;
+        return EDGE_EINVAL;
+    }
+
+    app->result.valid = false;
+    app->res_ind_current_max_a = current_max_a;
+    app->res_ind_current_a = MOTOR_ID_RES_IND_CURRENT_START;
+    app->res_ind_last_current_a = 0.0f;
+    app->res_ind_gains_active = true;
+
+    /* The scan only runs while its first current is under half the limit; otherwise the reference
+     * never enters the loop and finishes at half the limit straight away (:2341-2343). */
+    if (MOTOR_ID_RES_IND_CURRENT_START >= (current_max_a / 2.0f)) {
+        app->chain = MOTOR_ID_CHAIN_RES_FINAL;
+        app->res_ind_last_current_a = current_max_a / 2.0f;
+        return motor_id_measure_resistance(app, app->res_ind_last_current_a,
+                                           MOTOR_ID_RES_IND_FINAL_SAMPLES, true);
+    }
+
+    app->chain = MOTOR_ID_CHAIN_RES_SCAN;
+    return motor_id_measure_resistance(app, app->res_ind_current_a, MOTOR_ID_RES_IND_SCAN_SAMPLES,
+                                       false);
 }
 
 edge_status_t motor_id_measure_flux_linkage(motor_id_app_t *app) {
