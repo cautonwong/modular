@@ -122,7 +122,36 @@ def read_text(path):
         return fh.read()
 
 
+# --check regenerates into memory and compares against the files on disk instead of writing them,
+# the way the HFI table generator's own check mode does. Drift between a checked-in generated header
+# and this script is the kind of difference that reads as a mystery in a measurement's last digits.
+CHECK_ONLY = False
+DRIFTED = []
+
+
+def format_text(text):
+    """The text as clang-format would leave the file, without touching the file: the write path
+    formats what it writes, so a check that compared the unformatted text would call every file out
+    of date. Absent clang-format, the text is its own reference, as in format_in_place."""
+    try:
+        result = subprocess.run(
+            ["clang-format"], input=text, capture_output=True, text=True, check=False
+        )
+    except OSError:
+        return text
+    return result.stdout if result.returncode == 0 and result.stdout else text
+
+
 def write_text(path, text):
+    if CHECK_ONLY:
+        current = None
+        if os.path.isfile(path):
+            with open_or_die(path, "r") as fh:
+                current = fh.read()
+        if current != format_text(text):
+            DRIFTED.append(path)
+            print(f"out of date: {path}")
+        return
     with open_or_die(path, "w") as fh:
         fh.write(text)
 
@@ -130,6 +159,8 @@ def write_text(path, text):
 def format_in_place(path):
     """Run clang-format over a generated header so regenerating never leaves a file the
     pre-commit hook rejects. Absent clang-format is a note, not a failure."""
+    if CHECK_ONLY:
+        return
     try:
         subprocess.run(["clang-format", "-i", path], check=False)
     except OSError:
@@ -250,6 +281,11 @@ def main():
         help="the reference tree (default: vendor/bldc, else ../bldc)",
     )
     ap.add_argument("--out", default="app/motor_config", help="the port's motor_config root")
+    ap.add_argument(
+        "--check",
+        action="store_true",
+        help="regenerate into memory and report whether the files on disk are current",
+    )
     args = ap.parse_args()
 
     ref = args.reference
@@ -513,10 +549,15 @@ def main():
 
     for path in written:
         format_in_place(path)
+    if CHECK_ONLY:
+        if DRIFTED:
+            return 1
+        print("generated motor_config headers are up to date")
     return status
 
 
 STREAMS_BY_ROOT = {s["root"] for s in STREAMS}
 
 if __name__ == "__main__":
+    CHECK_ONLY = "--check" in sys.argv
     sys.exit(main())
