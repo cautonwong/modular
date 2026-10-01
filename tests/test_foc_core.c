@@ -2936,6 +2936,43 @@ static void test_hfi_tracks_a_standing_rotor_and_hands_over(void **state) {
     assert_false(foc.hfi_using_hfi);
 }
 
+/*
+ * The transform's bins as the measurement reads them, over every table the configuration can
+ * select: a constant buffer carries all of its energy in bin 0 and none in the second harmonic,
+ * which is what the two frames of the comparison above are - and asking for nothing gets nothing
+ * written rather than a fault.
+ */
+static void test_foc_core_read_hfi_bins(void **state) {
+    (void)state;
+    foc_core_t foc;
+    memset(&foc, 0, sizeof(foc));
+
+    float offset = 0.0f, real2 = 0.0f, imag2 = 0.0f, current_mean = 0.0f;
+
+    /* No table selected, and no aggregate at all: zeros rather than a read of nothing. */
+    foc_core_read_hfi_bins(&foc, &offset, &real2, &imag2, &current_mean);
+    assert_float_equal(offset, 0.0f, 1e-9f);
+    foc_core_read_hfi_bins(NULL, &offset, &real2, &imag2, &current_mean);
+    foc_core_read_hfi_bins(&foc, NULL, NULL, NULL, NULL);
+
+    const uint8_t families[3] = {0u, 1u, 2u}; /* HFI_SAMPLES_8, _16, _32 */
+    const int expected[3] = {8, 16, 32};
+    for (int f = 0; f < 3; ++f) {
+        foc_hfi_configure(&foc.hfi, families[f]);
+        assert_int_equal(foc.hfi.samples, expected[f]);
+        for (int i = 0; i < expected[f]; ++i) {
+            foc.hfi.buffer[i] = 3.0f;
+            foc.hfi.buffer_current[i] = -0.5f;
+        }
+
+        foc_core_read_hfi_bins(&foc, &offset, &real2, &imag2, &current_mean);
+        assert_float_equal(offset, 3.0f, 1e-5f);
+        assert_float_equal(real2, 0.0f, 1e-5f);
+        assert_float_equal(imag2, 0.0f, 1e-5f);
+        assert_float_equal(current_mean, -0.5f, 1e-5f);
+    }
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -2977,6 +3014,7 @@ int main(void) {
         cmocka_unit_test(test_foc_hfi_update_other_branches),
         cmocka_unit_test(test_virtual_motor_saliency),
         cmocka_unit_test(test_hfi_tracks_a_standing_rotor_and_hands_over),
+        cmocka_unit_test(test_foc_core_read_hfi_bins),
         cmocka_unit_test(test_foc_fft_bins_match_reference),
         cmocka_unit_test(test_foc_core_guards),
         cmocka_unit_test(test_foc_core_init_and_command_guards),

@@ -970,6 +970,108 @@ static edge_status_t id_enter_sensored_measurement_config(void *self) {
     return EDGE_OK;
 }
 
+/*
+ * Inductance (mcpwm_foc_measure_inductance, :1909-2070). Its temporary configuration is a
+ * save-and-restore pair like the flux procedure's: the HFI sensor mode with the six-vector
+ * ambiguity mode, the three excitation voltages computed from the caller's duty against the bus,
+ * the speed override, the sampling mode that puts the interrupt in the first zero vector, the
+ * thirty-two sample table, and the switching-frequency clamp that this measurement is the only
+ * caller of (:1918-1935). The reference stops the PWM before installing it, which is where the
+ * bus voltage it needs comes from - the filtered input voltage, which this glue keeps as the last
+ * one the control loop read.
+ */
+static edge_status_t id_enter_inductance_config(void *self, float duty) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    if (s == (void *)0 || s->foc == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    s->saved_foc_config = s->foc->config;
+    s->foc_config_saved = true;
+
+    const float voltage = duty * s->foc->last_v_bus * (2.0f / 3.0f) * 0.8660254f;
+    foc_config_t *cfg = &s->foc->config;
+    cfg->sensor_mode = FOC_ANGLE_SOURCE_HFI;
+    cfg->sensorless_mode = true;
+    cfg->hfi_amb_mode_six_vector = true;
+    cfg->hfi_control_sample_mode_v0_v7 = false;
+    cfg->hfi_voltage_start = voltage;
+    cfg->hfi_voltage_run = voltage;
+    cfg->hfi_voltage_max = voltage;
+    cfg->sl_erpm_hfi = 20000.0f;
+    cfg->hfi_samples = 2u; /* HFI_SAMPLES_32 */
+    if (cfg->f_zv > 30000.0f) {
+        cfg->f_zv = 30000.0f;
+    }
+    foc_hfi_configure(&s->foc->hfi, cfg->hfi_samples);
+    (void)foc_core_stop(s->foc);
+    return EDGE_OK;
+}
+
+static edge_status_t id_leave_inductance_config(void *self) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    if (s == (void *)0 || s->foc == (void *)0 || !s->foc_config_saved) {
+        return EDGE_EINVAL;
+    }
+    s->foc->config = s->saved_foc_config;
+    s->foc_config_saved = false;
+    foc_hfi_configure(&s->foc->hfi, s->foc->config.hfi_samples);
+    return EDGE_OK;
+}
+
+static edge_status_t id_set_duty(void *self, float duty) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    if (s == (void *)0 || s->foc == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    return foc_core_set_duty(s->foc, duty);
+}
+
+static edge_status_t id_is_hfi_ready(void *self, bool *ready) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    if (s == (void *)0 || s->foc == (void *)0 || ready == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    *ready = s->foc->hfi.ready;
+    return EDGE_OK;
+}
+
+static edge_status_t id_read_hfi_bins(void *self, float *offset, float *real_bin2, float *imag_bin2,
+                                      float *current_mean) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    if (s == (void *)0 || s->foc == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    foc_core_read_hfi_bins(s->foc, offset, real_bin2, imag_bin2, current_mean);
+    return EDGE_OK;
+}
+
+/* mcpwm_foc_measure_res_ind's own gains (:2322-2326): tiny ones, because that scan reads the
+ * voltage the resistance drops rather than a controller's output. The reference restores them at
+ * its single exit, which is why this is a pair. */
+static edge_status_t id_enter_res_ind_gains(void *self) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    if (s == (void *)0 || s->foc == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    s->saved_current_kp = s->foc->config.current_kp;
+    s->saved_current_ki = s->foc->config.current_ki;
+    s->foc->config.current_kp = 0.001f;
+    s->foc->config.current_ki = 1.0f;
+    s->res_ind_gains_saved = true;
+    return EDGE_OK;
+}
+
+static edge_status_t id_leave_res_ind_gains(void *self) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    if (s == (void *)0 || s->foc == (void *)0 || !s->res_ind_gains_saved) {
+        return EDGE_EINVAL;
+    }
+    s->foc->config.current_kp = s->saved_current_kp;
+    s->foc->config.current_ki = s->saved_current_ki;
+    s->res_ind_gains_saved = false;
+    return EDGE_OK;
+}
+
 void vesc_host_make_motor_id_measure_port(motor_id_measure_port_t *out,
                                           vesc_host_glue_state_t *state) {
     if (out == (void *)0 || state == (void *)0) {
@@ -996,6 +1098,13 @@ void vesc_host_make_motor_id_measure_port(motor_id_measure_port_t *out,
         .is_running = id_is_running,
         .set_startup_limits = id_set_startup_limits,
         .enter_sensored_measurement_config = id_enter_sensored_measurement_config,
+        .enter_inductance_config = id_enter_inductance_config,
+        .leave_inductance_config = id_leave_inductance_config,
+        .set_duty = id_set_duty,
+        .is_hfi_ready = id_is_hfi_ready,
+        .read_hfi_bins = id_read_hfi_bins,
+        .enter_res_ind_gains = id_enter_res_ind_gains,
+        .leave_res_ind_gains = id_leave_res_ind_gains,
     };
 }
 

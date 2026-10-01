@@ -551,6 +551,16 @@ void foc_core_read_detect_samples(const foc_core_t *self, float *i_sum, float *v
                                   uint32_t *count);
 void foc_core_reset_detect_samples(foc_core_t *self);
 
+/*
+ * The HFI transform's own outputs, which the inductance measurement reads (mcpwm_foc.c:2004-2007):
+ * bin 0 of the sample buffer - the mean of the inverse inductance - bin 2 of it - the saliency's
+ * second harmonic, whose magnitude the caller doubles - and bin 0 of the current-step buffer, the
+ * mean measured step. The table the bins run over is the one the configuration selected, so a port
+ * that has not selected one reports zeros.
+ */
+void foc_core_read_hfi_bins(const foc_core_t *self, float *offset, float *real_bin2,
+                            float *imag_bin2, float *current_mean);
+
 void foc_core_get_stats(const foc_core_t *self, foc_stats_t *out_stats);
 void foc_core_stats_reset(foc_core_t *self);
 
