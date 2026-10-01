@@ -1617,7 +1617,44 @@ static void test_detect_r_l_command(void **state) {
  * with a DC-offset calibration this port has no pass for. The reasons are in the codec's own case
  * labels.
  */
-static void test_detect_param_and_apply_all_are_refused(void **state) {
+typedef struct mock_apply_ctx {
+    int apply_calls;
+    bool detect_can;
+    float max_power_loss;
+    float min_current_in;
+    float max_current_in;
+    float openloop_rpm;
+    float sl_erpm;
+    int16_t result;
+} mock_apply_ctx_t;
+
+static edge_status_t mock_detect_apply_all_foc(void *self, bool detect_can, float max_power_loss,
+                                               float min_current_in, float max_current_in,
+                                               float openloop_rpm, float sl_erpm, int16_t *result) {
+    mock_apply_ctx_t *ctx = (mock_apply_ctx_t *)self;
+    ctx->apply_calls++;
+    ctx->detect_can = detect_can;
+    ctx->max_power_loss = max_power_loss;
+    ctx->min_current_in = min_current_in;
+    ctx->max_current_in = max_current_in;
+    ctx->openloop_rpm = openloop_rpm;
+    ctx->sl_erpm = sl_erpm;
+    *result = ctx->result;
+    return EDGE_OK;
+}
+
+/*
+ * The command whose whole run belongs to the product, and the one that cannot run here at all.
+ *
+ * The parameter detection drives the motor with the BLDC six-step commutator, so there is nothing
+ * for this layer to call and it refuses whatever the packet carries.
+ *
+ * The all-in-one detection has a callback, and this is the layer's own half of it: the packet is
+ * parsed, a short one is refused before anything is read out of it - the reference walks off the
+ * end of one - a product that has not implemented the callback gets ENOTSUP, and a product that has
+ * gets its result code back as the reference's int16 reply.
+ */
+static void test_detect_param_is_refused_and_apply_all_forwards(void **state) {
     (void)state;
     mock_comm_ctx_t tx;
     memset(&tx, 0, sizeof(tx));
@@ -1632,8 +1669,52 @@ static void test_detect_param_and_apply_all_are_refused(void **state) {
     const uint8_t param[1] = {COMM_DETECT_MOTOR_PARAM};
     assert_int_equal(vesc_comm_process_command(comm, param, sizeof(param)), EDGE_ENOTSUP);
 
-    const uint8_t apply[1] = {COMM_DETECT_APPLY_ALL_FOC};
+    const uint8_t apply_short[1] = {COMM_DETECT_APPLY_ALL_FOC};
+    assert_int_equal(vesc_comm_process_command(comm, apply_short, sizeof(apply_short)),
+                     EDGE_EINVAL);
+
+    /* A well-formed packet with nothing behind it: the product has not implemented the run. */
+    uint8_t apply[22];
+    int32_t at = 0;
+    apply[at++] = COMM_DETECT_APPLY_ALL_FOC;
+    apply[at++] = 1u;                                      /* detect_can */
+    vesc_buffer_append_float32(apply, 30.0f, 1e3f, &at);   /* max_power_loss */
+    vesc_buffer_append_float32(apply, 5.0f, 1e3f, &at);    /* min_current_in */
+    vesc_buffer_append_float32(apply, 40.0f, 1e3f, &at);   /* max_current_in */
+    vesc_buffer_append_float32(apply, 700.0f, 1e3f, &at);  /* openloop_rpm */
+    vesc_buffer_append_float32(apply, 1500.0f, 1e3f, &at); /* sl_erpm */
+    assert_int_equal(at, sizeof(apply));
     assert_int_equal(vesc_comm_process_command(comm, apply, sizeof(apply)), EDGE_ENOTSUP);
+
+    /* With one, its result comes back as the int16 the reference sends, and the inputs arrive
+     * parsed rather than scaled. */
+    mock_apply_ctx_t apply_ctx = {0};
+    apply_ctx.result = -7;
+    vesc_comm_ops_port_t with_apply = {.terminal_cmd = mock_terminal_cmd,
+                                       .forward_can = mock_forward_can,
+                                       .detect_apply_all_foc = mock_detect_apply_all_foc,
+                                       .self = &apply_ctx};
+    vesc_comm_t *second = test_comm_alloc();
+    vesc_comm_construct(second, EDGE_MOD_VESC_COMM, 10u, &tx_port, NULL, NULL, NULL, &with_apply,
+                        &test_identity);
+    assert_int_equal(vesc_comm_init(second), EDGE_OK);
+
+    tx.tx_count = 0u;
+    assert_int_equal(vesc_comm_process_command(second, apply, sizeof(apply)), EDGE_OK);
+    assert_int_equal(apply_ctx.apply_calls, 1);
+    assert_true(apply_ctx.detect_can);
+    assert_float_equal(apply_ctx.max_power_loss, 30.0f, 1e-4f);
+    assert_float_equal(apply_ctx.min_current_in, 5.0f, 1e-4f);
+    assert_float_equal(apply_ctx.max_current_in, 40.0f, 1e-4f);
+    assert_float_equal(apply_ctx.openloop_rpm, 700.0f, 1e-4f);
+    assert_float_equal(apply_ctx.sl_erpm, 1500.0f, 1e-4f);
+
+    /* The reply is the command id and the run's result, an int16, which is what the reference
+     * sends back for this command. */
+    assert_true(tx.tx_count > 0u);
+    const uint8_t *reply = tx.tx_buf + 2u; /* past the start byte and the length */
+    assert_int_equal(reply[0], COMM_DETECT_APPLY_ALL_FOC);
+    assert_int_equal((int16_t)(((uint16_t)reply[1] << 8) | (uint16_t)reply[2]), -7);
 }
 
 int main(void) {
@@ -1652,7 +1733,7 @@ int main(void) {
         cmocka_unit_test(test_detect_flux_linkage_openloop_command),
         cmocka_unit_test(test_detect_flux_linkage_command),
         cmocka_unit_test(test_detect_r_l_command),
-        cmocka_unit_test(test_detect_param_and_apply_all_are_refused),
+        cmocka_unit_test(test_detect_param_is_refused_and_apply_all_forwards),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

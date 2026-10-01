@@ -125,6 +125,13 @@ typedef struct vesc_host_ops_ctx {
      */
     vesc_host_glue_state_t *glue;
     motor_id_app_t *motor_id;
+    /*
+     * The motor configuration, because the all-in-one detection does not only report what it
+     * measured: the reference keeps the measured resistance, inductance and linkage in the
+     * configuration along with the gains derived from them (conf_general.c:1738-1810), so the
+     * product's own module is where those land.
+     */
+    motor_config_t *config;
 } vesc_host_ops_ctx_t;
 void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_host_ops_ctx_t *ctx);
 void vesc_host_make_inverter_port(foc_inverter_port_t *out, vesc_host_glue_state_t *state);

@@ -363,6 +363,23 @@ edge_status_t motor_id_measure_r_l(motor_id_app_t *app, float current_max_a);
 edge_status_t motor_id_measure_flux_linkage(motor_id_app_t *app);
 edge_status_t motor_id_detect_hall(motor_id_app_t *app);
 
+/*
+ * The gains a detection exists to produce, which the reference computes from what it just measured:
+ * conf_general.c:1513, conf_general_calc_apply_foc_cc_kp_ki_gain. It is a pure function of the
+ * resistance, the inductance, the flux linkage and the crossover the caller asks for - the last in
+ * microseconds, which is the reference's own unit for it - and it is why the all-in-one command has
+ * a payoff beyond the numbers it reports: the current loop's kp and ki and the observer's gain come
+ * out of it, where otherwise they are values a hand entered.
+ */
+typedef struct motor_id_gains {
+    float current_kp;    /* mcconf foc_current_kp */
+    float current_ki;    /* mcconf foc_current_ki */
+    float observer_gain; /* mcconf foc_observer_gain */
+} motor_id_gains_t;
+
+motor_id_gains_t motor_id_calc_apply_foc_gains(float r_ohm, float l_henry, float flux_linkage_wb,
+                                               float tc_us);
+
 edge_status_t motor_id_step(motor_id_app_t *app, float dt);
 const motor_id_result_t *motor_id_get_result(const motor_id_app_t *app);
 uint32_t motor_id_get_fault(const motor_id_app_t *app);

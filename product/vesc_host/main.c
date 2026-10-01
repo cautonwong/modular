@@ -417,6 +417,9 @@ int main(void) {
      * carries both once they exist. */
     ops_ctx.glue = &glue_state;
     ops_ctx.motor_id = &motor_id;
+    /* The all-in-one detection keeps what it measured in the configuration, so it needs the module
+     * the configuration lives in. */
+    ops_ctx.config = motor_cfg;
 
     nunchuk_app_t nunchuk_app;
     nunchuk_config_t nunchuk_cfg = {.deadband = 0.05f, .timeout_s = 0.2f};

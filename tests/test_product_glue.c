@@ -2184,6 +2184,140 @@ static void test_vesc6_backup_block_persists(void **state) {
     assert_int_equal(uptime_ms, 3000u);
 }
 
+/*
+ * A store of this test's own, sized for the configuration's words: the all-in-one run keeps what it
+ * measured in the module and stores it, so the module needs somewhere to write.
+ */
+#define APPLY_VAR_COUNT 1200u
+static uint16_t apply_var_values[APPLY_VAR_COUNT];
+static bool apply_var_present[APPLY_VAR_COUNT];
+
+static edge_status_t apply_var_read(void *self, uint16_t index, uint16_t *value) {
+    (void)self;
+    if (index >= APPLY_VAR_COUNT || !apply_var_present[index]) {
+        return EDGE_ENOENT;
+    }
+    *value = apply_var_values[index];
+    return EDGE_OK;
+}
+
+static edge_status_t apply_var_write(void *self, uint16_t index, uint16_t value) {
+    (void)self;
+    if (index >= APPLY_VAR_COUNT) {
+        return EDGE_EINVAL;
+    }
+    apply_var_values[index] = value;
+    apply_var_present[index] = true;
+    return EDGE_OK;
+}
+
+/*
+ * The all-in-one command end to end. The ops port drives the two measurements and the plant
+ * together, keeps what they found in the motor configuration, and derives the three gains from it -
+ * conf_general.c:1513's relation, kp = l * bandwidth and ki = r * bandwidth at a millisecond's
+ * crossover. A run can legitimately fail on this plant, so what is asserted first is that it
+ * reaches an end rather than hanging; when it does not fail, the configuration is checked against
+ * the measurements themselves and against that relation, rather than against numbers that would
+ * have to be replayed to be obtained.
+ */
+static void test_vesc_host_apply_all_foc_command(void **state) {
+    (void)state;
+    memset(apply_var_values, 0, sizeof(apply_var_values));
+    memset(apply_var_present, 0, sizeof(apply_var_present));
+
+    vesc_host_glue_state_t glue;
+    memset(&glue, 0, sizeof(glue));
+    glue.v_bus = 24.0f;
+    foc_virtual_motor_init(&glue.vmotor, 0.05f, 0.00005f, 1.0e-6f, 7, 0.0005f);
+
+    foc_inverter_port_t inverter;
+    vesc_host_make_inverter_port(&inverter, &glue);
+    foc_current_port_t current;
+    vesc_host_make_current_port(&current, &glue);
+    foc_rotor_port_t rotor;
+    vesc_host_make_rotor_port(&rotor, &glue);
+    foc_core_t foc;
+    foc_config_t foc_cfg = {.r_ohm = 0.05f,
+                            .l_henry = 0.00005f,
+                            .lambda_wb = 1.0e-6f,
+                            .si_motor_poles = 14u,
+                            .si_gear_ratio = 3.0f,
+                            .si_wheel_diameter = 0.083f,
+                            .current_max_a = 50.0f,
+                            .current_min_a = -50.0f,
+                            .duty_max = 0.95f,
+                            .current_kp = 0.1f,
+                            .current_ki = 50.0f,
+                            .vbus_ov_threshold = 60.0f,
+                            .vbus_uv_threshold = 12.0f,
+                            .sensorless_mode = false};
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &foc_cfg, &inverter, &current, &rotor);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    glue.foc = &foc;
+
+    motor_id_measure_port_t id_port;
+    vesc_host_make_motor_id_measure_port(&id_port, &glue);
+    motor_id_app_t motor_id;
+    motor_id_construct(&motor_id, EDGE_MOD_MOTOR_ID, 40u, &id_port);
+    assert_int_equal(motor_id_init(&motor_id), EDGE_OK);
+
+    const motor_config_var_port_t var_port = {
+        .read = apply_var_read, .write = apply_var_write, .self = NULL};
+    static alignas(MOTOR_CONFIG_STORAGE_ALIGN) unsigned char cfg_storage[MOTOR_CONFIG_STORAGE_SIZE];
+    motor_config_t *cfg = (motor_config_t *)cfg_storage;
+    motor_config_construct(cfg, EDGE_MOD_MOTOR_CONFIG, 30u, &var_port);
+    assert_int_equal(motor_config_init(cfg), EDGE_OK);
+
+    vesc_host_ops_ctx_t ctx = {.glue = &glue, .motor_id = &motor_id, .config = cfg};
+    vesc_comm_ops_port_t ops;
+    vesc_host_make_ops_port(&ops, &ctx);
+    assert_non_null(ops.detect_apply_all_foc);
+
+    int16_t result = -1;
+    const edge_status_t status =
+        ops.detect_apply_all_foc(ops.self, false, 30.0f, 5.0f, 40.0f, 700.0f, 1500.0f, &result);
+
+    /* It ran to one of its ends rather than staying in progress. */
+    assert_true(motor_id.state == MOTOR_ID_STATE_COMPLETE ||
+                motor_id.state == MOTOR_ID_STATE_FAILED);
+
+    if (status == EDGE_OK) {
+        const mc_configuration_t *mc = motor_config_get_mc(cfg);
+        const motor_id_result_t *measured = motor_id_get_result(&motor_id);
+        assert_true(measured->valid);
+        assert_int_equal(result, 0);
+        assert_float_equal(mc->foc_motor_r, measured->r_ohm, 1e-6f);
+        assert_float_equal(mc->foc_motor_l, measured->ind_uh * 1e-6f, 1e-9f);
+        assert_float_equal(mc->foc_motor_flux_linkage, measured->flux_linkage_wb, 1e-9f);
+        /* The relation conf_general.c:1513 defines, at the crossover it is called with. */
+        assert_float_equal(mc->foc_current_kp, mc->foc_motor_l * 1000.0f, 1e-6f);
+        assert_float_equal(mc->foc_current_ki, mc->foc_motor_r * 1000.0f, 1e-6f);
+    } else {
+        assert_int_equal(result, -1);
+        /*
+         * A run that cannot complete leaves the configuration exactly as it was, which is what the
+         * reference's own saved copy is for: the current-loop gain is still the default the module
+         * built it with, not one half of a failed measurement. On this plant the flux linkage half
+         * is the stage that declines - it answers ENOTSUP where it has nothing to measure with - so
+         * what proves the run got that far is the resistance it did measure.
+         */
+        assert_float_equal(motor_config_get_mc(cfg)->foc_current_kp, 0.03f, 1e-6f);
+        assert_true(motor_id_get_result(&motor_id)->r_ohm > 0.0f);
+    }
+
+    /* Nothing to drive it with. */
+    int16_t other = 0;
+    assert_int_equal(ops.detect_apply_all_foc(NULL, false, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, &other),
+                     EDGE_EINVAL);
+    vesc_host_ops_ctx_t bare;
+    memset(&bare, 0, sizeof(bare));
+    vesc_comm_ops_port_t bare_ops;
+    vesc_host_make_ops_port(&bare_ops, &bare);
+    assert_int_equal(
+        bare_ops.detect_apply_all_foc(bare_ops.self, false, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, &other),
+        EDGE_EINVAL);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -2217,6 +2351,7 @@ int main(void) {
         cmocka_unit_test(test_vesc_host_measures_a_known_motor),
         cmocka_unit_test(test_vesc_host_inductance_port_guards),
         cmocka_unit_test(test_vesc_host_detects_r_and_l),
+        cmocka_unit_test(test_vesc_host_apply_all_foc_command),
         cmocka_unit_test(test_vesc_host_backup_block_persists),
         cmocka_unit_test(test_vesc6_backup_block_persists),
     };

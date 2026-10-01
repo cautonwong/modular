@@ -631,6 +631,130 @@ static edge_status_t ops_detect_r_l(void *self, vesc_detect_r_l_result_t *result
     return status;
 }
 
+/*
+ * The all-in-one detection (conf_general.c:1738, conf_general_detect_apply_all_foc): measure, then
+ * keep what was measured and the gains that follow from it. The reference's first act is a
+ * DC-offset calibration over the phase currents; here that is the current port's own business,
+ * because the offsets and the mid-scale they are read against belong to whatever reads them - the
+ * same boundary this glue keeps everywhere else.
+ *
+ * The rest is the reference's sequence: the resistance and inductance together, then the flux
+ * linkage, then the three gains conf_general.c:1513 derives from both, written into the motor
+ * configuration and stored. A run that does not complete leaves the configuration as it was, which
+ * is what the reference's own saved copy is for.
+ */
+static edge_status_t ops_detect_apply_all_foc(void *self, bool detect_can, float max_power_loss,
+                                              float min_current_in, float max_current_in,
+                                              float openloop_rpm, float sl_erpm, int16_t *result) {
+    vesc_host_ops_ctx_t *ctx = (vesc_host_ops_ctx_t *)self;
+
+    /* The packet's other five fields are the CAN and six-step variants' inputs; this product runs
+     * the FOC one, which the reference's own FOC path ignores them for as well. */
+    (void)detect_can;
+    (void)max_power_loss;
+    (void)min_current_in;
+    (void)max_current_in;
+    (void)openloop_rpm;
+    (void)sl_erpm;
+
+    if (ctx == (void *)0 || ctx->glue == (void *)0 || ctx->motor_id == (void *)0 ||
+        ctx->config == (void *)0 || ctx->glue->foc == (void *)0 || result == (void *)0) {
+        return EDGE_EINVAL;
+    }
+
+    foc_core_t *foc = ctx->glue->foc;
+    motor_id_app_t *app = ctx->motor_id;
+
+    /* One switching period per pass, as the other measurements are driven: the transform's step is
+     * what it measures, so the staged ten kilohertz is the loop's own rate here. */
+    const float foc_dt = 0.000100f;
+    const uint32_t cycles_per_ms = 10u;
+
+    *result = -1;
+    const mc_configuration_t before = *motor_config_get_mc(ctx->config);
+    const foc_config_t saved = foc->config;
+    foc->config.f_zv = 10000.0f;
+
+    edge_status_t status = motor_id_measure_r_l(app, foc->config.current_max_a);
+    for (uint32_t ms = 0u; status == EDGE_OK && ms < 40000u; ++ms) {
+        if (app->state == MOTOR_ID_STATE_COMPLETE || app->state == MOTOR_ID_STATE_FAILED) {
+            break;
+        }
+        for (uint32_t cycle = 0u; cycle < cycles_per_ms; ++cycle) {
+            (void)foc_core_fast_loop(foc, foc_dt);
+            foc_virtual_motor_step(&ctx->glue->vmotor, foc->mod_alpha_raw, foc->mod_beta_raw, 0.0f,
+                                   foc_dt, 0.0f);
+        }
+        (void)motor_id_step(app, 0.001f);
+    }
+
+    mc_configuration_t mc = before;
+    const motor_id_result_t *measured = motor_id_get_result(app);
+    if (status != EDGE_OK || !measured->valid) {
+        foc->config = saved;
+        return (status != EDGE_OK) ? status : EDGE_ESTATE;
+    }
+
+    /* What the reference keeps of the first two: the resistance, and the inductance in henries,
+     * which is the unit the configuration holds it in and the procedure reports it in
+     * microhenrys. */
+    mc.foc_motor_r = measured->r_ohm;
+    mc.foc_motor_l = measured->ind_uh * 1e-6f;
+
+    /*
+     * The drive measurement, which is what the reference's own all-in-one runs (its
+     * measure_flux_linkage_task): the sensored procedure, driven by the plant the way the flux
+     * command drives it. The rotor speed comes from the packet's own field - openloop_rpm is what
+     * that input is for, and the reference's command path reads it from there too - while the
+     * current and the modulation are this product's choice of drive.
+     */
+    const float flux_foc_dt = 0.000050f;
+    const uint32_t flux_cycles_per_ms = 20u;
+    status = motor_id_measure_flux_linkage_sensored(
+        app, mc.foc_motor_r * 100.0f, 0.05f, openloop_rpm, mc.foc_motor_r, foc->config.r_ohm);
+    if (status == EDGE_OK) {
+        for (uint32_t ms = 0u; ms < 60000u; ++ms) {
+            if (app->state == MOTOR_ID_STATE_COMPLETE || app->state == MOTOR_ID_STATE_FAILED) {
+                break;
+            }
+            for (uint32_t cycle = 0u; cycle < flux_cycles_per_ms; ++cycle) {
+                (void)foc_core_fast_loop(foc, flux_foc_dt);
+                foc_virtual_motor_step(&ctx->glue->vmotor, foc->v_alpha, foc->v_beta, 0.0f,
+                                       flux_foc_dt, 0.0f);
+            }
+            (void)motor_id_step(app, 0.001f);
+        }
+    }
+
+    measured = motor_id_get_result(app);
+    if (status != EDGE_OK || !measured->valid) {
+        foc->config = saved;
+        return (status != EDGE_OK) ? status : EDGE_ESTATE;
+    }
+
+    mc.foc_motor_flux_linkage = measured->flux_linkage_wb;
+
+    /* The gains the reference derives from what it just measured (conf_general.c:1513), at the
+     * crossover it asks for there: a millisecond, in microseconds. */
+    const motor_id_gains_t gains = motor_id_calc_apply_foc_gains(
+        mc.foc_motor_r, mc.foc_motor_l, mc.foc_motor_flux_linkage, 1000.0f);
+    mc.foc_current_kp = gains.current_kp;
+    mc.foc_current_ki = gains.current_ki;
+    mc.foc_observer_gain = gains.observer_gain;
+
+    status = motor_config_update_mc(ctx->config, &mc);
+    if (status == EDGE_OK) {
+        status = motor_config_save(ctx->config);
+    }
+
+    foc->config = saved;
+
+    if (status == EDGE_OK) {
+        *result = 0;
+    }
+    return status;
+}
+
 void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_host_ops_ctx_t *ctx) {
     if (out == (void *)0) {
         return;
@@ -642,6 +766,7 @@ void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_host_ops_ctx_t *ctx
         .detect_flux_linkage_openloop = ops_detect_flux_linkage_openloop,
         .detect_flux_linkage = ops_detect_flux_linkage,
         .detect_r_l = ops_detect_r_l,
+        .detect_apply_all_foc = ops_detect_apply_all_foc,
         .self = ctx,
     };
 }

@@ -841,8 +841,50 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
      * not.
      */
     case COMM_DETECT_MOTOR_PARAM:
-    case COMM_DETECT_APPLY_ALL_FOC:
         return EDGE_ENOTSUP;
+
+    case COMM_DETECT_APPLY_ALL_FOC: {
+        /*
+         * Reference comm/commands.c:2328-2347: a flag and five scaled floats in, an int16 out, and
+         * the run itself behind the product. Its first act there is a DC-offset calibration
+         * (conf_general.c:1747, mcpwm_foc_dc_cal) over the current sensor, which is the one piece
+         * this layer cannot reach - the phase currents and their offsets belong to the product's
+         * own current port - so the whole run, calibration included, is its callback. A product
+         * that has not implemented it gets ENOTSUP rather than half a run's numbers.
+         */
+        if (len < 22u) {
+            return EDGE_EINVAL;
+        }
+
+        const bool detect_can = data[ind++] != 0u;
+        const float max_power_loss = buffer_get_float32(data, 1e3f, &ind);
+        const float min_current_in = buffer_get_float32(data, 1e3f, &ind);
+        const float max_current_in = buffer_get_float32(data, 1e3f, &ind);
+        const float openloop_rpm = buffer_get_float32(data, 1e3f, &ind);
+        const float sl_erpm = buffer_get_float32(data, 1e3f, &ind);
+
+        if (self->ops == (void *)0 || self->ops->detect_apply_all_foc == (void *)0) {
+            return EDGE_ENOTSUP;
+        }
+
+        int16_t result = -1;
+        const edge_status_t status = self->ops->detect_apply_all_foc(
+            self->ops->self, detect_can, max_power_loss, min_current_in, max_current_in,
+            openloop_rpm, sl_erpm, &result);
+        /*
+         * The reference answers this command whatever the run did: the int16 it sends back is the
+         * run's own result, which is what its -1 initial value is for. Only a port-level refusal
+         * - this layer having nothing to call - is its own answer rather than the run's.
+         */
+        if (status == EDGE_EINVAL || status == EDGE_ENOTSUP) {
+            return status;
+        }
+
+        size_t out = 0;
+        self->cmd_reply_buf[out++] = COMM_DETECT_APPLY_ALL_FOC;
+        buffer_append_int16(self->cmd_reply_buf, result, &out);
+        return send_reply(self, out);
+    }
 
     default:
         return EDGE_ENOTSUP;
