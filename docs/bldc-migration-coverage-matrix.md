@@ -6,7 +6,7 @@
 >
 > **已过时（现已完成）**：`m_current_off_delay` 调制延长（`da96795` ✓）、`m_hfi` 完整状态机与电感族 `mcpwm_foc_measure_inductance`/`_current`/`res_ind`（`0c8aa5b`/`b393b68`/`cff7d91` ✓）、`conf_general_measure_flux_linkage`（开环与有感两种 ✓）、`COMM_PING_CAN` ✓、`COMM_DETECT_MOTOR_R_L` 已接线（`1df8ac7` ✓）、soc 层规则通道 `soc_stm32f4_adc_init_regular`/`read_regular`（`9b43b7b` ✓）、AN2594 闪存仿真与 mcconf 持久化（C2/C3 ✓）。
 >
-> **核实为真、仍未完成（8 条）**：① `update_override_limits` 动态降流（FET/电机温度与占空比驱动的 `l_current_max_scale` 重算 ✗，树里只有默认值）→ 触发：板级热限值进入 `board/vesc6`；② 里程计 `mc_interface_get_odometer` ✗（需持久计数器，产品 glue 已有注释 ✓）；③ 主动短路刹车状态机（`CONTROL_MODE_CURRENT_BRAKE` + `m_br_speed_before` ✗；本端口只有已登记的近似刹车 ✓）；④ CAN 周期状态帧 `comm_can_send_status` ✗（需 `app/vesc_can` 里的定时节拍）；⑤ 跨节点聚合 `comm_can_update_rx_frame` ✗（需组合根接多驱状态表）；⑥ `COMM_REBOOT` / `COMM_JUMP_TO_BOOTLOADER` ✗（需 `soc` 提供复位的封装）；⑦ appconfig 持久化与 `store_backup_data`/`foc_offsets_*` ✗（后者属已登记的「无校准通道」处置 ✓）；⑧ STM32 闪存驱动与 CAN 外设 ✗（前者已登记为「变量存储暂为 RAM 表」✓）。
+> **核实为真（最初 8 条，现状：6 条仍开、2 条已成 ✓）**：① `update_override_limits` 动态降流（FET/电机温度与占空比驱动的 `l_current_max_scale` 重算 ✗，树里只有默认值）→ 触发：板级热限值进入 `board/vesc6`；② **里程计/运行时长 —— 已成 ✓**（`38bc0d1` 聚合根累加 + 协议面真值 ✓，`4b6c048`/`29754e4` 两个产品落盘与开机回读 ✓）；③ **主动短路刹车状态机 —— 已成 ✓**（`dd74958`；仅剩两个相邻小项：`:3391` 属本端口尚无的 duty 模式 PI ✗、`:4091` 属速度模式迟滞 ✗）；④ CAN 周期状态帧 `comm_can_send_status` ✗（需 `app/vesc_can` 里的定时节拍）；⑤ 跨节点聚合 `comm_can_update_rx_frame` ✗（需组合根接多驱状态表）；⑥ `COMM_REBOOT` / `COMM_JUMP_TO_BOOTLOADER` ✗（需 `soc` 提供复位的封装）；⑦ appconfig 持久化与 `store_backup_data`/`foc_offsets_*` ✗（后者属已登记的「无校准通道」处置 ✓）；⑧ STM32 闪存驱动与 CAN 外设 ✗（前者已登记为「变量存储暂为 RAM 表」✓）。
 >
 > **目标**：响应用户对于电机控制固件迁移**“一比一迁移、语义对齐、绝不能漏、最终真机验证”**的核心约束。
 > **分析工具**：GitNexus 1.6.12 深度 AST 知识图谱 (LadybugDB + Tree-Sitter) + 跨仓库全符号差分对比。
