@@ -559,10 +559,14 @@ static edge_status_t ops_detect_r_l(void *self, vesc_detect_r_l_result_t *result
 
     foc_core_t *foc = ctx->glue->foc;
     motor_id_app_t *app = ctx->motor_id;
-    /* The switching frequency is the ten kilohertz above, so the interrupt runs at twice it - the
-     * host product's own fifty-microsecond period. */
-    const float foc_dt = 0.000050f;
-    const uint32_t cycles_per_ms = 20u;
+    /*
+     * One switching period per pass, which is what the transform's step is measured over: the
+     * reference's interrupt samples in the first zero vector only for this measurement, so its two
+     * HFI halves are consecutive interrupts and the step between them spans one period. The staged
+     * ten kilohertz is therefore the loop's own rate here as well.
+     */
+    const float foc_dt = 0.000100f;
+    const uint32_t cycles_per_ms = 10u;
 
     const foc_config_t saved = foc->config;
     foc->config.f_zv = 10000.0f;
@@ -1045,7 +1049,20 @@ static edge_status_t id_enter_inductance_config(void *self, float duty) {
     s->saved_foc_config = s->foc->config;
     s->foc_config_saved = true;
 
-    const float voltage = duty * s->foc->last_v_bus * (2.0f / 3.0f) * 0.8660254f;
+    /*
+     * The bus voltage the excitation is computed against. The reference uses
+     * mc_interface_get_input_voltage_filtered() (:1925), which the periodic thread keeps current,
+     * so it is valid before the control loop has run at all; this glue's own last_v_bus is only set
+     * inside that loop, so a measurement that starts on a fresh aggregate would compute a zero
+     * excitation from it and drive nothing. The product's bus reading is the same quantity the
+     * port hands the loop, so it stands in when the loop has not run yet.
+     */
+    float v_bus = s->foc->last_v_bus;
+    if (v_bus <= 0.0f) {
+        v_bus = s->v_bus;
+    }
+
+    const float voltage = duty * v_bus * (2.0f / 3.0f) * 0.8660254f;
     foc_config_t *cfg = &s->foc->config;
     cfg->sensor_mode = FOC_ANGLE_SOURCE_HFI;
     cfg->sensorless_mode = true;
