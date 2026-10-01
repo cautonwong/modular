@@ -119,6 +119,20 @@ writing).
    injected IRQ guard, which is the scheme the ADR chose *against*.
 2. **API naming**: the ADR catalogue uses `sys_run/sys_step/sys_idle/...`; the
    implementation uses the `edge_sys_*` prefix.
+3. **HFI's sampling instant**: the ported six-vector excitation records an
+   inverse-inductance sample only when the current's step across the two
+   sampling instants of one injection cycle is positive, as the reference's own
+   gate at `mcpwm_foc.c:4957` does. The reference's hardware samples those two
+   instants in the middle of the injected pulses - its ADC interrupt is the
+   injected-conversion handler - while this port samples its currents at the end
+   of the control pass, before the injection it is about to apply. Both instants
+   then fall on the same side of the pulse, the step is always negative, and the
+   buffer stays empty; measured in the host simulation, `buffer_current` sits at
+   about -2.2 A with all thirty-two entries at zero, so the tracker's angle is
+   not driven by the machine. Closing it needs the sampling instant to be part of
+   the current port's contract rather than a property of whoever calls it, which
+   is the same conclusion the excitation's design note reached. The evidence is
+   in `tests/test_foc_core.c`'s HFI closed-loop test. D14, B2
 
 ## Maintenance
 
