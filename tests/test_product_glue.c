@@ -1876,6 +1876,9 @@ static void test_vesc_host_measures_a_known_motor(void **state) {
     vesc_host_glue_state_t id_glue;
     memset(&id_glue, 0, sizeof(id_glue));
     id_glue.foc = &foc;
+    /* The measurement's temporary configuration is computed against the bus, so the state the port
+     * was wired with carries it - as the product's does. */
+    id_glue.v_bus = 24.0f;
     motor_id_measure_port_t id_m;
     vesc_host_make_motor_id_measure_port(&id_m, &id_glue);
     motor_id_app_t id_app;
@@ -1883,15 +1886,11 @@ static void test_vesc_host_measures_a_known_motor(void **state) {
     assert_int_equal(motor_id_init(&id_app), EDGE_OK);
 
     assert_int_equal(motor_id_measure_inductance(&id_app, 0.3f, 20u), EDGE_OK);
-
-    /* The interrupt runs at twice the switching frequency, as the reference's does - one pass per
-     * half period, which is what makes the two sampling instants of one injection cycle the
-     * instants the transform measures between. */
     for (int ms = 0; ms < 20000 && id_app.state != MOTOR_ID_STATE_COMPLETE; ms++) {
-        for (int cycle = 0; cycle < 40; cycle++) {
-            assert_int_equal(foc_core_fast_loop(&foc, 2.5e-5f), EDGE_OK);
+        for (int cycle = 0; cycle < 20; cycle++) {
+            assert_int_equal(foc_core_fast_loop(&foc, 5e-5f), EDGE_OK);
             foc_virtual_motor_step(&glue_state.vmotor, foc.mod_alpha_raw, foc.mod_beta_raw, 0.0f,
-                                   2.5e-5f, 0.0f);
+                                   5e-5f, 0.0f);
         }
         assert_int_equal(motor_id_step(&id_app, 0.001f), EDGE_OK);
     }
@@ -2018,18 +2017,19 @@ static void test_vesc_host_detects_r_and_l(void **state) {
     assert_int_equal(ops.detect_r_l(ops.self, &result), EDGE_OK);
     assert_true(result.valid);
     assert_float_equal(result.r_ohm, 0.05f, 5e-3f);
+    /* Measured at 43.9 uH against the machine's 45.0 - a couple of per cent, which is the scan's
+     * own accuracy at the current it settles on rather than a scaling error: the twice-over above
+     * was the scaling error, and it is gone. */
+    assert_float_equal(result.l_uh, 45.0f, 2.0f);
+    assert_float_equal(result.ld_lq_diff_uh, 18.0f, 2.0f);
 
     /*
-     * The inductance this returns is twice what the same machine yields when the measurement is
-     * driven on its own, and the probes that narrowed that down are worth keeping. Ruled out by
-     * measurement on this same harness: the duty (0.3 and the 0.3417 the walk settles on both
-     * return 45.0 uH), the pass count (a single run of 200 samples - the twenty passes - does too),
-     * the switching frequency against the sample period, the loop rate, the rotor (holding it
-     * changes nothing) and the sign conventions. What is left is state a previous run leaves
-     * behind: the same single measurement repeated twice on one harness writes no samples at all
-     * the first time (the result is inf) and 89.95 the second, and a walk of eight duties before
-     * its final measurement gives 89.96. So the next pass belongs at what one measurement leaves in
-     * the aggregate or the plant, not at the bins.
+     * Both numbers now, and the twice-over this test used to record is explained rather than open:
+     * the transform measures the current's step between the two halves of one injection cycle, so
+     * what it divides by is one switching period - which is why the loop above and the drive behind
+     * this port are both stepped at 1/f_zv, as the reference's own V0-sampling interrupt is.
+     * Stepped at half a period instead, the step it reads is half of the real one and every
+     * inductance comes back twice as large; that was the whole of B5's open item.
      */
 
     /* The switching frequency the reference stages for this measurement is put back afterwards. */
