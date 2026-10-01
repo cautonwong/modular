@@ -193,6 +193,34 @@ void foc_core_construct(foc_core_t *self, uint32_t module_id, uint32_t priority,
         };
         self->config.pll_kp = 2000.0f;
         self->config.pll_ki = 30000.0f;
+        /*
+         * The override derivation's inputs, at the reference's own defaults (mcconf_defaults.h,
+         * generated from motor/mcconf_default.h - the numbers are its, not a choice made here). The
+         * motor temperature's knees sit at 85 and 100 degC, l_duty_start at 1.0 disables the duty
+         * de-rating by starting it at the duty ceiling, and cc_min_current is what keeps a limit
+         * from ever reaching zero.
+         */
+        self->config.limits = (foc_limit_params_t){
+            .l_temp_motor_start = 85.0f,
+            .l_temp_motor_end = 100.0f,
+            .l_erpm_start = 0.8f,
+            .l_max_erpm = 100000.0f,
+            .l_min_erpm = -100000.0f,
+            .foc_start_curr_dec = 1.0f,
+            .foc_start_curr_dec_rpm = 2500.0f,
+            .l_duty_start = 1.0f,
+            .l_max_duty = 0.95f,
+            .cc_min_current = 0.05f,
+            .l_watt_max = 1500000.0f,
+            .l_watt_min = -1500000.0f,
+            .l_in_current_max = 99.0f,
+            .l_in_current_min = -60.0f,
+            .l_in_current_map_start = 0.9f,
+            .l_battery_cut_start = 10.0f,
+            .l_battery_cut_end = 8.0f,
+            .l_battery_regen_cut_start = 1000.0f,
+            .l_battery_regen_cut_end = 1100.0f,
+        };
     }
 
     self->state = FOC_STATE_UNINITIALIZED;
@@ -342,6 +370,14 @@ edge_status_t foc_core_init(foc_core_t *self) {
 
     foc_observer_init(&self->observer, self->config.lambda_wb);
 
+    /*
+     * The limits once here, before any control cycle has run, which is where the reference has it
+     * too: update_override_limits is called as soon as a configuration is applied
+     * (mc_interface.c:401) as well as from its timer task. Without this, a current command arriving
+     * before the first cycle would scale into a limit that is still zero.
+     */
+    foc_core_update_limits(self);
+
     self->id_integral = 0.0f;
     self->iq_integral = 0.0f;
     self->faults = FOC_FAULT_NONE;
@@ -376,6 +412,14 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
     }
 
     self->fast_loop_count++;
+
+    /*
+     * The limits first, which is where the reference has it: update_override_limits runs from the
+     * timer task before the control it feeds (mc_interface.c:2607), so everything below - the
+     * current commands' base, the clamps - reads limits derived from this cycle's duty, speed and
+     * temperature rather than the configuration's ceiling.
+     */
+    foc_core_update_limits(self);
 
     /*
      * Reference timer_update (mcpwm_foc.c:3939-3948) runs first in the control cycle: the
@@ -1093,6 +1137,161 @@ edge_status_t foc_core_set_current(foc_core_t *self, float iq_target, float id_t
     return EDGE_OK;
 }
 
+/*
+ * Two of the reference's util/utils_math.h helpers, which nothing else in this port needed until
+ * now. Both are its arithmetic, not a reinterpretation: map is the linear interpolation the
+ * de-rating knees are written in, and min_abs picks whichever of two limits is closer to zero while
+ * keeping its sign, which is how two currents in opposite directions combine.
+ */
+static float foc_limit_map(float x, float in_min, float in_max, float out_min, float out_max) {
+    return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+
+static float foc_limit_min_abs(float va, float vb) {
+    return (fabsf(va) < fabsf(vb)) ? va : vb;
+}
+
+void foc_core_update_limits(foc_core_t *self) {
+    const foc_limit_params_t *conf = &self->config.limits;
+
+    /*
+     * The reference multiplies both speeds by DIR_MULT here (mc_interface.c:2257). This port
+     * applies the direction once, in the command layer, so the estimate the aggregate holds is
+     * already in the frame these limits are written in; applying it again would turn the cuts
+     * around on a reversed motor.
+     */
+    const float rpm_now = self->last_rpm;
+    const float rpm_abs = fabsf(rpm_now);
+    const float duty_now_abs = fabsf(self->duty_now);
+
+    const float l_current_min_tmp = self->config.current_min_a;
+    const float l_current_max_tmp = self->config.current_max_a;
+
+    /*
+     * Temperature MOSFET (:2296-2321). This port has no FET sensor, which is the reference's own
+     * disabled case - a temperature override below l_temp_fet_start, where it keeps the configured
+     * values rather than deriving anything. The two acceleration terms below (:2386-2407) exist so
+     * that braking torque is still available as the FETs heat, so with no FET reading they have
+     * nothing to act on either.
+     */
+    const float lo_min_mos = l_current_min_tmp;
+    const float lo_max_mos = l_current_max_tmp;
+
+    /* Temperature MOTOR (:2352-2384). */
+    float lo_min_mot = l_current_min_tmp;
+    float lo_max_mot = l_current_max_tmp;
+    if (self->motor_temp_c < (conf->l_temp_motor_start + 0.1f)) {
+        /* Keep values */
+    } else if (self->motor_temp_c > (conf->l_temp_motor_end - 0.1f)) {
+        lo_min_mot = 0.0f;
+        lo_max_mot = 0.0f;
+        /*
+         * The reference faults the motor here (FAULT_CODE_OVER_TEMP_MOTOR). This port has no fault
+         * entry of its own to raise - the aggregate's state machine is the one that has to stop -
+         * so the limits go to zero, which is what stops it, and the product that reads the sensor
+         * declares the fault. Recorded in the conformance view.
+         */
+    } else {
+        float maxc = fabsf(l_current_max_tmp);
+        if (fabsf(l_current_min_tmp) > maxc) {
+            maxc = fabsf(l_current_min_tmp);
+        }
+
+        maxc = foc_limit_map(self->motor_temp_c, conf->l_temp_motor_start, conf->l_temp_motor_end,
+                             maxc, 0.0f);
+
+        if (fabsf(l_current_min_tmp) > maxc) {
+            lo_min_mot = foc_sign(l_current_min_tmp) * maxc;
+        }
+
+        if (fabsf(l_current_max_tmp) > maxc) {
+            lo_max_mot = foc_sign(l_current_max_tmp) * maxc;
+        }
+    }
+
+    /* RPM max (:2409-2419): the positive side winds down across l_max_erpm * l_erpm_start. */
+    float lo_max_rpm = 0.0f;
+    const float rpm_pos_cut_start = conf->l_max_erpm * conf->l_erpm_start;
+    const float rpm_pos_cut_end = conf->l_max_erpm;
+    if (rpm_now < (rpm_pos_cut_start + 0.1f)) {
+        lo_max_rpm = l_current_max_tmp;
+    } else if (rpm_now > (rpm_pos_cut_end - 0.1f)) {
+        lo_max_rpm = 0.0f;
+    } else {
+        lo_max_rpm =
+            foc_limit_map(rpm_now, rpm_pos_cut_start, rpm_pos_cut_end, l_current_max_tmp, 0.0f);
+    }
+
+    /* RPM min (:2421-2431): the negative side, and note that both branches compare against
+     * l_current_max_tmp - the reference's own reading, since it is a magnitude either way. */
+    float lo_min_rpm = 0.0f;
+    const float rpm_neg_cut_start = conf->l_min_erpm * conf->l_erpm_start;
+    const float rpm_neg_cut_end = conf->l_min_erpm;
+    if (rpm_now > (rpm_neg_cut_start - 0.1f)) {
+        lo_min_rpm = l_current_max_tmp;
+    } else if (rpm_now < (rpm_neg_cut_end + 0.1f)) {
+        lo_min_rpm = 0.0f;
+    } else {
+        lo_min_rpm =
+            foc_limit_map(rpm_now, rpm_neg_cut_start, rpm_neg_cut_end, l_current_max_tmp, 0.0f);
+    }
+
+    /* Start Current Decrease (:2443-2447): a fraction of the limit below foc_start_curr_dec_rpm. */
+    float lo_max_curr_dec = l_current_max_tmp;
+    if (rpm_abs < conf->foc_start_curr_dec_rpm) {
+        lo_max_curr_dec =
+            foc_limit_map(rpm_abs, 0.0f, conf->foc_start_curr_dec_rpm,
+                          conf->foc_start_curr_dec * l_current_max_tmp, l_current_max_tmp);
+    }
+
+    /*
+     * Duty max (:2449-2456). Above l_duty_start * l_max_duty the limit winds down to five times
+     * cc_min_current rather than to zero, so there is always something left to hold the motor.
+     */
+    float lo_max_duty = 0.0f;
+    if (duty_now_abs < (conf->l_duty_start * conf->l_max_duty) || conf->l_duty_start > 0.99f) {
+        lo_max_duty = l_current_max_tmp;
+    } else {
+        lo_max_duty =
+            foc_limit_map(duty_now_abs, conf->l_duty_start * conf->l_max_duty, conf->l_max_duty,
+                          l_current_max_tmp, conf->cc_min_current * 5.0f);
+    }
+
+    float lo_max = foc_limit_min_abs(lo_max_mos, lo_max_mot);
+    float lo_min = foc_limit_min_abs(lo_min_mos, lo_min_mot);
+
+    lo_max = foc_limit_min_abs(lo_max, lo_max_rpm);
+    lo_max = foc_limit_min_abs(lo_max, lo_min_rpm);
+    lo_max = foc_limit_min_abs(lo_max, lo_max_curr_dec);
+    lo_max = foc_limit_min_abs(lo_max, lo_max_duty);
+
+    /*
+     * Two groups of terms are not here, and both for want of a source rather than a decision:
+     *
+     * - The input-current group (:2458-2512) - the battery cutoffs, the wattage limits and the
+     *   mapping of the measured input current - because its only consumer is the last of them, and
+     *   that one runs off the timer task's own filtered input current. The aggregate keeps the bus
+     *   current in its telemetry unfiltered, so the term waits for that filter rather than being
+     *   fed a quantity the reference would have smoothed.
+     * - The BMS limits (:2491-2494), which need a battery: bms_update_limits narrows the input
+     *   limits from a CAN-attached pack, and this port has no pack on the bus.
+     *
+     * Neither is silently dropped: the numbers that reach the loop below are the same ones the
+     * reference would produce with those sources absent, because every term that is missing is one
+     * whose own branch keeps the configured limit.
+     */
+    if (lo_max < conf->cc_min_current) {
+        lo_max = conf->cc_min_current;
+    }
+
+    if (lo_min > -conf->cc_min_current) {
+        lo_min = -conf->cc_min_current;
+    }
+
+    self->lo_current_max = lo_max;
+    self->lo_current_min = lo_min;
+}
+
 edge_status_t foc_core_set_current_rel(foc_core_t *self, float rel) {
     if (self == (void *)0) {
         return EDGE_EINVAL;
@@ -1107,8 +1306,8 @@ edge_status_t foc_core_set_current_rel(foc_core_t *self, float rel) {
      * behaviour, not an accident to fix.
      */
     const float base = (fabsf(self->duty_now) < 0.02f || foc_sign(rel) == foc_sign(self->duty_now))
-                           ? self->config.current_max_a
-                           : fabsf(self->config.current_min_a);
+                           ? self->lo_current_max
+                           : fabsf(self->lo_current_min);
 
     /*
      * The reference then calls mc_interface_set_current(), so DIR_MULT and the rest of

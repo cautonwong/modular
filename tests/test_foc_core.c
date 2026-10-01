@@ -368,6 +368,139 @@ static void test_foc_core_duty_now_is_a_modulation_magnitude(void **state) {
  * otherwise. The two limits are asymmetric here on purpose - that is what makes the
  * chosen one visible in the result.
  */
+/*
+ * The override derivation's inputs at the reference's own defaults (mcconf_defaults.h, generated
+ * from motor/mcconf_default.h). Fixtures that drive the control loop need these rather than zeroes:
+ * a zeroed set winds every de-rating term down to zero, and cc_min_current with it, which is what
+ * stops the motor rather than what runs it.
+ */
+static const foc_limit_params_t REFERENCE_LIMITS = {
+    .l_temp_motor_start = 85.0f,
+    .l_temp_motor_end = 100.0f,
+    .l_erpm_start = 0.8f,
+    .l_max_erpm = 100000.0f,
+    .l_min_erpm = -100000.0f,
+    .foc_start_curr_dec = 1.0f,
+    .foc_start_curr_dec_rpm = 2500.0f,
+    .l_duty_start = 1.0f,
+    .l_max_duty = 0.95f,
+    .cc_min_current = 0.05f,
+    .l_watt_max = 1500000.0f,
+    .l_watt_min = -1500000.0f,
+    .l_in_current_max = 99.0f,
+    .l_in_current_min = -60.0f,
+    .l_in_current_map_start = 0.9f,
+    .l_battery_cut_start = 10.0f,
+    .l_battery_cut_end = 8.0f,
+    .l_battery_regen_cut_start = 1000.0f,
+    .l_battery_regen_cut_end = 1100.0f,
+};
+
+/*
+ * The derivation's own fixture: the harness below was built on the reference's defaults for the
+ * de-rating knees except where a scenario needs a narrower one, and its current ceiling is 60 A at
+ * a 0.9 scale - 54 A - which is what the ceiling here is too.
+ */
+static const foc_limit_params_t DERIVATION_LIMITS = {
+    .l_temp_motor_start = 85.0f,
+    .l_temp_motor_end = 100.0f,
+    .l_erpm_start = 0.8f,
+    .l_max_erpm = 100000.0f,
+    .l_min_erpm = -100000.0f,
+    .foc_start_curr_dec = 0.5f,
+    .foc_start_curr_dec_rpm = 2500.0f,
+    .l_duty_start = 0.9f,
+    .l_max_duty = 0.95f,
+    .cc_min_current = 0.05f,
+    .l_watt_max = 1500000.0f,
+    .l_watt_min = -1500000.0f,
+    .l_in_current_max = 99.0f,
+    .l_in_current_min = -60.0f,
+    .l_in_current_map_start = 0.9f,
+    .l_battery_cut_start = 10.0f,
+    .l_battery_cut_end = 8.0f,
+    .l_battery_regen_cut_start = 1000.0f,
+    .l_battery_regen_cut_end = 1100.0f,
+};
+
+/*
+ * The override derivation against the reference's own output. Its update_override_limits was
+ * compiled from the derivation down - motor/mc_interface.c:2337 to the function's end - with the
+ * temperature decode bypassed by feeding the two filtered temperatures in as variables, the input
+ * current left at zero so that group is the identity it is when there is nothing to map, and the
+ * BMS hook a no-op because there is no pack on the bus. What that leaves is the arithmetic these
+ * numbers come from; the tests below run the port on the same twelve inputs.
+ *
+ * The first of them is worth reading twice: nothing de-rates at standstill and the limit is still
+ * half the configured one, because foc_start_curr_dec is 0.5 here and the RPM is zero. That is the
+ * reference's own behaviour, not the harness failing to start.
+ */
+static void test_foc_core_update_limits_matches_the_reference(void **state) {
+    (void)state;
+
+    mock_inverter_t inv = {0};
+    mock_current_sensor_t cs = {0};
+    mock_rotor_sensor_t rs = {0};
+
+    foc_inverter_port_t inv_port = {
+        .set_duty = mock_set_duty, .set_phase_state = mock_set_phase_state, .self = &inv};
+    foc_current_port_t cs_port = {
+        .read_currents = mock_read_currents, .read_vbus = mock_read_vbus, .self = &cs};
+    foc_rotor_port_t rs_port = {.read_angle = mock_read_angle, .self = &rs};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 54.0f,
+                        .current_min_a = -54.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.1f,
+                        .current_ki = 100.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .limits = DERIVATION_LIMITS,
+                        .sensorless_mode = false};
+
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    const struct {
+        float rpm;
+        float duty;
+        float temp_motor;
+        float lo_max;
+        float lo_min;
+    } cases[] = {
+        {0.0f, 0.0f, 25.0f, 27.0f, -54.0f},            /* nothing de-rates, start dec halves it */
+        {0.0f, 0.94f, 25.0f, 5.90788651f, -54.0f},     /* duty inside the knee */
+        {0.0f, 0.99f, 25.0f, 0.05f, -54.0f},           /* duty past the ceiling, floored */
+        {90000.0f, 0.0f, 25.0f, 27.0f, -54.0f},        /* positive ERPM inside the cut */
+        {104000.0f, 0.0f, 25.0f, 0.05f, -54.0f},       /* past l_max_erpm */
+        {-90000.0f, 0.0f, 25.0f, 27.0f, -54.0f},       /* negative ERPM inside its cut */
+        {-104000.0f, 0.0f, 25.0f, 0.05f, -54.0f},      /* past l_min_erpm */
+        {1000.0f, 0.0f, 25.0f, 37.7999992f, -54.0f},   /* the start-current decrease alone */
+        {0.0f, 0.0f, 92.0f, 27.0f, -28.7999992f},      /* motor temperature inside its knees */
+        {0.0f, 0.0f, 99.95f, 0.05f, -0.0500000007f},   /* at the end of them, floored both ways */
+        {95000.0f, 0.94f, 95.0f, 5.90788651f, -18.0f}, /* duty and temperature together */
+        {-95000.0f, -0.94f, 25.0f, 5.90788651f, -54.0f},
+    };
+
+    for (size_t i = 0u; i < (sizeof(cases) / sizeof(cases[0])); i++) {
+        foc.last_rpm = cases[i].rpm;
+        foc.duty_now = cases[i].duty;
+        foc.motor_temp_c = cases[i].temp_motor;
+        foc.last_v_bus = 50.0f;
+        foc_core_update_limits(&foc);
+        assert_float_equal(foc.lo_current_max, cases[i].lo_max, 1e-4f);
+        assert_float_equal(foc.lo_current_min, cases[i].lo_min, 1e-4f);
+    }
+}
+
 static void test_foc_core_set_current_rel_picks_its_limit_from_the_duty(void **state) {
     (void)state;
 
@@ -390,6 +523,7 @@ static void test_foc_core_set_current_rel_picks_its_limit_from_the_duty(void **s
                         .si_wheel_diameter = 0.083f,
                         .current_max_a = 40.0f,
                         .current_min_a = -60.0f,
+                        .limits = REFERENCE_LIMITS,
                         .duty_max = 0.95f,
                         .current_kp = 0.15f,
                         .current_ki = 300.0f,
@@ -3383,6 +3517,7 @@ int main(void) {
         cmocka_unit_test(test_foc_core_safety_guards_and_power_off),
         cmocka_unit_test(test_foc_svpwm_duty_clamps),
         cmocka_unit_test(test_foc_pos_pid_matches_the_reference),
+        cmocka_unit_test(test_foc_core_update_limits_matches_the_reference),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
