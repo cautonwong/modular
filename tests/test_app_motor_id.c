@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 #include <math.h>
 
 #include <cmocka.h>
@@ -143,11 +144,16 @@ static void test_motor_id_guards_and_unported_procedures(void **state) {
     assert_int_equal(motor_id_init(&partial_app), EDGE_EINVAL);
     assert_int_equal(motor_id_measure_resistance(&partial_app, 1.0f, 10u, true), EDGE_EINVAL);
 
-    /* The three procedures that are not ported say so instead of inventing a measurement. */
-    assert_int_equal(motor_id_measure_r_l(&app), EDGE_ENOTSUP);
+    /*
+     * The two procedures that are not ported say so instead of inventing a measurement; the one
+     * that is refuses a port that cannot drive it, and this mock has none of the HFI callbacks the
+     * composed resistance-and-inductance sequence measures through.
+     */
+    assert_int_equal(motor_id_measure_r_l(&app, 50.0f), EDGE_EINVAL);
     assert_int_equal(motor_id_measure_flux_linkage(&app), EDGE_ENOTSUP);
     assert_int_equal(motor_id_detect_hall(&app), EDGE_ENOTSUP);
-    assert_int_equal(motor_id_measure_r_l(NULL), EDGE_EINVAL);
+    assert_int_equal(motor_id_measure_r_l(NULL, 50.0f), EDGE_EINVAL);
+    assert_int_equal(motor_id_measure_r_l(&app, 0.0f), EDGE_EINVAL);
 }
 
 /*
@@ -947,6 +953,469 @@ static void test_motor_id_flux_linkage_sensored(void **state) {
         EDGE_EINVAL);
 }
 
+/* ---- Inductance, mcpwm_foc_measure_inductance (:1909-2070) ---- */
+
+/*
+ * A plant whose transform reports a known pair of axis inductances. The mean of the inverse
+ * inductance is the offset, and half the split between the two axes is the amplitude the second
+ * harmonic carries - and the module doubles that magnitude, so the mock reports half the split:
+ *
+ *   ld = 4e-5 H (25 000 1/H), lq = 6e-5 H (16 667 1/H)
+ *   offset = (25 000 + 16 667) / 2 = 20 833 1/H, split = (25 000 - 16 667) / 2 = 4 167 1/H
+ *
+ * What comes back out is the mean of the two, and their difference, in microhenrys after the
+ * reference's own 0.9 factor: 45 uH and 18 uH.
+ */
+typedef struct mock_ind_plant {
+    float offset;
+    float bin2; /* half the split, since the module doubles the magnitude it sees */
+    float current_per_duty;
+    float r_ohm;
+    uint32_t fault;
+    bool ready;
+    bool bins_ok;
+
+    int enter_calls;
+    int leave_calls;
+    int duty_calls;
+    int stop_calls;
+    int ready_calls;
+    int enter_gains_calls;
+    int leave_gains_calls;
+    bool enter_fails; /* a configuration the plant refuses to install */
+    float duty_seen;
+    float current_set;
+    float i_sum;
+    float v_sum;
+    uint32_t samples;
+} mock_ind_plant_t;
+
+static edge_status_t ind_enter_config(void *self, float duty) {
+    mock_ind_plant_t *p = (mock_ind_plant_t *)self;
+    p->enter_calls++;
+    p->duty_seen = duty;
+    return p->enter_fails ? EDGE_EINVAL : EDGE_OK;
+}
+
+static edge_status_t ind_leave_config(void *self) {
+    ((mock_ind_plant_t *)self)->leave_calls++;
+    return EDGE_OK;
+}
+
+static edge_status_t ind_set_duty(void *self, float duty) {
+    mock_ind_plant_t *p = (mock_ind_plant_t *)self;
+    p->duty_calls++;
+    p->current_set = duty;
+    return EDGE_OK;
+}
+
+static edge_status_t ind_is_ready(void *self, bool *ready) {
+    mock_ind_plant_t *p = (mock_ind_plant_t *)self;
+    p->ready_calls++;
+    *ready = p->ready;
+    return EDGE_OK;
+}
+
+/* The pass's reported current follows the duty the temporary configuration was entered with, which
+ * is where the reference's HFI voltage - and so the current the transform measures - comes from. */
+static edge_status_t ind_read_bins(void *self, float *offset, float *real2, float *imag2,
+                                   float *current_mean) {
+    mock_ind_plant_t *p = (mock_ind_plant_t *)self;
+    if (!p->bins_ok) {
+        return EDGE_EINVAL;
+    }
+    *offset = p->offset;
+    *real2 = p->bin2;
+    *imag2 = 0.0f;
+    *current_mean = p->duty_seen * p->current_per_duty;
+    return EDGE_OK;
+}
+
+static edge_status_t ind_set_phase_override(void *self, float angle_rad, bool enable) {
+    (void)self;
+    (void)angle_rad;
+    (void)enable;
+    return EDGE_OK;
+}
+
+static edge_status_t ind_set_current(void *self, float iq) {
+    ((mock_ind_plant_t *)self)->current_set = iq;
+    return EDGE_OK;
+}
+
+static edge_status_t ind_reset_samples(void *self) {
+    mock_ind_plant_t *p = (mock_ind_plant_t *)self;
+    p->i_sum = 0.0f;
+    p->v_sum = 0.0f;
+    p->samples = 0u;
+    return EDGE_OK;
+}
+
+static edge_status_t ind_read_samples(void *self, float *i_sum, float *v_sum, uint32_t *count) {
+    mock_ind_plant_t *p = (mock_ind_plant_t *)self;
+    if (i_sum != (void *)0) {
+        *i_sum = p->i_sum;
+    }
+    if (v_sum != (void *)0) {
+        *v_sum = p->v_sum;
+    }
+    if (count != (void *)0) {
+        *count = p->samples;
+    }
+    return EDGE_OK;
+}
+
+static uint32_t ind_get_fault(void *self) {
+    return ((mock_ind_plant_t *)self)->fault;
+}
+
+static edge_status_t ind_stop(void *self) {
+    ((mock_ind_plant_t *)self)->stop_calls++;
+    return EDGE_OK;
+}
+
+static edge_status_t ind_enter_gains(void *self) {
+    ((mock_ind_plant_t *)self)->enter_gains_calls++;
+    return EDGE_OK;
+}
+
+static edge_status_t ind_leave_gains(void *self) {
+    ((mock_ind_plant_t *)self)->leave_gains_calls++;
+    return EDGE_OK;
+}
+
+/* One control cycle with whatever setpoint is in place, as the resistance measurement reads it. */
+static void ind_control_cycle(mock_ind_plant_t *p) {
+    p->i_sum += fabsf(p->current_set);
+    p->v_sum += fabsf(p->current_set * p->r_ohm);
+    p->samples++;
+}
+
+static motor_id_measure_port_t make_ind_port(mock_ind_plant_t *p) {
+    return (motor_id_measure_port_t){.self = p,
+                                     .set_phase_override = ind_set_phase_override,
+                                     .set_current = ind_set_current,
+                                     .reset_samples = ind_reset_samples,
+                                     .read_samples = ind_read_samples,
+                                     .get_fault = ind_get_fault,
+                                     .stop = ind_stop,
+                                     .enter_inductance_config = ind_enter_config,
+                                     .leave_inductance_config = ind_leave_config,
+                                     .set_duty = ind_set_duty,
+                                     .is_hfi_ready = ind_is_ready,
+                                     .read_hfi_bins = ind_read_bins,
+                                     .enter_res_ind_gains = ind_enter_gains,
+                                     .leave_res_ind_gains = ind_leave_gains};
+}
+
+static void make_ind_app(motor_id_app_t *app, mock_ind_plant_t *plant,
+                         motor_id_measure_port_t *port) {
+    *port = make_ind_port(plant);
+    motor_id_construct(app, EDGE_MOD_MOTOR_ID, 40u, port);
+    assert_int_equal(motor_id_init(app), EDGE_OK);
+}
+
+/*
+ * The measurement over a plant whose two axis inductances are known: the temporary configuration
+ * goes in, the duty is zeroed a millisecond later, the first filled buffer is waited for, and then
+ * one pass per ten requested samples - each zeroing the duty, waiting its ten milliseconds and
+ * reading the bins - before the current is zeroed and the configuration put back.
+ */
+static void test_motor_id_measure_inductance(void **state) {
+    (void)state;
+    mock_ind_plant_t plant = {.offset = 20833.333f,
+                              .bin2 = 2083.333f,
+                              .ready = true,
+                              .bins_ok = true,
+                              .current_per_duty = 1.0f};
+    motor_id_measure_port_t port;
+    motor_id_app_t app;
+    make_ind_app(&app, &plant, &port);
+
+    assert_int_equal(motor_id_measure_inductance(&app, 0.5f, 10u), EDGE_OK);
+    assert_int_equal(plant.enter_calls, 1);
+    assert_int_equal(plant.leave_calls, 0);
+    assert_float_equal(plant.duty_seen, 0.5f, 1e-6f);
+
+    /* One millisecond of configuration settle, then the duty is zeroed. */
+    assert_int_equal(motor_id_step(&app, 0.001f), EDGE_OK);
+    assert_int_equal(app.state, MOTOR_ID_STATE_IND_DUTY_ZERO);
+    assert_int_equal(plant.duty_calls, 1);
+
+    /* A second millisecond, then the ready wait, which this plant answers at once. */
+    assert_int_equal(motor_id_step(&app, 0.001f), EDGE_OK);
+    assert_int_equal(app.state, MOTOR_ID_STATE_IND_WAIT_READY);
+    assert_int_equal(motor_id_step(&app, 0.001f), EDGE_OK);
+    assert_int_equal(app.state, MOTOR_ID_STATE_IND_SAMPLE);
+
+    /* The pass's ten milliseconds: the last of them reads the bins. */
+    assert_int_equal(motor_id_step(&app, 0.001f),
+                     EDGE_OK); /* out of the pass's top into its wait */
+    assert_int_equal(app.state, MOTOR_ID_STATE_IND_SAMPLE_WAIT);
+    int waits = 0;
+    while (app.state == MOTOR_ID_STATE_IND_SAMPLE_WAIT && waits < 20) {
+        assert_int_equal(motor_id_step(&app, 0.001f), EDGE_OK);
+        waits++;
+    }
+    assert_int_equal(waits, 10);
+    assert_true(app.state == MOTOR_ID_STATE_IND_SAMPLE_READ ||
+                app.state == MOTOR_ID_STATE_IND_SAMPLE || app.state == MOTOR_ID_STATE_COMPLETE);
+
+    /* Ten samples is one pass, so the next millisecond finishes it. */
+    for (int i = 0; i < 4 && app.state != MOTOR_ID_STATE_COMPLETE; ++i) {
+        assert_int_equal(motor_id_step(&app, 0.001f), EDGE_OK);
+    }
+    assert_int_equal(app.state, MOTOR_ID_STATE_COMPLETE);
+    assert_true(app.result.valid);
+    assert_int_equal(plant.leave_calls, 1);
+    assert_float_equal(app.result.ind_uh, 45.0f, 1e-2f);
+    assert_float_equal(app.result.ld_lq_diff_uh, 18.0f, 1e-2f);
+    assert_float_equal(app.result.ind_current_a, 0.5f, 1e-4f); /* 0.5 duty * 1.0 A per duty */
+}
+
+/* The sample count is floored at ten, which is one pass, and a finer request is honest about how
+ * many passes it averaged. */
+static void test_motor_id_inductance_pass_count(void **state) {
+    (void)state;
+    mock_ind_plant_t plant = {
+        .offset = 20833.333f, .bin2 = 2083.333f, .ready = true, .bins_ok = true};
+    motor_id_measure_port_t port;
+    motor_id_app_t app;
+    make_ind_app(&app, &plant, &port);
+
+    /* Under ten becomes the floor: one pass. */
+    assert_int_equal(motor_id_measure_inductance(&app, 0.5f, 1u), EDGE_OK);
+    assert_int_equal(app.ind_samples, 10u);
+}
+
+/* A port without the HFI callbacks is refused rather than measuring nothing. */
+static void test_motor_id_inductance_needs_its_ports(void **state) {
+    (void)state;
+    mock_ind_plant_t plant = {
+        .offset = 20833.333f, .bin2 = 2083.333f, .ready = true, .bins_ok = true};
+    motor_id_measure_port_t port;
+    motor_id_app_t app;
+    make_ind_app(&app, &plant, &port);
+
+    assert_int_equal(motor_id_measure_inductance(NULL, 0.5f, 10u), EDGE_EINVAL);
+
+    port.read_hfi_bins = (void *)0;
+    motor_id_app_t bare;
+    motor_id_construct(&bare, EDGE_MOD_MOTOR_ID, 40u, &port);
+    assert_int_equal(motor_id_measure_inductance(&bare, 0.5f, 10u), EDGE_EINVAL);
+
+    /* And a measurement already running is busy, not restarted. */
+    assert_int_equal(motor_id_measure_inductance(&app, 0.5f, 10u), EDGE_OK);
+    assert_int_equal(motor_id_measure_inductance(&app, 0.5f, 10u), EDGE_EBUSY);
+}
+
+/*
+ * The ready wait gives up after a hundred milliseconds and carries on, which is what the
+ * reference's own break does - and the configuration still comes back afterwards.
+ */
+static void test_motor_id_inductance_ready_wait_gives_up(void **state) {
+    (void)state;
+    mock_ind_plant_t plant = {
+        .offset = 20833.333f, .bin2 = 2083.333f, .ready = false, .bins_ok = true};
+    motor_id_measure_port_t port;
+    motor_id_app_t app;
+    make_ind_app(&app, &plant, &port);
+
+    assert_int_equal(motor_id_measure_inductance(&app, 0.5f, 10u), EDGE_OK);
+    assert_int_equal(motor_id_step(&app, 0.002f), EDGE_OK); /* the two settle milliseconds */
+    assert_int_equal(app.state, MOTOR_ID_STATE_IND_WAIT_READY);
+
+    for (int i = 0; i < 102; ++i) {
+        assert_int_equal(motor_id_step(&app, 0.001f), EDGE_OK);
+    }
+    assert_int_equal(plant.ready_calls > 100, 1);
+    assert_true(app.state != MOTOR_ID_STATE_IND_WAIT_READY);
+}
+
+/* A fault during a pass stops the measurement, restores the configuration and says so. */
+static void test_motor_id_inductance_aborts_on_a_fault(void **state) {
+    (void)state;
+    mock_ind_plant_t plant = {
+        .offset = 20833.333f, .bin2 = 2083.333f, .ready = true, .bins_ok = true};
+    motor_id_measure_port_t port;
+    motor_id_app_t app;
+    make_ind_app(&app, &plant, &port);
+
+    assert_int_equal(motor_id_measure_inductance(&app, 0.5f, 10u), EDGE_OK);
+    plant.fault = 7u;
+    for (int i = 0; i < 10 && app.state != MOTOR_ID_STATE_FAILED; ++i) {
+        assert_int_equal(motor_id_step(&app, 0.001f), EDGE_OK);
+    }
+    assert_int_equal(app.state, MOTOR_ID_STATE_FAILED);
+    assert_int_equal(app.fault_code, 7u);
+    assert_false(app.result.valid);
+    assert_int_equal(plant.leave_calls, 1);
+    assert_int_equal(plant.stop_calls, 1);
+}
+
+/*
+ * The duty scan of mcpwm_foc_measure_inductance_current (:2089-2103): whole measurements at 0.02
+ * and then half again times larger until the current they report reaches the caller's goal, and
+ * then one more at that same duty with the caller's sample count.
+ */
+static void test_motor_id_inductance_current_scans_the_duty(void **state) {
+    (void)state;
+    /* 100 A per unit of duty: 0.02 draws 2 A, 0.03 draws 3 A and so on. */
+    mock_ind_plant_t plant = {.offset = 20833.333f,
+                              .bin2 = 2083.333f,
+                              .ready = true,
+                              .bins_ok = true,
+                              .current_per_duty = 100.0f};
+    motor_id_measure_port_t port;
+    motor_id_app_t app;
+    make_ind_app(&app, &plant, &port);
+
+    assert_int_equal(motor_id_measure_inductance_current(&app, 5.0f, 30u), EDGE_OK);
+
+    for (int i = 0; i < 2000 && app.state != MOTOR_ID_STATE_COMPLETE; ++i) {
+        assert_int_equal(motor_id_step(&app, 0.001f), EDGE_OK);
+    }
+    assert_int_equal(app.state, MOTOR_ID_STATE_COMPLETE);
+
+    /* The walk stopped at the first duty whose current reached the goal: 0.02, 0.03, 0.045,
+     * 0.0675 - the last of those draws 6.75 A, over the 5 A asked for - and the final measurement
+     * repeated that duty with the caller's thirty samples, which is three passes. */
+    assert_float_equal(plant.duty_seen, 0.0675f, 1e-6f);
+    assert_float_equal(app.result.ind_current_a, 6.75f, 1e-3f);
+    assert_float_equal(app.result.ind_uh, 45.0f, 1e-2f);
+    assert_int_equal(plant.enter_calls, 5); /* four in the walk, one final */
+}
+
+/*
+ * The composed sequence (:2320-2360): resistance at 2 A and half again times larger until the
+ * current exceeds 1/R - with the current loop's gains turned down for it and put back on the way
+ * out - then a 200-sample resistance, ten milliseconds at zero current, and inductance at the same
+ * current.
+ */
+static void test_motor_id_measure_r_l_runs_the_whole_sequence(void **state) {
+    (void)state;
+    mock_ind_plant_t plant = {
+        .offset = 20833.333f, .bin2 = 2083.333f, .ready = true, .bins_ok = true, .r_ohm = 0.05f};
+    motor_id_measure_port_t port;
+    motor_id_app_t app;
+    make_ind_app(&app, &plant, &port);
+
+    assert_int_equal(motor_id_measure_r_l(&app, 50.0f), EDGE_OK);
+    assert_int_equal(plant.enter_gains_calls, 1);
+    assert_int_equal(plant.leave_gains_calls, 0); /* still held while it runs */
+
+    for (int i = 0;
+         i < 20000 && app.state != MOTOR_ID_STATE_COMPLETE && app.state != MOTOR_ID_STATE_FAILED;
+         ++i) {
+        ind_control_cycle(&plant);
+        assert_int_equal(motor_id_step(&app, 0.001f), EDGE_OK);
+    }
+
+    assert_int_equal(app.state, MOTOR_ID_STATE_COMPLETE);
+    assert_true(app.result.valid);
+    assert_float_equal(app.result.r_ohm, 0.05f, 1e-4f);
+    assert_float_equal(app.result.ind_uh, 45.0f, 1e-2f);
+    assert_int_equal(plant.enter_gains_calls, 1);
+    assert_int_equal(plant.leave_gains_calls, 1); /* put back exactly once, at the single exit */
+    /* The scan stops at the first current past 1/R = 20 A, which the walk reaches at 22.78 A. */
+    assert_float_equal(app.res_ind_last_current_a, 22.78125f, 1e-3f);
+}
+
+/*
+ * The ways out of the sequence that are not the happy one: a transform that cannot answer, a
+ * configuration that cannot be installed, a current limit with no room for the scan, a zero
+ * resistance, and a second procedure asked for while one is running.
+ */
+static void test_motor_id_inductance_failure_paths(void **state) {
+    (void)state;
+
+    /* The transform refuses to answer: the pass fails and the configuration comes back. */
+    mock_ind_plant_t blind = {.offset = 20833.333f, .bin2 = 2083.333f, .ready = true};
+    motor_id_measure_port_t port;
+    motor_id_app_t app;
+    make_ind_app(&app, &blind, &port);
+    assert_int_equal(motor_id_measure_inductance(&app, 0.5f, 10u), EDGE_OK);
+    for (int i = 0; i < 200 && app.state != MOTOR_ID_STATE_FAILED; ++i) {
+        assert_int_equal(motor_id_step(&app, 0.001f), EDGE_OK);
+    }
+    assert_int_equal(app.state, MOTOR_ID_STATE_FAILED);
+    assert_false(app.result.valid);
+    assert_int_equal(blind.leave_calls, 1);
+    assert_int_equal(blind.stop_calls, 1);
+
+    /* The configuration itself is refused, so nothing is started. */
+    mock_ind_plant_t strict = {.offset = 20833.333f,
+                               .bin2 = 2083.333f,
+                               .ready = true,
+                               .bins_ok = true,
+                               .enter_fails = true};
+    make_ind_app(&app, &strict, &port);
+    assert_int_equal(motor_id_measure_inductance(&app, 0.5f, 10u), EDGE_EINVAL);
+    assert_int_equal(app.state, MOTOR_ID_STATE_FAILED);
+
+    /* One procedure at a time. */
+    mock_ind_plant_t plant = {.offset = 20833.333f,
+                              .bin2 = 2083.333f,
+                              .ready = true,
+                              .bins_ok = true,
+                              .current_per_duty = 100.0f};
+    make_ind_app(&app, &plant, &port);
+    assert_int_equal(motor_id_measure_inductance_current(&app, 5.0f, 10u), EDGE_OK);
+    assert_int_equal(motor_id_measure_inductance_current(&app, 5.0f, 10u), EDGE_EBUSY);
+    assert_int_equal(motor_id_measure_inductance(&app, 0.5f, 10u), EDGE_EBUSY);
+    assert_int_equal(motor_id_measure_r_l(&app, 50.0f), EDGE_EBUSY);
+}
+
+/*
+ * The composed sequence's other two exits (:2341-2343 and :2331-2334): a current limit with no room
+ * for the walk takes half of it straight away, and a resistance that comes back zero ends there -
+ * with the current loop's gains put back on both paths.
+ */
+static void test_motor_id_measure_r_l_edge_exits(void **state) {
+    (void)state;
+    mock_ind_plant_t plant;
+    motor_id_measure_port_t port;
+    motor_id_app_t app;
+
+    /* current_max / 2 is 2 A, where the walk starts, so it never runs and the limit's half is the
+     * current the final measurement is taken at. */
+    memset(&plant, 0, sizeof(plant));
+    plant.offset = 20833.333f;
+    plant.bin2 = 2083.333f;
+    plant.ready = true;
+    plant.bins_ok = true;
+    plant.r_ohm = 0.05f;
+    make_ind_app(&app, &plant, &port);
+    assert_int_equal(motor_id_measure_r_l(&app, 4.0f), EDGE_OK);
+    for (int i = 0; i < 20000 && app.state != MOTOR_ID_STATE_COMPLETE; ++i) {
+        ind_control_cycle(&plant);
+        assert_int_equal(motor_id_step(&app, 0.001f), EDGE_OK);
+    }
+    assert_int_equal(app.state, MOTOR_ID_STATE_COMPLETE);
+    assert_float_equal(app.res_ind_last_current_a, 2.0f, 1e-6f);
+    assert_float_equal(app.result.ind_uh, 45.0f, 1e-2f);
+    assert_int_equal(plant.leave_gains_calls, 1);
+
+    /* A resistance of zero ends the sequence at its own exit label, with the gains back. */
+    memset(&plant, 0, sizeof(plant));
+    plant.offset = 20833.333f;
+    plant.bin2 = 2083.333f;
+    plant.ready = true;
+    plant.bins_ok = true;
+    make_ind_app(&app, &plant, &port);
+    assert_int_equal(motor_id_measure_r_l(&app, 50.0f), EDGE_OK);
+    for (int i = 0; i < 20000 && app.state != MOTOR_ID_STATE_COMPLETE; ++i) {
+        ind_control_cycle(&plant);
+        assert_int_equal(motor_id_step(&app, 0.001f), EDGE_OK);
+    }
+    assert_int_equal(app.state, MOTOR_ID_STATE_COMPLETE);
+    assert_float_equal(app.result.r_ohm, 0.0f, 1e-9f);
+    /* The resistance result stands as whatever it measured - the reference publishes it before its
+     * exit - while the inductance half of the sequence never ran at all. */
+    assert_float_equal(app.result.ind_uh, 0.0f, 1e-9f);
+    assert_int_equal(plant.leave_gains_calls, 1);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -962,6 +1431,15 @@ int main(void) {
         cmocka_unit_test(test_motor_id_aborts_on_a_fault),
         cmocka_unit_test(test_motor_id_sample_timeout_publishes_an_invalid_result),
         cmocka_unit_test(test_motor_id_hooks_and_accessor_guards),
+        cmocka_unit_test(test_motor_id_measure_inductance),
+        cmocka_unit_test(test_motor_id_inductance_pass_count),
+        cmocka_unit_test(test_motor_id_inductance_needs_its_ports),
+        cmocka_unit_test(test_motor_id_inductance_ready_wait_gives_up),
+        cmocka_unit_test(test_motor_id_inductance_aborts_on_a_fault),
+        cmocka_unit_test(test_motor_id_inductance_current_scans_the_duty),
+        cmocka_unit_test(test_motor_id_measure_r_l_runs_the_whole_sequence),
+        cmocka_unit_test(test_motor_id_inductance_failure_paths),
+        cmocka_unit_test(test_motor_id_measure_r_l_edge_exits),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
