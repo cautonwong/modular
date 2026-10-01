@@ -97,6 +97,21 @@ static edge_status_t foc_core_power_off(edge_module_t *module) {
     foc_core_t *self = (foc_core_t *)edge_module_data(module);
     if (self != (void *)0) {
         (void)foc_core_stop(self);
+
+        /*
+         * Reference conf_general_store_backup_data (conf_general.c:162-193), which its shutdown
+         * path calls: the motor is released and waited for first - the stop above is this port's
+         * version of that - and then the block goes out word by word, reporting whether every write
+         * took. A product without a store never sets the port, which is the reference's own
+         * situation on hardware with no power switch.
+         */
+        if (self->storage != (void *)0 && self->storage->store_backup != (void *)0) {
+            uint8_t block[FOC_BACKUP_BLOCK_BYTES];
+            const size_t len = foc_core_backup_serialize(self, block, sizeof(block));
+            if (len != 0u) {
+                (void)self->storage->store_backup(self->storage->self, block, len);
+            }
+        }
     }
     return EDGE_OK;
 }
@@ -636,7 +651,12 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
     const float tacho_scale =
         (self->config.si_wheel_diameter * (float)M_PI) /
         (3.0f * (float)self->config.si_motor_poles * self->config.si_gear_ratio);
-    const uint64_t distance_whole_m = (uint64_t)((float)self->tachometer_abs * tacho_scale);
+    /* The reading is signed and the cast is not: a negative distance cast to uint64_t is undefined,
+     * which is how this first read back as two to the sixty-third. The reference's own counter is
+     * absolute, so a reading below zero is nothing at all - and after the difference above the
+     * guard below cannot be reached by one either. */
+    const float distance_now_m = (float)self->tachometer_abs * tacho_scale;
+    const uint64_t distance_whole_m = (distance_now_m > 0.0f) ? (uint64_t)distance_now_m : 0u;
     if (distance_whole_m > self->backup_distance_last_m) {
         self->backup_odometer_m += distance_whole_m - self->backup_distance_last_m;
     }
@@ -1447,6 +1467,81 @@ void foc_core_set_backup(foc_core_t *self, uint64_t odometer_m, uint32_t uptime_
     }
     self->backup_odometer_m = odometer_m;
     self->backup_uptime_us = (uint64_t)uptime_ms * 1000u;
+}
+
+void foc_core_set_storage_port(foc_core_t *self, const foc_storage_port_t *port) {
+    if (self == (void *)0) {
+        return;
+    }
+    self->storage = port;
+}
+
+/*
+ * The block's byte order is the reference's own: it packs each 16-bit variable high byte first when
+ * it writes the emulated EEPROM (conf_general.c:181-182), so consecutive bytes of the packed struct
+ * go out big-endian and that is what these four helpers write and read.
+ */
+static void foc_backup_put_u32(uint8_t *out, uint32_t value) {
+    out[0] = (uint8_t)(value >> 24);
+    out[1] = (uint8_t)(value >> 16);
+    out[2] = (uint8_t)(value >> 8);
+    out[3] = (uint8_t)value;
+}
+
+static void foc_backup_put_u64(uint8_t *out, uint64_t value) {
+    for (int i = 0; i < 8; ++i) {
+        out[i] = (uint8_t)(value >> (8 * (7 - i)));
+    }
+}
+
+static uint32_t foc_backup_get_u32(const uint8_t *in) {
+    return ((uint32_t)in[0] << 24) | ((uint32_t)in[1] << 16) | ((uint32_t)in[2] << 8) |
+           (uint32_t)in[3];
+}
+
+static uint64_t foc_backup_get_u64(const uint8_t *in) {
+    uint64_t value = 0u;
+    for (int i = 0; i < 8; ++i) {
+        value = (value << 8) | in[i];
+    }
+    return value;
+}
+
+size_t foc_core_backup_serialize(const foc_core_t *self, uint8_t *out, size_t len) {
+    if (self == (void *)0 || out == (void *)0 || len < FOC_BACKUP_BLOCK_BYTES) {
+        return 0u;
+    }
+
+    foc_backup_put_u32(out + 0, FOC_BACKUP_INIT_CODE);
+    foc_backup_put_u64(out + 4, self->backup_odometer_m);
+    foc_backup_put_u32(out + 12, FOC_BACKUP_INIT_CODE);
+    /* The reference keeps its runtime in seconds; this port counts microseconds. */
+    foc_backup_put_u64(out + 16, self->backup_uptime_us / 1000000u);
+    return FOC_BACKUP_BLOCK_BYTES;
+}
+
+edge_status_t foc_core_backup_restore(foc_core_t *self, const uint8_t *in, size_t len) {
+    if (self == (void *)0 || in == (void *)0 || len < FOC_BACKUP_BLOCK_BYTES) {
+        return EDGE_EINVAL;
+    }
+
+    /*
+     * Each field stands on its own flag, which is the reference's recovery rule (conf_general.c:
+     * 108-146): a block whose odometer was written but whose runtime was not still gives the
+     * odometer back, and the caller is the one that then writes the flags and stores the repaired
+     * block.
+     */
+    const bool odometer_ok = (foc_backup_get_u32(in + 0) == FOC_BACKUP_INIT_CODE);
+    const bool uptime_ok = (foc_backup_get_u32(in + 12) == FOC_BACKUP_INIT_CODE);
+
+    if (odometer_ok) {
+        self->backup_odometer_m = foc_backup_get_u64(in + 4);
+    }
+    if (uptime_ok) {
+        self->backup_uptime_us = foc_backup_get_u64(in + 16) * 1000000u;
+    }
+
+    return (odometer_ok && uptime_ok) ? EDGE_OK : EDGE_EINVAL;
 }
 
 void foc_core_read_detect_samples(const foc_core_t *self, float *i_sum, float *v_sum,

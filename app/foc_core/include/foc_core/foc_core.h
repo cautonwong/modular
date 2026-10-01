@@ -31,6 +31,23 @@ typedef struct foc_rotor_port {
     void *self;
 } foc_rotor_port_t;
 
+/*
+ * Where a product keeps the backup block. The reference writes it from
+ * conf_general_store_backup_data (conf_general.c:162-193), which it calls from its shutdown path
+ * only
+ * - its own comment says so, and says why: a page swap during a power loss could take the
+ * configuration with it, so the store happens when the hardware's power switch says the power is
+ * going away. The module's power_off is that path here, and where the words live is the product's,
+ * so this is one callback rather than a format.
+ *
+ * The port is optional for the reason the reference's own store is conditional: hardware without a
+ * power switch never has its shutdown path called.
+ */
+typedef struct foc_storage_port {
+    void *self;
+    edge_status_t (*store_backup)(void *self, const uint8_t *data, size_t len);
+} foc_storage_port_t;
+
 typedef enum {
     FOC_STATE_UNINITIALIZED = 0,
     FOC_STATE_FAULT,
@@ -315,6 +332,10 @@ typedef struct foc_core {
      * them, because 200 additions of 5e-5 are not exactly 0.01. The reference reads a wall clock
      * and has no such drift; this port counts, so it counts in whole microseconds. */
     uint64_t backup_uptime_us;
+
+    /* Where a product keeps that block. Optional, as the reference's own store is: hardware without
+     * a power switch never has its shutdown path called. */
+    const foc_storage_port_t *storage;
 
     /* Field-weakening setpoint, the reference's m_i_fw_set. */
     float i_fw_set;
@@ -621,6 +642,27 @@ void foc_core_get_backup(const foc_core_t *self, uint64_t *odometer_m, uint32_t 
 
 /* The restore side, for a product that read the block back at boot. */
 void foc_core_set_backup(foc_core_t *self, uint64_t odometer_m, uint32_t uptime_ms);
+
+void foc_core_set_storage_port(foc_core_t *self, const foc_storage_port_t *port);
+
+/*
+ * The backup block itself, which is the subset of the reference's packed backup_data that this port
+ * has sources for: an init flag and a value for the odometer in metres, and the same pair for the
+ * runtime in seconds - the reference's own units and its own validity rule, where each field is
+ * recovered from RAM only if its flag still carries BACKUP_VAR_INIT_CODE. What the reference also
+ * carries (the hardware configuration, the encoder correction and the CAN identity) has no source
+ * here and is left out rather than invented, which makes this block shorter than its own.
+ *
+ * serialize fills `len` bytes and reports how many it wrote, or zero if `len` is too small; restore
+ * takes the same bytes and returns EDGE_OK only when every flag was valid, having filled the values
+ * it could either way.
+ */
+#define FOC_BACKUP_BLOCK_BYTES 24u
+/* Reference BACKUP_VAR_INIT_CODE (datatypes.h): the value each field's flag carries once it holds
+ * something real, and the value the recovery rule tests. */
+#define FOC_BACKUP_INIT_CODE 92891934u
+size_t foc_core_backup_serialize(const foc_core_t *self, uint8_t *out, size_t len);
+edge_status_t foc_core_backup_restore(foc_core_t *self, const uint8_t *in, size_t len);
 void foc_core_stats_reset(foc_core_t *self);
 
 #ifdef __cplusplus
