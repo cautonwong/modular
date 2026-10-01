@@ -405,6 +405,13 @@ void foc_observer_update(foc_observer_t *obs, float v_alpha, float v_beta, float
 typedef struct foc_virtual_motor {
     float r_ohm;
     float l_henry;
+    /* Reference motor/virtual_motor.c:36-37 and :138-143: the d and q axis inductances and the
+     * difference they are built from. With no difference both are l_henry and every equation below
+     * reduces to the single-inductance form it had before, which is what keeps the existing
+     * measurements' goldens exactly where they were. */
+    float ld_lq_diff;
+    float ld;
+    float lq;
     float lambda_wb;
     int pole_pairs;
     float inertia;
@@ -424,6 +431,13 @@ typedef struct foc_virtual_motor {
 
 void foc_virtual_motor_init(foc_virtual_motor_t *vm, float r_ohm, float l_henry, float lambda_wb,
                             int pole_pairs, float inertia);
+
+/*
+ * Reference motor/virtual_motor.c:138-143: the saliency is the configuration's
+ * foc_motor_ld_lq_diff, and the two axis inductances are l +/- half of it. HFI needs a salient
+ * machine to produce the second harmonic it tracks, so the closed-loop test asks for one here.
+ */
+void foc_virtual_motor_set_saliency(foc_virtual_motor_t *vm, float ld_lq_diff);
 void foc_virtual_motor_step(foc_virtual_motor_t *vm, float va, float vb, float vc, float dt,
                             float load_torque);
 
