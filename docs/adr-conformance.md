@@ -121,6 +121,16 @@ writing).
    implementation uses the `edge_sys_*` prefix.
 ## Recorded deviations
 
+**The BLDC detection pair.** `COMM_DETECT_MOTOR_PARAM` and `COMM_DETECT_APPLY_ALL_FOC` are refused
+by name in the codec rather than by its default, because what stops them is not that nobody wrote
+them yet. The parameter detection drives the motor with the BLDC six-step commutator - it stages
+`MOTOR_TYPE_BLDC` with a sensorless start, an integrating commutation mode and its own `sl_*` limits
+(conf_general.c:514-536) - and builds its hall table and BEMF coupling constant from that drive and
+the raw hall inputs; this port has no six-step commutation layer and no product with halls, the same
+disposition the hall procedure itself carries. The all-in-one detection is that procedure plus the
+others behind a DC-offset calibration (conf_general.c:1747, `mcpwm_foc_dc_cal`), and this port's
+phase currents come from a mid-scale offset with no calibration pass. D14, B5
+
 **HFI's step sign.** The reference's six-vector excitation records an
 inverse-inductance entry only when the current's step across the two sampling
 instants of one injection cycle is positive (`mcpwm_foc.c:4957`), and on this
