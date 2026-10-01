@@ -2039,6 +2039,88 @@ static void test_vesc_host_detects_r_and_l(void **state) {
     assert_float_equal(foc.config.f_zv, 20000.0f, 1e-3f);
 }
 
+/*
+ * The backup block's whole journey: the aggregate accumulates, the product's store port puts its
+ * words into the emulated EEPROM at the reference's own base, and a freshly constructed aggregate
+ * reads them back - which is what the host product's composition root does at boot, and what
+ * "persisted" means here.
+ */
+static void test_vesc_host_backup_block_persists(void **state) {
+    (void)state;
+    vesc_host_glue_state_t glue;
+    memset(&glue, 0, sizeof(glue));
+    memset(glue.flash_mem, 0xFF, sizeof(glue.flash_mem));
+    glue.v_bus = 24.0f;
+    foc_virtual_motor_init(&glue.vmotor, 0.05f, 5e-5f, 0.005f, 7, 5e-4f);
+
+    flash_sector_port_t sectors;
+    vesc_host_make_flash_sector_port(&sectors, &glue);
+    static uint16_t backup_var_table[VESC_HOST_BACKUP_VARS];
+    for (size_t i = 0u; i < VESC_HOST_BACKUP_VARS; i++) {
+        backup_var_table[i] = (uint16_t)(VESC_HOST_BACKUP_BASE + i);
+    }
+    flash_emul_t emul;
+    flash_emul_construct(
+        &emul, &sectors,
+        (flash_var_table_t){.virtual_addresses = backup_var_table, .count = VESC_HOST_BACKUP_VARS},
+        0u);
+    assert_int_equal(flash_emul_init(&emul), EDGE_OK);
+
+    foc_inverter_port_t inv_port;
+    vesc_host_make_inverter_port(&inv_port, &glue);
+    foc_current_port_t cs_port;
+    vesc_host_make_current_port(&cs_port, &glue);
+    foc_rotor_port_t rs_port;
+    vesc_host_make_rotor_port(&rs_port, &glue);
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 5e-5f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.1f,
+                        .current_ki = 50.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 8.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = false};
+
+    foc_storage_port_t store;
+    vesc_host_make_backup_store_port(&store, &emul);
+
+    foc_core_t foc;
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    foc_core_set_storage_port(&foc, &store);
+    foc_core_set_backup(&foc, 4321u, 9000u);
+
+    /* The power goes off, and the aggregate is the one that stores - from its own shutdown path, as
+     * the reference stores from its. */
+    assert_int_equal(foc.module.power_off(&foc.module), EDGE_OK);
+
+    /* Read the words back the way the composition root does, and hand them to a fresh aggregate. */
+    uint8_t block[FOC_BACKUP_BLOCK_BYTES];
+    for (size_t i = 0u; i < VESC_HOST_BACKUP_VARS; i++) {
+        uint16_t word = 0u;
+        assert_int_equal(flash_emul_read(&emul, (uint16_t)(VESC_HOST_BACKUP_BASE + i), &word),
+                         EDGE_OK);
+        block[2u * i] = (uint8_t)(word >> 8);
+        block[2u * i + 1u] = (uint8_t)word;
+    }
+
+    foc_core_t restarted;
+    foc_core_construct(&restarted, EDGE_MOD_FOC_CORE, 10u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&restarted), EDGE_OK);
+    assert_int_equal(foc_core_backup_restore(&restarted, block, sizeof(block)), EDGE_OK);
+
+    uint64_t odometer_m = 0u;
+    uint32_t uptime_ms = 0u;
+    foc_core_get_backup(&restarted, &odometer_m, &uptime_ms);
+    assert_float_equal((double)odometer_m, 4321.0, 0.0);
+    assert_int_equal(uptime_ms, 9000u);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -2072,6 +2154,7 @@ int main(void) {
         cmocka_unit_test(test_vesc_host_measures_a_known_motor),
         cmocka_unit_test(test_vesc_host_inductance_port_guards),
         cmocka_unit_test(test_vesc_host_detects_r_and_l),
+        cmocka_unit_test(test_vesc_host_backup_block_persists),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

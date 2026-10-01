@@ -417,6 +417,34 @@ static edge_status_t var_write(void *self, uint16_t index, uint16_t value) {
     return flash_emul_write(emul, (uint16_t)(VESC_HOST_MCCONF_BASE + index), value);
 }
 
+/*
+ * The backup block's words. The reference writes them one 16-bit variable at a time, high byte
+ * first (conf_general.c:181-182), from the base it gives them (:55); the block's serialiser already
+ * speaks that order, so each pair of its bytes is one variable here.
+ */
+static edge_status_t backup_store_var(void *self, const uint8_t *data, size_t len) {
+    flash_emul_t *emul = (flash_emul_t *)self;
+    if (emul == (void *)0 || data == (void *)0 || len != FOC_BACKUP_BLOCK_BYTES) {
+        return EDGE_EINVAL;
+    }
+
+    for (uint16_t i = 0u; i < VESC_HOST_BACKUP_VARS; i++) {
+        const uint16_t word =
+            (uint16_t)(((uint16_t)data[2u * i] << 8) | (uint16_t)data[2u * i + 1u]);
+        if (flash_emul_write(emul, (uint16_t)(VESC_HOST_BACKUP_BASE + i), word) != EDGE_OK) {
+            return EDGE_EIO;
+        }
+    }
+    return EDGE_OK;
+}
+
+void vesc_host_make_backup_store_port(foc_storage_port_t *out, flash_emul_t *emul) {
+    if (out == (void *)0) {
+        return;
+    }
+    *out = (foc_storage_port_t){.self = emul, .store_backup = backup_store_var};
+}
+
 void vesc_host_make_var_port(motor_config_var_port_t *out, flash_emul_t *emul) {
     if (out == (void *)0) {
         return;
