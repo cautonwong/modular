@@ -132,7 +132,16 @@ int main(void) {
          * than fixed: hardcoding it made the configuration's sensor mode unreadable by the
          * control path.
          */
-        .sensorless_mode = (mc->foc_sensor_mode == FOC_SENSOR_MODE_SENSORLESS),
+        /*
+         * The HFI modes are sensorless ones: the observer runs underneath them and HFI corrects its
+         * angle (mcpwm_foc.c:3579-3591), so reading the sensor mode as sensorless-or-not alone put
+         * them on the rotor-sensor path, which this board has none of.
+         */
+        .sensorless_mode = (mc->foc_sensor_mode == FOC_SENSOR_MODE_SENSORLESS ||
+                            mc->foc_sensor_mode == FOC_SENSOR_MODE_HFI ||
+                            mc->foc_sensor_mode == FOC_SENSOR_MODE_HFI_START ||
+                            (mc->foc_sensor_mode >= FOC_SENSOR_MODE_HFI_V2 &&
+                             mc->foc_sensor_mode <= FOC_SENSOR_MODE_HFI_V5)),
         .observer_gamma = mc->foc_observer_gain,
         .observer_type = (foc_observer_type_t)mc->foc_observer_type,
         .sat_comp_mode = mc->foc_sat_comp_mode,

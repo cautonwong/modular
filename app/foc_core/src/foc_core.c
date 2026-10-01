@@ -547,6 +547,37 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
     self->last_angle_rad = angle_rad;
     self->last_rpm = rpm;
 
+    /*
+     * Reference mcpwm_foc.c:4585-4606, the decision that gates the excitation. It is computed here,
+     * before the angle is used and before the controllers run, because two of its lines change the
+     * control this cycle: while the ambiguity is unresolved the Q-axis setpoint is held at zero
+     * (:4601-4603), and HFI_START stops exciting as soon as it is resolved (:4604-4606).
+     *
+     * The mode test is the reference's own: the four tracking modes excite unconditionally, and
+     * HFI_START excites only while it is not braking and has a Q-axis setpoint above the configured
+     * minimum. The speed gate is against the fast estimate, which is the PLL's speed here, and its
+     * threshold widens by a fifth while the excitation was already on - the hysteresis that keeps
+     * it from chattering at the speed it hands over.
+     */
+    const float abs_rpm = fabsf(self->pll.speed * 60.0f / (2.0f * (float)M_PI));
+    const bool hfi_sensor_mode = self->config.sensor_mode == FOC_ANGLE_SOURCE_HFI ||
+                                 (self->config.sensor_mode >= FOC_ANGLE_SOURCE_HFI_V2 &&
+                                  self->config.sensor_mode <= FOC_ANGLE_SOURCE_HFI_V5) ||
+                                 (self->config.sensor_mode == FOC_ANGLE_SOURCE_HFI_START &&
+                                  self->state != FOC_STATE_HANDBRAKE &&
+                                  fabsf(self->target_iq) > self->config.cc_min_current);
+    const bool hfi_est_done = self->hfi.est_done_cnt >= self->config.hfi_start_samples;
+    bool do_hfi = hfi_sensor_mode && !self->phase_override &&
+                  abs_rpm < (self->config.sl_erpm_hfi * (self->hfi_was_hfi ? 1.8f : 1.5f));
+
+    if (do_hfi && !hfi_est_done) {
+        self->target_iq = 0.0f;
+    } else if (self->config.sensor_mode == FOC_ANGLE_SOURCE_HFI_START) {
+        do_hfi = false;
+    }
+
+    self->hfi_was_hfi = do_hfi;
+
     /* Tachometer, reference mcpwm_foc.c:3866-3881. Phase normalised to [-pi, pi),
      * quantised to six 60-degree sectors, differenced against the previous sector.
      * The two corrections are the sector-wrap fixups: going 5 -> 0 is one step
@@ -771,12 +802,7 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
      * so the excitation is added in volts and the limit is the reference's own circle limit written
      * out in them.
      */
-    const bool hfi_mode = self->config.sensor_mode == FOC_ANGLE_SOURCE_HFI ||
-                          self->config.sensor_mode == FOC_ANGLE_SOURCE_HFI_START;
-    const bool driving = self->state == FOC_STATE_RUNNING_CURRENT ||
-                         self->state == FOC_STATE_RUNNING_RPM ||
-                         self->state == FOC_STATE_RUNNING_POS || self->state == FOC_STATE_HANDBRAKE;
-    if (hfi_mode && driving) {
+    if (do_hfi) {
         const foc_hfi_excite_in_t hfi_in = {.f_zv = self->config.f_zv,
                                             .hfi_voltage_start = self->config.hfi_voltage_start,
                                             .hfi_voltage_run = self->config.hfi_voltage_run,
@@ -838,7 +864,7 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
      * thread, which is what this port's single loop can carry, and the tracking half reads the
      * buffer the excitation above has just filled, so nothing is missed between the two.
      */
-    if (hfi_mode) {
+    if (hfi_sensor_mode) {
         self->hfi_step_accum += dt;
         if (self->hfi_step_accum >= 0.0005f) {
             self->hfi_step_accum = 0.0f;

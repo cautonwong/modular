@@ -428,6 +428,9 @@ typedef struct foc_core {
     foc_hfi_state_t hfi;
     float hfi_step_accum;
     bool hfi_using_hfi;
+    /* Reference m_cc_was_hfi (:4618): last cycle's excitation decision, which widens the speed gate
+     * that decision is made under from 1.5 to 1.8 times foc_sl_erpm_hfi (:4594). */
+    bool hfi_was_hfi;
 } foc_core_t;
 
 /*
