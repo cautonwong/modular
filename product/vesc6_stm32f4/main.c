@@ -211,6 +211,27 @@ int main(void) {
         return 14;
     }
 
+    /*
+     * The backup block, reference conf_general_read_backup_data (conf_general.c:100-146): read back
+     * through the aggregate's own validity rule, then stored again with the flags written for the
+     * whole block, which is what the reference's boot path does once it has repaired what it could.
+     * A first boot finds nothing - this store reports an empty slot - and starts from zero, which
+     * is what a product with no stored block should do. The aggregate stores it back from its
+     * power_off, the same shutdown-only point the reference's own store is called from.
+     */
+    foc_storage_port_t backup_store;
+    vesc6_make_backup_store_port(&backup_store, &glue);
+    foc_core_set_storage_port(&foc, &backup_store);
+
+    uint8_t backup_block[FOC_BACKUP_BLOCK_BYTES];
+    memset(backup_block, 0, sizeof(backup_block));
+    if (vesc6_backup_read(&glue, backup_block, sizeof(backup_block)) == EDGE_OK) {
+        (void)foc_core_backup_restore(&foc, backup_block, sizeof(backup_block));
+    }
+    if (foc_core_backup_serialize(&foc, backup_block, sizeof(backup_block)) != 0u) {
+        (void)backup_store.store_backup(backup_store.self, backup_block, sizeof(backup_block));
+    }
+
     alignas(
         TIMEOUT_GUARD_STORAGE_ALIGN) static unsigned char guard_storage[TIMEOUT_GUARD_STORAGE_SIZE];
     timeout_guard_t *guard = (timeout_guard_t *)guard_storage;

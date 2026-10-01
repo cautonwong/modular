@@ -146,6 +146,51 @@ void vesc6_glue_init(vesc6_glue_state_t *self, const board_vesc6_t *board) {
     self->board = board;
 }
 
+/*
+ * The backup block's words, reference conf_general_store_backup_data (conf_general.c:162-193) and
+ * its read side (:100-146). They sit at the tail of the same table, which is the reference's
+ * arrangement
+ * - a base of its own above the configuration's - and the order they go out in is the reference's
+ * too: one 16-bit word at a time, high byte first, which is what the block's serialiser produces.
+ */
+static edge_status_t backup_store(void *self, const uint8_t *data, size_t len) {
+    vesc6_glue_state_t *state = (vesc6_glue_state_t *)self;
+    if (state == NULL || data == NULL || len != FOC_BACKUP_BLOCK_BYTES) {
+        return EDGE_EINVAL;
+    }
+
+    for (uint16_t i = 0u; i < VESC6_BACKUP_VARS; i++) {
+        const uint16_t word =
+            (uint16_t)(((uint16_t)data[2u * i] << 8) | (uint16_t)data[2u * i + 1u]);
+        state->values[VESC6_MCCONF_VARS + i] = word;
+        state->written[VESC6_MCCONF_VARS + i] = 1u;
+    }
+    return EDGE_OK;
+}
+
+void vesc6_make_backup_store_port(foc_storage_port_t *out, vesc6_glue_state_t *state) {
+    if (out == NULL) {
+        return;
+    }
+    *out = (foc_storage_port_t){.self = state, .store_backup = backup_store};
+}
+
+edge_status_t vesc6_backup_read(vesc6_glue_state_t *state, uint8_t *block, size_t len) {
+    if (state == NULL || block == NULL || len != FOC_BACKUP_BLOCK_BYTES) {
+        return EDGE_EINVAL;
+    }
+
+    for (uint16_t i = 0u; i < VESC6_BACKUP_VARS; i++) {
+        if (state->written[VESC6_MCCONF_VARS + i] == 0u) {
+            return EDGE_ENOENT;
+        }
+        const uint16_t word = state->values[VESC6_MCCONF_VARS + i];
+        block[2u * i] = (uint8_t)(word >> 8);
+        block[2u * i + 1u] = (uint8_t)word;
+    }
+    return EDGE_OK;
+}
+
 void vesc6_make_var_port(motor_config_var_port_t *out, vesc6_glue_state_t *state) {
     if (out == NULL) {
         return;

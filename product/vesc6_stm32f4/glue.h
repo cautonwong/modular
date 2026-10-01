@@ -17,6 +17,14 @@
  * reference's variable list, and it is the reason motor_config writes as many entries as it does.
  */
 #define VESC6_MCCONF_VARS 388u
+/*
+ * The backup block's words, in the same table as the configuration's. The reference keeps them at a
+ * base of its own above the configuration's (EEPROM_BASE_BACKUP = 6000 against 1000,
+ * conf_general.c:50-55); this store is indexed rather than addressed, so what carries over is the
+ * order - the block's words follow the configuration's.
+ */
+#define VESC6_BACKUP_VARS (FOC_BACKUP_BLOCK_BYTES / 2u)
+#define VESC6_TOTAL_VARS (VESC6_MCCONF_VARS + VESC6_BACKUP_VARS)
 
 /*
  * Where the ADC reads zero amperes: mid-scale, as the reference's own arithmetic has it
@@ -39,8 +47,8 @@
  * zeroes" - which is a real configuration, and its CRC is zero (see motor_config.h:42-46).
  */
 typedef struct vesc6_glue_state {
-    uint16_t values[VESC6_MCCONF_VARS];
-    uint8_t written[VESC6_MCCONF_VARS];
+    uint16_t values[VESC6_TOTAL_VARS];
+    uint8_t written[VESC6_TOTAL_VARS];
     const board_vesc6_t *board;
     /* The part's own peripherals, bound by the composition root. Keeping them as pointers is what
      * lets these adapters be exercised against a block of RAM instead of only on a board. */
@@ -64,6 +72,16 @@ void vesc6_adc_injected_hook(void *ctx, uint32_t adc_index);
 
 void vesc6_glue_init(vesc6_glue_state_t *self, const board_vesc6_t *board);
 void vesc6_make_var_port(motor_config_var_port_t *out, vesc6_glue_state_t *state);
+
+/*
+ * The backup block: where it is stored on this product, and how the composition root reads it back
+ * at boot. The reference keeps it in the same emulated EEPROM at a base of its own above the
+ * configuration's (conf_general.c:55), which here is the same table's tail. The read reports
+ * EDGE_ENOENT when any of its words was never written, which is the emulated store's own rule for
+ * an empty slot - so a first boot reads as nothing rather than as zeros to trust.
+ */
+void vesc6_make_backup_store_port(foc_storage_port_t *out, vesc6_glue_state_t *state);
+edge_status_t vesc6_backup_read(vesc6_glue_state_t *state, uint8_t *block, size_t len);
 /* The two ports the control loop drives the hardware through, and reads it back from. */
 void vesc6_make_inverter_port(foc_inverter_port_t *out, vesc6_glue_state_t *state);
 void vesc6_make_current_port(foc_current_port_t *out, vesc6_glue_state_t *state);

@@ -2121,6 +2121,69 @@ static void test_vesc_host_backup_block_persists(void **state) {
     assert_int_equal(uptime_ms, 9000u);
 }
 
+/*
+ * The same journey on the board product, whose store is its own table rather than the emulated
+ * EEPROM: the aggregate stores at power_off, the table keeps the words, and a fresh aggregate reads
+ * them back. An empty table reads as nothing - this store reports an unwritten slot - rather than
+ * as zeros to trust, which is the same rule the emulated store has.
+ */
+static void test_vesc6_backup_block_persists(void **state) {
+    (void)state;
+    board_vesc6_t board;
+    assert_int_equal(board_vesc6_init(&board), EDGE_OK);
+    vesc6_glue_state_t glue;
+    vesc6_glue_init(&glue, &board);
+
+    uint8_t block[FOC_BACKUP_BLOCK_BYTES];
+    memset(block, 0, sizeof(block));
+    assert_int_equal(vesc6_backup_read(&glue, block, sizeof(block)), EDGE_ENOENT);
+    assert_int_equal(vesc6_backup_read(&glue, block, FOC_BACKUP_BLOCK_BYTES - 1u), EDGE_EINVAL);
+
+    foc_inverter_port_t inv_port;
+    vesc6_make_inverter_port(&inv_port, &glue);
+    foc_current_port_t cs_port;
+    vesc6_make_current_port(&cs_port, &glue);
+    foc_rotor_port_t rs_port;
+    vesc6_make_rotor_port(&rs_port, &glue);
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 5e-5f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.1f,
+                        .current_ki = 50.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 8.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = true};
+
+    foc_storage_port_t store;
+    vesc6_make_backup_store_port(&store, &glue);
+    assert_non_null(store.store_backup);
+
+    foc_core_t foc;
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    foc_core_set_storage_port(&foc, &store);
+    foc_core_set_backup(&foc, 777u, 3000u);
+    assert_int_equal(foc.module.power_off(&foc.module), EDGE_OK);
+
+    assert_int_equal(vesc6_backup_read(&glue, block, sizeof(block)), EDGE_OK);
+
+    foc_core_t restarted;
+    foc_core_construct(&restarted, EDGE_MOD_FOC_CORE, 10u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&restarted), EDGE_OK);
+    assert_int_equal(foc_core_backup_restore(&restarted, block, sizeof(block)), EDGE_OK);
+
+    uint64_t odometer_m = 0u;
+    uint32_t uptime_ms = 0u;
+    foc_core_get_backup(&restarted, &odometer_m, &uptime_ms);
+    assert_float_equal((double)odometer_m, 777.0, 0.0);
+    assert_int_equal(uptime_ms, 3000u);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -2155,6 +2218,7 @@ int main(void) {
         cmocka_unit_test(test_vesc_host_inductance_port_guards),
         cmocka_unit_test(test_vesc_host_detects_r_and_l),
         cmocka_unit_test(test_vesc_host_backup_block_persists),
+        cmocka_unit_test(test_vesc6_backup_block_persists),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
