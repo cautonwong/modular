@@ -278,6 +278,13 @@ edge_status_t foc_core_init(foc_core_t *self) {
         return EDGE_EINVAL;
     }
 
+    /*
+     * Reference mcpwm_foc.c:375: the sample table is selected at boot from the configuration's
+     * foc_hfi_samples, and again whenever that changes. Doing it here is what puts the table's
+     * length and its step into the state the excitation and the transform read.
+     */
+    foc_hfi_configure(&self->hfi, self->config.hfi_samples);
+
     /* Validate ports */
     if (self->inverter == (void *)0 || self->inverter->set_duty == (void *)0 ||
         self->inverter->set_phase_state == (void *)0) {
@@ -784,10 +791,15 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
         foc_hfi_excite_six_vector(&self->hfi, &hfi_in, &v_alpha, &v_beta);
     }
 
+    /* What the SVM consumes: the control's vector, with HFI's excitation on it when it ran. */
+    self->mod_alpha_raw = v_alpha;
+    self->mod_beta_raw = v_beta;
+
     /* 10. Space Vector Modulation (SVPWM) */
     float da = 0.5f, db = 0.5f, dc = 0.5f;
     uint32_t sector = 1u;
-    foc_svpwm(v_alpha, v_beta, v_bus, self->config.duty_max, &da, &db, &dc, &sector);
+    foc_svpwm(self->mod_alpha_raw, self->mod_beta_raw, v_bus, self->config.duty_max, &da, &db, &dc,
+              &sector);
 
     self->duty_a = da;
     self->duty_b = db;

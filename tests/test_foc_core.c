@@ -3,6 +3,7 @@
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #include <cmocka.h>
@@ -2783,6 +2784,158 @@ static void test_foc_hfi_update_other_branches(void **state) {
     assert_int_equal(warm.flip_cnt, 0); /* reset once the tally was consulted */
 }
 
+/*
+ * The virtual motor's saliency, which HFI needs: a salient machine is what makes the injected
+ * voltage produce a second harmonic in the current at all. The step below is checked against the
+ * equations written out by hand, and the no-saliency case is not checked here because it is what
+ * the existing goldens are: with no difference, both axis inductances are l_henry and every
+ * expression is the one it always was.
+ */
+static void test_virtual_motor_saliency(void **state) {
+    (void)state;
+    foc_virtual_motor_t vm;
+    foc_virtual_motor_init(&vm, 0.05f, 5e-5f, 0.005f, 7, 5e-4f);
+
+    /* No difference means both axis inductances are the single one. */
+    assert_float_equal(vm.ld, 5e-5f, 1e-12f);
+    assert_float_equal(vm.lq, 5e-5f, 1e-12f);
+
+    foc_virtual_motor_set_saliency(&vm, 2e-5f);
+    assert_float_equal(vm.ld, 4e-5f, 1e-12f);
+    assert_float_equal(vm.lq, 6e-5f, 1e-12f);
+
+    /* At rest and at angle zero, vd and vq are the alpha and beta voltages themselves, so the d
+     * current responds over ld and the q current over lq. */
+    foc_virtual_motor_step(&vm, 1.0f, 0.5f, 0.0f, 1e-4f, 0.0f);
+    assert_float_equal(vm.id, 1.0f / 4e-5f * 1e-4f, 1e-4f);
+    assert_float_equal(vm.iq, 0.5f / 6e-5f * 1e-4f, 1e-4f);
+
+    /* The torque carries the reluctance term (ld - lq) * id, which is what the acceleration below
+     * measures: 1.5 * 7 * (0.005 + (4e-5 - 6e-5) * id) * iq, over the inertia and the step. */
+    const float expected_speed =
+        (1.5f * 7.0f * (0.005f + (4e-5f - 6e-5f) * vm.id) * vm.iq) / 5e-4f * 1e-4f;
+    assert_float_equal(vm.rotor_speed_rad_s, expected_speed, 1e-6f);
+
+    /* The reluctance term is not idle: the same step on a machine without saliency accelerates
+     * differently. */
+    foc_virtual_motor_t plain;
+    foc_virtual_motor_init(&plain, 0.05f, 5e-5f, 0.005f, 7, 5e-4f);
+    foc_virtual_motor_step(&plain, 1.0f, 0.5f, 0.0f, 1e-4f, 0.0f);
+    assert_true(fabsf(plain.rotor_speed_rad_s - vm.rotor_speed_rad_s) > 1e-5f);
+}
+
+/*
+ * B2's contract: HFI takes the motor from zero speed and hands over when it is fast enough. A
+ * salient virtual motor stands in for the machine, its rotor parked at an angle HFI has to find,
+ * and the excitation reaches it the way it reaches the SVM - through the aggregate's own alpha and
+ * beta voltages, which is what this simulation integrates.
+ *
+ * The loop is commanded to zero current: the injection is the only voltage then, so what the plant
+ * sees is purely HFI's, and there is no torque to move the rotor while it is being tracked.
+ */
+static void test_hfi_tracks_a_standing_rotor_and_hands_over(void **state) {
+    (void)state;
+    sim_context_t sim;
+    sim.v_bus = 24.0f;
+    sim.inv.enabled = false;
+    foc_virtual_motor_init(&sim.vm, 0.05f, 5e-5f, 0.005f, 7, 5e-4f);
+    foc_virtual_motor_set_saliency(&sim.vm, 2e-5f); /* ld 4e-5, lq 6e-5: the machine HFI needs */
+    sim.vm.rotor_angle_rad = 0.7f;
+
+    foc_inverter_port_t inv_port = {
+        .set_duty = sim_set_duty, .set_phase_state = sim_set_phase_state, .self = &sim};
+    foc_current_port_t cs_port = {
+        .read_currents = sim_read_currents, .read_vbus = sim_read_vbus, .self = &sim};
+    foc_rotor_port_t rs_port = {.read_angle = sim_read_angle, .self = &sim};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 5e-5f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = 300.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = true,
+                        .pll_kp = 2000.0f,
+                        .pll_ki = 30000.0f,
+                        .sensor_mode = FOC_ANGLE_SOURCE_HFI,
+                        .hfi_amb_mode_six_vector = true,
+                        .hfi_control_sample_mode_v0_v7 = false,
+                        .hfi_samples = 2u, /* HFI_SAMPLES_32 */
+                        .hfi_voltage_start = 4.0f,
+                        .hfi_voltage_run = 4.0f,
+                        .hfi_voltage_max = 8.0f,
+                        .hfi_gain = 0.3f,
+                        .hfi_max_err = 0.2f,
+                        .sl_erpm_hfi = 200.0f,
+                        .hfi_start_samples = 40,
+                        .hfi_obs_ovr_sec = 0.001f,
+                        .f_zv = 20000.0f};
+
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    assert_int_equal(foc_core_set_current(&foc, 0.0f, 0.0f), EDGE_OK);
+
+    /*
+     * The loop runs at the sampling rate, not the switching rate: the reference's ADC interrupt
+     * fires twice per PWM period, once in V0 and once in V7, and each of those is one of HFI's two
+     * alternating half-steps. That is what makes the difference between one sample and the next a
+     * difference of sampling instant - the injected ripple - rather than the slow change of the
+     * current at a fixed point, which carries no second harmonic at all. The plant is stepped with
+     * the same halves, so the two instants see two different currents.
+     */
+    for (int step = 0; step < 4000; step++) {
+        assert_int_equal(foc_core_fast_loop(&foc, 2.5e-5f), EDGE_OK);
+        foc_virtual_motor_step(&sim.vm, foc.mod_alpha_raw, foc.mod_beta_raw, 0.0f, 2.5e-5f, 0.0f);
+    }
+
+    /*
+     * What this port can prove in simulation, and what it cannot.
+     *
+     * It can prove the sampling runs and alternates: buffer_current is written on every sampling
+     * half with the current's change since the storing half, and the index advances by one per step
+     * until the buffer wraps, which is when ready goes up.
+     *
+     * It cannot prove that the inverse-inductance buffer fills, and that is a real gap rather than
+     * a tuning problem. The reference records a sample only when the step is positive
+     * (mcpwm_foc.c:4957), and the step's sign is the sign of the current change between the two
+     * sampling instants of one injection cycle. Its hardware samples those two instants in the
+     * middle of the injected pulses
+     * - the ADC interrupt is the injected-conversion handler - so the first is taken under the
+     * positive pulse and the second under the negative one and the step is positive. This port
+     * samples its currents at the end of the control pass, before the injection it is about to
+     * apply, so both instants sit on the same side of the pulse and every step comes out negative:
+     * measured here, buffer_current stays around -2.2 A and no buffer entry is ever written. Making
+     * that faithful needs the sampling instant to be part of the current port's contract, which is
+     * the same conclusion the excitation's own design note reached. Until then the angle the
+     * tracker reports is not driven by this machine, and that is what stays open in B2.
+     */
+    assert_true(foc.hfi.ready);
+    assert_int_equal(foc.hfi.est_done_cnt, cfg.hfi_start_samples);
+    assert_float_equal(foc.hfi.buffer_current[0], foc.hfi.buffer_current[1],
+                       0.5f); /* the same half */
+    assert_true(fabsf(foc.hfi.buffer_current[0]) > 0.01f);
+    for (int k = 0; k < 32; ++k) {
+        assert_float_equal(foc.hfi.buffer[k], 0.0f, 1e-9f); /* the gate rejected every step */
+    }
+
+    /* The handover itself does work, and it is the other half of the contract: past
+     * foc_sl_erpm_hfi the observer owns the angle, and the hysteresis keeps it there. */
+    assert_true(foc.hfi_using_hfi);
+    sim.vm.rotor_speed_rad_s = 200.0f;
+    for (int step = 0; step < 4000; step++) {
+        assert_int_equal(foc_core_fast_loop(&foc, 2.5e-5f), EDGE_OK);
+        foc_virtual_motor_step(&sim.vm, foc.mod_alpha_raw, foc.mod_beta_raw, 0.0f, 2.5e-5f, 0.0f);
+    }
+    assert_false(foc.hfi_using_hfi);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -2822,6 +2975,8 @@ int main(void) {
         cmocka_unit_test(test_foc_hfi_update_tracks_the_injected_angle),
         cmocka_unit_test(test_foc_hfi_update_flips_and_seeds),
         cmocka_unit_test(test_foc_hfi_update_other_branches),
+        cmocka_unit_test(test_virtual_motor_saliency),
+        cmocka_unit_test(test_hfi_tracks_a_standing_rotor_and_hands_over),
         cmocka_unit_test(test_foc_fft_bins_match_reference),
         cmocka_unit_test(test_foc_core_guards),
         cmocka_unit_test(test_foc_core_init_and_command_guards),

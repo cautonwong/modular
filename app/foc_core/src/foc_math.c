@@ -518,6 +518,23 @@ float foc_hfi_voltage(const foc_hfi_state_t *hfi, const foc_hfi_excite_in_t *in)
 
 void foc_hfi_excite_six_vector(foc_hfi_state_t *hfi, const foc_hfi_excite_in_t *in, float *v_alpha,
                                float *v_beta) {
+    if (hfi == (void *)0 || in == (void *)0 || v_alpha == (void *)0 || v_beta == (void *)0) {
+        return;
+    }
+    if (hfi == (void *)0 || in == (void *)0 || v_alpha == (void *)0 || v_beta == (void *)0) {
+        return;
+    }
+
+    /*
+     * Nothing configured: the reference sets the sample table at boot and on every configuration
+     * change, so its state is never in this shape, and a table with no length would run the index
+     * off the end of it. Doing nothing is the only thing that is faithful to the fact that no
+     * excitation was asked for.
+     */
+    if (hfi->samples <= 0 || hfi->table_fact <= 0) {
+        return;
+    }
+
     const float hfi_voltage = foc_hfi_voltage(hfi, in);
     const float c = foc_utils_tab_cos_32_1[hfi->ind * hfi->table_fact];
     const float s = foc_utils_tab_sin_32_1[hfi->ind * hfi->table_fact];
@@ -943,6 +960,9 @@ void foc_virtual_motor_init(foc_virtual_motor_t *vm, float r_ohm, float l_henry,
                             int pole_pairs, float inertia) {
     vm->r_ohm = r_ohm;
     vm->l_henry = l_henry;
+    vm->ld_lq_diff = 0.0f;
+    vm->ld = l_henry;
+    vm->lq = l_henry;
     vm->lambda_wb = lambda_wb;
     vm->pole_pairs = pole_pairs;
     vm->inertia = (inertia > 0.000001f) ? inertia : 0.0005f;
@@ -960,6 +980,12 @@ void foc_virtual_motor_init(foc_virtual_motor_t *vm, float r_ohm, float l_henry,
     vm->rotor_speed_rad_s = 0.0f;
 }
 
+void foc_virtual_motor_set_saliency(foc_virtual_motor_t *vm, float ld_lq_diff) {
+    vm->ld_lq_diff = ld_lq_diff;
+    vm->lq = vm->l_henry + ld_lq_diff / 2.0f;
+    vm->ld = vm->l_henry - ld_lq_diff / 2.0f;
+}
+
 void foc_virtual_motor_step(foc_virtual_motor_t *vm, float v_alpha, float v_beta, float unused,
                             float dt, float load_torque) {
     (void)unused;
@@ -970,18 +996,21 @@ void foc_virtual_motor_step(foc_virtual_motor_t *vm, float v_alpha, float v_beta
     float vd = cos_phi * v_alpha + sin_phi * v_beta;
     float vq = cos_phi * v_beta - sin_phi * v_alpha;
 
-    /* 2. Electrical differential equations */
+    /* 2. Electrical differential equations. The cross-coupling uses the other axis's inductance
+     * (reference motor/virtual_motor.c:310-326), which is the whole difference a salient machine
+     * makes to the currents; with ld == lq they are the same expression as before. */
     float we = vm->rotor_speed_rad_s * (float)vm->pole_pairs;
 
-    float did_dt = (vd + we * vm->l_henry * vm->iq - vm->r_ohm * vm->id) / vm->l_henry;
-    float diq_dt =
-        (vq - we * (vm->l_henry * vm->id + vm->lambda_wb) - vm->r_ohm * vm->iq) / vm->l_henry;
+    float did_dt = (vd + we * vm->lq * vm->iq - vm->r_ohm * vm->id) / vm->ld;
+    float diq_dt = (vq - we * (vm->ld * vm->id + vm->lambda_wb) - vm->r_ohm * vm->iq) / vm->lq;
 
     vm->id += did_dt * dt;
     vm->iq += diq_dt * dt;
 
-    /* 3. Electromagnetic torque */
-    float t_elec = 1.5f * (float)vm->pole_pairs * vm->lambda_wb * vm->iq;
+    /* 3. Electromagnetic torque. Reference motor/virtual_motor.c:334-337: the flux term and the
+     * reluctance term (ld - lq) * id, which is zero on a machine with no saliency. */
+    float t_elec =
+        1.5f * (float)vm->pole_pairs * (vm->lambda_wb + (vm->ld - vm->lq) * vm->id) * vm->iq;
 
     /* 4. Mechanical acceleration */
     float d_omega_dt = (t_elec - load_torque - vm->friction * vm->rotor_speed_rad_s) / vm->inertia;

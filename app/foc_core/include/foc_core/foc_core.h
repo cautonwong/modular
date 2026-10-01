@@ -246,6 +246,14 @@ typedef struct foc_core {
     float v_q;
     float v_alpha;
     float v_beta;
+    /*
+     * Reference state_m->mod_alpha_raw / mod_beta_raw: the vector the SVM consumes, which is the
+     * control output above plus HFI's excitation when it is running. The reference keeps the two
+     * apart because its observer reads v_alpha/v_beta, which are the control's own output and do
+     * not carry the injection.
+     */
+    float mod_alpha_raw;
+    float mod_beta_raw;
     float duty_a;
     float duty_b;
     float duty_c;
