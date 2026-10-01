@@ -799,6 +799,72 @@ static void test_motor_config_app_configuration_persists(void **state) {
     assert_int_equal(motor_config_load_app(second), EDGE_EINVAL);
 }
 
+static void test_motor_config_set_appconf_stores_and_nostore_does_not(void **state) {
+    (void)state;
+    static app_test_store_t store;
+    memset(&store, 0, sizeof(store));
+    store.present = true;
+    const motor_config_var_port_t port = {
+        .read = app_test_read, .write = app_test_write, .self = &store};
+
+    static alignas(MOTOR_CONFIG_STORAGE_ALIGN) unsigned char storage[MOTOR_CONFIG_STORAGE_SIZE];
+    motor_config_t *config = (motor_config_t *)storage;
+    motor_config_construct(config, EDGE_MOD_MOTOR_CONFIG, 30u, &port);
+    assert_int_equal(motor_config_init(config), EDGE_OK);
+    assert_int_equal(motor_config_save(config), EDGE_OK);
+    assert_int_equal(motor_config_save_app(config), EDGE_OK);
+
+    /* A stream that differs from what the store holds, built the way the command handler builds
+     * one: the configuration is rendered, not hand-assembled. */
+    app_configuration_t changed = *motor_config_get_app(config);
+    changed.controller_id = (uint8_t)(changed.controller_id + 7u);
+    uint8_t stream[512];
+    size_t len = 0u;
+    assert_int_equal(motor_config_serialize_app(&changed, stream, sizeof(stream), &len), EDGE_OK);
+
+    const uint16_t app_base = (uint16_t)(sizeof(mc_configuration_t) / 2u);
+    const size_t words = sizeof(app_configuration_t) / 2u;
+    static uint16_t snapshot[sizeof(app_configuration_t) / 2u];
+
+    /* The pair the apply is about to validate, checked on its own: the port's own defaults with
+     * one field changed, which the command handler's validation has to accept. Separating this
+     * from the apply below says whether a failure is in the pair or in the stream. */
+    assert_int_equal(motor_config_validate(motor_config_get_mc(config), &changed), EDGE_OK);
+
+    /* The pair the apply is about to validate, checked on its own: the port's own defaults with
+     * one field changed, which the command handler's validation has to accept. Separating this
+     * from the apply below says whether a failure is in the pair or in the stream. */
+    assert_int_equal(motor_config_validate(motor_config_get_mc(config), &changed), EDGE_OK);
+
+    /* COMM_SET_APPCONF's sibling: apply *and* store, which is what makes it survive a reboot.
+     * The reference stores for that packet id and not for its _NO_STORE sibling
+     * (commands.c:633-635), and ignores whether the store succeeded. */
+    assert_int_equal(motor_config_apply_app_stream(config, stream, len), EDGE_OK);
+    assert_int_equal(motor_config_get_app(config)->controller_id, changed.controller_id);
+    {
+        const uint8_t *bytes = (const uint8_t *)motor_config_get_app(config);
+        for (size_t i = 0u; i < words; i++) {
+            const uint16_t expected =
+                (uint16_t)(((uint16_t)bytes[2u * i] << 8) | (uint16_t)bytes[2u * i + 1u]);
+            assert_int_equal(store.values[app_base + i], expected);
+        }
+    }
+    for (size_t i = 0u; i < words; i++) {
+        snapshot[i] = store.values[app_base + i];
+    }
+
+    /* COMM_SET_APPCONF_NO_STORE's sibling: the running configuration changes and the store is
+     * left exactly as it was, byte for byte. */
+    changed.controller_id = (uint8_t)(changed.controller_id + 1u);
+    len = 0u;
+    assert_int_equal(motor_config_serialize_app(&changed, stream, sizeof(stream), &len), EDGE_OK);
+    assert_int_equal(motor_config_apply_app_stream_nostore(config, stream, len), EDGE_OK);
+    assert_int_equal(motor_config_get_app(config)->controller_id, changed.controller_id);
+    for (size_t i = 0u; i < words; i++) {
+        assert_int_equal(store.values[app_base + i], snapshot[i]);
+    }
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_defaults_and_validation),
@@ -816,6 +882,7 @@ int main(void) {
         cmocka_unit_test(test_motor_config_app_nostore_applies_without_marking_dirty),
         cmocka_unit_test(test_module_lifecycle_and_variable_store),
         cmocka_unit_test(test_motor_config_app_configuration_persists),
+        cmocka_unit_test(test_motor_config_set_appconf_stores_and_nostore_does_not),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
