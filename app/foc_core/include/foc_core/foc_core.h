@@ -68,6 +68,23 @@ typedef enum {
     FOC_FAULT_INVALID_CONFIG = (1u << 5)
 } foc_fault_t;
 
+/*
+ * The angle source the configuration selects, in the order the reference's mc_foc_sensor_mode
+ * declares them (motor_config's vesc_enums.h). This app owns the name it answers to rather than
+ * reading the generated enum, which lives in another app (D30: an app may not depend on one).
+ */
+typedef enum {
+    FOC_ANGLE_SOURCE_SENSORLESS = 0,
+    FOC_ANGLE_SOURCE_ENCODER,
+    FOC_ANGLE_SOURCE_HALL,
+    FOC_ANGLE_SOURCE_HFI,
+    FOC_ANGLE_SOURCE_HFI_START,
+    FOC_ANGLE_SOURCE_HFI_V2,
+    FOC_ANGLE_SOURCE_HFI_V3,
+    FOC_ANGLE_SOURCE_HFI_V4,
+    FOC_ANGLE_SOURCE_HFI_V5,
+} foc_sensor_mode_t;
+
 typedef struct foc_config {
     float r_ohm;
     float l_henry;
@@ -149,6 +166,28 @@ typedef struct foc_config {
      * (motor/mcconf_default.h:284-288). */
     float pll_kp;
     float pll_ki;
+
+    /*
+     * HFI, from mcconf foc_hfi_* plus the two things the ported half needs to know about the loop
+     * it runs in: f_zv is the switching frequency its lag compensation and its sampling estimate
+     * are written in, and control_sample_mode says whether the interrupt samples in the two zero
+     * vectors, which halves the period that compensation works with. sensor_mode is which angle
+     * source runs, and the two bools stand for the reference's amb-mode and control-sample-mode
+     * enumerations, each of which is a single question here.
+     */
+    foc_sensor_mode_t sensor_mode;
+    bool hfi_amb_mode_six_vector;
+    bool hfi_control_sample_mode_v0_v7;
+    uint8_t hfi_samples;
+    float hfi_voltage_start;
+    float hfi_voltage_run;
+    float hfi_voltage_max;
+    float hfi_gain;
+    float hfi_max_err;
+    float sl_erpm_hfi;
+    int hfi_start_samples;
+    float hfi_obs_ovr_sec;
+    float f_zv;
 } foc_config_t;
 
 typedef struct foc_telemetry {
@@ -369,6 +408,18 @@ typedef struct foc_core {
     /* Metrics & Diagnostics */
     uint32_t fast_loop_count;
     uint32_t step_count;
+
+    /*
+     * HFI's own state (the reference's m_hfi) and the two things that pace it. The reference runs
+     * its tracking half on a thread that sleeps 500 microseconds - 2 kHz - while the excitation
+     * runs in the interrupt at the switching frequency, so the accumulator steps the tracking half
+     * at that slower rate rather than once per control cycle. hfi_using_hfi is the reference's
+     * m_using_encoder as this mode uses it: the hysteresis that decides whether the angle in use is
+     * HFI's or the observer's.
+     */
+    foc_hfi_state_t hfi;
+    float hfi_step_accum;
+    bool hfi_using_hfi;
 } foc_core_t;
 
 /*

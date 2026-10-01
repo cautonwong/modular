@@ -157,6 +157,27 @@ int main(void) {
                       .invert_direction = mc->m_invert_direction},
         .pll_kp = mc->foc_pll_kp,
         .pll_ki = mc->foc_pll_ki,
+        /*
+         * HFI. The mode comes from the same configuration: foc_sensor_mode is copied as the angle
+         * source it names - the two enumerations list the same modes in the same order, which the
+         * glue test pins - and the ambiguity and sampling-mode enumerations are one question each
+         * here, because the ported six-vector path is the one FOC_AMB_MODE_SIX_VECTOR selects and
+         * the lag compensation's period halves only in FOC_CONTROL_SAMPLE_MODE_V0_V7.
+         */
+        .sensor_mode = (foc_sensor_mode_t)mc->foc_sensor_mode,
+        .hfi_amb_mode_six_vector = (mc->foc_hfi_amb_mode == FOC_AMB_MODE_SIX_VECTOR),
+        .hfi_control_sample_mode_v0_v7 =
+            (mc->foc_control_sample_mode == FOC_CONTROL_SAMPLE_MODE_V0_V7),
+        .hfi_samples = mc->foc_hfi_samples,
+        .hfi_voltage_start = mc->foc_hfi_voltage_start,
+        .hfi_voltage_run = mc->foc_hfi_voltage_run,
+        .hfi_voltage_max = mc->foc_hfi_voltage_max,
+        .hfi_gain = mc->foc_hfi_gain,
+        .hfi_max_err = mc->foc_hfi_max_err,
+        .sl_erpm_hfi = mc->foc_sl_erpm_hfi,
+        .hfi_start_samples = mc->foc_hfi_start_samples,
+        .hfi_obs_ovr_sec = mc->foc_hfi_obs_ovr_sec,
+        .f_zv = mc->foc_f_zv,
         .current_filter_const = mc->foc_current_filter_const,
         /* Field weakening and MTPA; the reference's own defaults are disabled FW and MTPA
          * off, so a configuration that never touches them behaves as before. */

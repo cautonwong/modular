@@ -458,6 +458,51 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
         foc_pll_run(&self->pll, self->observer.phase, dt, self->config.pll_kp, self->config.pll_ki);
         rpm = (self->pll.speed * 60.0f / (2.0f * (float)M_PI)) /
               ((float)self->config.si_motor_poles / 2.0f);
+
+        /*
+         * HFI modes, reference mcpwm_foc.c:3579-3591. The observer runs underneath either way;
+         * what HFI changes is which of the two angles the loop is driven at, and the reference's
+         * foc_correct_encoder picks between them with a five percent band around foc_sl_erpm_hfi -
+         * below it the tracker owns the angle, above it the observer does. Its zero-time counter
+         * holds the tracker's angle on the observer's while the speed is over that threshold, so
+         * the handover and back is continuous rather than a jump.
+         *
+         * The reference's own two lines there also tie the tracker's integrator to the fast speed
+         * estimate, which is the PLL's speed here: m_speed_est_fast is not a separate signal in
+         * this port.
+         */
+        if (self->config.sensor_mode == FOC_ANGLE_SOURCE_HFI ||
+            self->config.sensor_mode == FOC_ANGLE_SOURCE_HFI_START ||
+            (self->config.sensor_mode >= FOC_ANGLE_SOURCE_HFI_V2 &&
+             self->config.sensor_mode <= FOC_ANGLE_SOURCE_HFI_V5)) {
+            const float rpm_abs = fabsf(self->pll.speed * 60.0f / (2.0f * (float)M_PI));
+
+            if (rpm_abs > self->config.sl_erpm_hfi) {
+                self->hfi.observer_zero_time = 0.0f;
+            } else {
+                self->hfi.observer_zero_time += dt;
+            }
+
+            if (self->hfi.observer_zero_time < self->config.hfi_obs_ovr_sec) {
+                self->hfi.angle = self->observer.phase;
+                self->hfi.double_integrator = -self->pll.speed;
+            }
+
+            const float hyst = self->config.sl_erpm_hfi * 0.05f;
+            if (self->hfi_using_hfi) {
+                if (rpm_abs > (self->config.sl_erpm_hfi + hyst)) {
+                    self->hfi_using_hfi = false;
+                }
+            } else {
+                if (rpm_abs < (self->config.sl_erpm_hfi - hyst)) {
+                    self->hfi_using_hfi = true;
+                }
+            }
+
+            if (self->hfi_using_hfi) {
+                angle_rad = self->hfi.angle;
+            }
+        }
     } else {
         st = self->rotor_sensor->read_angle(self->rotor_sensor->self, &angle_rad, &rpm);
         if (st != EDGE_OK) {
@@ -708,6 +753,37 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
     self->v_alpha = v_alpha;
     self->v_beta = v_beta;
 
+    /*
+     * HFI's excitation, reference mcpwm_foc.c:4788-4994, the six-vector branch: it runs inside the
+     * interrupt's control-current pass there, and the vector it perturbs is the one the SVM is
+     * about to turn into duties, which is the same place here. It alternates one sampling step with
+     * one driving step through is_samp_n, so what the tracking half later reads is how the current
+     * at each table angle moved between cycles.
+     *
+     * The reference computes the same vector in its modulation space; this port's SVM takes volts,
+     * so the excitation is added in volts and the limit is the reference's own circle limit written
+     * out in them.
+     */
+    const bool hfi_mode = self->config.sensor_mode == FOC_ANGLE_SOURCE_HFI ||
+                          self->config.sensor_mode == FOC_ANGLE_SOURCE_HFI_START;
+    const bool driving = self->state == FOC_STATE_RUNNING_CURRENT ||
+                         self->state == FOC_STATE_RUNNING_RPM ||
+                         self->state == FOC_STATE_RUNNING_POS || self->state == FOC_STATE_HANDBRAKE;
+    if (hfi_mode && driving) {
+        const foc_hfi_excite_in_t hfi_in = {.f_zv = self->config.f_zv,
+                                            .hfi_voltage_start = self->config.hfi_voltage_start,
+                                            .hfi_voltage_run = self->config.hfi_voltage_run,
+                                            .hfi_voltage_max = self->config.hfi_voltage_max,
+                                            .current_max = self->config.current_max_a,
+                                            .iq = iq,
+                                            .v_bus = v_bus,
+                                            .duty_now = self->duty_now,
+                                            .i_alpha = i_alpha,
+                                            .i_beta = i_beta,
+                                            .start_samples = self->config.hfi_start_samples};
+        foc_hfi_excite_six_vector(&self->hfi, &hfi_in, &v_alpha, &v_beta);
+    }
+
     /* 10. Space Vector Modulation (SVPWM) */
     float da = 0.5f, db = 0.5f, dc = 0.5f;
     uint32_t sector = 1u;
@@ -740,6 +816,34 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
         } else {
             self->amp_seconds_charged -= self->i_bus * dt;
             self->watt_seconds_charged -= self->i_bus * dt * v_bus;
+        }
+    }
+
+    /*
+     * HFI's tracking half, reference mcpwm_foc.c:4496: its own thread runs it every 500
+     * microseconds - 2 kHz - while the excitation above runs at the switching frequency, and the
+     * thread disregards the dt it is handed. The accumulator is that rate rather than a second
+     * thread, which is what this port's single loop can carry, and the tracking half reads the
+     * buffer the excitation above has just filled, so nothing is missed between the two.
+     */
+    if (hfi_mode) {
+        self->hfi_step_accum += dt;
+        if (self->hfi_step_accum >= 0.0005f) {
+            self->hfi_step_accum = 0.0f;
+            const foc_hfi_update_in_t hfi_update_in = {
+                .mode = (self->config.sensor_mode == FOC_ANGLE_SOURCE_HFI_START)
+                            ? FOC_HFI_MODE_START
+                            : FOC_HFI_MODE_TRACK,
+                .amb_mode_six_vector = self->config.hfi_amb_mode_six_vector,
+                .control_sample_mode_v0_v7 = self->config.hfi_control_sample_mode_v0_v7,
+                .start_samples = self->config.hfi_start_samples,
+                .sl_erpm_hfi = self->config.sl_erpm_hfi,
+                .speed_est_fast = self->pll.speed,
+                .phase_now_observer = self->observer.phase,
+                .pll_speed = self->pll.speed,
+                .f_zv = self->config.f_zv,
+                .flux_linkage = self->config.lambda_wb};
+            foc_hfi_update(&self->hfi, &hfi_update_in, &self->observer);
         }
     }
 
