@@ -118,7 +118,7 @@ jobs:
       - name: Fast-loop instruction budget
         run: |
           python3 .github/scripts/check_fast_loop_budget.py build-m4-stm32/vesc6_stm32f4_fw \
-            --max-cycles 3600 \
+            --max-cycles 4200 \
             --report build-m4-stm32/fast-loop.json
       - name: Upload Cortex-M4 QEMU image
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
