@@ -59,6 +59,10 @@ typedef struct vesc_host_glue_state {
      */
     foc_config_t saved_foc_config;
     bool foc_config_saved;
+    /* The composed R-and-L sequence's own temporary gains, held over its whole run. */
+    float saved_current_kp;
+    float saved_current_ki;
+    bool res_ind_gains_saved;
 } vesc_host_glue_state_t;
 
 void vesc_host_make_flash_sector_port(flash_sector_port_t *out, vesc_host_glue_state_t *state);

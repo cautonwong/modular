@@ -1828,6 +1828,134 @@ static void test_sensor_mode_enumerations_line_up(void **state) {
     assert_int_equal(FOC_SENSOR_MODE_HFI_V5, FOC_ANGLE_SOURCE_HFI_V5);
 }
 
+/*
+ * B5's contract: detection against a virtual motor whose parameters are known, driven through the
+ * same glue the products use. The machine here has 4e-5 H on the direct axis and 6e-5 H on the
+ * quadrature one, so the mean is 5e-5 H and the split 2e-5 H - 45 uH and 18 uH after the
+ * reference's own 0.9 factor.
+ *
+ * The plant is stepped with mod_alpha_raw rather than v_alpha: the excitation is what HFI measures
+ * itself with, and it reaches the machine the way it reaches the SVM.
+ */
+static void test_vesc_host_measures_a_known_motor(void **state) {
+    (void)state;
+    vesc_host_glue_state_t glue_state;
+    memset(&glue_state, 0, sizeof(glue_state));
+    glue_state.v_bus = 24.0f;
+    foc_virtual_motor_init(&glue_state.vmotor, 0.05f, 5e-5f, 0.005f, 7, 5e-4f);
+    foc_virtual_motor_set_saliency(&glue_state.vmotor, 2e-5f); /* ld 4e-5, lq 6e-5 */
+
+    foc_inverter_port_t inverter;
+    vesc_host_make_inverter_port(&inverter, &glue_state);
+    foc_current_port_t current;
+    vesc_host_make_current_port(&current, &glue_state);
+    foc_rotor_port_t rotor;
+    vesc_host_make_rotor_port(&rotor, &glue_state);
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 5e-5f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.1f,
+                        .current_ki = 50.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 8.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .cc_min_current = 0.02f,
+                        .pll_kp = 2000.0f,
+                        .pll_ki = 30000.0f,
+                        .hfi_samples = 2u,
+                        .f_zv = 20000.0f};
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &cfg, &inverter, &current, &rotor);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    vesc_host_glue_state_t id_glue;
+    memset(&id_glue, 0, sizeof(id_glue));
+    id_glue.foc = &foc;
+    motor_id_measure_port_t id_m;
+    vesc_host_make_motor_id_measure_port(&id_m, &id_glue);
+    motor_id_app_t id_app;
+    motor_id_construct(&id_app, EDGE_MOD_MOTOR_ID, 40u, &id_m);
+    assert_int_equal(motor_id_init(&id_app), EDGE_OK);
+
+    assert_int_equal(motor_id_measure_inductance(&id_app, 0.3f, 20u), EDGE_OK);
+
+    /* The interrupt runs at twice the switching frequency, as the reference's does - one pass per
+     * half period, which is what makes the two sampling instants of one injection cycle the
+     * instants the transform measures between. */
+    for (int ms = 0; ms < 20000 && id_app.state != MOTOR_ID_STATE_COMPLETE; ms++) {
+        for (int cycle = 0; cycle < 40; cycle++) {
+            assert_int_equal(foc_core_fast_loop(&foc, 2.5e-5f), EDGE_OK);
+            foc_virtual_motor_step(&glue_state.vmotor, foc.mod_alpha_raw, foc.mod_beta_raw, 0.0f,
+                                   2.5e-5f, 0.0f);
+        }
+        assert_int_equal(motor_id_step(&id_app, 0.001f), EDGE_OK);
+    }
+
+    assert_int_equal(id_app.state, MOTOR_ID_STATE_COMPLETE);
+    const motor_id_result_t *result = motor_id_get_result(&id_app);
+    assert_true(result->valid);
+    assert_float_equal(result->ind_uh, 45.0f, 0.5f);
+    assert_float_equal(result->ld_lq_diff_uh, 18.0f, 0.5f);
+    /* The current it reports carries the same sign convention the excitation's gate does - the
+     * half of the injection cycle this port samples on - which is the deviation recorded in
+     * docs/adr-conformance.md. What matters here is that it measured a step at all. */
+    assert_true(result->ind_current_a < 0.0f);
+}
+
+/*
+ * The inductance port's guards: every callback refuses a glue with no aggregate behind it, a
+ * restore refuses when nothing was saved, and asking for nothing is answered rather than faulted.
+ */
+static void test_vesc_host_inductance_port_guards(void **state) {
+    (void)state;
+    vesc_host_glue_state_t glue;
+    memset(&glue, 0, sizeof(glue)); /* no aggregate behind it yet */
+    motor_id_measure_port_t m;
+    vesc_host_make_motor_id_measure_port(&m, &glue);
+
+    assert_int_equal(m.enter_inductance_config(NULL, 0.1f), EDGE_EINVAL);
+    assert_int_equal(m.enter_inductance_config(&glue, 0.1f), EDGE_EINVAL);
+    assert_int_equal(m.leave_inductance_config(&glue), EDGE_EINVAL);
+    assert_int_equal(m.set_duty(&glue, 0.0f), EDGE_EINVAL);
+    bool ready = true;
+    assert_int_equal(m.is_hfi_ready(&glue, &ready), EDGE_EINVAL);
+    assert_int_equal(m.read_hfi_bins(&glue, NULL, NULL, NULL, NULL), EDGE_EINVAL);
+    assert_int_equal(m.enter_res_ind_gains(&glue), EDGE_EINVAL);
+    assert_int_equal(m.leave_res_ind_gains(&glue), EDGE_EINVAL);
+
+    foc_core_t foc;
+    memset(&foc, 0, sizeof(foc));
+    glue.foc = &foc;
+
+    /* With an aggregate but nothing saved, the restores are refused rather than undoing someone
+     * else's configuration. */
+    assert_int_equal(m.leave_inductance_config(&glue), EDGE_EINVAL);
+    assert_int_equal(m.leave_res_ind_gains(&glue), EDGE_EINVAL);
+    assert_int_equal(m.is_hfi_ready(&glue, NULL), EDGE_EINVAL);
+
+    assert_int_equal(m.is_hfi_ready(&glue, &ready), EDGE_OK);
+    assert_false(ready); /* the buffer has not been filled */
+    /* A duty reaches the aggregate, which refuses it while it is idle - a duty is a mode of its
+     * own - so what comes back is that refusal rather than the glue's own answer. */
+    assert_int_equal(m.set_duty(&glue, 0.25f), EDGE_EBUSY);
+    assert_int_equal(m.read_hfi_bins(&glue, NULL, NULL, NULL, NULL), EDGE_OK);
+
+    /* The gains pair holds the current loop's own values and puts exactly them back. */
+    glue.foc->config.current_kp = 0.31f;
+    glue.foc->config.current_ki = 77.0f;
+    assert_int_equal(m.enter_res_ind_gains(&glue), EDGE_OK);
+    assert_float_equal(glue.foc->config.current_kp, 0.001f, 1e-9f);
+    assert_float_equal(glue.foc->config.current_ki, 1.0f, 1e-9f);
+    assert_int_equal(m.leave_res_ind_gains(&glue), EDGE_OK);
+    assert_float_equal(glue.foc->config.current_kp, 0.31f, 1e-9f);
+    assert_float_equal(glue.foc->config.current_ki, 77.0f, 1e-9f);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -1858,6 +1986,8 @@ int main(void) {
         cmocka_unit_test(test_vesc_host_flux_command_sensored),
         cmocka_unit_test(test_vesc_host_motor_setters),
         cmocka_unit_test(test_sensor_mode_enumerations_line_up),
+        cmocka_unit_test(test_vesc_host_measures_a_known_motor),
+        cmocka_unit_test(test_vesc_host_inductance_port_guards),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

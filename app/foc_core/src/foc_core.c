@@ -1243,6 +1243,53 @@ void foc_core_set_phase_override(foc_core_t *self, float angle_rad, bool enable)
     }
 }
 
+void foc_core_read_hfi_bins(const foc_core_t *self, float *offset, float *real_bin2,
+                            float *imag_bin2, float *current_mean) {
+    if (self == (void *)0) {
+        return;
+    }
+
+    float real_bin0 = 0.0f;
+    float imag_bin0 = 0.0f;
+    float real2 = 0.0f;
+    float imag2 = 0.0f;
+    float real_current0 = 0.0f;
+    float imag_current0 = 0.0f;
+
+    switch (self->hfi.samples) {
+    case 8:
+        foc_fft8_bin0(self->hfi.buffer, &real_bin0, &imag_bin0);
+        foc_fft8_bin2(self->hfi.buffer, &real2, &imag2);
+        foc_fft8_bin0(self->hfi.buffer_current, &real_current0, &imag_current0);
+        break;
+    case 16:
+        foc_fft16_bin0(self->hfi.buffer, &real_bin0, &imag_bin0);
+        foc_fft16_bin2(self->hfi.buffer, &real2, &imag2);
+        foc_fft16_bin0(self->hfi.buffer_current, &real_current0, &imag_current0);
+        break;
+    case 32:
+        foc_fft32_bin0(self->hfi.buffer, &real_bin0, &imag_bin0);
+        foc_fft32_bin2(self->hfi.buffer, &real2, &imag2);
+        foc_fft32_bin0(self->hfi.buffer_current, &real_current0, &imag_current0);
+        break;
+    default:
+        break;
+    }
+
+    if (offset != (void *)0) {
+        *offset = real_bin0;
+    }
+    if (real_bin2 != (void *)0) {
+        *real_bin2 = real2;
+    }
+    if (imag_bin2 != (void *)0) {
+        *imag_bin2 = imag2;
+    }
+    if (current_mean != (void *)0) {
+        *current_mean = real_current0;
+    }
+}
+
 void foc_core_read_detect_samples(const foc_core_t *self, float *i_sum, float *v_sum,
                                   uint32_t *count) {
     if (self == (void *)0) {
