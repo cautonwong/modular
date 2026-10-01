@@ -90,6 +90,11 @@ void vesc_host_make_config_port(vesc_config_provider_port_t *out, motor_config_t
 /* The reference's own base for the backup block (conf_general.c:55), above the configuration's. */
 #define VESC_HOST_BACKUP_BASE 6000u
 #define VESC_HOST_BACKUP_VARS (FOC_BACKUP_BLOCK_BYTES / 2u)
+/* And the application configuration's, at the reference's base for it (EEPROM_BASE_APPCONF,
+ * conf_general.c:51). Its words follow the motor configuration's in the store's index order, which
+ * is what motor_config_load_app/save_app address them by. */
+#define VESC_HOST_APPCONF_BASE 2000u
+#define VESC_HOST_APPCONF_VARS (sizeof(app_configuration_t) / 2u)
 
 /* The motor NTC's filter, hwconf/hw.h:639. Boards that need a faster response override it
  * (the m600 sets 0.001), so it is a board parameter and belongs here rather than in the app. */

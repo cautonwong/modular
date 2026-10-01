@@ -72,6 +72,24 @@ edge_status_t motor_config_init(motor_config_t *self) {
             motor_config_set_defaults(&self->mcconf, &self->appconf);
             (void)motor_config_save(self);
         }
+
+        /*
+         * The application configuration, which the reference reads from its own base at boot
+         * (conf_general.c:335-374) and falls back to the defaults from when the read or its CRC
+         * says so. This port's defaults are reached through the default stream rather than a second
+         * definition of them, and they are applied *without* storing - because the reference's own
+         * read side writes them into the structure in RAM and leaves the store to whoever sets a
+         * configuration next, which is also what keeps the two paths apart that this module's tests
+         * hold it to.
+         */
+        if (motor_config_load_app(self) != EDGE_OK) {
+            uint8_t app_defaults[512];
+            size_t app_len = 0u;
+            if (motor_config_serialize_app_defaults(app_defaults, sizeof(app_defaults), &app_len) ==
+                EDGE_OK) {
+                (void)motor_config_apply_app_stream_nostore(self, app_defaults, app_len);
+            }
+        }
     }
 
     return EDGE_OK;
@@ -118,6 +136,67 @@ edge_status_t motor_config_load(motor_config_t *self) {
 
     self->mcconf = self->staging_mc;
     self->is_dirty = false;
+    return EDGE_OK;
+}
+
+/*
+ * The application configuration's words follow the motor one's in the same store, which is the
+ * reference's own arrangement: one base above the other (conf_general.c:50-51).
+ */
+#define MOTOR_CONFIG_APP_BASE (sizeof(mc_configuration_t) / 2u)
+
+edge_status_t motor_config_load_app(motor_config_t *self) {
+    if (self == (void *)0 || self->vars == (void *)0 || self->vars->read == (void *)0) {
+        return EDGE_EINVAL;
+    }
+
+    /*
+     * Staged, so a failed read cannot half-overwrite the running application configuration. The
+     * defaults are the caller's to apply rather than this function's, because this module's own
+     * default setter sets both configurations and would take the motor one with it.
+     */
+    uint8_t *bytes = (uint8_t *)&self->staging_app;
+    const size_t count = sizeof(self->staging_app) / 2u;
+    for (size_t i = 0u; i < count; i++) {
+        uint16_t value = 0u;
+        const edge_status_t status =
+            self->vars->read(self->vars->self, (uint16_t)(MOTOR_CONFIG_APP_BASE + i), &value);
+        if (status != EDGE_OK) {
+            return status;
+        }
+        bytes[2u * i] = (uint8_t)(value >> 8);
+        bytes[2u * i + 1u] = (uint8_t)(value & 0xFFu);
+    }
+
+    if (self->staging_app.crc != motor_config_app_crc(&self->staging_app)) {
+        return EDGE_EINVAL;
+    }
+
+    self->appconf = self->staging_app;
+    self->is_dirty = false;
+    return EDGE_OK;
+}
+
+edge_status_t motor_config_save_app(motor_config_t *self) {
+    if (self == (void *)0 || self->vars == (void *)0 || self->vars->write == (void *)0) {
+        return EDGE_EINVAL;
+    }
+
+    /* The CRC goes into the struct's own field first, as the reference computes it before writing
+     * (conf_general.c:395), so the stored image carries the CRC it was built with. */
+    self->appconf.crc = motor_config_app_crc(&self->appconf);
+
+    const uint8_t *bytes = (const uint8_t *)&self->appconf;
+    const size_t count = sizeof(self->appconf) / 2u;
+    for (size_t i = 0u; i < count; i++) {
+        const uint16_t value =
+            (uint16_t)(((uint16_t)bytes[2u * i] << 8) | (uint16_t)bytes[2u * i + 1u]);
+        const edge_status_t status =
+            self->vars->write(self->vars->self, (uint16_t)(MOTOR_CONFIG_APP_BASE + i), value);
+        if (status != EDGE_OK) {
+            return status;
+        }
+    }
     return EDGE_OK;
 }
 
@@ -301,6 +380,22 @@ static uint16_t config_crc16(const uint8_t *buf, size_t len) {
         }
     }
     return cksum;
+}
+
+uint16_t motor_config_app_crc(app_configuration_t *appconf) {
+    if (appconf == (void *)0) {
+        return 0u;
+    }
+
+    /*
+     * The same rule as the motor configuration's below: the CRC covers the struct with its own
+     * field zeroed, which is what the reference's app_calc_crc does (conf_general.c:373).
+     */
+    const uint16_t saved = appconf->crc;
+    appconf->crc = 0u;
+    const uint16_t crc = config_crc16((const uint8_t *)appconf, sizeof(*appconf));
+    appconf->crc = saved;
+    return crc;
 }
 
 uint16_t motor_config_config_crc(mc_configuration_t *mcconf) {

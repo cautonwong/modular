@@ -129,6 +129,21 @@ edge_status_t motor_config_serialize_mc_defaults(motor_config_t *self, uint8_t *
                                                  size_t buf_size, size_t *out_len);
 edge_status_t motor_config_serialize_app_defaults(uint8_t *out, size_t buf_size, size_t *out_len);
 
+/*
+ * The application configuration's own persistence, the twin of the motor one above it: the
+ * reference writes it to EEPROM_BASE_APPCONF when the configuration is set (conf_general.c:376+)
+ * and reads it back at boot (:335-374), where a missing variable or a CRC mismatch means the
+ * defaults rather than a half-read configuration. Its integrity is the struct's own crc field,
+ * exactly like the motor configuration's, so motor_config_app_crc is the sibling of
+ * motor_config_config_crc.
+ *
+ * The two live at different variable indices - the application's follow the motor's - because the
+ * products' stores are addressed by index.
+ */
+uint16_t motor_config_app_crc(app_configuration_t *appconf);
+edge_status_t motor_config_load_app(motor_config_t *self);
+edge_status_t motor_config_save_app(motor_config_t *self);
+
 /* Whether the configuration has changes waiting to be written to flash. A NO_STORE apply
  * deliberately leaves this false. */
 bool motor_config_is_dirty(const motor_config_t *self);
