@@ -272,6 +272,33 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
         return self->ops->terminal_cmd(self->ops->self, (const char *)(data + 1u));
     }
 
+    case COMM_DETECT_MOTOR_R_L: {
+        /*
+         * Reference comm/commands.c:2126-2165. The request carries nothing; the reply is the
+         * command id, the resistance, the inductance and the difference between the two axes, each
+         * in its own scale. A fault leaves the first two at zero, which is the reference's own
+         * handling of a failed run.
+         */
+        if (self->ops == (void *)0 || self->ops->detect_r_l == (void *)0) {
+            return EDGE_ENOTSUP;
+        }
+
+        vesc_detect_r_l_result_t measured;
+        memset(&measured, 0, sizeof(measured));
+        if (self->ops->detect_r_l(self->ops->self, &measured) != EDGE_OK || !measured.valid) {
+            measured.r_ohm = 0.0f;
+            measured.l_uh = 0.0f;
+        }
+
+        uint8_t *const reply = self->cmd_reply_buf;
+        size_t out = 0;
+        reply[out++] = COMM_DETECT_MOTOR_R_L;
+        buffer_append_float32(reply, measured.r_ohm, 1e6, &out);
+        buffer_append_float32(reply, measured.l_uh, 1e3, &out);
+        buffer_append_float32(reply, measured.ld_lq_diff_uh, 1e3, &out);
+        return send_reply(self, out);
+    }
+
     case COMM_DETECT_MOTOR_FLUX_LINKAGE: {
         /*
          * Reference comm/commands.c:2165-2185. The request is the current, the minimum rpm, the

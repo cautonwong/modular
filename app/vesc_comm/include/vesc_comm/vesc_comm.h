@@ -421,6 +421,19 @@ typedef struct vesc_detect_flux_result {
     bool valid;
 } vesc_detect_flux_result_t;
 
+/*
+ * COMM_DETECT_MOTOR_R_L's answer: the resistance the composed sequence measured and the two
+ * inductances. The inductances are in microhenrys, which is the unit the reference's own
+ * measurement publishes - it scales both by 1e6 - and its reply scales them again by 1e3, so what
+ * goes on the wire counts milli-microhenrys.
+ */
+typedef struct vesc_detect_r_l_result {
+    float r_ohm;
+    float l_uh;
+    float ld_lq_diff_uh;
+    bool valid;
+} vesc_detect_r_l_result_t;
+
 typedef struct vesc_comm_ops_port {
     edge_status_t (*terminal_cmd)(void *self, const char *cmd);
     /* COMM_FORWARD_CAN: hand a whole packet to another controller over CAN. `data` is the
@@ -441,6 +454,13 @@ typedef struct vesc_comm_ops_port {
      */
     edge_status_t (*detect_flux_linkage)(void *self, float current_a, float min_rpm, float duty,
                                          float resistance_ohm, float *linkage_wb);
+    /*
+     * COMM_DETECT_MOTOR_R_L: the composed resistance-and-inductance sequence, whose request carries
+     * nothing and whose reply is the three numbers above. Like the flux commands, the reference
+     * blocks its command thread until the sequence is done, so an implementation that advances it
+     * to its end before returning is what that looks like from here.
+     */
+    edge_status_t (*detect_r_l)(void *self, vesc_detect_r_l_result_t *result);
     void *self;
 } vesc_comm_ops_port_t;
 

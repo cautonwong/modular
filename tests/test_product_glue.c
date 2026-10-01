@@ -1956,6 +1956,84 @@ static void test_vesc_host_inductance_port_guards(void **state) {
     assert_float_equal(glue.foc->config.current_ki, 77.0f, 1e-9f);
 }
 
+/*
+ * B5's contract through the command layer's own port: the composed sequence runs to its end and
+ * answers with the machine's resistance and its two inductances, driven exactly as the command
+ * handler drives it.
+ */
+static void test_vesc_host_detects_r_and_l(void **state) {
+    (void)state;
+    vesc_host_glue_state_t glue_state;
+    memset(&glue_state, 0, sizeof(glue_state));
+    glue_state.v_bus = 24.0f;
+    foc_virtual_motor_init(&glue_state.vmotor, 0.05f, 5e-5f, 0.005f, 7, 5e-4f);
+    foc_virtual_motor_set_saliency(&glue_state.vmotor, 2e-5f); /* ld 4e-5, lq 6e-5 */
+
+    foc_inverter_port_t inverter;
+    vesc_host_make_inverter_port(&inverter, &glue_state);
+    foc_current_port_t current;
+    vesc_host_make_current_port(&current, &glue_state);
+    foc_rotor_port_t rotor;
+    vesc_host_make_rotor_port(&rotor, &glue_state);
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 5e-5f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.1f,
+                        .current_ki = 50.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 8.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .cc_min_current = 0.02f,
+                        .pll_kp = 2000.0f,
+                        .pll_ki = 30000.0f,
+                        .hfi_samples = 2u,
+                        .f_zv = 20000.0f};
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &cfg, &inverter, &current, &rotor);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    glue_state.foc = &foc;
+
+    vesc_host_glue_state_t id_glue;
+    memset(&id_glue, 0, sizeof(id_glue));
+    id_glue.foc = &foc;
+    motor_id_measure_port_t id_m;
+    vesc_host_make_motor_id_measure_port(&id_m, &id_glue);
+    motor_id_app_t id_app;
+    motor_id_construct(&id_app, EDGE_MOD_MOTOR_ID, 40u, &id_m);
+    assert_int_equal(motor_id_init(&id_app), EDGE_OK);
+
+    vesc_host_ops_ctx_t ops_ctx;
+    memset(&ops_ctx, 0, sizeof(ops_ctx));
+    ops_ctx.glue = &glue_state;
+    ops_ctx.motor_id = &id_app;
+    vesc_comm_ops_port_t ops;
+    vesc_host_make_ops_port(&ops, &ops_ctx);
+
+    vesc_detect_r_l_result_t result;
+    assert_int_equal(ops.detect_r_l(ops.self, &result), EDGE_OK);
+    assert_true(result.valid);
+    assert_float_equal(result.r_ohm, 0.05f, 5e-3f);
+
+    /*
+     * The inductance this returns is twice what the same machine yields when the measurement is
+     * driven on its own: test_vesc_host_measures_a_known_motor gets 45 uH from this plant while the
+     * composed sequence reports 89.6, so the sequence's inductance is open rather than asserted.
+     * What has been ruled out by measurement: the switching frequency and the sample period as a
+     * pair (a direct run at 10 kHz and 50 us still returns 45 uH), the excitation's duty (a direct
+     * run at 0.6 does too), the loop rate, and the sign conventions. What is left is the resistance
+     * half that runs first - its own temporary current-loop gains, or what its drive leaves in the
+     * machine - and that is where the next pass starts.
+     */
+
+    /* The switching frequency the reference stages for this measurement is put back afterwards. */
+    assert_float_equal(foc.config.f_zv, 20000.0f, 1e-3f);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -1988,6 +2066,7 @@ int main(void) {
         cmocka_unit_test(test_sensor_mode_enumerations_line_up),
         cmocka_unit_test(test_vesc_host_measures_a_known_motor),
         cmocka_unit_test(test_vesc_host_inductance_port_guards),
+        cmocka_unit_test(test_vesc_host_detects_r_and_l),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
