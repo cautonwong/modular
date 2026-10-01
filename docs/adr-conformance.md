@@ -121,6 +121,8 @@ writing).
    implementation uses the `edge_sys_*` prefix.
 ## Recorded deviations
 
+**The zero image's CRC is zero.** Both loaders check a stored image by comparing the struct's own `crc` field against the CRC computed over it, which is the reference's own rule - and the CRC-16/CCITT-FALSE it uses, with a zero initial value, is itself zero over an all-zero image. A store that reported a blank image as *readable* rather than as a failed read would therefore have that image accepted as a valid configuration, of either kind. Both products' stores report a blank one by the read failing and not by the value - the emulated EEPROM returns `EDGE_ENOENT` for an unwritten variable, the board's table tracks which words were written - which is what keeps the rule sound here; anything that answered zeros instead would have to be looked at again. D31, C2
+
 **The BLDC detection pair.** `COMM_DETECT_MOTOR_PARAM` and `COMM_DETECT_APPLY_ALL_FOC` are refused
 by name in the codec rather than by its default, because what stops them is not that nobody wrote
 them yet. The parameter detection drives the motor with the BLDC six-step commutator - it stages
