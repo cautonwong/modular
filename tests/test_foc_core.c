@@ -3147,6 +3147,101 @@ static void test_foc_core_backup_counters(void **state) {
     assert_int_equal(uptime_ms, 100u);
 }
 
+/*
+ * The backup block and the storage port: the reference's write side
+ * (conf_general_store_backup_data, conf_general.c:162-193) and read side (:100-146). A product that
+ * sets the port gets the block when the module powers off - and not before, because the reference
+ * only stores from its shutdown path - the block carries a validity flag per field, and a restore
+ * hands back only the fields whose flags are still valid, which is what lets a half-written block
+ * be recovered one field at a time.
+ */
+static size_t backup_store_len;
+static uint8_t backup_store_block[FOC_BACKUP_BLOCK_BYTES];
+
+static edge_status_t backup_capture(void *self, const uint8_t *data, size_t len) {
+    (void)self;
+    backup_store_len = (len <= sizeof(backup_store_block)) ? len : 0u;
+    if (backup_store_len != 0u) {
+        memcpy(backup_store_block, data, backup_store_len);
+    }
+    return EDGE_OK;
+}
+
+static void test_foc_core_backup_block(void **state) {
+    (void)state;
+    sim_context_t sim;
+    sim.v_bus = 24.0f;
+    sim.inv.enabled = false;
+    foc_virtual_motor_init(&sim.vm, 0.05f, 0.00005f, 0.005f, 7, 0.0005f);
+
+    foc_inverter_port_t inv_port = {
+        .set_duty = sim_set_duty, .set_phase_state = sim_set_phase_state, .self = &sim};
+    foc_current_port_t cs_port = {
+        .read_currents = sim_read_currents, .read_vbus = sim_read_vbus, .self = &sim};
+    foc_rotor_port_t rs_port = {.read_angle = sim_read_angle, .self = &sim};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = 300.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 8.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = true};
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    /* The guards, before anything is stored. */
+    uint8_t block[FOC_BACKUP_BLOCK_BYTES];
+    assert_int_equal(foc_core_backup_serialize(&foc, block, FOC_BACKUP_BLOCK_BYTES - 1u), 0u);
+    assert_int_equal(foc_core_backup_serialize(NULL, block, sizeof(block)), 0u);
+    assert_int_equal(foc_core_backup_serialize(&foc, NULL, sizeof(block)), 0u);
+    assert_int_equal(foc_core_backup_restore(&foc, block, FOC_BACKUP_BLOCK_BYTES - 1u),
+                     EDGE_EINVAL);
+
+    /* Writing the block needs a port and the module's own shutdown; a control cycle stores nothing.
+     */
+    backup_store_len = 0u;
+    foc_core_set_backup(&foc, 4242u, 7000u);
+    assert_int_equal(foc_core_fast_loop(&foc, 5e-5f), EDGE_OK);
+    assert_int_equal(backup_store_len, 0u);
+
+    foc_storage_port_t storage = {.self = NULL, .store_backup = backup_capture};
+    foc_core_set_storage_port(&foc, &storage);
+    assert_int_equal(foc.module.power_off(&foc.module), EDGE_OK);
+    assert_int_equal(backup_store_len, FOC_BACKUP_BLOCK_BYTES);
+
+    /* A fresh aggregate takes the block back exactly: metres, and milliseconds through the seconds
+     * the reference's own field carries. */
+    foc_core_t restored;
+    foc_core_construct(&restored, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&restored), EDGE_OK);
+    assert_int_equal(foc_core_backup_restore(&restored, backup_store_block, backup_store_len),
+                     EDGE_OK);
+    uint64_t odometer_m = 0u;
+    uint32_t uptime_ms = 0u;
+    foc_core_get_backup(&restored, &odometer_m, &uptime_ms);
+    assert_float_equal((double)odometer_m, 4242.0, 0.0);
+    assert_int_equal(uptime_ms, 7000u);
+
+    /* A field whose flag did not survive is not taken, and the call says so, while the field that
+     * did survive still comes back. */
+    foc_core_set_backup(&restored, 1u, 0u);
+    backup_store_block[0] =
+        0u; /* the odometer's flag, which is the block's first big-endian word */
+    assert_int_equal(foc_core_backup_restore(&restored, backup_store_block, backup_store_len),
+                     EDGE_EINVAL);
+    foc_core_get_backup(&restored, &odometer_m, &uptime_ms);
+    assert_float_equal((double)odometer_m, 1.0, 0.0); /* left as it was */
+    assert_int_equal(uptime_ms, 7000u);               /* its own flag was intact */
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -3191,6 +3286,7 @@ int main(void) {
         cmocka_unit_test(test_foc_core_read_hfi_bins),
         cmocka_unit_test(test_foc_core_brake_current_mode),
         cmocka_unit_test(test_foc_core_backup_counters),
+        cmocka_unit_test(test_foc_core_backup_block),
         cmocka_unit_test(test_foc_fft_bins_match_reference),
         cmocka_unit_test(test_foc_core_guards),
         cmocka_unit_test(test_foc_core_init_and_command_guards),
