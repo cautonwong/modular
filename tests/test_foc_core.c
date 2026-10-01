@@ -2973,6 +2973,106 @@ static void test_foc_core_read_hfi_bins(void **state) {
     }
 }
 
+/*
+ * The braking mode, which is the reference's CONTROL_MODE_CURRENT_BRAKE (mcpwm_foc.c:832-849) and a
+ * different mode from the handbrake beside it. What it adds is the short-circuit latch
+ * (:3345-3367), and the latch reads four things: the sign of the fast speed against the previous
+ * cycle's, the sign of vq against the previous cycle's, the filtered duty, and how many cycles have
+ * been spent shorted. Those are the fields this drives, so each condition is checked on its own
+ * rather than through whatever a simulation happens to do.
+ */
+static void test_foc_core_brake_current_mode(void **state) {
+    (void)state;
+    sim_context_t sim;
+    sim.v_bus = 24.0f;
+    sim.inv.enabled = false;
+    foc_virtual_motor_init(&sim.vm, 0.05f, 0.00005f, 0.005f, 7, 0.0005f);
+
+    foc_inverter_port_t inv_port = {
+        .set_duty = sim_set_duty, .set_phase_state = sim_set_phase_state, .self = &sim};
+    foc_current_port_t cs_port = {
+        .read_currents = sim_read_currents, .read_vbus = sim_read_vbus, .self = &sim};
+    foc_rotor_port_t rs_port = {.read_angle = sim_read_angle, .self = &sim};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -20.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = 300.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .cc_min_current = 0.02f,
+                        .sensorless_mode = true};
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    /* The mode is its own, the setpoint keeps the caller's sign, and a brake above the minimum
+     * means the motor is not released. */
+    foc.motor_released = true;
+    assert_int_equal(foc_core_set_brake_current(&foc, -10.0f), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_CURRENT_BRAKE);
+    assert_float_equal(foc.target_iq, -10.0f, 1e-6f);
+    assert_false(foc.motor_released);
+
+    /* Below cc_min_current the command is pending only: same mode, same setpoint, and the release
+     * flag is left exactly as it was - the reference's own early return. */
+    assert_int_equal(foc_core_set_brake_current(&foc, 0.001f), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_CURRENT_BRAKE);
+    assert_float_equal(foc.target_iq, 0.001f, 1e-9f);
+    assert_false(foc.motor_released);
+    foc.motor_released = true;
+    assert_int_equal(foc_core_set_brake_current(&foc, 0.001f), EDGE_OK);
+    assert_true(foc.motor_released);
+
+    /* A direction change while the current is short of its setpoint shorts the phases and restarts
+     * the count. The fields are set so that only that condition holds: current reached, duty high,
+     * count already past the hold. */
+    assert_int_equal(foc_core_set_brake_current(&foc, -5.0f), EDGE_OK);
+    foc.br_no_duty_samples = 100u;
+    foc.i_abs_filter = 1.0f; /* below the setpoint's magnitude, so the current is short of it */
+    foc.duty_now = 0.8f;
+    foc.duty_filtered = 0.8f;
+    foc.br_speed_before = -1.0f; /* the opposite of whatever sign the PLL reports at rest */
+    foc.pll.speed = 0.0f;
+    assert_int_equal(foc_core_fast_loop(&foc, 1e-4f), EDGE_OK);
+    assert_int_equal(foc.br_no_duty_samples, 0u);
+    assert_float_equal(foc.v_d, 0.0f, 1e-9f); /* shorted this cycle */
+    assert_float_equal(foc.v_q, 0.0f, 1e-9f);
+
+    /* With everything the same but the signs agreeing and the duty high, the latch leaves it alone
+     * and the current loop's output stands. */
+    foc.br_no_duty_samples = 50u;
+    foc.br_speed_before = 0.0f;
+    foc.br_vq_before = foc.v_q;
+    foc.duty_now = 0.8f;
+    foc.duty_filtered = 0.8f;
+    assert_int_equal(foc_core_fast_loop(&foc, 1e-4f), EDGE_OK);
+    assert_int_equal(foc.br_no_duty_samples, 50u);
+
+    /* A duty near zero triggers it on its own, and the count restarts. */
+    foc.duty_now = 0.0f;
+    foc.duty_filtered = 0.0f;
+    foc.br_speed_before = 0.0f;
+    foc.br_vq_before = foc.v_q;
+    assert_int_equal(foc_core_fast_loop(&foc, 1e-4f), EDGE_OK);
+    assert_int_equal(foc.br_no_duty_samples, 0u);
+
+    /* The handbrake is a different mode, and it is the one that forces the phase. */
+    assert_int_equal(foc_core_set_handbrake(&foc, 3.0f), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_HANDBRAKE);
+    assert_int_equal(foc_core_fast_loop(&foc, 1e-4f), EDGE_OK);
+    assert_float_equal(foc.last_angle_rad, 0.0f, 1e-6f);
+
+    /* Outside the mode the count is parked above the hold, so entering it always shorts first. */
+    assert_int_equal(foc.br_no_duty_samples >= 100u, 1);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -3015,6 +3115,7 @@ int main(void) {
         cmocka_unit_test(test_virtual_motor_saliency),
         cmocka_unit_test(test_hfi_tracks_a_standing_rotor_and_hands_over),
         cmocka_unit_test(test_foc_core_read_hfi_bins),
+        cmocka_unit_test(test_foc_core_brake_current_mode),
         cmocka_unit_test(test_foc_fft_bins_match_reference),
         cmocka_unit_test(test_foc_core_guards),
         cmocka_unit_test(test_foc_core_init_and_command_guards),

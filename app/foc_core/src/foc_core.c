@@ -109,6 +109,13 @@ void foc_core_construct(foc_core_t *self, uint32_t module_id, uint32_t priority,
         return;
     }
 
+    /*
+     * Every field starts at zero, as it does in the other aggregates' constructors. Without it the
+     * ones this does not name - the filters the loop carries between cycles, among them - are
+     * whatever the caller's stack held, which showed up as a test that failed once in five runs.
+     */
+    memset(self, 0, sizeof(*self));
+
     self->module = (edge_module_t){
         .module_id = module_id,
         .priority = priority,
@@ -188,6 +195,13 @@ void foc_core_construct(foc_core_t *self, uint32_t module_id, uint32_t priority,
     self->duty_now = 0.0f;
     self->duty_abs_filtered = 0.0f;
     self->mod_q_filter = 0.0f;
+    self->duty_filtered = 0.0f;
+    /* The brake's latch starts at zero, as the reference's memset leaves it - which is why entering
+     * the mode shorts the phases for the first ten cycles. */
+    self->br_speed_before = 0.0f;
+    self->br_vq_before = 0.0f;
+    self->br_no_duty_samples = 0u;
+    self->was_control_duty = false;
     self->i_fw_set = 0.0f;
     self->v_alpha = 0.0f;
     self->v_beta = 0.0f;
@@ -374,9 +388,9 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
      * negative field-weakening setpoint keeps the modulation on.
      */
     foc_step_towards(&self->current_off_delay, 0.0f, dt);
-    const bool current_family = self->state == FOC_STATE_RUNNING_CURRENT ||
-                                self->state == FOC_STATE_HANDBRAKE ||
-                                self->state == FOC_STATE_RUNNING_OPENLOOP;
+    const bool current_family =
+        self->state == FOC_STATE_RUNNING_CURRENT || self->state == FOC_STATE_HANDBRAKE ||
+        self->state == FOC_STATE_RUNNING_OPENLOOP || self->state == FOC_STATE_CURRENT_BRAKE;
     if (!self->phase_override && current_family) {
         float min_current = self->config.cc_min_current;
         if (min_current < 0.001f && self->motor_released) {
@@ -623,6 +637,65 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
     self->id_filter -= self->config.current_filter_const * (self->id_filter - id);
     self->iq_filter -= self->config.current_filter_const * (self->iq_filter - iq);
 
+    /*
+     * Reference mcpwm_foc.c:3336-3337: the signed duty is filtered beside its magnitude, because
+     * the brake's short-circuit test is what reads it.
+     */
+    self->duty_filtered -= 0.01f * (self->duty_filtered - self->duty_now);
+    foc_truncate_number_abs(&self->duty_filtered, 1.0f);
+
+    /*
+     * The brake's short-circuit latch, reference mcpwm_foc.c:3345-3367. All three phases are
+     * shorted
+     * - the reference zeroes the duty it is about to drive with, which puts all three at half duty
+     * - the moment the direction or the modulation changes sign, or the duty is already near zero,
+     * or fewer than ten cycles have been spent shorted; and only while the braking current has not
+     * been reached. The count is what holds it there for at least ten cycles, so it cannot chatter
+     * around the threshold, and outside the mode it is parked above it.
+     *
+     * The reference compares against the live setpoint capped at the negative current limit before
+     * anything else reads it (:3328-3330); that same cap is applied to the setpoint the current
+     * loop uses below.
+     */
+    bool short_phases = false;
+    if (self->state == FOC_STATE_CURRENT_BRAKE) {
+        float iq_set_tmp = self->target_iq;
+        foc_truncate_number_abs(&iq_set_tmp, fabsf(self->config.current_min_a));
+
+        if ((foc_sign(self->pll.speed) != foc_sign(self->br_speed_before) ||
+             foc_sign(self->v_q) != foc_sign(self->br_vq_before) ||
+             fabsf(self->duty_filtered) < 0.001f || self->br_no_duty_samples < 10u) &&
+            self->i_abs_filter < fabsf(iq_set_tmp)) {
+            short_phases = true;
+            self->br_no_duty_samples = 0u;
+        } else if (self->br_no_duty_samples < 10u) {
+            short_phases = true;
+            self->br_no_duty_samples++;
+        }
+    } else {
+        self->br_no_duty_samples = 100u;
+    }
+
+    /* :3367-3368, at the end of the block either way. The fast speed is the PLL's here, as it is
+     * wherever this port needs m_speed_est_fast. */
+    self->br_speed_before = self->pll.speed;
+    self->br_vq_before = self->v_q;
+
+    /*
+     * :3373-3380: leaving the duty-driven path resets the q integrator, because the wind-up
+     * protection is slower than the switch. `control_duty` is the reference's own flag and not the
+     * same thing as the latch above: it is true whenever the loop is driving from duty rather than
+     * from current, which includes the duty mode as well as the shorted cycles. Confusing the two
+     * made this reset fire every cycle after any duty-driven stretch, which is what broke the HFI
+     * closed loop when this was first written. The reference also subtracts its decoupling terms
+     * from the value it stores; this port has no decoupling field yet, which is recorded.
+     */
+    const bool control_duty = (self->state == FOC_STATE_RUNNING_DUTY) || short_phases;
+    if (!control_duty && self->was_control_duty) {
+        self->iq_integral = self->v_q;
+    }
+    self->was_control_duty = control_duty;
+
     /* 6. Current Safety Invariant Checks */
     float current_mag = sqrtf(SQ(id) + SQ(iq));
     if (current_mag > self->config.current_max_a * 1.5f && self->config.current_max_a > 0.0f) {
@@ -672,7 +745,8 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
     }
 
     if (self->state == FOC_STATE_RUNNING_CURRENT || self->state == FOC_STATE_RUNNING_RPM ||
-        self->state == FOC_STATE_RUNNING_POS || self->state == FOC_STATE_HANDBRAKE) {
+        self->state == FOC_STATE_RUNNING_POS || self->state == FOC_STATE_HANDBRAKE ||
+        self->state == FOC_STATE_CURRENT_BRAKE) {
         /*
          * The reference applies MTPA and field weakening to this cycle's *setpoints* rather
          * than to the command, so they are locals here too: target_id/target_iq stay what the
@@ -680,6 +754,13 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
          */
         float iq_set = self->target_iq;
         float id_set = self->target_id;
+
+        /* :3328-3330: in the braking mode the setpoint's magnitude is capped at the negative
+         * current limit before MTPA or anything else reads it. */
+        if (self->state == FOC_STATE_CURRENT_BRAKE) {
+            foc_truncate_number_abs(&iq_set, fabsf(self->config.current_min_a));
+        }
+
         foc_apply_mtpa(self->config.mtpa_mode, self->config.ld_lq_diff, self->config.lambda_wb,
                        self->iq_filter, &iq_set, &id_set);
 
@@ -695,11 +776,11 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
                                            .ramp_time = self->config.fw_ramp_time,
                                            .l_max_duty = self->config.duty_max,
                                            .cc_min_current = self->config.cc_min_current};
-        /* The reference's mode gate includes the braking mode; this port's brake is
-         * approximated by the current mode (see docs/adr-conformance.md), so it is included
-         * implicitly rather than named. */
-        const bool fw_mode_allows =
-            (self->state == FOC_STATE_RUNNING_CURRENT || self->state == FOC_STATE_RUNNING_RPM);
+        /* The reference's gate names the current and speed modes and the braking mode (mcpwm_foc.c
+         * :3901-3903); the brake is one of this port's states now, so it is named with them. */
+        const bool fw_mode_allows = self->state == FOC_STATE_RUNNING_CURRENT ||
+                                    self->state == FOC_STATE_RUNNING_RPM ||
+                                    self->state == FOC_STATE_CURRENT_BRAKE;
         foc_fw_state_t fw_next = fw_state;
         foc_run_fw(&fw_next, &fw_params, fw_mode_allows, dt);
         self->i_fw_set = fw_next.i_fw_set;
@@ -740,6 +821,17 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
     } else if (self->state == FOC_STATE_RUNNING_DUTY) {
         vd = 0.0f;
         vq = self->target_duty * v_bus * (2.0f / 3.0f);
+    }
+
+    /*
+     * Reference mcpwm_foc.c:3352-3354: while the latch holds, the loop drives duty zero instead of
+     * the current loop's output, which shorts all three phases through the bridge. In this port's
+     * terms that is the modulation vector at the origin - the SVM turns it into three half-duty
+     * phases - so the controller's result is discarded for this cycle.
+     */
+    if (short_phases) {
+        vd = 0.0f;
+        vq = 0.0f;
     }
 
     self->v_d = vd;
@@ -1033,6 +1125,31 @@ edge_status_t foc_core_set_handbrake(foc_core_t *self, float brake_current_a) {
      */
     self->target_iq = brake_current_a;
     self->state = FOC_STATE_HANDBRAKE;
+    return EDGE_OK;
+}
+
+edge_status_t foc_core_set_brake_current(foc_core_t *self, float current_a) {
+    if (self == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    if (self->state == FOC_STATE_FAULT || self->state == FOC_STATE_UNINITIALIZED) {
+        return EDGE_EBUSY;
+    }
+
+    /*
+     * Reference mcpwm_foc_set_brake_current (mcpwm_foc.c:832-849): the mode and the setpoint are
+     * written first, so a magnitude below cc_min_current leaves the command pending rather than
+     * releasing anything - the reference's own early return. Above it the motor is not released,
+     * and the loop carries the braking current out through the mode's short-circuit latch.
+     */
+    self->target_iq = current_a;
+    self->state = FOC_STATE_CURRENT_BRAKE;
+
+    if (fabsf(current_a) < self->config.cc_min_current) {
+        return EDGE_OK;
+    }
+
+    self->motor_released = false;
     return EDGE_OK;
 }
 

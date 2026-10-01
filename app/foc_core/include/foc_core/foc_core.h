@@ -55,7 +55,16 @@ typedef enum {
      * which is how a motor is turned without knowing where the rotor is. Appended last, for the
      * same reason as the value above.
      */
-    FOC_STATE_RUNNING_OPENLOOP
+    FOC_STATE_RUNNING_OPENLOOP,
+
+    /*
+     * Reference CONTROL_MODE_CURRENT_BRAKE, the mode mcpwm_foc_set_brake_current selects
+     * (mcpwm_foc.c:832). A mode of its own rather than a current command: while it is entered the
+     * loop shorts all three phases whenever the direction or the modulation changes sign, and holds
+     * them shorted for at least ten cycles, until the braking current has been reached
+     * (mcpwm_foc.c:3345-3366). Appended last, so no existing value is renumbered.
+     */
+    FOC_STATE_CURRENT_BRAKE
 } foc_state_t;
 
 typedef enum {
@@ -275,6 +284,19 @@ typedef struct foc_core {
      */
     float duty_abs_filtered;
     float mod_q_filter;
+    /*
+     * Reference m_duty_filtered (mcpwm_foc.c:3336-3337): |duty_now| is filtered above and the
+     * signed duty here, both at the same coefficient. The brake's short-circuit test is the one
+     * that reads the signed one, so it needs its own. The three fields below it are that test's own
+     * state
+     * (:3350-3367): the direction and the modulation the previous cycle ended with, how many cycles
+     * the phases have been shorted for, and whether the last cycle was driven from duty rather than
+     * from current. */
+    float duty_filtered;
+    float br_speed_before;
+    float br_vq_before;
+    uint32_t br_no_duty_samples;
+    bool was_control_duty;
 
     /* Field-weakening setpoint, the reference's m_i_fw_set. */
     float i_fw_set;
@@ -502,6 +524,15 @@ edge_status_t foc_core_set_duty(foc_core_t *self, float duty_target);
 edge_status_t foc_core_set_rpm(foc_core_t *self, float rpm_target);
 edge_status_t foc_core_set_pos(foc_core_t *self, float pos_target_deg);
 edge_status_t foc_core_set_handbrake(foc_core_t *self, float brake_current_a);
+
+/*
+ * Reference mcpwm_foc_set_brake_current (mcpwm_foc.c:832-849): brake with a desired current, where
+ * positive and negative values have the same effect because the mode's own short-circuit test looks
+ * at magnitudes. A magnitude below cc_min_current leaves the mode set and the setpoint written but
+ * does nothing else - the reference's own early return - which is what makes the command a no-op
+ * rather than a release. DIR_MULT is the command layer's, as it is for the other current commands.
+ */
+edge_status_t foc_core_set_brake_current(foc_core_t *self, float current_a);
 /* Reference mcpwm_foc_release_motor (mcpwm_foc.c:819): zeroes both current setpoints, asks for the
  * release, and leaves the control loop to carry it out. */
 edge_status_t foc_core_release_motor(foc_core_t *self);
