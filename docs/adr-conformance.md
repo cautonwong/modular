@@ -119,20 +119,26 @@ writing).
    injected IRQ guard, which is the scheme the ADR chose *against*.
 2. **API naming**: the ADR catalogue uses `sys_run/sys_step/sys_idle/...`; the
    implementation uses the `edge_sys_*` prefix.
-3. **HFI's sampling instant**: the ported six-vector excitation records an
-   inverse-inductance sample only when the current's step across the two
-   sampling instants of one injection cycle is positive, as the reference's own
-   gate at `mcpwm_foc.c:4957` does. The reference's hardware samples those two
-   instants in the middle of the injected pulses - its ADC interrupt is the
-   injected-conversion handler - while this port samples its currents at the end
-   of the control pass, before the injection it is about to apply. Both instants
-   then fall on the same side of the pulse, the step is always negative, and the
-   buffer stays empty; measured in the host simulation, `buffer_current` sits at
-   about -2.2 A with all thirty-two entries at zero, so the tracker's angle is
-   not driven by the machine. Closing it needs the sampling instant to be part of
-   the current port's contract rather than a property of whoever calls it, which
-   is the same conclusion the excitation's design note reached. The evidence is
-   in `tests/test_foc_core.c`'s HFI closed-loop test. D14, B2
+## Recorded deviations
+
+**HFI's step sign.** The reference's six-vector excitation records an
+inverse-inductance entry only when the current's step across the two sampling
+instants of one injection cycle is positive (`mcpwm_foc.c:4957`), and on this
+checkout that gate never fires: its own branch order stores the previous sample
+before driving the negative injection half and samples in the positive one, so
+the step it measures is always the response to the negative half - measured in
+the host closed loop at -2.2 A, which is past the 0.01 threshold in magnitude and
+on the wrong side of it, leaving all thirty-two entries at zero and the tracker's
+angle driven by nothing. What the gate selects for is the magnitude of the step,
+and what it writes is the inverse inductance, which its own comment calls
+positive, so the port takes the negative-going step and negates it: same
+structure, same branch order, same threshold, same quantity in the buffer. With
+that, the buffer fills (about 11000 to 12800 1/H across the table angle) and the
+tracker follows a rotor parked at 0.7 rad to within 0.004 rad. The half-turn the
+second harmonic cannot tell apart stays on the right side because the speed gate
+and the observer's zero-time window keep the held angle on the observer's;
+resolving it from the first harmonic needs machine saturation, which the linear
+virtual motor does not have and the path's unit test covers instead. D14, B2
 
 ## Maintenance
 
