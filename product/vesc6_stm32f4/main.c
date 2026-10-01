@@ -161,6 +161,17 @@ int main(void) {
                       .current_max_scale = mc->l_current_max_scale,
                       .allow_braking = mc->s_pid_allow_braking,
                       .invert_direction = mc->m_invert_direction},
+        .pos_pid = {.kp = mc->p_pid_kp,
+                    .ki = mc->p_pid_ki,
+                    .kd = mc->p_pid_kd,
+                    .kd_proc = mc->p_pid_kd_proc,
+                    .kd_filter = mc->p_pid_kd_filter,
+                    .gain_dec_angle = mc->p_pid_gain_dec_angle,
+                    .ang_div = mc->p_pid_ang_div,
+                    /* The reference scales the loop's output by both of these (foc_math.c:496-497),
+                     * so what reaches the loop is their product. */
+                    .current_max_a = mc->l_current_max * mc->l_current_max_scale,
+                    .error_sign = mc->foc_encoder_inverted ? -1.0f : 1.0f},
         .pll_kp = mc->foc_pll_kp,
         .pll_ki = mc->foc_pll_ki,
         /*

@@ -100,6 +100,40 @@ void foc_run_pid_speed(foc_speed_pid_t *pid, const foc_speed_pid_params_t *param
                        float *iq_set);
 
 /*
+ * The reference's position loop (motor/foc_math.c:385, foc_run_pid_control_pos). What it has that
+ * the speed loop does not is a second difference term, taken on the measured angle rather than on
+ * the error, so the loop damps the rotor's own motion without waiting for the setpoint to move; and
+ * an anti-windup that leaves the proportional term at most one unit and gives the integral what is
+ * left. Angles are radians here as they are there.
+ */
+typedef struct foc_pos_pid {
+    float i_term;        /* reference: m_pos_i_term */
+    float prev_error;    /* reference: m_pos_prev_error */
+    float prev_proc;     /* reference: m_pos_prev_proc, the angle the measured-angle D last saw */
+    float dt_int;        /* reference: m_pos_dt_int, the interval between error changes */
+    float dt_int_proc;   /* reference: m_pos_dt_int_proc, the same for the angle */
+    float d_filter;      /* reference: m_pos_d_filter */
+    float d_filter_proc; /* reference: m_pos_d_filter_proc */
+} foc_pos_pid_t;
+
+typedef struct foc_pos_pid_params {
+    float kp;        /* mcconf p_pid_kp */
+    float ki;        /* mcconf p_pid_ki */
+    float kd;        /* mcconf p_pid_kd */
+    float kd_proc;   /* mcconf p_pid_kd_proc */
+    float kd_filter; /* mcconf p_pid_kd_filter */
+    float
+        gain_dec_angle; /* mcconf p_pid_gain_dec_angle, the error below which the gains wind down */
+    float ang_div;      /* mcconf p_pid_ang_div, what that threshold is divided by */
+    float current_max_a; /* the runtime limit the output scales into, l_current_max * _scale */
+    float error_sign;    /* -1 when mcconf foc_encoder_inverted, +1 otherwise */
+} foc_pos_pid_params_t;
+
+void foc_run_pid_pos(foc_pos_pid_t *pid, const foc_pos_pid_params_t *params, bool in_pos_mode,
+                     bool index_found, float angle_set_rad, float angle_now_rad, float dt,
+                     float *iq_set);
+
+/*
  * Observer selection, same order and names as the reference's mc_foc_observer_type
  * (datatypes.h). Each has a distinct convergence behaviour and a distinct set of
  * states it maintains, so this is a selector over real algorithms, not a hint.
