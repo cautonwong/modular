@@ -298,6 +298,24 @@ typedef struct foc_core {
     uint32_t br_no_duty_samples;
     bool was_control_duty;
 
+    /*
+     * The backup data's two counters, reference mc_interface.c:2570-2578: the odometer in metres
+     * and the runtime, which the reference keeps in g_backup and the protocol reads back through
+     * COMM_GET_VALUES_SETUP. The odometer accumulates the *difference* of the absolute distance
+     * because the reference truncates that distance to whole metres first
+     * (mc_interface.c:1650-1656), so what is added is the metres the tachometer has newly covered.
+     *
+     * Persistence is the product's: this aggregate owns the live counter and the reference stores
+     * the backup block only from its shutdown path, which is what the module's own power_off is
+     * here.
+     */
+    uint64_t backup_odometer_m;
+    uint64_t backup_distance_last_m;
+    /* Microseconds, not seconds: summing the loop's dt in a float loses a millisecond every ten of
+     * them, because 200 additions of 5e-5 are not exactly 0.01. The reference reads a wall clock
+     * and has no such drift; this port counts, so it counts in whole microseconds. */
+    uint64_t backup_uptime_us;
+
     /* Field-weakening setpoint, the reference's m_i_fw_set. */
     float i_fw_set;
 
@@ -593,6 +611,16 @@ void foc_core_read_hfi_bins(const foc_core_t *self, float *offset, float *real_b
                             float *imag_bin2, float *current_mean);
 
 void foc_core_get_stats(const foc_core_t *self, foc_stats_t *out_stats);
+
+/*
+ * The two backup counters, as the protocol reads them (`COMM_GET_VALUES_SETUP`). The runtime is
+ * milliseconds, which is the unit that reply carries; the reference derives it from its own wall
+ * clock, while this port sums the loop's dt - the same difference the energy counters carry.
+ */
+void foc_core_get_backup(const foc_core_t *self, uint64_t *odometer_m, uint32_t *uptime_ms);
+
+/* The restore side, for a product that read the block back at boot. */
+void foc_core_set_backup(foc_core_t *self, uint64_t odometer_m, uint32_t uptime_ms);
 void foc_core_stats_reset(foc_core_t *self);
 
 #ifdef __cplusplus
