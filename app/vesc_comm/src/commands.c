@@ -823,6 +823,27 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
     case COMM_ALIVE:
         return EDGE_OK;
 
+    /*
+     * The two detection commands that cannot run on this port are named here rather than left to
+     * the default, because what stops them is not that nobody has written them yet.
+     *
+     * The parameter detection drives the motor with the BLDC six-step commutator: it stages
+     * MOTOR_TYPE_BLDC with a sensorless start, an integrating commutation mode and its own sl_*
+     * limits (conf_general.c:514-536), and builds its hall table and its BEMF coupling constant
+     * from that drive and the raw hall inputs. This port has no six-step commutation layer at all,
+     * and no product with halls to commutate from - the same disposition the hall procedure itself
+     * carries (docs/adr-conformance.md).
+     *
+     * The all-in-one detection is that procedure plus the others, behind a prologue this port
+     * refuses deliberately: its first act is a DC-offset calibration (conf_general.c:1747,
+     * mcpwm_foc_dc_cal), and this port's phase currents come from a mid-scale offset with no
+     * calibration pass. Answering that it cannot is honest; answering with half a run's numbers is
+     * not.
+     */
+    case COMM_DETECT_MOTOR_PARAM:
+    case COMM_DETECT_APPLY_ALL_FOC:
+        return EDGE_ENOTSUP;
+
     default:
         return EDGE_ENOTSUP;
     }

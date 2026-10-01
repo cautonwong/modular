@@ -1611,6 +1611,31 @@ static void test_detect_r_l_command(void **state) {
     assert_int_equal(vesc_comm_process_command(bare, req, sizeof(req)), EDGE_ENOTSUP);
 }
 
+/*
+ * The two detection commands this port cannot run say so rather than half-running: the parameter
+ * detection needs the BLDC six-step drive and raw hall inputs, and the all-in-one detection starts
+ * with a DC-offset calibration this port has no pass for. The reasons are in the codec's own case
+ * labels.
+ */
+static void test_detect_param_and_apply_all_are_refused(void **state) {
+    (void)state;
+    mock_comm_ctx_t tx;
+    memset(&tx, 0, sizeof(tx));
+    edge_stream_tx_port_t tx_port = {.write = mock_stream_write, .self = &tx};
+    vesc_comm_ops_port_t ops_port = {
+        .terminal_cmd = mock_terminal_cmd, .forward_can = mock_forward_can, .self = NULL};
+    vesc_comm_t *comm = test_comm_alloc();
+    vesc_comm_construct(comm, EDGE_MOD_VESC_COMM, 10u, &tx_port, NULL, NULL, NULL, &ops_port,
+                        &test_identity);
+    assert_int_equal(vesc_comm_init(comm), EDGE_OK);
+
+    const uint8_t param[1] = {COMM_DETECT_MOTOR_PARAM};
+    assert_int_equal(vesc_comm_process_command(comm, param, sizeof(param)), EDGE_ENOTSUP);
+
+    const uint8_t apply[1] = {COMM_DETECT_APPLY_ALL_FOC};
+    assert_int_equal(vesc_comm_process_command(comm, apply, sizeof(apply)), EDGE_ENOTSUP);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -1627,6 +1652,7 @@ int main(void) {
         cmocka_unit_test(test_detect_flux_linkage_openloop_command),
         cmocka_unit_test(test_detect_flux_linkage_command),
         cmocka_unit_test(test_detect_r_l_command),
+        cmocka_unit_test(test_detect_param_and_apply_all_are_refused),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
