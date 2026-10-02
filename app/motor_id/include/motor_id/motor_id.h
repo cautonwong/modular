@@ -103,7 +103,12 @@ typedef enum motor_id_chain {
     MOTOR_ID_CHAIN_IND_CURRENT,
     MOTOR_ID_CHAIN_IND_FINAL,
     MOTOR_ID_CHAIN_RES_SCAN,
-    MOTOR_ID_CHAIN_RES_FINAL
+    MOTOR_ID_CHAIN_RES_FINAL,
+    /* conf_general.c:1528's own sequence: the probe walk, its final resistance, then the two
+     * inductances at that current. */
+    MOTOR_ID_CHAIN_IMAX_SCAN,
+    MOTOR_ID_CHAIN_IMAX_RES_FINAL,
+    MOTOR_ID_CHAIN_IMAX_IND_FINAL
 } motor_id_chain_t;
 
 typedef struct motor_id_result {
@@ -126,6 +131,13 @@ typedef struct motor_id_result {
     float ind_uh;
     float ld_lq_diff_uh;
     float ind_current_a;
+    /*
+     * conf_general.c:1528's measure_r_l_imax: the current its probe walk settled on, and the
+     * ceiling the reference derives from the power loss and the resistance it measured there -
+     * sqrt(max_power_loss / r / 1.5), truncated by the board's own limit. That ceiling is what the
+     * all-in-one detection puts into the configuration as its current limits.
+     */
+    float i_max_a;
     bool valid;
 } motor_id_result_t;
 
@@ -306,6 +318,15 @@ typedef struct motor_id_app {
     float res_ind_r_tmp;
     float res_ind_current_max_a;
     float res_ind_last_current_a;
+    /* measure_r_l_imax (:1528-1565): the walk's state, the power loss it is allowed, the board's
+     * current ceiling, and the resistance each probe found. */
+    float imax_probe_a;
+    float imax_last_a;
+    float imax_current_max_a;
+    float imax_current_min_a;
+    float imax_max_power_loss;
+    float imax_hw_lim_a;
+    float imax_probe_r_ohm;
     /* Whether the composed sequence's own current-loop gains are still in place, so that the single
      * exit point puts them back once and only when it changed them. */
     bool res_ind_gains_active;
@@ -360,6 +381,20 @@ edge_status_t motor_id_measure_inductance_current(motor_id_app_t *app, float cur
  * inductance measurement there. Ported only once its inductance half was.
  */
 edge_status_t motor_id_measure_r_l(motor_id_app_t *app, float current_max_a);
+
+/*
+ * conf_general.c:1528, measure_r_l_imax, as the all-in-one detection runs it: a probe walk that
+ * measures the resistance at a current that grows by half again while the power it would dissipate
+ * stays under a fifth of what the caller allows, then the resistance at the current the walk
+ * settled on with the caller's sample count, then the two inductances there. Its product is the
+ * current ceiling sqrt(max_power_loss / r / 1.5) truncated by the board's limit, which is the
+ * quantity the reference calls i_max. The walk's own starting current is the larger of a fiftieth
+ * of the ceiling and a tenth over the configuration's minimum, which is the reference's own
+ * arithmetic (:1529-1532).
+ */
+edge_status_t motor_id_measure_r_l_imax(motor_id_app_t *app, float current_max_a,
+                                        float current_min_a, float max_power_loss,
+                                        float hw_lim_current_a);
 edge_status_t motor_id_measure_flux_linkage(motor_id_app_t *app);
 edge_status_t motor_id_detect_hall(motor_id_app_t *app);
 

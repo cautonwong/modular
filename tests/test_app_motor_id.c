@@ -1443,6 +1443,42 @@ static void test_motor_id_gains_match_the_reference(void **state) {
     assert_float_equal(g.observer_gain / 1e6f, 2.5f, 1e-5f);
 }
 
+/*
+ * The all-in-one detection's own measurement, conf_general.c:1528's measure_r_l_imax, driven to its
+ * end: the probe walk, the resistance at the current it settled on, the two inductances there, and
+ * the ceiling the reference derives - sqrt(max_power_loss / r / 1.5) truncated by the board's
+ * limit.
+ *
+ * The walk's numbers are deterministic and worth reading out of the test: it starts at a fiftieth
+ * of the ceiling (1 A) and grows by half again, and it stops on the first probe whose dissipated
+ * power i * i * r * 1.5 reaches a fifth of the loss allowed - which is 1.5^6, 11.390625 A. The
+ * ceiling it derives, sqrt(30 / 0.05 / 1.5), is 20 A, under the board's 250 and so not truncated by
+ * it.
+ */
+static void test_motor_id_measure_r_l_imax_runs_to_its_ceiling(void **state) {
+    (void)state;
+    mock_ind_plant_t plant = {
+        .offset = 20833.333f, .bin2 = 2083.333f, .ready = true, .bins_ok = true, .r_ohm = 0.05f};
+    motor_id_measure_port_t port;
+    motor_id_app_t app;
+    make_ind_app(&app, &plant, &port);
+
+    assert_int_equal(motor_id_measure_r_l_imax(&app, 50.0f, 0.05f, 30.0f, 250.0f), EDGE_OK);
+    for (int i = 0;
+         i < 40000 && app.state != MOTOR_ID_STATE_COMPLETE && app.state != MOTOR_ID_STATE_FAILED;
+         ++i) {
+        ind_control_cycle(&plant);
+        assert_int_equal(motor_id_step(&app, 0.001f), EDGE_OK);
+    }
+
+    assert_int_equal(app.state, MOTOR_ID_STATE_COMPLETE);
+    assert_true(app.result.valid);
+    assert_float_equal(app.result.r_ohm, 0.05f, 1e-4f);
+    assert_float_equal(app.result.ind_uh, 45.0f, 1e-2f);
+    assert_float_equal(app.imax_last_a, 11.390625f, 1e-3f);
+    assert_float_equal(app.result.i_max_a, 20.0f, 1e-3f);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -1468,6 +1504,7 @@ int main(void) {
         cmocka_unit_test(test_motor_id_inductance_failure_paths),
         cmocka_unit_test(test_motor_id_measure_r_l_edge_exits),
         cmocka_unit_test(test_motor_id_gains_match_the_reference),
+        cmocka_unit_test(test_motor_id_measure_r_l_imax_runs_to_its_ceiling),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

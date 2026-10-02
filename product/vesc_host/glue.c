@@ -643,15 +643,25 @@ static edge_status_t ops_detect_r_l(void *self, vesc_detect_r_l_result_t *result
  * configuration and stored. A run that does not complete leaves the configuration as it was, which
  * is what the reference's own saved copy is for.
  */
+/*
+ * The simulation's own current ceiling, which is the role HW_LIM_CURRENT plays on real hardware: it
+ * is what the all-in-one detection truncates the current ceiling it derives by, and it is a board's
+ * number rather than a configuration's. A simulation carries it as a parameter of its own, the way
+ * it carries its bus voltage and its NTC readings.
+ */
+#define VESC_HOST_HW_LIM_CURRENT 250.0f
+
 static edge_status_t ops_detect_apply_all_foc(void *self, bool detect_can, float max_power_loss,
                                               float min_current_in, float max_current_in,
                                               float openloop_rpm, float sl_erpm, int16_t *result) {
     vesc_host_ops_ctx_t *ctx = (vesc_host_ops_ctx_t *)self;
 
-    /* The packet's other five fields are the CAN and six-step variants' inputs; this product runs
-     * the FOC one, which the reference's own FOC path ignores them for as well. */
+    /*
+     * The packet's other five fields are the CAN and six-step variants' inputs - openloop_rpm and
+     * sl_erpm are the BLDC start-up's, the two input currents the pack's - and the reference's own
+     * FOC path ignores them too. max_power_loss is the FOC path's, and is used below.
+     */
     (void)detect_can;
-    (void)max_power_loss;
     (void)min_current_in;
     (void)max_current_in;
     (void)openloop_rpm;
@@ -675,7 +685,13 @@ static edge_status_t ops_detect_apply_all_foc(void *self, bool detect_can, float
     const foc_config_t saved = foc->config;
     foc->config.f_zv = 10000.0f;
 
-    edge_status_t status = motor_id_measure_r_l(app, foc->config.current_max_a);
+    /*
+     * The probe walk first, which is what the reference runs (measure_r_l_imax,
+     * conf_general.c:1528): its inputs are the configuration's own ceiling and minimum and the
+     * power loss the caller allowed, and its result is truncated by the board's current limit.
+     */
+    edge_status_t status = motor_id_measure_r_l_imax(
+        app, before.l_current_max, before.cc_min_current, max_power_loss, VESC_HOST_HW_LIM_CURRENT);
     for (uint32_t ms = 0u; status == EDGE_OK && ms < 40000u; ++ms) {
         if (app->state == MOTOR_ID_STATE_COMPLETE || app->state == MOTOR_ID_STATE_FAILED) {
             break;
@@ -695,23 +711,31 @@ static edge_status_t ops_detect_apply_all_foc(void *self, bool detect_can, float
         return (status != EDGE_OK) ? status : EDGE_ESTATE;
     }
 
-    /* What the reference keeps of the first two: the resistance, and the inductance in henries,
-     * which is the unit the configuration holds it in and the procedure reports it in
-     * microhenrys. */
+    /*
+     * What the reference keeps of that walk (conf_general.c:2005-2010): the resistance, the
+     * inductance in henries - the unit the configuration holds it in and the procedure reports it
+     * in microhenrys - the two axes' difference, and the ceiling the walk's own numbers produce,
+     * which is what becomes the machine's current limits rather than a leftover of a measurement.
+     */
     mc.foc_motor_r = measured->r_ohm;
     mc.foc_motor_l = measured->ind_uh * 1e-6f;
+    mc.foc_motor_ld_lq_diff = measured->ld_lq_diff_uh * 1e-6f;
+    mc.l_current_max = measured->i_max_a;
+    mc.l_current_min = -measured->i_max_a;
+    mc.l_abs_current_max = measured->i_max_a * 1.5f;
 
     /*
-     * The drive measurement, which is what the reference's own all-in-one runs (its
-     * measure_flux_linkage_task): the sensored procedure, driven by the plant the way the flux
-     * command drives it. The rotor speed comes from the packet's own field - openloop_rpm is what
-     * that input is for, and the reference's command path reads it from there too - while the
-     * current and the modulation are this product's choice of drive.
+     * Then the linkage, with the open-loop procedure: that is the one the reference's own
+     * all-in-one runs - conf_general.c:1923 calls conf_general_measure_flux_linkage_openloop, and
+     * its measure_flux_linkage_task reaches the same function - and the numbers are the reference's
+     * own: a current of the ceiling over two and a half, a duty of 0.3, eighteen hundred electrical
+     * rpms per second of ramp, against the resistance and inductance the walk just measured.
      */
     const float flux_foc_dt = 0.000050f;
     const uint32_t flux_cycles_per_ms = 20u;
-    status = motor_id_measure_flux_linkage_sensored(
-        app, mc.foc_motor_r * 100.0f, 0.05f, openloop_rpm, mc.foc_motor_r, foc->config.r_ohm);
+    status = motor_id_measure_flux_linkage_openloop(
+        app, measured->i_max_a / 2.5f, 0.3f, 1800.0f, mc.foc_motor_r, mc.foc_motor_l,
+        foc->config.r_ohm, foc->config.l_henry, foc->config.duty_max);
     if (status == EDGE_OK) {
         for (uint32_t ms = 0u; ms < 60000u; ++ms) {
             if (app->state == MOTOR_ID_STATE_COMPLETE || app->state == MOTOR_ID_STATE_FAILED) {

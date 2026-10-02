@@ -936,6 +936,9 @@ edge_status_t motor_id_measure_flux_linkage_sensored(motor_id_app_t *app, float 
 #define MOTOR_ID_RES_IND_SCAN_SAMPLES 20u   /* :2331 */
 #define MOTOR_ID_RES_IND_FINAL_SAMPLES 200u /* :2345 */
 #define MOTOR_ID_RES_IND_SETTLE_MS 10u      /* :2352 */
+#define MOTOR_ID_IMAX_SCAN_SAMPLES 5u       /* :1541, the probe walk's own count */
+#define MOTOR_ID_IMAX_FINAL_SAMPLES 100u    /* :1555, and its final measurement's */
+#define MOTOR_ID_IMAX_PROBE_STEP 1.5f       /* :1536, half again at each step */
 
 /* :1976-2002, the reference's own fault exit: the setpoints zeroed, the motor stopped, and the
  * configuration put back before it returns the fault. */
@@ -1178,6 +1181,69 @@ static void motor_id_chain_step(motor_id_app_t *app) {
         app->ms = 0u;
         return;
 
+    case MOTOR_ID_CHAIN_IMAX_SCAN: {
+        /*
+         * :1536-1553: the resistance at each probe of a walk that grows by half again, ending
+         * when either the current reaches the ceiling or the power it would dissipate -
+         * i * i * r * 1.5 - reaches a fifth of what the caller allows. Each probe writes the
+         * shared result, so what it found is kept here before the next one overwrites it.
+         */
+        if (failed || app->result.r_ohm == 0.0f) {
+            app->chain = MOTOR_ID_CHAIN_NONE;
+            return;
+        }
+
+        const float probe = app->imax_probe_a;
+        app->imax_probe_r_ohm = app->result.r_ohm;
+        app->imax_last_a = probe;
+
+        const float grown = probe * MOTOR_ID_IMAX_PROBE_STEP;
+        if ((probe * probe * app->imax_probe_r_ohm * 1.5f) >= (app->imax_max_power_loss / 5.0f) ||
+            grown >= app->imax_current_max_a) {
+            app->chain = MOTOR_ID_CHAIN_IMAX_RES_FINAL;
+            (void)motor_id_measure_resistance(app, app->imax_last_a, MOTOR_ID_IMAX_FINAL_SAMPLES,
+                                              false);
+            return;
+        }
+
+        app->imax_probe_a = grown;
+        (void)motor_id_measure_resistance(app, app->imax_probe_a, MOTOR_ID_IMAX_SCAN_SAMPLES,
+                                          false);
+        return;
+    }
+
+    case MOTOR_ID_CHAIN_IMAX_RES_FINAL:
+        /* :1555-1562: the resistance at the current the walk settled on, and then the two
+         * inductances measured there. */
+        app->chain = MOTOR_ID_CHAIN_NONE;
+        if (failed || app->result.r_ohm == 0.0f) {
+            return;
+        }
+        app->chain = MOTOR_ID_CHAIN_IMAX_IND_FINAL;
+        (void)motor_id_measure_inductance_current(app, app->imax_last_a,
+                                                  MOTOR_ID_IMAX_FINAL_SAMPLES);
+        return;
+
+    case MOTOR_ID_CHAIN_IMAX_IND_FINAL: {
+        /*
+         * :1562-1565: the ceiling the reference derives from the power loss and the resistance it
+         * just measured, truncated by the board's own current limit. That number is what the
+         * all-in-one detection writes into the configuration as the machine's current limits.
+         */
+        app->chain = MOTOR_ID_CHAIN_NONE;
+        if (failed) {
+            return;
+        }
+
+        float i_max = sqrtf(app->imax_max_power_loss / app->result.r_ohm / 1.5f);
+        if (i_max > app->imax_hw_lim_a) {
+            i_max = app->imax_hw_lim_a;
+        }
+        app->result.i_max_a = i_max;
+        app->result.valid = (app->result.r_ohm > 0.0f);
+        return;
+    }
+
     case MOTOR_ID_CHAIN_NONE:
     default:
         return;
@@ -1280,6 +1346,55 @@ edge_status_t motor_id_measure_r_l(motor_id_app_t *app, float current_max_a) {
     app->chain = MOTOR_ID_CHAIN_RES_SCAN;
     return motor_id_measure_resistance(app, app->res_ind_current_a, MOTOR_ID_RES_IND_SCAN_SAMPLES,
                                        false);
+}
+
+/*
+ * conf_general.c:1528, measure_r_l_imax. The probe walk's first current is the larger of a
+ * fiftieth of the ceiling and a tenth over the configuration's minimum (:1529-1532), and the walk
+ * measures with the reference's own five samples while its final measurement takes a hundred. What
+ * it produces is i_max, and every other number it measured is kept because the all-in-one
+ * detection wants all of them.
+ */
+edge_status_t motor_id_measure_r_l_imax(motor_id_app_t *app, float current_max_a,
+                                        float current_min_a, float max_power_loss,
+                                        float hw_lim_current_a) {
+    if (app == (void *)0 || current_max_a <= 0.0f || max_power_loss <= 0.0f ||
+        hw_lim_current_a <= 0.0f) {
+        return EDGE_EINVAL;
+    }
+    if (app->state != MOTOR_ID_STATE_IDLE && app->state != MOTOR_ID_STATE_COMPLETE &&
+        app->state != MOTOR_ID_STATE_FAILED) {
+        return EDGE_EBUSY;
+    }
+    const motor_id_measure_port_t *p = &app->measure_port;
+    if (p->enter_inductance_config == (void *)0 || p->read_hfi_bins == (void *)0) {
+        return EDGE_EINVAL;
+    }
+
+    app->result.valid = false;
+    app->imax_current_max_a = current_max_a;
+    app->imax_current_min_a = current_min_a;
+    app->imax_max_power_loss = max_power_loss;
+    app->imax_hw_lim_a = hw_lim_current_a;
+    app->imax_last_a = 0.0f;
+    app->imax_probe_a = current_max_a / 50.0f;
+    if (app->imax_probe_a < (current_min_a * 1.1f)) {
+        app->imax_probe_a = current_min_a * 1.1f;
+    }
+
+    /*
+     * The walk only runs while its first current is under the ceiling. When it is not, the
+     * reference goes straight to the final measurement with the current still zero - its own
+     * arrangement, and reproduced rather than tidied.
+     */
+    if (app->imax_probe_a >= current_max_a) {
+        app->chain = MOTOR_ID_CHAIN_IMAX_RES_FINAL;
+        return motor_id_measure_resistance(app, app->imax_last_a, MOTOR_ID_IMAX_FINAL_SAMPLES,
+                                           false);
+    }
+
+    app->chain = MOTOR_ID_CHAIN_IMAX_SCAN;
+    return motor_id_measure_resistance(app, app->imax_probe_a, MOTOR_ID_IMAX_SCAN_SAMPLES, false);
 }
 
 edge_status_t motor_id_measure_flux_linkage(motor_id_app_t *app) {
