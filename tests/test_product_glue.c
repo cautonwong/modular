@@ -2293,6 +2293,9 @@ static void test_vesc_host_apply_all_foc_command(void **state) {
         assert_float_equal(mc->foc_current_kp, mc->foc_motor_l * 1000.0f, 1e-6f);
         assert_float_equal(mc->foc_current_ki, mc->foc_motor_r * 1000.0f, 1e-6f);
     } else {
+        /* Diagnostic: a deliberate mismatch reports how far the run got - i_max is the walk's own
+         * product, so a zero here means the walk failed and a non-zero means the linkage did. */
+        assert_float_equal(motor_id_get_result(&motor_id)->i_max_a, 0.0f, 1e-6f);
         assert_int_equal(result, -1);
         /*
          * A run that cannot complete leaves the configuration exactly as it was, which is what the
