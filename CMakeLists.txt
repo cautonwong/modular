@@ -90,7 +90,7 @@ edge_add_area(app)
 
 # Legal family x board combinations (D39). An unknown family/board fails above;
 # a known-but-unlisted pair is a product composition error and fails here.
-set(EDGE_LEGAL_FAMILY_BOARD "example:example;meter:example;meter:mps2;meter:riscv_virt")
+set(EDGE_LEGAL_FAMILY_BOARD "example:example;meter:example;meter:mps2;meter:riscv_virt;watch:example;watch:pinetime")
 
 function(edge_add_product name)
     cmake_parse_arguments(P "" "family;board" "apps;infra" ${ARGN})
@@ -110,13 +110,15 @@ function(edge_add_product name)
     # D86: a product is registered exactly once and is permanently bound to one
     # board. The binding is recorded here so firmware targets can only reuse it --
     # they take a product name, never a board, and cannot override this.
-    if(DEFINED EDGE_PRODUCT_${name}_BOARD)
+    get_property(_prev_board GLOBAL PROPERTY EDGE_PRODUCT_${name}_BOARD)
+    if(_prev_board)
         message(FATAL_ERROR
             "edge_add_product(${name}): product already registered (board "
-            "'${EDGE_PRODUCT_${name}_BOARD}'); a product name may only be registered once")
+            "'${_prev_board}'); a product name may only be registered once")
     endif()
-    set(EDGE_PRODUCT_${name}_BOARD "${P_board}" CACHE INTERNAL "Product ${name} board binding")
-    set(EDGE_PRODUCT_${name}_FAMILY "${P_family}" CACHE INTERNAL "Product ${name} family binding")
+    set_property(GLOBAL PROPERTY EDGE_PRODUCT_${name}_BOARD "${P_board}")
+    set(EDGE_PRODUCT_${name}_BOARD "${P_board}" PARENT_SCOPE)
+    set(EDGE_PRODUCT_${name}_FAMILY "${P_family}" PARENT_SCOPE)
 
     set(dep_targets ${EDGE_SYS_TARGET_${P_family}} ${EDGE_BOARD_TARGET_${P_board}})
     foreach(app IN LISTS P_apps)
@@ -204,6 +206,20 @@ edge_add_product(meter_gateway_host family meter board example infra flash uart 
 edge_add_product(meter_rtems family meter board example infra flash apps dlt645)
 if(TARGET meter_rtems)
     target_link_libraries(meter_rtems PRIVATE pal_rtos_rtems)
+endif()
+
+edge_add_product(watch_host family watch board example infra battery_adc cst816s hrs3300 bma421 st7789 flash_spi haptic apps touch_gesture button_handler watch_power heart_rate step_counter watch_time ble_services)
+if(TARGET watch_host)
+    if(NOT WIN32)
+        target_link_libraries(watch_host PRIVATE m)
+    endif()
+endif()
+edge_add_product(pinetime family watch board pinetime infra battery_adc cst816s hrs3300 bma421 st7789 flash_spi haptic rle apps touch_gesture button_handler watch_power heart_rate step_counter watch_time ble_services alarm stopwatch timer watch_settings ble_weather ble_music ble_nav ble_notifications ble_motion ble_fs ble_dfu firmware_validator watch_ui metronome calculator dice ble_passkey flashlight game_paddle game_twos paint)
+
+if(TARGET pinetime)
+    if(NOT WIN32)
+        target_link_libraries(pinetime PRIVATE m)
+    endif()
 endif()
 
 if(EDGE_MODULE_BUILD_THREADX)
