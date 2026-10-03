@@ -241,3 +241,27 @@ edge_status_t ble_notifications_mute_call(ble_notifications_t *self) {
     }
     return self->call_port.send_call_response(self->call_port.self, BLE_NOTIF_CALL_MUTE);
 }
+
+const char *ble_notification_get_title(const ble_notification_item_t *item) {
+    if (item == NULL || !item->valid) {
+        return "";
+    }
+    for (uint8_t i = 0; i < item->message_len; i++) {
+        if (item->message[i] == '\0') {
+            return item->message;
+        }
+    }
+    return "";
+}
+
+const char *ble_notification_get_message(const ble_notification_item_t *item) {
+    if (item == NULL || !item->valid) {
+        return "";
+    }
+    for (uint8_t i = 0; i < item->message_len; i++) {
+        if (item->message[i] == '\0' && (i + 1u < item->message_len)) {
+            return &item->message[i + 1u];
+        }
+    }
+    return item->message;
+}

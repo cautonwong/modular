@@ -75,9 +75,52 @@ static void test_game_paddle_physics_and_score(void **state) {
     assert_int_equal(mock.vibrate_count, 1);
 }
 
+static void test_game_paddle_bounds_and_ceiling_floor_bounces(void **state) {
+    (void)state;
+    mock_paddle_t mock = {.random_val = 2};
+    paddle_motor_if_t motor = {.self = &mock, .vibrate = mock_vibrate};
+    paddle_entropy_if_t entropy = {.self = &mock, .get_random = mock_random};
+
+    game_paddle_app_t app;
+    game_paddle_construct(&app, EDGE_MOD_GAME_PADDLE, 20u, &motor, &entropy);
+    game_paddle_init(&app);
+
+    /* Test paddle clamping at top and bottom */
+    game_paddle_set_paddle_pos(&app, 10u);
+    assert_int_equal(game_paddle_get_paddle_pos(&app), 30u);
+
+    game_paddle_set_paddle_pos(&app, 235u);
+    assert_int_equal(game_paddle_get_paddle_pos(&app), PADDLE_SCREEN_HEIGHT - 31u);
+
+    /* Test ceiling bounce (y <= 1) */
+    app.ball_x = 100;
+    app.ball_y = 1;
+    app.dx = 2;
+    app.dy = -3;
+    game_paddle_tick(&app);
+    assert_true(app.dy > 0);
+
+    /* Test floor bounce */
+    app.ball_x = 100;
+    app.ball_y = PADDLE_SCREEN_HEIGHT - PADDLE_BALL_SIZE - 2;
+    app.dx = 2;
+    app.dy = 3;
+    game_paddle_tick(&app);
+    assert_true(app.dy < 0);
+
+    /* Test right wall collision */
+    app.ball_x = PADDLE_SCREEN_WIDTH - PADDLE_BALL_SIZE - 1;
+    app.ball_y = 100;
+    app.dx = 2;
+    app.dy = 0;
+    game_paddle_tick(&app);
+    assert_true(app.dx < 0);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_game_paddle_physics_and_score),
+        cmocka_unit_test(test_game_paddle_bounds_and_ceiling_floor_bounces),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

@@ -27,6 +27,22 @@ static edge_status_t watch_timer_poll(edge_module_t *module) {
                 }
             }
         }
+    } else if (self->is_triggered) {
+        uint32_t now = get_now_ms(self);
+        uint32_t elapsed = (now >= self->expiry_tick_ms) ? (now - self->expiry_tick_ms) : 0u;
+
+        /* Stop buzzing motor after 10 seconds (10000ms), matching upstream InfiniTime */
+        if (elapsed >= 10000u && self->alert_emitted) {
+            self->alert_emitted = false;
+            if (self->alert != NULL && self->alert->stop_alert != NULL) {
+                (void)self->alert->stop_alert(self->alert->self);
+            }
+        }
+
+        /* Auto-reset expired timer after 1 minute (60000ms), matching upstream InfiniTime */
+        if (elapsed >= 60000u) {
+            watch_timer_reset_expired(self);
+        }
     }
 
     return EDGE_OK;

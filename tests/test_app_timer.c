@@ -88,9 +88,52 @@ static void test_watch_timer_countdown_and_expiry(void **state) {
     assert_int_equal(watch_timer_get_status(&tmr, &st), EDGE_ENOENT);
 }
 
+static void test_watch_timer_auto_stop_and_auto_reset(void **state) {
+    (void)state;
+    g_mock_timer_now_ms = 0;
+    g_timer_alert_started = false;
+    g_timer_alert_stopped = false;
+
+    const timer_clock_if_t clock_if = {
+        .get_tick_ms = mock_timer_get_tick_ms,
+        .self = NULL,
+    };
+    const timer_alert_if_t alert_if = {
+        .start_alert = mock_timer_alert_start,
+        .stop_alert = mock_timer_alert_stop,
+        .self = NULL,
+    };
+
+    watch_timer_app_t tmr;
+    watch_timer_construct(&tmr, EDGE_MOD_WATCH_TIMER, 20u, &clock_if, &alert_if);
+    watch_timer_init(&tmr);
+
+    /* Start 2-second timer at t = 0ms (expiry = 2000ms) */
+    watch_timer_start(&tmr, 2000u);
+
+    /* Trigger expiry at t = 2000ms */
+    g_mock_timer_now_ms = 2000;
+    assert_int_equal(tmr.module.poll(&tmr.module), EDGE_OK);
+    assert_true(g_timer_alert_started);
+    assert_false(g_timer_alert_stopped);
+
+    /* Advance 10 seconds post-expiry (t = 12001ms) -> motor alert stops */
+    g_mock_timer_now_ms = 12001;
+    assert_int_equal(tmr.module.poll(&tmr.module), EDGE_OK);
+    assert_true(g_timer_alert_stopped);
+
+    /* Advance 60 seconds post-expiry (t = 62001ms) -> auto-resets expired timer */
+    g_mock_timer_now_ms = 62001;
+    assert_int_equal(tmr.module.poll(&tmr.module), EDGE_OK);
+
+    watch_timer_status_t st;
+    assert_int_equal(watch_timer_get_status(&tmr, &st), EDGE_ENOENT);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_watch_timer_countdown_and_expiry),
+        cmocka_unit_test(test_watch_timer_auto_stop_and_auto_reset),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

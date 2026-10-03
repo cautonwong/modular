@@ -150,6 +150,20 @@ edge_status_t stopwatch_get_lap(const stopwatch_app_t *self, uint8_t index,
     return EDGE_OK;
 }
 
+uint32_t stopwatch_get_lap_duration_ms(const stopwatch_app_t *self, uint8_t index) {
+    if (self == NULL || index >= STOPWATCH_HIST_SIZE || self->history[index].number == 0u) {
+        return 0u;
+    }
+    if (index + 1u < STOPWATCH_HIST_SIZE && self->history[index + 1u].number != 0u) {
+        if (self->history[index].time_since_start_ms >=
+            self->history[index + 1u].time_since_start_ms) {
+            return self->history[index].time_since_start_ms -
+                   self->history[index + 1u].time_since_start_ms;
+        }
+    }
+    return self->history[index].time_since_start_ms;
+}
+
 bool stopwatch_is_running(const stopwatch_app_t *self) {
     return self && (self->state == STOPWATCH_RUNNING);
 }

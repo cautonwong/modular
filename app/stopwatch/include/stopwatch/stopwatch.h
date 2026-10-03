@@ -56,6 +56,7 @@ edge_status_t stopwatch_add_lap(stopwatch_app_t *self);
 uint16_t stopwatch_get_max_lap_number(const stopwatch_app_t *self);
 edge_status_t stopwatch_get_lap(const stopwatch_app_t *self, uint8_t index,
                                 stopwatch_lap_t *out_lap);
+uint32_t stopwatch_get_lap_duration_ms(const stopwatch_app_t *self, uint8_t index);
 
 bool stopwatch_is_running(const stopwatch_app_t *self);
 bool stopwatch_is_cleared(const stopwatch_app_t *self);
