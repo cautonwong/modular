@@ -75,9 +75,32 @@ static void test_kscan_debounce_filter(void **state) {
     assert_false(g_cb_pressed);
 }
 
+static void test_kscan_ghost_detection(void **state) {
+    (void)state;
+    const kscan_matrix_config_t cfg = {
+        .rows = 4,
+        .cols = 4,
+        .debounce_press_ms = 5,
+        .debounce_release_ms = 5,
+    };
+    kscan_matrix_t kscan;
+    assert_int_equal(kscan_matrix_init(&kscan, &cfg, NULL, NULL), EDGE_OK);
+
+    /* Press (0, 0), (0, 2), and (1, 0) -> (1, 2) is a ghost corner */
+    kscan_matrix_feed_raw(&kscan, 0, 0, true, 10);
+    kscan_matrix_feed_raw(&kscan, 0, 2, true, 10);
+    kscan_matrix_feed_raw(&kscan, 1, 0, true, 10);
+
+    assert_false(kscan_detect_ghosting(&kscan, 0, 0));
+    assert_false(kscan_detect_ghosting(&kscan, 0, 2));
+    assert_false(kscan_detect_ghosting(&kscan, 1, 0));
+    assert_true(kscan_detect_ghosting(&kscan, 1, 2)); /* 4th corner */
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_kscan_debounce_filter),
+        cmocka_unit_test(test_kscan_ghost_detection),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

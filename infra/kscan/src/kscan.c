@@ -69,3 +69,25 @@ bool kscan_matrix_is_pressed(const kscan_matrix_t *self, uint8_t row, uint8_t co
     }
     return self->debounce[row][col].stable_state;
 }
+
+bool kscan_detect_ghosting(const kscan_matrix_t *self, uint8_t row, uint8_t col) {
+    if (self == NULL || row >= self->config.rows || col >= self->config.cols) {
+        return false;
+    }
+    /* Ghosting on a matrix happens when 3 keys forming 3 corners of a rectangle are pressed,
+     * causing the 4th corner (row, col) to register a ghost press */
+    for (uint8_t r = 0; r < self->config.rows; r++) {
+        if (r == row) {
+            continue;
+        }
+        for (uint8_t c = 0; c < self->config.cols; c++) {
+            if (c == col) {
+                continue;
+            }
+            if (self->raw_matrix[row][c] && self->raw_matrix[r][col] && self->raw_matrix[r][c]) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
