@@ -90,7 +90,7 @@ edge_add_area(app)
 
 # Legal family x board combinations (D39). An unknown family/board fails above;
 # a known-but-unlisted pair is a product composition error and fails here.
-set(EDGE_LEGAL_FAMILY_BOARD "example:example;meter:example;meter:mps2;meter:riscv_virt;watch:example;watch:pinetime;example:keyboard_mock;keyboard:keyboard_mock")
+set(EDGE_LEGAL_FAMILY_BOARD "example:example;meter:example;meter:mps2;meter:riscv_virt;watch:example;watch:pinetime;watch:colmi_p8;example:keyboard_mock;keyboard:keyboard_mock;keyboard:nice_nano;keyboard:rpi_pico;keyboard:blackpill;example:colmi_p8;example:nice_nano;example:rpi_pico;example:blackpill;meter:blackpill;meter:rpi_pico")
 
 function(edge_add_product name)
     cmake_parse_arguments(P "" "family;board" "apps;infra" ${ARGN})

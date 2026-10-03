@@ -47,6 +47,7 @@ def _closure(starts, roots) -> set:
 
 
 def check(root: Path) -> tuple:
+    root = root.resolve()
     app_root = root / "app"
     if not app_root.is_dir():
         return (0, ["app/: absent"])
