@@ -547,6 +547,99 @@ static void test_bldc_cycle_integrator_gate_matches_the_reference(void **state) 
     assert_false(bldc_cycle_integrator_adds(5.0f, 10.0f, 100.0f, true, 2.0f, 0.5f, 24.0f));
 }
 
+/*
+ * The sensorless decision (mcpwm.c:1886-1930), driven the way its caller drives it. The thresholds
+ * are the harness's own: at this divider correction the max-scaled limit is 0.041124 and the
+ * configuration's own 0.0363636, and the DELAY threshold at a standstill is half the commutation
+ * time, 100 counts against two per positive sample.
+ */
+static void test_bldc_comm_sensorless_step_matches_the_reference(void **state) {
+    (void)state;
+
+    const bldc_rpm_dep_params_t params = {.sl_cycle_int_limit = 50.0f,
+                                          .sl_bemf_coupling_k = 300.0f,
+                                          .sl_min_erpm = 200.0f,
+                                          .sl_cycle_int_rpm_br = 1000.0f,
+                                          .sl_phase_advance_at_br = 1.0f,
+                                          .sl_min_erpm_cycle_int_limit = 1100.0f,
+                                          .m_bldc_f_sw_max = 40000.0f};
+    const float vdiv_corr = 1.4545455f;
+
+    bldc_rpm_dep_t dep;
+    bldc_rpm_dep_calc(&params, 0.0f, 24.0f, &dep);
+    assert_float_equal(dep.cycle_int_limit_max * (0.0005f * vdiv_corr), 0.041124f, 1e-5f);
+    assert_float_equal(dep.cycle_int_limit * (0.0005f * vdiv_corr), 0.0363636f, 1e-6f);
+
+    bldc_comm_input_t in = {.v_diff = 1.0f,
+                            .pwm_cycles_sum = 100.0f,
+                            .last_pwm_cycles_sum = 100.0f,
+                            .ph_now_raw = 100.0f,
+                            .duty = 0.5f,
+                            .v_in = 24.0f,
+                            .rpm_abs = 0.0f,
+                            .switching_frequency_now = 20000.0f,
+                            .vdiv_corr = vdiv_corr,
+                            .comm_mode = BLDC_COMM_MODE_INTEGRATE,
+                            .has_commutated = false};
+    bldc_comm_state_t integrator_state = {0};
+
+    /* Each cycle integrates 1/20000, so the configuration's own limit of 0.0363636 is 728 of them:
+     * just short of it nothing commutes, and the next one does. */
+    for (int i = 0; i < 727; i++) {
+        assert_false(bldc_comm_sensorless_step(&in, &params, &dep, &integrator_state));
+    }
+    assert_true(integrator_state.cycle_integrator < (dep.cycle_int_limit * (0.0005f * vdiv_corr)));
+
+    bool commuted = false;
+    for (int i = 0; i < 3 && !commuted; i++) {
+        commuted = bldc_comm_sensorless_step(&in, &params, &dep, &integrator_state);
+    }
+    assert_true(commuted);
+    assert_float_equal(integrator_state.cycle_integrator, 0.0f,
+                       1e-9f); /* the integral is reset on it */
+
+    /* With something commutated the running limit applies, which is higher, and the ceiling holds
+     * it there. */
+    in.has_commutated = true;
+    bldc_comm_state_t running = {0};
+    for (int i = 0; i < 727; i++) {
+        assert_false(bldc_comm_sensorless_step(&in, &params, &dep, &running));
+    }
+
+    /* DELAY: two counts per positive sample against a threshold of a hundred, so fifty of them. */
+    dep.comm_time_sum = 200.0f;
+    in.comm_mode = BLDC_COMM_MODE_DELAY;
+    in.has_commutated = false;
+    bldc_comm_state_t delay_state = {0};
+    for (int i = 0; i < 49; i++) {
+        assert_false(bldc_comm_sensorless_step(&in, &params, &dep, &delay_state));
+    }
+    assert_true(bldc_comm_sensorless_step(&in, &params, &dep, &delay_state));
+    assert_float_equal(delay_state.cycle_integrator_iterations, 1.0f, 1e-6f);
+    assert_float_equal(delay_state.cycle_integrator_sum,
+                       50.0f * (1.0f / 20000.0f) / (0.0005f * vdiv_corr), 1e-2f);
+    assert_float_equal(delay_state.cycle_sum, 0.0f, 1e-6f);
+
+    /* A measurement that is not positive forces both back to zero, and commutes nothing. */
+    delay_state.cycle_sum = 50.0f;
+    delay_state.cycle_integrator = 0.1f;
+    in.v_diff = -1.0f;
+    assert_false(bldc_comm_sensorless_step(&in, &params, &dep, &delay_state));
+    assert_float_equal(delay_state.cycle_sum, 0.0f, 1e-9f);
+    assert_float_equal(delay_state.cycle_integrator, 0.0f, 1e-9f);
+
+    /* Guards: nothing to decide with. */
+    assert_false(bldc_comm_sensorless_step(NULL, &params, &dep, &integrator_state));
+    assert_false(bldc_comm_sensorless_step(&in, NULL, &dep, &integrator_state));
+    assert_false(bldc_comm_sensorless_step(&in, &params, NULL, &integrator_state));
+    assert_false(bldc_comm_sensorless_step(&in, &params, &dep, NULL));
+
+    /* A mode that is neither does nothing at all, which the reference reaches by not being in
+     * either branch either. */
+    in.comm_mode = 7u;
+    assert_false(bldc_comm_sensorless_step(&in, &params, &dep, &integrator_state));
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_bldc_hall_tables_match_the_reference),
@@ -562,6 +655,7 @@ int main(void) {
         cmocka_unit_test(test_bldc_drive_direction_and_hall_detect),
         cmocka_unit_test(test_bldc_rpm_dep_matches_the_reference),
         cmocka_unit_test(test_bldc_cycle_integrator_gate_matches_the_reference),
+        cmocka_unit_test(test_bldc_comm_sensorless_step_matches_the_reference),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

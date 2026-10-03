@@ -170,6 +170,56 @@ void bldc_rpm_dep_calc(const bldc_rpm_dep_params_t *params, float rpm_abs, float
 bool bldc_cycle_integrator_adds(float v_diff, float pwm_cycles_sum, float last_pwm_cycles_sum,
                                 bool has_commutated, float ph_now_raw, float duty, float v_in);
 
+/* Reference datatypes.h, the two commutation modes the six-step layer starts a motor in. */
+#define BLDC_COMM_MODE_INTEGRATE 0u
+#define BLDC_COMM_MODE_DELAY 1u
+
+/*
+ * The integrator's own state, which the reference keeps in globals of its sensorless branch and in
+ * a static inside the decision: the integral of the phase difference, the two figures the DELAY
+ * mode accumulates for the cycle-integrator measurement the detection reads back, and the cycle sum
+ * that mode compares against its threshold.
+ */
+typedef struct bldc_comm_state {
+    float cycle_integrator;
+    float cycle_integrator_sum;
+    float cycle_integrator_iterations;
+    float cycle_sum;
+} bldc_comm_state_t;
+
+/*
+ * One cycle of the sensorless branch (mcpwm.c:1886-1930), with its inputs gathered rather than
+ * listed: what the phases measured, where the commutation cycle is, and the machine's own figures.
+ */
+typedef struct bldc_comm_input {
+    float v_diff;              /* the measured phase difference, already taken to zero under ten */
+    float pwm_cycles_sum;      /* the commutation cycle's own progress, in switching periods */
+    float last_pwm_cycles_sum; /* the same figure as the cycle before it */
+    float ph_now_raw;          /* the phase being measured, an ADC count */
+    float duty;                /* the duty being driven with */
+    float v_in;                /* the supply, in the same counts */
+    float rpm_abs;             /* the speed, unsigned */
+    float switching_frequency_now;
+    float vdiv_corr; /* the board's divider correction, VDIV_CORR in conf_general.h:119 */
+    uint8_t comm_mode;
+    bool has_commutated;
+} bldc_comm_input_t;
+
+/*
+ * The decision, in the reference's own order: what the integrator's gate let in is accumulated, and
+ * then the mode decides whether that integral is enough to commutate - INTEGRATE against the speed
+ * -dependent limits (mcpwm.c:1902-1913) or DELAY against a threshold derived from the commutation
+ * time (1914-1929), where the delay also folds the integral into the two figures the detection
+ * reads back.
+ *
+ * Returns whether to commutate, which the reference does by calling commutate(1) and is the
+ * caller's to do here. The state it was given is updated exactly as the reference updates its own,
+ * including the resets on a commutation and the ones a negative measurement forces in the DELAY
+ * mode.
+ */
+bool bldc_comm_sensorless_step(const bldc_comm_input_t *in, const bldc_rpm_dep_params_t *params,
+                               const bldc_rpm_dep_t *dep, bldc_comm_state_t *state);
+
 #ifdef __cplusplus
 }
 #endif
