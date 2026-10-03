@@ -19,12 +19,17 @@ static int32_t read_i32_be(const uint8_t *buf) {
            (int32_t)buf[3];
 }
 
+static int16_t read_i16_be(const uint8_t *buf) {
+    return (int16_t)(((uint16_t)buf[0] << 8) | (uint16_t)buf[1]);
+}
+
 static edge_status_t vesc_can_poll(edge_module_t *mod) {
     vesc_can_app_t *app = (vesc_can_app_t *)edge_module_data(mod);
     const edge_status_t status = vesc_can_process_incoming(app);
 
-    /* The two senders the reference runs from their own threads, on this module's tick instead. */
-    vesc_can_tick_status(app, (float)app->module.period);
+    /* The peers' frames age, the two senders are advanced: the reference runs each of those jobs in
+     * a thread of its own, and this module has one tick. */
+    vesc_can_tick(app, (float)app->module.period);
 
     return status;
 }
@@ -80,6 +85,13 @@ edge_status_t vesc_can_init(vesc_can_app_t *app) {
     app->new_cmd_received = false;
     app->status_1_accum_ms = 0.0f;
     app->status_2_accum_ms = 0.0f;
+    /* The reference's own sentinel for an unused slot, set here rather than by the memset. */
+    for (size_t i = 0u; i < VESC_CAN_STATUS_MSGS_TO_STORE; i++) {
+        app->peers_1[i].id = -1;
+        app->peers_2[i].id = -1;
+        app->peers_3[i].id = -1;
+        app->peers_4[i].id = -1;
+    }
     return EDGE_OK;
 }
 
@@ -214,6 +226,56 @@ edge_status_t vesc_can_send_masked(vesc_can_app_t *app, uint8_t msgs) {
     return status;
 }
 
+/*
+ * mc_interface.c:1665-1700's own loop over the peers: a slot counts while its frame is younger than
+ * a tenth of a second, and each kind contributes what it carries. The reference reads a system
+ * clock for that age; here the module's own tick advances it, which is the same window measured by
+ * the cycle that would have done the reading.
+ */
+void vesc_can_get_peer_totals(const vesc_can_app_t *app, vesc_can_peer_totals_t *out) {
+    if (app == (void *)0 || out == (void *)0) {
+        return;
+    }
+
+    memset(out, 0, sizeof(*out));
+
+    for (size_t i = 0u; i < VESC_CAN_STATUS_MSGS_TO_STORE; i++) {
+        if (app->peers_1[i].id >= 0 && app->peers_1[i].age_ms < VESC_CAN_PEER_TIMEOUT_MS) {
+            out->current_tot += app->peers_1[i].current;
+            out->num_vescs_extra++;
+        }
+
+        if (app->peers_2[i].id >= 0 && app->peers_2[i].age_ms < VESC_CAN_PEER_TIMEOUT_MS) {
+            out->ah_tot += app->peers_2[i].amp_hours;
+            out->ah_charge_tot += app->peers_2[i].amp_hours_charged;
+        }
+
+        if (app->peers_3[i].id >= 0 && app->peers_3[i].age_ms < VESC_CAN_PEER_TIMEOUT_MS) {
+            out->wh_tot += app->peers_3[i].watt_hours;
+            out->wh_charge_tot += app->peers_3[i].watt_hours_charged;
+        }
+
+        if (app->peers_4[i].id >= 0 && app->peers_4[i].age_ms < VESC_CAN_PEER_TIMEOUT_MS) {
+            out->current_in_tot += app->peers_4[i].current_in;
+        }
+    }
+}
+
+void vesc_can_tick(vesc_can_app_t *app, float dt_ms) {
+    if (app == (void *)0 || dt_ms <= 0.0f) {
+        return;
+    }
+
+    for (size_t i = 0u; i < VESC_CAN_STATUS_MSGS_TO_STORE; i++) {
+        app->peers_1[i].age_ms += dt_ms;
+        app->peers_2[i].age_ms += dt_ms;
+        app->peers_3[i].age_ms += dt_ms;
+        app->peers_4[i].age_ms += dt_ms;
+    }
+
+    vesc_can_tick_status(app, dt_ms);
+}
+
 void vesc_can_tick_status(vesc_can_app_t *app, float dt_ms) {
     if (app == (void *)0 || dt_ms <= 0.0f) {
         return;
@@ -284,6 +346,89 @@ edge_status_t vesc_can_send_rpm(vesc_can_app_t *app, uint8_t target_id, float rp
     return app->port.send_frame(app->port.self, can_id, data, 4);
 }
 
+/*
+ * The received status frames' own tables (comm_can.c:2038-2090): a slave's entry is matched by the
+ * id that sent it, or the first free slot is taken, and the arrival restarts its age. The reference
+ * files these under "addressed to all devices", which is why they are handled before the check that
+ * a command must be for this controller - a peer's frame carries the peer's own id.
+ *
+ * Returns true when the frame was one of the four kinds, handled or not.
+ */
+static bool vesc_can_store_peer_frame(vesc_can_app_t *app, vesc_can_packet_id_t cmd, uint8_t id,
+                                      const uint8_t *data, uint8_t len) {
+    switch (cmd) {
+    case CAN_PACKET_STATUS_1:
+        if (len < 8) {
+            return true;
+        }
+        for (size_t i = 0u; i < VESC_CAN_STATUS_MSGS_TO_STORE; i++) {
+            vesc_can_peer_status_t *slot = &app->peers_1[i];
+            if (slot->id == (int8_t)id || slot->id == -1) {
+                slot->id = (int8_t)id;
+                slot->age_ms = 0.0f;
+                slot->rpm = (float)read_i32_be(&data[0]);
+                slot->current = (float)read_i16_be(&data[4]) / 10.0f;
+                slot->duty = (float)read_i16_be(&data[6]) / 1000.0f;
+                break;
+            }
+        }
+        return true;
+
+    case CAN_PACKET_STATUS_2:
+        if (len < 8) {
+            return true;
+        }
+        for (size_t i = 0u; i < VESC_CAN_STATUS_MSGS_TO_STORE; i++) {
+            vesc_can_peer_status_2_t *slot = &app->peers_2[i];
+            if (slot->id == (int8_t)id || slot->id == -1) {
+                slot->id = (int8_t)id;
+                slot->age_ms = 0.0f;
+                slot->amp_hours = (float)read_i32_be(&data[0]) / 1e4f;
+                slot->amp_hours_charged = (float)read_i32_be(&data[4]) / 1e4f;
+                break;
+            }
+        }
+        return true;
+
+    case CAN_PACKET_STATUS_3:
+        if (len < 8) {
+            return true;
+        }
+        for (size_t i = 0u; i < VESC_CAN_STATUS_MSGS_TO_STORE; i++) {
+            vesc_can_peer_status_3_t *slot = &app->peers_3[i];
+            if (slot->id == (int8_t)id || slot->id == -1) {
+                slot->id = (int8_t)id;
+                slot->age_ms = 0.0f;
+                slot->watt_hours = (float)read_i32_be(&data[0]) / 1e4f;
+                slot->watt_hours_charged = (float)read_i32_be(&data[4]) / 1e4f;
+                break;
+            }
+        }
+        return true;
+
+    case CAN_PACKET_STATUS_4:
+        if (len < 8) {
+            return true;
+        }
+        for (size_t i = 0u; i < VESC_CAN_STATUS_MSGS_TO_STORE; i++) {
+            vesc_can_peer_status_4_t *slot = &app->peers_4[i];
+            if (slot->id == (int8_t)id || slot->id == -1) {
+                slot->id = (int8_t)id;
+                slot->age_ms = 0.0f;
+                slot->temp_fet = (float)read_i16_be(&data[0]) / 10.0f;
+                slot->temp_motor = (float)read_i16_be(&data[2]) / 10.0f;
+                slot->current_in = (float)read_i16_be(&data[4]) / 10.0f;
+                slot->pid_pos_now = (float)read_i16_be(&data[6]) / 50.0f;
+                break;
+            }
+        }
+        return true;
+
+    default:
+        return false;
+    }
+}
+
 edge_status_t vesc_can_process_incoming(vesc_can_app_t *app) {
     if (!app || !app->port.receive_frame) {
         return EDGE_OK;
@@ -294,8 +439,14 @@ edge_status_t vesc_can_process_incoming(vesc_can_app_t *app) {
     uint8_t len = 0;
 
     while (app->port.receive_frame(app->port.self, &can_id, data, &len) == EDGE_OK) {
-        uint8_t target_id = (uint8_t)(can_id & 0xFF);
-        vesc_can_packet_id_t cmd = (vesc_can_packet_id_t)((can_id >> 8) & 0xFF);
+        const uint8_t target_id = (uint8_t)(can_id & 0xFF);
+        const vesc_can_packet_id_t cmd = (vesc_can_packet_id_t)((can_id >> 8) & 0xFF);
+
+        /* The status frames are addressed to everyone and carry the sender's own id, so they are
+         * filed before the check that would otherwise drop them. */
+        if (vesc_can_store_peer_frame(app, cmd, target_id, data, len)) {
+            continue;
+        }
 
         if (target_id != app->config.controller_id && target_id != 255) {
             continue; /* Not for this controller */

@@ -69,6 +69,10 @@ void vesc_host_make_flash_sector_port(flash_sector_port_t *out, vesc_host_glue_s
 void vesc_host_make_stream_tx_port(edge_stream_tx_port_t *out, vesc_host_glue_state_t *state);
 void vesc_host_make_motor_provider_port(vesc_motor_provider_port_t *out, foc_core_t *foc);
 
+/* The CAN app's peer tables, as the port the aggregate reads the bus's other controllers through.
+ */
+void vesc_host_make_peer_port(foc_peer_port_t *out, vesc_can_app_t *can);
+
 /*
  * COMM_GET/SET_MCCONF and COMM_GET/SET_APPCONF, served from the configuration aggregate.
  * The streams are the reference's own byte layouts; the aggregate owns the staging copy

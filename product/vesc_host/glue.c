@@ -336,8 +336,8 @@ static edge_status_t config_set_appconf_nostore(void *self, const uint8_t *in, s
  * mc_interface_get_battery_level(). Fields this product has no source for are named zeros with
  * their reasons rather than guesses:
  *   temp_motor    the filtered motor NTC reading the product's sampler delivers
- *   num_vescs     stays 1: the reference aggregates unexpired CAN status frames, and this
- *                 product has no CAN status receive path
+ *   num_vescs     one plus the peers the aggregate can see: the reference aggregates the unexpired
+ *                 CAN status frames, and the CAN app now keeps those tables
  *   controller_id 1 until the app configuration reaches this adapter
  * The two backup counters come from the aggregate, which accumulates them as the reference's
  * mc_interface does: the odometer in whole metres from the tachometer's absolute count, and the
@@ -379,6 +379,25 @@ static edge_status_t motor_get_setup_values(void *self, vesc_setup_values_t *out
     out->fault = (uint8_t)telem.faults;
     out->controller_id = 1u;
     out->num_vescs = 1u;
+
+    /*
+     * The peers the bus has, added the way mc_interface_get_setup_values adds them
+     * (mc_interface.c:1676-1700): each unexpired status frame is another controller, and the
+     * numbers its frames carried join the totals. A product with no CAN leaves the port unset, and
+     * then this machine is the only one in the answer.
+     */
+    if (foc->peers != (void *)0 && foc->peers->get_totals != (void *)0) {
+        foc_peer_totals_t peers;
+        memset(&peers, 0, sizeof(peers));
+        foc->peers->get_totals(foc->peers->self, &peers);
+        out->num_vescs = (uint8_t)(out->num_vescs + peers.num_vescs_extra);
+        out->current_tot += peers.current_tot;
+        out->ah_tot += peers.amp_hours_tot;
+        out->ah_charge_tot += peers.amp_hours_charged_tot;
+        out->wh_tot += peers.watt_hours_tot;
+        out->wh_charge_tot += peers.watt_hours_charged_tot;
+        out->current_in_tot += peers.current_in_tot;
+    }
     out->battery_level =
         foc_battery_level(foc->config.si_battery_type, foc->config.si_battery_cells,
                           foc->config.si_battery_ah, telem.v_bus, &out->wh_batt_left);
@@ -793,6 +812,33 @@ void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_host_ops_ctx_t *ctx
         .detect_apply_all_foc = ops_detect_apply_all_foc,
         .self = ctx,
     };
+}
+
+/*
+ * The CAN app's peer table as the aggregate's own port: the product owns the bus, so it is the
+ * product that answers what is on it. The two totals structs say the same things in each module's
+ * own words, which is what keeps this a translation rather than a shared type.
+ */
+static void vesc_host_peer_totals(void *self, foc_peer_totals_t *out) {
+    vesc_can_peer_totals_t totals;
+    memset(&totals, 0, sizeof(totals));
+    vesc_can_get_peer_totals((const vesc_can_app_t *)self, &totals);
+
+    out->num_vescs_extra = totals.num_vescs_extra;
+    out->current_tot = totals.current_tot;
+    out->amp_hours_tot = totals.ah_tot;
+    out->amp_hours_charged_tot = totals.ah_charge_tot;
+    out->watt_hours_tot = totals.wh_tot;
+    out->watt_hours_charged_tot = totals.wh_charge_tot;
+    out->current_in_tot = totals.current_in_tot;
+}
+
+void vesc_host_make_peer_port(foc_peer_port_t *out, vesc_can_app_t *can) {
+    if (out == (void *)0 || can == (void *)0) {
+        return;
+    }
+
+    *out = (foc_peer_port_t){.get_totals = vesc_host_peer_totals, .self = can};
 }
 
 void vesc_host_make_motor_provider_port(vesc_motor_provider_port_t *out, foc_core_t *foc) {

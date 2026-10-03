@@ -911,6 +911,136 @@ static void test_vesc_host_motor_id_detection(void **state) {
  * channel must not consume another's averaging window. The derived fields of the setup reply are
  * checked against their sources rather than against literals.
  */
+/*
+ * The peers on the bus reach the setup reply through the aggregate's port, which is the product's
+ * own answer because the product owns the bus. With a status frame from one other controller the
+ * reply counts two machines and adds what that controller's frames carried -
+ * mc_interface.c:1676-1700's own arithmetic - and with none it counts one, which is the
+ * single-controller case the other test pins.
+ */
+typedef struct glue_can_mock {
+    uint32_t rx_id;
+    uint8_t rx_data[8];
+    uint8_t rx_len;
+    bool has_rx;
+} glue_can_mock_t;
+
+static edge_status_t glue_can_send(void *self, uint32_t can_id, const uint8_t *data, uint8_t len) {
+    (void)self;
+    (void)can_id;
+    (void)data;
+    (void)len;
+    return EDGE_OK;
+}
+
+static edge_status_t glue_can_receive(void *self, uint32_t *can_id, uint8_t *data, uint8_t *len) {
+    glue_can_mock_t *mock = (glue_can_mock_t *)self;
+    if (mock == (void *)0 || !mock->has_rx) {
+        return EDGE_ENOENT;
+    }
+    mock->has_rx = false;
+    *can_id = mock->rx_id;
+    *len = mock->rx_len;
+    for (uint8_t i = 0u; i < mock->rx_len && i < 8u; i++) {
+        data[i] = mock->rx_data[i];
+    }
+    return EDGE_OK;
+}
+
+static void test_vesc_host_setup_values_count_the_peers_on_the_bus(void **state) {
+    (void)state;
+    vesc_host_glue_state_t glue_state;
+    memset(&glue_state, 0, sizeof(glue_state));
+    glue_state.v_bus = 24.0f;
+    foc_virtual_motor_init(&glue_state.vmotor, 0.05f, 0.00005f, 0.005f, 7, 0.0005f);
+
+    foc_inverter_port_t inverter;
+    vesc_host_make_inverter_port(&inverter, &glue_state);
+    foc_current_port_t current;
+    vesc_host_make_current_port(&current, &glue_state);
+    foc_rotor_port_t rotor;
+    vesc_host_make_rotor_port(&rotor, &glue_state);
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.1f,
+                        .current_ki = 50.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 8.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = false};
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &cfg, &inverter, &current, &rotor);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    glue_can_mock_t mock = {0};
+    vesc_can_port_t can_port = {
+        .send_frame = glue_can_send, .receive_frame = glue_can_receive, .self = &mock};
+    vesc_can_config_t can_cfg = {.controller_id = 1u,
+                                 .baudrate = 500000,
+                                 .can_mode = VESC_CAN_MODE_VESC,
+                                 .status_rate_1_hz = 0.0f,
+                                 .status_rate_2_hz = 0.0f,
+                                 .status_msgs_r1 = 0u,
+                                 .status_msgs_r2 = 0u};
+    vesc_can_app_t can;
+    vesc_can_construct(&can, EDGE_MOD_VESC_CAN, 20u, &can_cfg, &can_port);
+    assert_int_equal(vesc_can_init(&can), EDGE_OK);
+
+    foc_peer_port_t peer_port;
+    vesc_host_make_peer_port(&peer_port, &can);
+    foc_core_set_peer_port(&foc, &peer_port);
+
+    vesc_motor_provider_port_t port;
+    vesc_host_make_motor_provider_port(&port, &foc);
+
+    vesc_setup_values_t setup;
+    assert_int_equal(port.get_setup_values(port.self, &setup), EDGE_OK);
+    assert_int_equal(setup.num_vescs, 1u);
+
+    /* Controller 2 reports 20 A and its own amp-hour total. */
+    mock.rx_id = ((uint32_t)CAN_PACKET_STATUS_1 << 8) | 2u;
+    mock.rx_len = 8u;
+    mock.rx_data[0] = 0;
+    mock.rx_data[1] = 0;
+    mock.rx_data[2] = 0x03;
+    mock.rx_data[3] = 0xE8;
+    mock.rx_data[4] = 0x00;
+    mock.rx_data[5] = 0xC8; /* 200 -> 20 A */
+    mock.rx_data[6] = 0;
+    mock.rx_data[7] = 0;
+    mock.has_rx = true;
+    assert_int_equal(vesc_can_process_incoming(&can), EDGE_OK);
+
+    mock.rx_id = ((uint32_t)CAN_PACKET_STATUS_2 << 8) | 2u;
+    mock.rx_data[0] = 0;
+    mock.rx_data[1] = 0;
+    mock.rx_data[2] = 0x03;
+    mock.rx_data[3] = 0xE8;
+    mock.rx_data[4] = 0;
+    mock.rx_data[5] = 0;
+    mock.rx_data[6] = 0;
+    mock.rx_data[7] = 100;
+    mock.has_rx = true;
+    assert_int_equal(vesc_can_process_incoming(&can), EDGE_OK);
+
+    assert_int_equal(port.get_setup_values(port.self, &setup), EDGE_OK);
+    assert_int_equal(setup.num_vescs, 2u);
+    /* The peer's own 20 A on top of this machine's, and its hours on top of the totals. */
+    foc_telemetry_t telem;
+    foc_core_get_telemetry(&foc, &telem);
+    assert_float_equal(setup.current_tot, telem.current_abs + 20.0f, 1e-3f);
+    assert_float_equal(setup.ah_tot, telem.amp_hours + 0.1f, 1e-3f);
+    assert_float_equal(setup.ah_charge_tot, telem.amp_hours_charged + 0.01f, 1e-3f);
+}
+
 static void test_vesc_host_masked_value_adapters(void **state) {
     (void)state;
     vesc_host_glue_state_t glue_state;
@@ -2335,6 +2465,7 @@ int main(void) {
         cmocka_unit_test(test_vesc_host_temperature_sampler),
         cmocka_unit_test(test_vesc_host_motor_id_detection),
         cmocka_unit_test(test_vesc_host_masked_value_adapters),
+        cmocka_unit_test(test_vesc_host_setup_values_count_the_peers_on_the_bus),
         cmocka_unit_test(test_vesc_host_adapter_guards),
         cmocka_unit_test(test_vesc_host_config_and_terminal_ports),
         cmocka_unit_test(test_vesc_host_adapters_nothing_called),
