@@ -93,6 +93,28 @@ float bldc_bemf_coupling_k(float avg_cycle_integrator_running, float int_limit, 
                            float rpm);
 
 /*
+ * conf_general_detect_motor_param's staged configuration (conf_general.c:525-536): before any
+ * attempt the reference turns the motor into a sensorless BLDC one that commutes by integrating,
+ * with the caller's minimum speed and the four other figures it starts from. The remaining fields
+ * the reference leaves alone - the phase advance at braking, the coupling constant, the cycle limit
+ * and its own speed floor - are the ones its configuration was carrying, so they are literals as
+ * they are worked out there, and the direction is forced forwards.
+ */
+typedef struct bldc_staged_config {
+    uint8_t motor_type;
+    uint8_t sensor_mode;
+    uint8_t comm_mode;
+    float sl_phase_advance_at_br;
+    float sl_min_erpm;
+    float sl_bemf_coupling_k;
+    float sl_cycle_int_limit;
+    float sl_min_erpm_cycle_int_limit;
+    bool m_invert_direction;
+} bldc_staged_config_t;
+
+void bldc_stage_sensorless_bldc(float min_rpm, bldc_staged_config_t *out);
+
+/*
  * mcpwm.c:2302-2307, mcpwm_read_hall_phase: the three hall pins as the reading the commutation is
  * driven by, bit zero first. Nothing is filtered here - a reading of nought or seven is a reading,
  * and the reference assigns it as the step at the site below (mcpwm.c:1940). Its own table builder

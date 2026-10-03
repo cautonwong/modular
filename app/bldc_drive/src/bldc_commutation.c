@@ -103,6 +103,25 @@ float bldc_bemf_coupling_k(float avg_cycle_integrator_running, float int_limit, 
     return coupling;
 }
 
+void bldc_stage_sensorless_bldc(float min_rpm, bldc_staged_config_t *out) {
+    if (out == (void *)0) {
+        return;
+    }
+
+    /* conf_general.c:525-534, its nine assignments in its own order. The three enums are the
+     * reference's own: MOTOR_TYPE_BLDC is nought (datatypes.h:115), SENSOR_MODE_SENSORLESS nought
+     * (:53) and COMM_MODE_INTEGRATE nought (:48). */
+    out->motor_type = 0u;  /* MOTOR_TYPE_BLDC */
+    out->sensor_mode = 0u; /* SENSOR_MODE_SENSORLESS */
+    out->comm_mode = BLDC_COMM_MODE_INTEGRATE;
+    out->sl_phase_advance_at_br = 1.0f;
+    out->sl_min_erpm = min_rpm;
+    out->sl_bemf_coupling_k = 300.0f;
+    out->sl_cycle_int_limit = 50.0f;
+    out->sl_min_erpm_cycle_int_limit = 1100.0f;
+    out->m_invert_direction = false;
+}
+
 bool bldc_sensorless_now(uint8_t sensor_mode, float rpm, float hall_sl_erpm) {
     /* mcpwm.c:2587-2593, whose speed comparison is against the absolute value of its own rpm. */
     return (sensor_mode == BLDC_SENSOR_MODE_SENSORLESS) ||
