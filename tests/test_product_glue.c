@@ -2293,19 +2293,15 @@ static void test_vesc_host_apply_all_foc_command(void **state) {
         assert_float_equal(mc->foc_current_kp, mc->foc_motor_l * 1000.0f, 1e-6f);
         assert_float_equal(mc->foc_current_ki, mc->foc_motor_r * 1000.0f, 1e-6f);
     } else {
-        /* Diagnostic: a deliberate mismatch reports how far the run got - i_max is the walk's own
-         * product, so a zero here means the walk failed and a non-zero means the linkage did. */
-        assert_float_equal(motor_id_get_result(&motor_id)->i_max_a, 0.0f, 1e-6f);
-        assert_int_equal(result, -1);
         /*
-         * A run that cannot complete leaves the configuration exactly as it was, which is what the
-         * reference's own saved copy is for: the current-loop gain is still the default the module
-         * built it with, not one half of a failed measurement. On this plant the flux linkage half
-         * is the stage that declines - it answers ENOTSUP where it has nothing to measure with - so
-         * what proves the run got that far is the resistance it did measure.
+         * The run has to complete on this plant: the walk and the linkage are both driven here the
+         * way their own commands drive them, so a failure means one of them was given something it
+         * cannot work with rather than that the plant is too weak. Asserting the completion is what
+         * makes the branch above the one that runs - the evidence for this command is the
+         * configuration it writes, not the fact that it returned.
          */
-        assert_float_equal(motor_config_get_mc(cfg)->foc_current_kp, 0.03f, 1e-6f);
-        assert_true(motor_id_get_result(&motor_id)->r_ohm > 0.0f);
+        assert_int_equal(status, EDGE_OK);
+        assert_int_equal(result, 0);
     }
 
     /* Nothing to drive it with. */
