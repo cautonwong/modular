@@ -85,6 +85,44 @@ typedef struct bldc_hall_commutation {
 void bldc_hall_commutation(int comm_step, int hall_phase, bool running, bool has_commutated,
                            bldc_hall_commutation_t *out);
 
+/*
+ * mcpwm.c:2302-2304, mcpwm_read_hall_phase: the reading looked up in the half of the table the
+ * commanded direction selects - from index zero for one direction and from index eight for the
+ * other, which is one sixteen-entry array there and the two halves the table builder makes here.
+ * The direction is the reference's own sense of the word: it is set from the commanded duty's sign
+ * (mcpwm.c:1024-1028), so a motor driven backwards reads the other half.
+ */
+int bldc_hall_phase_from_table(const int8_t forward[8], const int8_t reverse[8], uint8_t reading,
+                               int direction);
+
+/*
+ * The hall-detection table (mcpwm.c:92, :1874-1877, :2242, :2257-2299): eight readings by seven
+ * steps, counted while the motor is run sensorless, and read back as the table the configuration
+ * carries - one step per reading, or minus one where the reading never named one.
+ *
+ * The counting gate is the reference's own: a sample is collected only while the phase difference
+ * is below fifty counts, which is the first half of a commutation cycle, positive timing being
+ * better than negative when the two are misaligned (mcpwm.c:1872-1875). That comparison is against
+ * raw counts, so it belongs to whatever reads the phases rather than here; the caller says whether
+ * the sample came from that half.
+ */
+typedef int bldc_hall_detect_counts_t[8][7];
+
+/* mcpwm.c:2266-2268: a reading names a step only when more than fifteen samples say so. */
+#define BLDC_HALL_DETECT_MIN_SAMPLES 15
+
+void bldc_hall_detect_reset(bldc_hall_detect_counts_t counts);
+void bldc_hall_detect_sample(bldc_hall_detect_counts_t counts, uint8_t reading, int comm_step,
+                             bool in_first_half);
+
+/*
+ * mcpwm.c:2257-2299's three answers: zero for a table where every reading but two names a step and
+ * six different steps are named in all, minus one for anything else, and minus three when the
+ * sensor port is not a hall one at all - which the caller knows about its own hardware and says
+ * here.
+ */
+int bldc_hall_detect_result(bldc_hall_detect_counts_t counts, bool hall_sensor_port, int8_t out[8]);
+
 #ifdef __cplusplus
 }
 #endif

@@ -78,6 +78,19 @@ typedef struct bldc_drive {
     const bldc_hall_port_t *hall;
     const bldc_phase_port_t *phase;
     bool has_commutated;
+
+    /*
+     * The commanded direction, which is the reference's own sense of the word: set from the sign of
+     * the duty it is driving with (mcpwm.c:1024-1028), and it is what selects the table half a hall
+     * reading is looked up in.
+     */
+    int direction;
+
+    /*
+     * The hall-detection samples (mcpwm.c:92), which its sensorless branch counts and
+     * COMM_DETECT_MOTOR_PARAM reads back as the configuration's own table.
+     */
+    bldc_hall_detect_counts_t hall_detect_counts;
 } bldc_drive_t;
 
 void bldc_drive_construct(bldc_drive_t *self, uint32_t module_id, uint32_t priority,
@@ -89,6 +102,17 @@ void bldc_drive_set_rpm(bldc_drive_t *self, float rpm);
 
 void bldc_drive_set_hall_port(bldc_drive_t *self, const bldc_hall_port_t *port);
 void bldc_drive_set_phase_port(bldc_drive_t *self, const bldc_phase_port_t *port);
+
+/* The commanded direction, one for forwards and nought for backwards, as mcpwm.c:1024-1028 sets it.
+ */
+void bldc_drive_set_direction(bldc_drive_t *self, int direction);
+int bldc_drive_get_direction(const bldc_drive_t *self);
+
+/* mcpwm.c:2242 and :2257: the detection table, reset before a run and read back after one. */
+void bldc_drive_hall_detect_reset(bldc_drive_t *self);
+void bldc_drive_hall_detect_sample(bldc_drive_t *self, bool in_first_half);
+int bldc_drive_hall_detect_result(bldc_drive_t *self, bool hall_sensor_port, int8_t out[8]);
+const bldc_hall_detect_counts_t *bldc_drive_hall_detect_counts(const bldc_drive_t *self);
 
 /*
  * One hall-driven commutation, which is mcpwm.c:1939-1952's branch: the reading is taken, the
