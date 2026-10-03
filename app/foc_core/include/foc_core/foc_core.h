@@ -291,6 +291,27 @@ typedef struct foc_telemetry {
     float watt_hours_charged;
 } foc_telemetry_t;
 
+/*
+ * The peers on the bus, as mc_interface_get_setup_values reads them (mc_interface.c:1665-1700): the
+ * numbers the unexpired status frames carry, which the reference reaches for directly and this
+ * aggregate is handed through a port. It is a consumer-defined port like every other here - the
+ * aggregate says what it needs, and the product that owns the bus answers it.
+ */
+typedef struct foc_peer_totals {
+    uint8_t num_vescs_extra;
+    float current_tot;
+    float amp_hours_tot;
+    float amp_hours_charged_tot;
+    float watt_hours_tot;
+    float watt_hours_charged_tot;
+    float current_in_tot;
+} foc_peer_totals_t;
+
+typedef struct foc_peer_port {
+    void *self;
+    void (*get_totals)(void *self, foc_peer_totals_t *out);
+} foc_peer_port_t;
+
 typedef struct foc_core {
     edge_module_t module;
 
@@ -401,6 +422,10 @@ typedef struct foc_core {
      */
     float lo_current_max;
     float lo_current_min;
+
+    /* The bus's peers, when the product has a bus to answer from. Optional for the same reason the
+     * storage port is: a board with no CAN has nothing to hand in. */
+    const foc_peer_port_t *peers;
     float last_v_bus;
     float last_ia;
     float last_ib;
@@ -635,6 +660,8 @@ void foc_core_arm_current_off_delay(foc_core_t *self, float delay_sec);
  * and why, is written down where the terms live.
  */
 void foc_core_update_limits(foc_core_t *self);
+
+void foc_core_set_peer_port(foc_core_t *self, const foc_peer_port_t *port);
 edge_status_t foc_core_set_duty(foc_core_t *self, float duty_target);
 edge_status_t foc_core_set_rpm(foc_core_t *self, float rpm_target);
 edge_status_t foc_core_set_pos(foc_core_t *self, float pos_target_deg);

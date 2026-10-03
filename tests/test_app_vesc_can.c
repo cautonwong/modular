@@ -429,6 +429,118 @@ static void test_vesc_can_status_scheduling(void **state) {
     assert_int_equal((int16_t)((uint16_t)s5->data[6] << 8 | (uint16_t)s5->data[7]), 0);
 }
 
+/*
+ * The receiving side's own tables: mc_interface.c:1676-1700 counts every peer whose status frame is
+ * younger than a tenth of a second and adds what its frames carried to the totals, and
+ * comm_can.c:2032-2090 is the side that files them. Two things are asserted that are easy to get
+ * wrong: a status frame carries the *sender's* id, so it must not be dropped by the check that a
+ * command is addressed to this controller; and each kind of frame keeps its own table, so a peer
+ * that sends only status 1 still counts as a controller without contributing hours.
+ */
+static void test_vesc_can_peer_frames_and_totals(void **state) {
+    (void)state;
+    mock_can_bus_t bus = {0};
+    vesc_can_port_t port = {.send_frame = mock_send, .receive_frame = mock_receive, .self = &bus};
+    vesc_can_config_t config = {.controller_id = 7u,
+                                .baudrate = 500000,
+                                .can_mode = VESC_CAN_MODE_VESC,
+                                .status_rate_1_hz = 0.0f,
+                                .status_rate_2_hz = 0.0f,
+                                .status_msgs_r1 = 0u,
+                                .status_msgs_r2 = 0u};
+
+    vesc_can_app_t app;
+    vesc_can_construct(&app, EDGE_MOD_VESC_CAN, 20u, &config, &port);
+    assert_int_equal(vesc_can_init(&app), EDGE_OK);
+
+    vesc_can_peer_totals_t totals;
+    vesc_can_get_peer_totals(&app, &totals);
+    assert_int_equal(totals.num_vescs_extra, 0);
+
+    /* Controller 2's status 1: 4000 erpm, 12.5 A forward, half duty. */
+    bus.rx_id = ((uint32_t)CAN_PACKET_STATUS_1 << 8) | 2u;
+    bus.rx_len = 8u;
+    bus.rx_data[0] = 0x00;
+    bus.rx_data[1] = 0x00;
+    bus.rx_data[2] = 0x0F;
+    bus.rx_data[3] = 0xA0;
+    bus.rx_data[4] = 0x00;
+    bus.rx_data[5] = 0x7D; /* 125 -> 12.5 A */
+    bus.rx_data[6] = 0x01;
+    bus.rx_data[7] = 0xF4; /* 500 -> 0.5 */
+    bus.has_rx = true;
+    assert_int_equal(vesc_can_process_incoming(&app), EDGE_OK);
+
+    vesc_can_get_peer_totals(&app, &totals);
+    assert_int_equal(totals.num_vescs_extra, 1);
+    assert_float_equal(totals.current_tot, 12.5f, 1e-4f);
+    assert_float_equal(totals.ah_tot, 0.0f, 1e-6f); /* no status 2 yet, and its table is its own */
+
+    /* Status 2 and 3 and 4 from the same peer: the hours and the input current. */
+    bus.rx_id = ((uint32_t)CAN_PACKET_STATUS_2 << 8) | 2u;
+    bus.rx_data[0] = 0;
+    bus.rx_data[1] = 0;
+    bus.rx_data[2] = 0;
+    bus.rx_data[3] = 10; /* 10 -> 1e-3 */
+    bus.rx_data[4] = 0;
+    bus.rx_data[5] = 0;
+    bus.rx_data[6] = 0;
+    bus.rx_data[7] = 25;
+    bus.has_rx = true;
+    assert_int_equal(vesc_can_process_incoming(&app), EDGE_OK);
+
+    bus.rx_id = ((uint32_t)CAN_PACKET_STATUS_3 << 8) | 2u;
+    bus.rx_data[0] = 0;
+    bus.rx_data[1] = 0;
+    bus.rx_data[2] = 0;
+    bus.rx_data[3] = 50;
+    bus.rx_data[4] = 0;
+    bus.rx_data[5] = 0;
+    bus.rx_data[6] = 0;
+    bus.rx_data[7] = 75;
+    bus.has_rx = true;
+    assert_int_equal(vesc_can_process_incoming(&app), EDGE_OK);
+
+    bus.rx_id = ((uint32_t)CAN_PACKET_STATUS_4 << 8) | 2u;
+    bus.rx_data[0] = 0;
+    bus.rx_data[1] = 0;
+    bus.rx_data[2] = 0;
+    bus.rx_data[3] = 0;
+    bus.rx_data[4] = 0x00;
+    bus.rx_data[5] = 0x64; /* 100 -> 10 A of input current */
+    bus.rx_data[6] = 0;
+    bus.rx_data[7] = 0;
+    bus.has_rx = true;
+    assert_int_equal(vesc_can_process_incoming(&app), EDGE_OK);
+
+    vesc_can_get_peer_totals(&app, &totals);
+    assert_int_equal(totals.num_vescs_extra, 1); /* one controller, four kinds of frame */
+    assert_float_equal(totals.current_tot, 12.5f, 1e-4f);
+    assert_float_equal(totals.ah_tot, 1e-3f, 1e-6f);
+    assert_float_equal(totals.ah_charge_tot, 25e-4f, 1e-6f);
+    assert_float_equal(totals.wh_tot, 5e-3f, 1e-6f);
+    assert_float_equal(totals.wh_charge_tot, 75e-4f, 1e-6f);
+    assert_float_equal(totals.current_in_tot, 10.0f, 1e-4f);
+
+    /* A tenth of a second later the frames are stale and the peer stops counting, though its slot
+     * stays where it was - the reference tests the age, it does not clear the table. */
+    vesc_can_tick(&app, 101.0f);
+    vesc_can_get_peer_totals(&app, &totals);
+    assert_int_equal(totals.num_vescs_extra, 0);
+    assert_float_equal(totals.current_tot, 0.0f, 1e-6f);
+    assert_float_equal(totals.current_in_tot, 0.0f, 1e-6f);
+
+    /* A second controller takes the next free slot, and its own numbers are its own. */
+    bus.rx_id = ((uint32_t)CAN_PACKET_STATUS_1 << 8) | 3u;
+    bus.rx_data[4] = 0x00;
+    bus.rx_data[5] = 0x0A; /* 10 -> 1 A */
+    bus.has_rx = true;
+    assert_int_equal(vesc_can_process_incoming(&app), EDGE_OK);
+    vesc_can_get_peer_totals(&app, &totals);
+    assert_int_equal(totals.num_vescs_extra, 1);
+    assert_float_equal(totals.current_tot, 1.0f, 1e-4f);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -439,6 +551,7 @@ int main(void) {
         cmocka_unit_test(test_vesc_can_rx_dispatch_branches),
         cmocka_unit_test(test_vesc_can_send_buffer_framing),
         cmocka_unit_test(test_vesc_can_status_scheduling),
+        cmocka_unit_test(test_vesc_can_peer_frames_and_totals),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

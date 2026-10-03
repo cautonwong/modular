@@ -1306,6 +1306,13 @@ void foc_core_arm_current_off_delay(foc_core_t *self, float delay_sec) {
     }
 }
 
+void foc_core_set_peer_port(foc_core_t *self, const foc_peer_port_t *port) {
+    if (self == (void *)0) {
+        return;
+    }
+    self->peers = port;
+}
+
 edge_status_t foc_core_set_current_rel(foc_core_t *self, float rel) {
     if (self == (void *)0) {
         return EDGE_EINVAL;

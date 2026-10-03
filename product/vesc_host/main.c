@@ -367,6 +367,12 @@ int main(void) {
     }
 
     vesc_host_ops_ctx_t ops_ctx = {.term = &term_app, .can = &can_app};
+
+    /* The aggregate reads the bus's other controllers through this port, which is the product's own
+     * answer because the product is what owns the bus. */
+    foc_peer_port_t peer_port;
+    vesc_host_make_peer_port(&peer_port, &can_app);
+    foc_core_set_peer_port(&foc, &peer_port);
     vesc_comm_ops_port_t ops_port;
     vesc_host_make_ops_port(&ops_port, &ops_ctx);
 

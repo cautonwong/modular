@@ -77,6 +77,47 @@ typedef struct vesc_can_config {
     uint8_t status_msgs_r2;
 } vesc_can_config_t;
 
+/*
+ * Reference comm_can.h:27: ten slots per kind of status frame, and the receiving side matches a
+ * slot by the sending controller's id or takes the first free one (comm_can.c:2038-2090). The
+ * reference keeps four of these tables - the frames carry different things - and so does this port.
+ */
+#define VESC_CAN_STATUS_MSGS_TO_STORE 10u
+
+/* mc_interface.c:1678: a peer counts while its frame is under a tenth of a second old. */
+#define VESC_CAN_PEER_TIMEOUT_MS 100.0f
+
+typedef struct vesc_can_peer_status {
+    int8_t id; /* -1 until the slot is used, as the reference's own sentinel */
+    float age_ms;
+    float rpm;
+    float current;
+    float duty;
+} vesc_can_peer_status_t;
+
+typedef struct vesc_can_peer_status_2 {
+    int8_t id;
+    float age_ms;
+    float amp_hours;
+    float amp_hours_charged;
+} vesc_can_peer_status_2_t;
+
+typedef struct vesc_can_peer_status_3 {
+    int8_t id;
+    float age_ms;
+    float watt_hours;
+    float watt_hours_charged;
+} vesc_can_peer_status_3_t;
+
+typedef struct vesc_can_peer_status_4 {
+    int8_t id;
+    float age_ms;
+    float temp_fet;
+    float temp_motor;
+    float current_in;
+    float pid_pos_now;
+} vesc_can_peer_status_4_t;
+
 typedef struct vesc_can_app {
     edge_module_t module;
     vesc_can_config_t config;
@@ -90,6 +131,15 @@ typedef struct vesc_can_app {
      * own period, and here that period is accumulated against the module's tick. */
     float status_1_accum_ms;
     float status_2_accum_ms;
+    /*
+     * The peers' frames, one table per kind, and the same shape the reference keeps them in. A
+     * frame's own arrival is what its age counts from, so a peer that stops sending falls out of
+     * the totals a tenth of a second later.
+     */
+    vesc_can_peer_status_t peers_1[VESC_CAN_STATUS_MSGS_TO_STORE];
+    vesc_can_peer_status_2_t peers_2[VESC_CAN_STATUS_MSGS_TO_STORE];
+    vesc_can_peer_status_3_t peers_3[VESC_CAN_STATUS_MSGS_TO_STORE];
+    vesc_can_peer_status_4_t peers_4[VESC_CAN_STATUS_MSGS_TO_STORE];
 } vesc_can_app_t;
 
 void vesc_can_construct(vesc_can_app_t *app, uint32_t module_id, uint32_t priority,
@@ -101,6 +151,24 @@ edge_status_t vesc_can_send_status_2(vesc_can_app_t *app);
 edge_status_t vesc_can_send_status_3(vesc_can_app_t *app);
 edge_status_t vesc_can_send_status_4(vesc_can_app_t *app);
 edge_status_t vesc_can_send_status_5(vesc_can_app_t *app);
+
+/*
+ * What the received frames add up to, which is what mc_interface_get_setup_values does with them
+ * (mc_interface.c:1665-1700): every peer whose frame is still under a tenth of a second old counts,
+ * and its own numbers join the totals. num_vescs_extra is those peers, so the caller's own machine
+ * is the one it does not include.
+ */
+typedef struct vesc_can_peer_totals {
+    uint8_t num_vescs_extra;
+    float current_tot;
+    float ah_tot;
+    float ah_charge_tot;
+    float wh_tot;
+    float wh_charge_tot;
+    float current_in_tot;
+} vesc_can_peer_totals_t;
+
+void vesc_can_get_peer_totals(const vesc_can_app_t *app, vesc_can_peer_totals_t *out);
 
 /*
  * Reference comm_can.c:1470, send_can_status: the mask chooses which of the six frames go out. Bits
@@ -115,6 +183,12 @@ edge_status_t vesc_can_send_masked(vesc_can_app_t *app, uint8_t msgs);
  * period that is not a whole number of ticks still averages to the configured rate.
  */
 void vesc_can_tick_status(vesc_can_app_t *app, float dt_ms);
+
+/*
+ * The module's whole tick: the peers' frames age by it, and the two senders are advanced by it. The
+ * reference has a thread per job; here one tick does both, in the order a cycle would.
+ */
+void vesc_can_tick(vesc_can_app_t *app, float dt_ms);
 
 edge_status_t vesc_can_send_duty(vesc_can_app_t *app, uint8_t target_id, float duty);
 
