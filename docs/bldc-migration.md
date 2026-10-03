@@ -573,6 +573,11 @@ D1 顺手暴露的两件事（都不在上表里，但会影响后续）：
 | E2 | `vesc_host` 进 CI `product-matrix` 运行列表 | 已完成 ✓（产品自检：故障或未起转即非零退出，CI 只判退出码） |
 | E3 | 在 `adr-conformance.md` 登记 `bldc` family 与全部已知偏差 | 已完成 ✓ |
 | E4 | 未接入但存在的模块明确处置 | 已完成 ✓（结论见下表） |
+| F | **角度传感器 + 六步驱动层**（新定义下）：① 霍尔输入端口（原始三相霍尔 → 扇区）与编码器族（ABI/AS5047/TS5700/SI-1，`encoder/` 实测 **5099 行**）；② 六步换相层（`motor/mcpwm.c` 实测 **3021 行**）：Hall→相位两张表（`mcpwm_init_hall_table` 的 `fwd_to_rev[7]={-1,1,6,5,4,3,2}` 正反向表 ✓）、`commutate(steps)` 的 1..6 环绕与「仅 `BLDC && sensorless_now` 才推进步数」的门 ✓、`update_rpm_tacho()` 的 ±环绕归一（`>3 ⇒ -6`、`<-2 ⇒ +6`）与两个计速器 ✓、`update_sensor_mode()` 的 `SENSORLESS / HYBRID + hall_sl_erpm` 判定 ✓、`set_next_comm_step` 的相位输出、`comm_mode` 的 INTEGRATE/DELAY 启动、`sl_*` 无感积分器与 `pwm_cycles` 积分器；③ 霍尔表检测与 `COMM_DETECT_MOTOR_PARAM` 解封。**验收**：每件与参考逐位对照（编译参考本体跑差分夹出 golden，同 B3/B5 体例 ✓），并让 `motor_id_detect_hall` 从 ENOTSUP 桩变成真过程 ✓。**这一行同时解掉当前唯一的审计阻塞项** ✓ |
+| G | **剩余硬件面**：STM32 闪存驱动（现在变量存储是 RAM 表 ✓）、CAN 外设（`soc/stm32f4` 的 bxCAN 收发与中断 ✓）、ADC 常规通道的 DMA 半场（供电电压与温度 ✓）、`board/vesc6` 的死区与热限值（后者解掉 `update_override_limits` 的 FET 温度组 ✓）。**验收**：ARM 交叉编译 + 预算/尺寸门禁 + QEMU 执行级冒烟，与 D 期同口径 ✓ |
+| H | **剩余应用与命令面**：`applications/` 实测 **6498 行**（PAS/自定义/PPM 剩余/ADC 剩余/UART comm/IO board/伺服 ✓）、`comm/` 剩余 6048 行里的 CAN 转发族命令与 USB/UART 命令面 ✓、`driver/` 实测 **4982 行**（DRV8320/23S、IMU、IO 扩展 ✓，`driver/drv83xx` 已有 DRV8301 ✓）、BMS 写入路径（`bms.c` 747 行）与 IMU ✓。**验收**：逐命令的线上字节与参考的回包一致（同 A 期体例 ✓） |
+| I | **hwconf 逐板**（实测 **23324 行**）：按产品逐个绑定，每块板一个 `board/*` + 一个 `product/*`，限值/引脚/传感器类型从板级头进配置 ✓（D3 的处置表随之逐条切换为「已绑定」✓）。**验收**：每块板至少交叉编译 + 预算门禁；有仿真的板子进 QEMU ✓ |
+| J | **vendored 迁入**（按老板 2026-10-01 的定义 ✓）：`ChibiOS_3.0.5`（实测 **162783 行**）与 `lispBM`（实测 **149474 行**）作为 vendored 目录整体纳入本仓并能在其上构建（本仓现有的 `pal/`+`sys/` 不因此废弃，两者共存并按产品选择 ✓）；`lispBM/lispif_vesc_extensions.c` 的扩展面按 H 期的体例接回 ✓。**不迁**：`qmlui/`（上位机 UI）与 `blackmagic/`（调试探针固件）✓ —— 老板明确排除 ✓。**验收**：vendored 目录逐字入库 + 在其上构建出至少一个 firmware 目标 + 许可与来源说明写进 `docs/` ✓ |
 
 ### E4 的处置结论（三选一，不留空白）
 
