@@ -37,12 +37,17 @@ typedef struct vesc_can_status {
     float current_motor;
     float duty_cycle;
     float amp_hours;
+    float amp_hours_charged;
     float watt_hours;
+    float watt_hours_charged;
     float temp_fet;
     float temp_motor;
     float current_in;
     float v_in;
     float pid_pos;
+    /* Reference comm_can.c:1256: status 5's first field is the tachometer, which the aggregate
+     * keeps in its own right rather than deriving from the speed. */
+    int32_t tachometer;
 } vesc_can_status_t;
 
 typedef struct vesc_can_port {
@@ -51,10 +56,25 @@ typedef struct vesc_can_port {
     edge_status_t (*receive_frame)(void *self, uint32_t *can_id, uint8_t *data, uint8_t *len);
 } vesc_can_port_t;
 
+/*
+ * Reference datatypes.h:286: the modes the status threads are gated on. Only the first is a
+ * scheduling mode; the UAVCAN one takes the frames elsewhere, which is why the gate exists at all.
+ */
+typedef enum { VESC_CAN_MODE_VESC = 0, VESC_CAN_MODE_VESC_UAVCAN = 1 } vesc_can_mode_t;
+
 typedef struct vesc_can_config {
     uint8_t controller_id;
     uint32_t baudrate;
-    float status_rate_hz;
+    uint8_t can_mode;
+    /*
+     * Reference comm_can.c:1526-1565: two periodic senders, each with its own rate in hertz and its
+     * own mask of which status frames it sends - bit 0 is status 1, bit 1 status 2, and so on. A
+     * rate of zero disables that sender, which is the loop the reference spins on.
+     */
+    float status_rate_1_hz;
+    float status_rate_2_hz;
+    uint8_t status_msgs_r1;
+    uint8_t status_msgs_r2;
 } vesc_can_config_t;
 
 typedef struct vesc_can_app {
@@ -66,6 +86,10 @@ typedef struct vesc_can_app {
     float last_set_current;
     float last_set_rpm;
     bool new_cmd_received;
+    /* The two senders' own time accounts, in milliseconds: the reference sleeps each of them its
+     * own period, and here that period is accumulated against the module's tick. */
+    float status_1_accum_ms;
+    float status_2_accum_ms;
 } vesc_can_app_t;
 
 void vesc_can_construct(vesc_can_app_t *app, uint32_t module_id, uint32_t priority,
@@ -73,8 +97,24 @@ void vesc_can_construct(vesc_can_app_t *app, uint32_t module_id, uint32_t priori
 edge_status_t vesc_can_init(vesc_can_app_t *app);
 
 edge_status_t vesc_can_send_status_1(vesc_can_app_t *app);
+edge_status_t vesc_can_send_status_2(vesc_can_app_t *app);
+edge_status_t vesc_can_send_status_3(vesc_can_app_t *app);
 edge_status_t vesc_can_send_status_4(vesc_can_app_t *app);
 edge_status_t vesc_can_send_status_5(vesc_can_app_t *app);
+
+/*
+ * Reference comm_can.c:1470, send_can_status: the mask chooses which of the six frames go out. Bits
+ * 0 to 4 are ported; bit 5 - status 6 - needs the three external ADC channels and the servo output,
+ * which no product here has, so it is named and skipped rather than sent as zeros.
+ */
+edge_status_t vesc_can_send_masked(vesc_can_app_t *app, uint8_t msgs);
+
+/*
+ * The two rate senders, advanced by however long this module's tick was: the reference gives each
+ * its own thread sleeping a full period per round. The remainder is kept rather than dropped, so a
+ * period that is not a whole number of ticks still averages to the configured rate.
+ */
+void vesc_can_tick_status(vesc_can_app_t *app, float dt_ms);
 
 edge_status_t vesc_can_send_duty(vesc_can_app_t *app, uint8_t target_id, float duty);
 

@@ -342,6 +342,93 @@ static void test_vesc_can_rx_dispatch_branches(void **state) {
     assert_float_equal(app.last_set_rpm, 3000.0f, 0.0001f);
 }
 
+/*
+ * The two status senders: the reference runs them from their own threads (comm_can.c:1526-1565),
+ * each with a rate in hertz and a mask of which frames it sends, and this port runs them on the
+ * module's tick. What is asserted here is that the frames actually go out on schedule - which is
+ * what the app never did before, its builders being unreachable except by hand - and that a rate of
+ * zero or a mode other than the VESC one silences a sender, which is the loop the reference spins.
+ */
+static void test_vesc_can_status_scheduling(void **state) {
+    (void)state;
+    mock_can_bus_t bus = {0};
+    vesc_can_port_t port = {.send_frame = mock_send, .receive_frame = mock_receive, .self = &bus};
+    vesc_can_config_t config = {
+        .controller_id = 7,
+        .baudrate = 500000,
+        .can_mode = VESC_CAN_MODE_VESC,
+        .status_rate_1_hz = 50.0f, /* a twenty-millisecond period: one tick each */
+        .status_rate_2_hz = 25.0f, /* forty: one every second tick */
+        .status_msgs_r1 = 0x01u,   /* status 1 */
+        .status_msgs_r2 = 0x08u,   /* status 4 */
+    };
+
+    vesc_can_app_t app;
+    vesc_can_construct(&app, EDGE_MOD_VESC_CAN, 20u, &config, &port);
+    assert_int_equal(vesc_can_init(&app), EDGE_OK);
+
+    vesc_can_status_t telemetry = {.erpm = 6000.0f,
+                                   .current_motor = 12.5f,
+                                   .duty_cycle = 0.5f,
+                                   .amp_hours = 1.25f,
+                                   .amp_hours_charged = 0.5f,
+                                   .watt_hours = 30.0f,
+                                   .watt_hours_charged = 12.0f,
+                                   .v_in = 48.3f,
+                                   .tachometer = 1234};
+    vesc_can_set_telemetry(&app, &telemetry);
+
+    /* One tick: the first sender's period has elapsed and the second's has not. */
+    vesc_can_tick_status(&app, 20.0f);
+    assert_int_equal(bus.tx_count, 1);
+    assert_int_equal(bus.tx[0].id >> 8, CAN_PACKET_STATUS_1);
+    assert_int_equal(bus.tx[0].id & 0xFFu, 7u);
+
+    /* Two ticks: both have, in the order the reference's threads would have sent them. */
+    vesc_can_tick_status(&app, 20.0f);
+    assert_int_equal(bus.tx_count, 3);
+    assert_int_equal(bus.tx[1].id >> 8, CAN_PACKET_STATUS_1);
+    assert_int_equal(bus.tx[2].id >> 8, CAN_PACKET_STATUS_4);
+
+    /* The remainder is kept, so a rate that is not a whole number of ticks still averages out. */
+    assert_true(app.status_1_accum_ms < 20.0f);
+    assert_true(app.status_2_accum_ms < 40.0f);
+
+    /* A mode that is not the VESC one silences both senders. */
+    app.config.can_mode = VESC_CAN_MODE_VESC_UAVCAN;
+    vesc_can_tick_status(&app, 200.0f);
+    assert_int_equal(bus.tx_count, 3);
+
+    /* And so does a rate of zero, which is the reference's other exit. */
+    app.config.can_mode = VESC_CAN_MODE_VESC;
+    app.config.status_rate_1_hz = 0.0f;
+    app.config.status_rate_2_hz = 0.0f;
+    vesc_can_tick_status(&app, 200.0f);
+    assert_int_equal(bus.tx_count, 3);
+
+    /* All five of the frames this port builds, when the mask asks for them. */
+    app.config.status_rate_1_hz = 100.0f;
+    app.config.status_msgs_r1 = 0x1Fu;
+    bus.tx_count = 0;
+    vesc_can_tick_status(&app, 10.0f);
+    assert_int_equal(bus.tx_count, 5);
+    assert_int_equal(bus.tx[0].id >> 8, CAN_PACKET_STATUS_1);
+    assert_int_equal(bus.tx[1].id >> 8, CAN_PACKET_STATUS_2);
+    assert_int_equal(bus.tx[2].id >> 8, CAN_PACKET_STATUS_3);
+    assert_int_equal(bus.tx[3].id >> 8, CAN_PACKET_STATUS_4);
+    assert_int_equal(bus.tx[4].id >> 8, CAN_PACKET_STATUS_5);
+
+    /* Status 5's own layout (comm_can.c:1255-1261): the tachometer whole, then the input voltage at
+     * a tenth and the reference's reserved field, both sixteen bits. */
+    const mock_can_frame_t *s5 = &bus.tx[4];
+    assert_int_equal(s5->len, 8);
+    assert_int_equal((int32_t)((uint32_t)s5->data[0] << 24 | (uint32_t)s5->data[1] << 16 |
+                               (uint32_t)s5->data[2] << 8 | (uint32_t)s5->data[3]),
+                     1234);
+    assert_int_equal((int16_t)((uint16_t)s5->data[4] << 8 | (uint16_t)s5->data[5]), 483);
+    assert_int_equal((int16_t)((uint16_t)s5->data[6] << 8 | (uint16_t)s5->data[7]), 0);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -351,6 +438,7 @@ int main(void) {
         cmocka_unit_test(test_vesc_can_rx_command),
         cmocka_unit_test(test_vesc_can_rx_dispatch_branches),
         cmocka_unit_test(test_vesc_can_send_buffer_framing),
+        cmocka_unit_test(test_vesc_can_status_scheduling),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

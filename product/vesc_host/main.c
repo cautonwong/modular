@@ -349,10 +349,17 @@ int main(void) {
     /* COMM_FORWARD_CAN needs the CAN bus and COMM_TERMINAL_CMD the terminal, so both are
      * built before the codec and handed over through the ops context. */
     vesc_can_app_t can_app;
+    const app_configuration_t *appconf = motor_config_get_app(motor_cfg);
     vesc_can_config_t can_cfg = {
         .controller_id = 1,
         .baudrate = 500000,
-        .status_rate_hz = 50.0f,
+        /* The application configuration's own scheduling, which is what the reference's two status
+         * threads read: a rate per sender in hertz, and the mask of which frames each sends. */
+        .can_mode = (uint8_t)appconf->can_mode,
+        .status_rate_1_hz = (float)appconf->can_status_rate_1,
+        .status_rate_2_hz = (float)appconf->can_status_rate_2,
+        .status_msgs_r1 = appconf->can_status_msgs_r1,
+        .status_msgs_r2 = appconf->can_status_msgs_r2,
     };
     vesc_can_construct(&can_app, EDGE_MOD_VESC_CAN, 20u, &can_cfg, &can_port);
     if (vesc_can_init(&can_app) != EDGE_OK) {
