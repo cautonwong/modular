@@ -1404,11 +1404,67 @@ edge_status_t motor_id_measure_flux_linkage(motor_id_app_t *app) {
     return EDGE_ENOTSUP;
 }
 
-edge_status_t motor_id_detect_hall(motor_id_app_t *app) {
-    if (app == (void *)0) {
-        return EDGE_EINVAL;
+/*
+ * util/utils_math.h's utils_norm_angle: the reference's own two whiles rather than a modulo, which
+ * is the faster form it says it is.
+ */
+static void motor_id_norm_angle_deg(float *angle) {
+    while (*angle < 0.0f) {
+        *angle += 360.0f;
     }
-    return EDGE_ENOTSUP;
+    while (*angle >= 360.0f) {
+        *angle -= 360.0f;
+    }
+}
+
+uint8_t motor_id_hall_majority(int hall1_sum, int hall2_sum, int hall3_sum, int samples) {
+    /* util/utils_sys.c:93 and :113, which is the reference's own two lines. */
+    const int threshold = samples / 2;
+
+    return (uint8_t)((hall1_sum > threshold ? 1u : 0u) | (hall2_sum > threshold ? 2u : 0u) |
+                     (hall3_sum > threshold ? 4u : 0u));
+}
+
+void motor_id_hall_accumulate(float sin_hall[8], float cos_hall[8], int hall_iterations[8],
+                              uint8_t reading, float sin_angle, float cos_angle) {
+    if (sin_hall == (void *)0 || cos_hall == (void *)0 || hall_iterations == (void *)0 ||
+        reading > 7u) {
+        return;
+    }
+
+    /* mcpwm_foc.c:2440-2446's own three statements. */
+    sin_hall[reading] += sin_angle;
+    cos_hall[reading] += cos_angle;
+    hall_iterations[reading]++;
+}
+
+int motor_id_hall_angle_table(const float sin_hall[8], const float cos_hall[8],
+                              const int hall_iterations[8], uint8_t table[8], bool *result) {
+    if (sin_hall == (void *)0 || cos_hall == (void *)0 || hall_iterations == (void *)0 ||
+        table == (void *)0 || result == (void *)0) {
+        return 0;
+    }
+
+    /*
+     * mcpwm_foc.c:2464-2474, statement for statement. The reference's RAD2DEG_f is the arctangent
+     * times the double quotient of a hundred and eighty over pi, cast to a float, and its scaling
+     * to the table's two hundred counts keeps its own two double literals.
+     */
+    int fails = 0;
+
+    for (int i = 0; i < 8; i++) {
+        if (hall_iterations[i] > 30) {
+            float ang = atan2f(sin_hall[i], cos_hall[i]) * (float)(180.0 / 3.14159265358979323846);
+            motor_id_norm_angle_deg(&ang);
+            table[i] = (uint8_t)(ang * 200.0 / 360.0);
+        } else {
+            table[i] = 255u;
+            fails++;
+        }
+    }
+
+    *result = (fails == 2);
+    return fails;
 }
 
 edge_status_t motor_id_step(motor_id_app_t *app, float dt) {

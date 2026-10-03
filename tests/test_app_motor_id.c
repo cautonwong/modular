@@ -7,6 +7,9 @@
 #include <string.h>
 #include <math.h>
 
+/* The double literal the reference uses, as this repository's FOC core defines it. */
+#define M_PI 3.14159265358979323846
+
 #include <cmocka.h>
 /* clang-format on */
 
@@ -145,13 +148,14 @@ static void test_motor_id_guards_and_unported_procedures(void **state) {
     assert_int_equal(motor_id_measure_resistance(&partial_app, 1.0f, 10u, true), EDGE_EINVAL);
 
     /*
-     * The two procedures that are not ported say so instead of inventing a measurement; the one
-     * that is refuses a port that cannot drive it, and this mock has none of the HFI callbacks the
-     * composed resistance-and-inductance sequence measures through.
+     * The composed measurements refuse a port that cannot drive them, and this mock has none of the
+     * HFI callbacks the resistance-and-inductance sequence measures through. The flux-linkage
+     * procedure that is not ported says so rather than inventing a measurement. The hall detection
+     * has no stub left to assert: its own three pieces are ported and tested above, and the
+     * procedure that runs them is the piece this phase still owes.
      */
     assert_int_equal(motor_id_measure_r_l(&app, 50.0f), EDGE_EINVAL);
     assert_int_equal(motor_id_measure_flux_linkage(&app), EDGE_ENOTSUP);
-    assert_int_equal(motor_id_detect_hall(&app), EDGE_ENOTSUP);
     assert_int_equal(motor_id_measure_r_l(NULL, 50.0f), EDGE_EINVAL);
     assert_int_equal(motor_id_measure_r_l(&app, 0.0f), EDGE_EINVAL);
 }
@@ -1479,6 +1483,117 @@ static void test_motor_id_measure_r_l_imax_runs_to_its_ceiling(void **state) {
     assert_float_equal(app.result.i_max_a, 20.0f, 1e-3f);
 }
 
+/*
+ * The hall-detect procedure's own three pieces (mcpwm_foc.c:2440-2474 and util/utils_sys.c:92-115),
+ * each against the harness run of the reference's own code.
+ *
+ * The table first: six readings seen forty times each name the angles their sums average to -
+ * nought, sixty, a hundred and twenty, and so on, each scaled to the two hundred counts an entry
+ * holds. A reading that comes out negative is normalized into the same range, which is what makes
+ * two hundred and twenty-five degrees a hundred and twenty-five. The two readings short of samples
+ * name nothing, and the verdict is the reference's own: exactly two of them pass.
+ */
+static void test_motor_id_hall_angle_table_matches_the_reference(void **state) {
+    (void)state;
+
+    float sin_hall[8] = {0};
+    float cos_hall[8] = {0};
+    int iterations[8] = {0};
+    uint8_t table[8];
+    bool result = false;
+
+    for (int i = 1; i < 7; i++) {
+        const float ang = (float)((i - 1) * 60) * (float)M_PI / 180.0f;
+        sin_hall[i] = sinf(ang) * 40.0f;
+        cos_hall[i] = cosf(ang) * 40.0f;
+        iterations[i] = 40;
+    }
+    iterations[0] = 10;
+    iterations[7] = 3;
+
+    assert_int_equal(motor_id_hall_angle_table(sin_hall, cos_hall, iterations, table, &result), 2);
+    assert_true(result);
+    const uint8_t expected[8] = {255u, 0u, 33u, 66u, 100u, 133u, 166u, 255u};
+    assert_memory_equal(table, expected, sizeof(expected));
+
+    /* A reading whose angle comes out negative is normalized rather than wrapped by a modulo. */
+    iterations[0] = 40;
+    sin_hall[0] = -1.0f;
+    cos_hall[0] = -1.0f;
+    assert_int_equal(motor_id_hall_angle_table(sin_hall, cos_hall, iterations, table, &result), 1);
+    assert_false(result);
+    assert_int_equal(table[0], 125u);
+
+    /* One short reading is not the pass mark either. */
+    iterations[7] = 40;
+    iterations[6] = 4;
+    assert_int_equal(motor_id_hall_angle_table(sin_hall, cos_hall, iterations, table, &result), 1);
+    assert_false(result);
+    assert_int_equal(table[6], 255u);
+
+    /* Guards: nothing to read, and nothing to write into. */
+    assert_int_equal(motor_id_hall_angle_table(NULL, cos_hall, iterations, table, &result), 0);
+    assert_int_equal(motor_id_hall_angle_table(sin_hall, NULL, iterations, table, &result), 0);
+    assert_int_equal(motor_id_hall_angle_table(sin_hall, cos_hall, NULL, table, &result), 0);
+    assert_int_equal(motor_id_hall_angle_table(sin_hall, cos_hall, iterations, NULL, &result), 0);
+    assert_int_equal(motor_id_hall_angle_table(sin_hall, cos_hall, iterations, table, NULL), 0);
+}
+
+/*
+ * A hall reading's majority, from the harness run of utils_read_hall_hw: the first six are that
+ * run's one read per pin when no extra samples are asked for and every pin's own bit, and the rest
+ * are the same two lines' majority cases. The comparison is strict, so a pin that reaches exactly
+ * half the count is not a majority and stays low, which is the reference's own `h1 > tres`.
+ */
+static void test_motor_id_hall_majority_matches_the_reference(void **state) {
+    (void)state;
+
+    assert_int_equal(motor_id_hall_majority(0, 0, 0, 1), 0);
+    assert_int_equal(motor_id_hall_majority(1, 0, 0, 1), 1);
+    assert_int_equal(motor_id_hall_majority(0, 1, 0, 1), 2);
+    assert_int_equal(motor_id_hall_majority(0, 0, 1, 1), 4);
+    assert_int_equal(motor_id_hall_majority(1, 1, 0, 1), 3);
+    assert_int_equal(motor_id_hall_majority(1, 1, 1, 1), 7);
+
+    /* One high read out of three, five or seven is not a majority. */
+    assert_int_equal(motor_id_hall_majority(1, 0, 0, 3), 0);
+    assert_int_equal(motor_id_hall_majority(1, 1, 0, 5), 0);
+    assert_int_equal(motor_id_hall_majority(1, 1, 1, 7), 0);
+
+    /* The majority itself, which needs more than half. */
+    assert_int_equal(motor_id_hall_majority(2, 0, 0, 3), 1);
+    assert_int_equal(motor_id_hall_majority(3, 3, 0, 5), 3);
+    assert_int_equal(motor_id_hall_majority(4, 4, 4, 7), 7);
+}
+
+/*
+ * The sweep's accumulation, from the same run: the angle joins the reading's own sums and its
+ * count, and the readings the sweep did not visit are left as they were.
+ */
+static void test_motor_id_hall_accumulate_matches_the_reference(void **state) {
+    (void)state;
+
+    float sin_hall[8] = {0};
+    float cos_hall[8] = {0};
+    int iterations[8] = {0};
+
+    motor_id_hall_accumulate(sin_hall, cos_hall, iterations, 5u, 0.0f, 1.0f);
+    motor_id_hall_accumulate(sin_hall, cos_hall, iterations, 5u, 0.0f, 1.0f);
+    motor_id_hall_accumulate(sin_hall, cos_hall, iterations, 5u, 1.0f, 0.0f);
+
+    assert_float_equal(sin_hall[5], 1.0f, 1e-6f);
+    assert_float_equal(cos_hall[5], 2.0f, 1e-6f);
+    assert_int_equal(iterations[5], 3);
+    assert_float_equal(sin_hall[0], 0.0f, 1e-9f);
+    assert_int_equal(iterations[0], 0);
+
+    /* Guards: nothing to write into, and a reading the table does not hold. */
+    motor_id_hall_accumulate(NULL, cos_hall, iterations, 1u, 1.0f, 1.0f);
+    motor_id_hall_accumulate(sin_hall, NULL, iterations, 1u, 1.0f, 1.0f);
+    motor_id_hall_accumulate(sin_hall, cos_hall, NULL, 1u, 1.0f, 1.0f);
+    motor_id_hall_accumulate(sin_hall, cos_hall, iterations, 9u, 1.0f, 1.0f);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -1505,6 +1620,9 @@ int main(void) {
         cmocka_unit_test(test_motor_id_measure_r_l_edge_exits),
         cmocka_unit_test(test_motor_id_gains_match_the_reference),
         cmocka_unit_test(test_motor_id_measure_r_l_imax_runs_to_its_ceiling),
+        cmocka_unit_test(test_motor_id_hall_angle_table_matches_the_reference),
+        cmocka_unit_test(test_motor_id_hall_majority_matches_the_reference),
+        cmocka_unit_test(test_motor_id_hall_accumulate_matches_the_reference),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
