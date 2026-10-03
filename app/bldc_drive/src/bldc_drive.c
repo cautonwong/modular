@@ -61,6 +61,7 @@ edge_status_t bldc_drive_init(bldc_drive_t *self) {
     self->comm_step = 1;
     self->last_step = 0;
     self->rpm = 0.0f;
+    self->has_commutated = false;
     self->sensorless_now =
         bldc_sensorless_now(self->config.sensor_mode, 0.0f, self->config.hall_sl_erpm);
     return EDGE_OK;
@@ -71,6 +72,62 @@ void bldc_drive_set_rpm(bldc_drive_t *self, float rpm) {
         return;
     }
     self->rpm = rpm;
+}
+
+void bldc_drive_set_hall_port(bldc_drive_t *self, const bldc_hall_port_t *port) {
+    if (self == (void *)0) {
+        return;
+    }
+    self->hall = port;
+}
+
+void bldc_drive_set_phase_port(bldc_drive_t *self, const bldc_phase_port_t *port) {
+    if (self == (void *)0) {
+        return;
+    }
+    self->phase = port;
+}
+
+edge_status_t bldc_drive_commutate_hall(bldc_drive_t *self, bool running) {
+    if (self == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    if (self->hall == (void *)0 || self->hall->read_hall == (void *)0) {
+        return EDGE_ENOTSUP;
+    }
+
+    /* mcpwm.c:1939: the reading is taken, and the decision is the pure function's. */
+    const uint8_t pins = self->hall->read_hall(self->hall->self);
+    const int hall_phase =
+        (int)bldc_hall_phase((pins & 1u) != 0u, (pins & 2u) != 0u, (pins & 4u) != 0u);
+
+    bldc_hall_commutation_t decision;
+    bldc_hall_commutation(self->comm_step, hall_phase, running, self->has_commutated, &decision);
+
+    self->comm_step = decision.comm_step;
+    if (decision.step_changed) {
+        /* update_rpm_tacho() runs on a change, and the accessor is what consumes the delta it
+         * accumulates - so a commutation is what makes the tachometer move, as there. */
+        (void)bldc_drive_get_tacho_delta(self);
+    }
+
+    if (!decision.apply) {
+        return EDGE_OK;
+    }
+    if (self->phase == (void *)0 || self->phase->apply_step == (void *)0) {
+        return EDGE_ENOTSUP;
+    }
+
+    /* set_next_comm_step(comm_step) and commutate(0), which is what the reference's branch does. */
+    const edge_status_t status = self->phase->apply_step(self->phase->self, self->comm_step);
+    if (status == EDGE_OK) {
+        self->has_commutated = true;
+    }
+    return status;
+}
+
+bool bldc_drive_has_commutated(const bldc_drive_t *self) {
+    return (self != (void *)0) && self->has_commutated;
 }
 
 void bldc_drive_advance_step(bldc_drive_t *self, int steps) {
