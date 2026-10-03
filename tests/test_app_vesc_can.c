@@ -539,6 +539,24 @@ static void test_vesc_can_peer_frames_and_totals(void **state) {
     vesc_can_get_peer_totals(&app, &totals);
     assert_int_equal(totals.num_vescs_extra, 1);
     assert_float_equal(totals.current_tot, 1.0f, 1e-4f);
+
+    /* A frame too short to hold what its kind carries is filed as nothing rather than read past its
+     * end, which is the reference's own length check on each of the four kinds. */
+    const uint32_t short_kinds[4] = {(uint32_t)CAN_PACKET_STATUS_1, (uint32_t)CAN_PACKET_STATUS_2,
+                                     (uint32_t)CAN_PACKET_STATUS_3, (uint32_t)CAN_PACKET_STATUS_4};
+    for (size_t i = 0u; i < 4u; i++) {
+        bus.rx_id = (short_kinds[i] << 8) | 5u;
+        bus.rx_len = 4u;
+        bus.has_rx = true;
+        assert_int_equal(vesc_can_process_incoming(&app), EDGE_OK);
+    }
+    vesc_can_get_peer_totals(&app, &totals);
+    assert_int_equal(totals.num_vescs_extra, 1); /* the short frames added nobody */
+
+    /* The helpers' own guards. */
+    assert_int_equal(vesc_can_send_masked(NULL, 0x1Fu), EDGE_EINVAL);
+    vesc_can_tick(NULL, 1.0f);
+    vesc_can_get_peer_totals(&app, NULL);
 }
 
 int main(void) {

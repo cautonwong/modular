@@ -541,6 +541,24 @@ int main(void) {
             }
             return 32;
         }
+
+        /*
+         * A command asked the machine to restart. On a board that is a reset, with the backup block
+         * stored first; here it ends the run, which is the simulation's own reset, and the store
+         * happens below through the modules' power_off - the same path an ordinary shutdown takes.
+         */
+        if (glue_state.reboot_requested || glue_state.bootloader_requested) {
+            break;
+        }
+    }
+
+    if (glue_state.reboot_requested || glue_state.bootloader_requested) {
+        if (glue_state.reboot_requested) {
+            (void)edge_sys_power_off(&sys);
+        }
+        printf("VESC Host Simulation Ended: %s requested\n",
+               glue_state.reboot_requested ? "reboot" : "bootloader jump");
+        return 0;
     }
 
     foc_telemetry_t telem;

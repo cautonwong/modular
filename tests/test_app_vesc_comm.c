@@ -1717,6 +1717,78 @@ static void test_detect_param_is_refused_and_apply_all_forwards(void **state) {
     assert_int_equal((int16_t)(((uint16_t)reply[1] << 8) | (uint16_t)reply[2]), -7);
 }
 
+/*
+ * The two commands that end the machine's run: comm/commands.c:695-698 stores the backup block and
+ * resets, and :304-306 reaches flash_helper_jump_to_bootloader. Neither sends a reply, and both are
+ * the product's to perform - so what this layer is tested for is that it reaches the port, and that
+ * a product which has not implemented it is refused rather than silently doing nothing.
+ */
+typedef struct mock_restart_ctx {
+    int reboots;
+    int bootloader_jumps;
+} mock_restart_ctx_t;
+
+static edge_status_t mock_reboot(void *self) {
+    ((mock_restart_ctx_t *)self)->reboots++;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_jump_to_bootloader(void *self) {
+    ((mock_restart_ctx_t *)self)->bootloader_jumps++;
+    return EDGE_OK;
+}
+
+static void test_restart_commands_reach_the_product(void **state) {
+    (void)state;
+    mock_comm_ctx_t tx;
+    memset(&tx, 0, sizeof(tx));
+    edge_stream_tx_port_t tx_port = {.write = mock_stream_write, .self = &tx};
+
+    /* A product with neither: both commands are refused, and nothing is sent. */
+    vesc_comm_ops_port_t bare_ops = {
+        .terminal_cmd = mock_terminal_cmd, .forward_can = mock_forward_can, .self = NULL};
+    vesc_comm_t *bare = test_comm_alloc();
+    vesc_comm_construct(bare, EDGE_MOD_VESC_COMM, 10u, &tx_port, NULL, NULL, NULL, &bare_ops,
+                        &test_identity);
+    assert_int_equal(vesc_comm_init(bare), EDGE_OK);
+
+    const uint8_t reboot[1] = {COMM_REBOOT};
+    const uint8_t bootloader[1] = {COMM_JUMP_TO_BOOTLOADER};
+    tx.tx_count = 0u;
+    assert_int_equal(vesc_comm_process_command(bare, reboot, sizeof(reboot)), EDGE_ENOTSUP);
+    assert_int_equal(vesc_comm_process_command(bare, bootloader, sizeof(bootloader)), EDGE_ENOTSUP);
+    assert_int_equal(tx.tx_count, 0u);
+
+    /* A product with both: each reaches its own callback once, and no reply goes out - the
+     * reference's connection simply ends. */
+    mock_restart_ctx_t restart = {0};
+    vesc_comm_ops_port_t ops = {.terminal_cmd = mock_terminal_cmd,
+                                .forward_can = mock_forward_can,
+                                .reboot = mock_reboot,
+                                .jump_to_bootloader = mock_jump_to_bootloader,
+                                .self = &restart};
+    vesc_comm_t *comm = test_comm_alloc();
+    vesc_comm_construct(comm, EDGE_MOD_VESC_COMM, 10u, &tx_port, NULL, NULL, NULL, &ops,
+                        &test_identity);
+    assert_int_equal(vesc_comm_init(comm), EDGE_OK);
+
+    tx.tx_count = 0u;
+    assert_int_equal(vesc_comm_process_command(comm, reboot, sizeof(reboot)), EDGE_OK);
+    assert_int_equal(vesc_comm_process_command(comm, bootloader, sizeof(bootloader)), EDGE_OK);
+    assert_int_equal(restart.reboots, 1);
+    assert_int_equal(restart.bootloader_jumps, 1);
+    assert_int_equal(tx.tx_count, 0u);
+
+    /* A codec with no ops port at all refuses both as well. */
+    vesc_comm_t *no_ops = test_comm_alloc();
+    vesc_comm_construct(no_ops, EDGE_MOD_VESC_COMM, 10u, &tx_port, NULL, NULL, NULL, NULL,
+                        &test_identity);
+    assert_int_equal(vesc_comm_init(no_ops), EDGE_OK);
+    assert_int_equal(vesc_comm_process_command(no_ops, reboot, sizeof(reboot)), EDGE_ENOTSUP);
+    assert_int_equal(vesc_comm_process_command(no_ops, bootloader, sizeof(bootloader)),
+                     EDGE_ENOTSUP);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -1734,6 +1806,7 @@ int main(void) {
         cmocka_unit_test(test_detect_flux_linkage_command),
         cmocka_unit_test(test_detect_r_l_command),
         cmocka_unit_test(test_detect_param_is_refused_and_apply_all_forwards),
+        cmocka_unit_test(test_restart_commands_reach_the_product),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
