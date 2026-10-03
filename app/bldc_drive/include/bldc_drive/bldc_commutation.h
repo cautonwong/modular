@@ -78,6 +78,20 @@ typedef struct bldc_spinup_attempt {
 void bldc_spinup_attempt_params(uint32_t attempt, float min_rpm, float cycle_int_limit,
                                 bldc_spinup_attempt_t *out);
 
+/* conf_general.c:715: the detection passes only when all five of its own steps did. */
+#define BLDC_SPINUP_OK_STEPS 5u
+
+bool bldc_spinup_passed(uint32_t ok_steps);
+
+/*
+ * conf_general.c:705-708, the coupling factor the parameter command derives: the cycle integrator
+ * it averaged while the motor ran free at a low duty, less the limit it measured at rest, over the
+ * supply voltage, times the speed it averaged. The reference's two inputs are its ADC's supply in
+ * counts and its own rpm; both are the caller's here.
+ */
+float bldc_bemf_coupling_k(float avg_cycle_integrator_running, float int_limit, float v_in,
+                           float rpm);
+
 /*
  * mcpwm.c:2302-2307, mcpwm_read_hall_phase: the three hall pins as the reading the commutation is
  * driven by, bit zero first. Nothing is filtered here - a reading of nought or seven is a reading,

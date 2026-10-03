@@ -88,6 +88,21 @@ void bldc_spinup_attempt_params(uint32_t attempt, float min_rpm, float cycle_int
     }
 }
 
+bool bldc_spinup_passed(uint32_t ok_steps) {
+    /* conf_general.c:715's own comparison. */
+    return ok_steps == BLDC_SPINUP_OK_STEPS;
+}
+
+float bldc_bemf_coupling_k(float avg_cycle_integrator_running, float int_limit, float v_in,
+                           float rpm) {
+    /* conf_general.c:705-708, its four statements in its own order. */
+    float coupling = avg_cycle_integrator_running - int_limit;
+    coupling /= v_in;
+    coupling *= rpm;
+
+    return coupling;
+}
+
 bool bldc_sensorless_now(uint8_t sensor_mode, float rpm, float hall_sl_erpm) {
     /* mcpwm.c:2587-2593, whose speed comparison is against the absolute value of its own rpm. */
     return (sensor_mode == BLDC_SENSOR_MODE_SENSORLESS) ||

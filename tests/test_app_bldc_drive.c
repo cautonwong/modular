@@ -811,6 +811,33 @@ static void test_bldc_spinup_attempts_match_the_reference(void **state) {
     bldc_spinup_attempt_params(0u, 200.0f, 50.0f, NULL);
 }
 
+/*
+ * The two things the parameter command's run ends with (conf_general.c:705-715): the coupling
+ * factor it derives from the cycle integrator it averaged while the motor ran free - less the limit
+ * it measured at rest, over the supply, times the speed - and the criterion that says an attempt
+ * worked, which is all five of its own steps having taken.
+ */
+static void test_bldc_bemf_coupling_matches_the_reference(void **state) {
+    (void)state;
+
+    /* Sixty counts of running integrator over three hundred at rest, twenty-four volts and 3000
+     * rpm. */
+    assert_float_equal(bldc_bemf_coupling_k(360.0f, 300.0f, 24.0f, 3000.0f),
+                       60.0f / 24.0f * 3000.0f, 1e-2f);
+
+    /* Nothing over the rest limit is no coupling at all. */
+    assert_float_equal(bldc_bemf_coupling_k(300.0f, 300.0f, 24.0f, 3000.0f), 0.0f, 1e-6f);
+
+    /* A supply of nought divides by zero, exactly as the reference's own division does. */
+    assert_true(isinf(bldc_bemf_coupling_k(360.0f, 300.0f, 0.0f, 3000.0f)));
+
+    /* The criterion is all five steps, which is the reference's own comparison. */
+    assert_false(bldc_spinup_passed(0u));
+    assert_false(bldc_spinup_passed(4u));
+    assert_true(bldc_spinup_passed(5u));
+    assert_false(bldc_spinup_passed(6u));
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_bldc_hall_tables_match_the_reference),
@@ -829,6 +856,7 @@ int main(void) {
         cmocka_unit_test(test_bldc_comm_sensorless_step_matches_the_reference),
         cmocka_unit_test(test_bldc_drive_sensorless_commutation),
         cmocka_unit_test(test_bldc_spinup_attempts_match_the_reference),
+        cmocka_unit_test(test_bldc_bemf_coupling_matches_the_reference),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
