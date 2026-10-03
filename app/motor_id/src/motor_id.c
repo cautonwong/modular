@@ -18,6 +18,7 @@
 static void motor_id_flux_tick(motor_id_app_t *app);
 static void motor_id_sensored_tick(motor_id_app_t *app);
 static void motor_id_ind_tick(motor_id_app_t *app);
+static void motor_id_hall_tick(motor_id_app_t *app);
 static void motor_id_chain_step(motor_id_app_t *app);
 static void motor_id_res_ind_release_gains(motor_id_app_t *app);
 
@@ -126,6 +127,13 @@ static void motor_id_tick(motor_id_app_t *app) {
     case MOTOR_ID_STATE_SENSORED_SPINUP:
     case MOTOR_ID_STATE_SENSORED_SAMPLE:
         motor_id_sensored_tick(app);
+        return;
+
+    case MOTOR_ID_STATE_HALL_RAMP:
+    case MOTOR_ID_STATE_HALL_SWEEP_FORWARD:
+    case MOTOR_ID_STATE_HALL_SWEEP_REVERSE:
+    case MOTOR_ID_STATE_HALL_TABLE:
+        motor_id_hall_tick(app);
         return;
 
     case MOTOR_ID_STATE_IND_CONFIG:
@@ -1519,6 +1527,161 @@ motor_id_gains_t motor_id_calc_apply_foc_gains(float r_ohm, float l_henry, float
     gains.observer_gain = (1.0e-3f / (flux_linkage_wb * flux_linkage_wb)) * 1e6f;
 
     return gains;
+}
+
+/*
+ * mcpwm_foc_hall_detect's way out, mcpwm_foc.c:2478-2488: the setpoints zeroed, the phase override
+ * let go, the drive stopped. The reference also puts its MTPA mode and its timeout configuration
+ * back; neither is a thing this port's measurement ever changed - the MTPA mode is not a field the
+ * port edits from here, and the timeout a product owns - so both are named rather than carried.
+ */
+edge_status_t motor_id_detect_hall(motor_id_app_t *app, float current_a, int extra_samples) {
+    if (app == (void *)0 || current_a <= 0.0f || extra_samples < 0) {
+        return EDGE_EINVAL;
+    }
+    if (app->state != MOTOR_ID_STATE_IDLE && app->state != MOTOR_ID_STATE_COMPLETE &&
+        app->state != MOTOR_ID_STATE_FAILED) {
+        return EDGE_EBUSY;
+    }
+
+    const motor_id_measure_port_t *p = &app->measure_port;
+    if (p->set_phase_override == (void *)0 || p->set_current == (void *)0 ||
+        p->read_hall == (void *)0 || p->get_fault == (void *)0 || p->stop == (void *)0) {
+        return EDGE_ENOTSUP;
+    }
+
+    /*
+     * mcpwm_foc.c:2386-2407: the motor is held with a phase override at nought and driven in
+     * current mode, which is what the ramp below then raises. The reference also disables its
+     * timeout here; that is a product's own configuration and this port's procedures do not touch
+     * it.
+     */
+    (void)p->set_current(p->self, 0.0f);
+    (void)p->set_phase_override(p->self, 0.0f, true);
+
+    memset(app->hall_sin_sum, 0, sizeof(app->hall_sin_sum));
+    memset(app->hall_cos_sum, 0, sizeof(app->hall_cos_sum));
+    memset(app->hall_iterations, 0, sizeof(app->hall_iterations));
+    memset(app->result.hall_table, 0, sizeof(app->result.hall_table));
+    app->result.hall_valid = false;
+    app->result.valid = false;
+    app->hall_current_a = current_a;
+    app->hall_extra_samples = extra_samples;
+    app->hall_pass = 0u;
+    app->hall_step_index = 0;
+    app->ms = 0u;
+
+    app->state = MOTOR_ID_STATE_HALL_RAMP;
+    return EDGE_OK;
+}
+
+static void motor_id_hall_exit(motor_id_app_t *app, bool valid) {
+    (void)app->measure_port.set_current(app->measure_port.self, 0.0f);
+    (void)app->measure_port.set_phase_override(app->measure_port.self, 0.0f, false);
+    (void)app->measure_port.stop(app->measure_port.self);
+    app->result.hall_valid = valid;
+    if (!valid) {
+        app->result.valid = false;
+    }
+    app->state = valid ? MOTOR_ID_STATE_COMPLETE : MOTOR_ID_STATE_FAILED;
+}
+
+/*
+ * One millisecond of it: the ramp sets the current to its fraction of the target over a thousand
+ * steps, each sweep step holds the phase override at the degree it is on for five milliseconds and
+ * then reads the halls over the majority the configuration asks for, and the table derives each
+ * reading's angle from the sums that swept past it.
+ */
+static void motor_id_hall_tick(motor_id_app_t *app) {
+    switch (app->state) {
+    case MOTOR_ID_STATE_HALL_RAMP:
+        (void)app->measure_port.set_current(app->measure_port.self,
+                                            (float)app->ms * app->hall_current_a / 1000.0f);
+        if (app->measure_port.get_fault(app->measure_port.self) != 0u) {
+            motor_id_hall_exit(app, false);
+            return;
+        }
+        if (app->ms + 1u >= 1000u) {
+            app->ms = 0u;
+            app->hall_pass = 0u;
+            app->hall_step_index = 0;
+            app->state = MOTOR_ID_STATE_HALL_SWEEP_FORWARD;
+            return;
+        }
+        app->ms++;
+        return;
+
+    case MOTOR_ID_STATE_HALL_SWEEP_FORWARD:
+    case MOTOR_ID_STATE_HALL_SWEEP_REVERSE: {
+        const bool forward = (app->state == MOTOR_ID_STATE_HALL_SWEEP_FORWARD);
+
+        /* Five milliseconds at each degree, as the reference sleeps (:2447, :2460). */
+        if (app->ms == 0u) {
+            const int degree = forward ? app->hall_step_index : 360 - app->hall_step_index;
+            const float rad = (float)degree * (float)(3.14159265358979323846 / 180.0);
+            (void)app->measure_port.set_phase_override(app->measure_port.self, rad, true);
+            if (app->measure_port.get_fault(app->measure_port.self) != 0u) {
+                motor_id_hall_exit(app, false);
+                return;
+            }
+        }
+        if (app->ms + 1u < 5u) {
+            app->ms++;
+            return;
+        }
+        app->ms = 0u;
+
+        /* The reading, over the majority of one plus twice the extra samples (:2438). */
+        const int reads = 1 + 2 * app->hall_extra_samples;
+        int hall1 = 0;
+        int hall2 = 0;
+        int hall3 = 0;
+        for (int i = 0; i < reads; i++) {
+            const uint8_t pins = app->measure_port.read_hall(app->measure_port.self);
+            hall1 += (pins & 1u) != 0u ? 1 : 0;
+            hall2 += (pins & 2u) != 0u ? 1 : 0;
+            hall3 += (pins & 4u) != 0u ? 1 : 0;
+        }
+        const uint8_t reading = motor_id_hall_majority(hall1, hall2, hall3, reads);
+
+        const float rad = (float)(forward ? app->hall_step_index : 360 - app->hall_step_index) *
+                          (float)(3.14159265358979323846 / 180.0);
+        motor_id_hall_accumulate(app->hall_sin_sum, app->hall_cos_sum, app->hall_iterations,
+                                 reading, sinf(rad),
+                                 cosf(rad)); /* N5-allow: the reference computes the swept
+                                               angle's sine and cosine itself
+                                               (mcpwm_foc.c:2441), and no infra
+                                               layer offers a fast pair. */
+
+        /* A pass is the way out and back; three of them each way, as the reference loops. */
+        const int last_step = forward ? 359 : 360;
+        if (app->hall_step_index >= last_step) {
+            app->hall_step_index = 0;
+            if (forward) {
+                app->state = MOTOR_ID_STATE_HALL_SWEEP_REVERSE;
+            } else if (++app->hall_pass >= 3u) {
+                app->state = MOTOR_ID_STATE_HALL_TABLE;
+            } else {
+                app->state = MOTOR_ID_STATE_HALL_SWEEP_FORWARD;
+            }
+            return;
+        }
+        app->hall_step_index++;
+        return;
+    }
+
+    case MOTOR_ID_STATE_HALL_TABLE: {
+        bool passed = false;
+        (void)motor_id_hall_angle_table(app->hall_sin_sum, app->hall_cos_sum, app->hall_iterations,
+                                        app->result.hall_table, &passed);
+        app->result.valid = passed;
+        motor_id_hall_exit(app, passed);
+        return;
+    }
+
+    default:
+        return;
+    }
 }
 
 edge_module_t *motor_id_module(motor_id_app_t *app) {

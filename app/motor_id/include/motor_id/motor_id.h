@@ -83,7 +83,17 @@ typedef enum motor_id_state {
     MOTOR_ID_STATE_IND_SAMPLE_READ,
     /* mcpwm_foc_measure_res_ind's ten milliseconds between zeroing the current and measuring
      * inductance (:2350-2353). */
-    MOTOR_ID_STATE_RES_IND_SETTLE
+    MOTOR_ID_STATE_RES_IND_SETTLE,
+
+    /*
+     * mcpwm_foc_hall_detect (mcpwm_foc.c:2383-2490): hold the motor with a phase override and ramp
+     * its current up over a thousand milliseconds, sweep the electrical angle three times each way
+     * at five milliseconds a step while reading the halls, then the table those readings name.
+     */
+    MOTOR_ID_STATE_HALL_RAMP,
+    MOTOR_ID_STATE_HALL_SWEEP_FORWARD,
+    MOTOR_ID_STATE_HALL_SWEEP_REVERSE,
+    MOTOR_ID_STATE_HALL_TABLE
 } motor_id_state_t;
 
 /*
@@ -350,6 +360,19 @@ typedef struct motor_id_app {
      * the sequence it is ending is the all-in-one detection's.
      */
     bool imax_pending;
+
+    /*
+     * The hall detection's own state (mcpwm_foc.c:2383-2490): the sums each reading's angles are
+     * accumulated into, how many times each was seen, which of the three passes the sweep is on,
+     * and the step within it.
+     */
+    float hall_sin_sum[8];
+    float hall_cos_sum[8];
+    int hall_iterations[8];
+    uint32_t hall_pass;
+    int hall_step_index;
+    float hall_current_a;
+    int hall_extra_samples;
     /* Whether the composed sequence's own current-loop gains are still in place, so that the single
      * exit point puts them back once and only when it changed them. */
     bool res_ind_gains_active;

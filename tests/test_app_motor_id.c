@@ -1594,6 +1594,138 @@ static void test_motor_id_hall_accumulate_matches_the_reference(void **state) {
     motor_id_hall_accumulate(sin_hall, cos_hall, iterations, 9u, 1.0f, 1.0f);
 }
 
+/*
+ * The hall detection end to end. The mock answers as a hall sensor would: the procedure holds the
+ * electrical angle with its override, and the reading is whichever of the six sectors that angle is
+ * in - which is what a real sensor on a six-step motor reports. Twenty-three thousand milliseconds
+ * of it later the table names each reading's own angle, and the two ends, which no sector covers,
+ * name nothing.
+ */
+typedef struct mock_hall_ctx {
+    float override_rad;
+    bool override_on;
+    int override_calls;
+    int stop_calls;
+    uint32_t fault;
+} mock_hall_ctx_t;
+
+static edge_status_t mock_hall_set_current(void *self, float iq) {
+    (void)self;
+    (void)iq;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_hall_override(void *self, float angle_rad, bool enable) {
+    mock_hall_ctx_t *ctx = (mock_hall_ctx_t *)self;
+    ctx->override_rad = angle_rad;
+    ctx->override_on = enable;
+    ctx->override_calls++;
+    return EDGE_OK;
+}
+
+static uint8_t mock_hall_read(void *self) {
+    const mock_hall_ctx_t *ctx = (const mock_hall_ctx_t *)self;
+    /* Degrees, then the sector: nought to fifty-nine is reading one, and so on round. */
+    float deg = ctx->override_rad * (float)(180.0 / 3.14159265358979323846);
+    while (deg < 0.0f) {
+        deg += 360.0f;
+    }
+    while (deg >= 360.0f) {
+        deg -= 360.0f;
+    }
+    return (uint8_t)((int)(deg / 60.0f) + 1);
+}
+
+static uint32_t mock_hall_fault(void *self) {
+    return ((const mock_hall_ctx_t *)self)->fault;
+}
+
+static edge_status_t mock_hall_stop(void *self) {
+    ((mock_hall_ctx_t *)self)->stop_calls++;
+    return EDGE_OK;
+}
+
+/*
+ * The two callbacks the port has to carry for a measurement app to initialize at all, which the
+ * hall detection never reaches: its own procedure reads the halls and nothing else.
+ */
+static edge_status_t mock_hall_reset_samples(void *self) {
+    (void)self;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_hall_read_samples(void *self, float *i_sum, float *v_sum,
+                                            uint32_t *count) {
+    (void)self;
+    *i_sum = 0.0f;
+    *v_sum = 0.0f;
+    *count = 1u;
+    return EDGE_OK;
+}
+
+static void test_motor_id_detect_hall_runs_the_whole_sweep(void **state) {
+    (void)state;
+
+    mock_hall_ctx_t ctx = {0};
+    motor_id_measure_port_t port = {.self = &ctx,
+                                    .set_current = mock_hall_set_current,
+                                    .set_phase_override = mock_hall_override,
+                                    .read_hall = mock_hall_read,
+                                    .reset_samples = mock_hall_reset_samples,
+                                    .read_samples = mock_hall_read_samples,
+                                    .get_fault = mock_hall_fault,
+                                    .stop = mock_hall_stop};
+    motor_id_app_t app;
+    motor_id_construct(&app, EDGE_MOD_MOTOR_ID, 40u, &port);
+    assert_int_equal(motor_id_init(&app), EDGE_OK);
+
+    assert_int_equal(motor_id_detect_hall(&app, 5.0f, 0), EDGE_OK);
+    assert_true(ctx.override_on);
+
+    for (int i = 0;
+         i < 30000 && app.state != MOTOR_ID_STATE_COMPLETE && app.state != MOTOR_ID_STATE_FAILED;
+         ++i) {
+        assert_int_equal(motor_id_step(&app, 0.001f), EDGE_OK);
+    }
+
+    assert_int_equal(app.state, MOTOR_ID_STATE_COMPLETE);
+    const motor_id_result_t *result = motor_id_get_result(&app);
+    assert_true(result->hall_valid);
+    assert_true(result->valid);
+    assert_int_equal(ctx.override_calls > 1, true);
+    assert_int_equal(ctx.stop_calls, 1);
+    assert_false(ctx.override_on); /* let go on the way out */
+
+    /* Each reading's angle is its own sector's middle, and the two ends are named nothing. */
+    for (int reading = 1; reading < 7; reading++) {
+        const int centre = (reading - 1) * 33 + 16; /* the sector's middle in the table's counts */
+        assert_true(result->hall_table[reading] > (uint8_t)(centre - 4));
+        assert_true(result->hall_table[reading] < (uint8_t)(centre + 4));
+    }
+    assert_int_equal(result->hall_table[0], 255u);
+    assert_int_equal(result->hall_table[7], 255u);
+
+    /* Guards: a current that is not one, and a second run while one is in flight. */
+    assert_int_equal(motor_id_detect_hall(&app, 0.0f, 0), EDGE_EINVAL);
+    assert_int_equal(motor_id_detect_hall(&app, 5.0f, -1), EDGE_EINVAL);
+    assert_int_equal(motor_id_detect_hall(NULL, 5.0f, 0), EDGE_EINVAL);
+    (void)motor_id_detect_hall(&app, 5.0f, 1);
+    assert_int_equal(motor_id_detect_hall(&app, 5.0f, 0), EDGE_EBUSY);
+
+    /* A port without the halls the procedure reads cannot run it at all. */
+    motor_id_measure_port_t blind = {.self = &ctx,
+                                     .set_current = mock_hall_set_current,
+                                     .set_phase_override = mock_hall_override,
+                                     .reset_samples = mock_hall_reset_samples,
+                                     .read_samples = mock_hall_read_samples,
+                                     .get_fault = mock_hall_fault,
+                                     .stop = mock_hall_stop};
+    motor_id_app_t bare;
+    motor_id_construct(&bare, EDGE_MOD_MOTOR_ID, 40u, &blind);
+    assert_int_equal(motor_id_init(&bare), EDGE_OK);
+    assert_int_equal(motor_id_detect_hall(&bare, 5.0f, 0), EDGE_ENOTSUP);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -1623,6 +1755,7 @@ int main(void) {
         cmocka_unit_test(test_motor_id_hall_angle_table_matches_the_reference),
         cmocka_unit_test(test_motor_id_hall_majority_matches_the_reference),
         cmocka_unit_test(test_motor_id_hall_accumulate_matches_the_reference),
+        cmocka_unit_test(test_motor_id_detect_hall_runs_the_whole_sweep),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
