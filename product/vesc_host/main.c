@@ -481,6 +481,25 @@ int main(void) {
     bldc_cfg.hall_sl_erpm = bldc_mc->hall_sl_erpm;
     memcpy(bldc_cfg.hall_table, bldc_mc->hall_table, sizeof(bldc_cfg.hall_table));
 
+    /* The sensorless start-up's own figures are the motor configuration's, which is where the
+     * reference's six-step layer reads them from too. */
+    bldc_cfg.rpm_dep = (bldc_rpm_dep_params_t){
+        .sl_cycle_int_limit = bldc_mc->sl_cycle_int_limit,
+        .sl_bemf_coupling_k = bldc_mc->sl_bemf_coupling_k,
+        .sl_min_erpm = bldc_mc->sl_min_erpm,
+        .sl_cycle_int_rpm_br = bldc_mc->sl_cycle_int_rpm_br,
+        .sl_phase_advance_at_br = bldc_mc->sl_phase_advance_at_br,
+        .sl_min_erpm_cycle_int_limit = bldc_mc->sl_min_erpm_cycle_int_limit,
+        .m_bldc_f_sw_max = bldc_mc->m_bldc_f_sw_max,
+    };
+    bldc_cfg.comm_mode = (uint8_t)bldc_mc->comm_mode;
+    /*
+     * The board's divider correction, which the reference computes from its own VIN_R1 and VIN_R2
+     * (conf_general.h:119). The host is a simulation wired to no divider, so its value is the
+     * identity; a real board's arrives with that board's package, as its dead time does.
+     */
+    bldc_cfg.vdiv_corr = 1.0f;
+
     bldc_drive_t bldc_app;
     bldc_drive_construct(&bldc_app, EDGE_MOD_BLDC_DRIVE, 25u, &bldc_cfg);
     if (bldc_drive_init(&bldc_app) != EDGE_OK) {
