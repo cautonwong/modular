@@ -51,6 +51,11 @@ void zmk_pointing_processors_construct(zmk_pointing_processors_app_t *app, uint3
 
     app->scaler.mul = 1;
     app->scaler.div = 1;
+    app->transform_flags = ZMK_POINTING_TRANSFORM_NONE;
+    for (size_t i = 0; i < ZMK_POINTING_MAX_ENDPOINTS; ++i) {
+        app->multipliers[i].wheel = 15;
+        app->multipliers[i].hor_wheel = 15;
+    }
     app->temp_layer.enabled = false;
 }
 
@@ -74,6 +79,33 @@ void zmk_pointing_processors_set_scaler(zmk_pointing_processors_app_t *app, uint
     app->scaler.div = div;
 }
 
+void zmk_pointing_processors_set_transform(zmk_pointing_processors_app_t *app,
+                                           zmk_pointing_transform_flags_t flags) {
+    if (app == NULL) {
+        return;
+    }
+    app->transform_flags = flags;
+}
+
+void zmk_pointing_processors_set_resolution_multiplier(zmk_pointing_processors_app_t *app,
+                                                       uint8_t endpoint_idx, uint8_t wheel_res,
+                                                       uint8_t hwheel_res) {
+    if (app == NULL || endpoint_idx >= ZMK_POINTING_MAX_ENDPOINTS) {
+        return;
+    }
+    app->multipliers[endpoint_idx].wheel = wheel_res;
+    app->multipliers[endpoint_idx].hor_wheel = hwheel_res;
+}
+
+zmk_pointing_resolution_multipliers_t
+zmk_pointing_processors_get_resolution_multiplier(const zmk_pointing_processors_app_t *app,
+                                                  uint8_t endpoint_idx) {
+    if (app == NULL || endpoint_idx >= ZMK_POINTING_MAX_ENDPOINTS) {
+        return (zmk_pointing_resolution_multipliers_t){.wheel = 15, .hor_wheel = 15};
+    }
+    return app->multipliers[endpoint_idx];
+}
+
 void zmk_pointing_processors_set_temp_layer(zmk_pointing_processors_app_t *app, uint8_t layer,
                                             uint32_t timeout_ms) {
     if (app == NULL) {
@@ -91,8 +123,24 @@ edge_status_t zmk_pointing_processors_process_motion(zmk_pointing_processors_app
         return EDGE_EINVAL;
     }
 
-    int16_t scaled_dx = scale_axis(raw_dx, app->scaler.mul, app->scaler.div, &app->remainder_x);
-    int16_t scaled_dy = scale_axis(raw_dy, app->scaler.mul, app->scaler.div, &app->remainder_y);
+    int16_t in_dx = raw_dx;
+    int16_t in_dy = raw_dy;
+
+    // Apply transform flags
+    if (app->transform_flags & ZMK_POINTING_TRANSFORM_XY_SWAP) {
+        int16_t tmp = in_dx;
+        in_dx = in_dy;
+        in_dy = tmp;
+    }
+    if (app->transform_flags & ZMK_POINTING_TRANSFORM_X_INVERT) {
+        in_dx = (int16_t)-in_dx;
+    }
+    if (app->transform_flags & ZMK_POINTING_TRANSFORM_Y_INVERT) {
+        in_dy = (int16_t)-in_dy;
+    }
+
+    int16_t scaled_dx = scale_axis(in_dx, app->scaler.mul, app->scaler.div, &app->remainder_x);
+    int16_t scaled_dy = scale_axis(in_dy, app->scaler.mul, app->scaler.div, &app->remainder_y);
     int16_t scaled_dwheel =
         scale_axis(raw_dwheel, app->scaler.mul, app->scaler.div, &app->remainder_wheel);
 

@@ -12,6 +12,18 @@
 extern "C" {
 #endif
 
+typedef enum zmk_pointing_transform_flags {
+    ZMK_POINTING_TRANSFORM_NONE = 0,
+    ZMK_POINTING_TRANSFORM_XY_SWAP = 0x01,
+    ZMK_POINTING_TRANSFORM_X_INVERT = 0x02,
+    ZMK_POINTING_TRANSFORM_Y_INVERT = 0x04,
+} zmk_pointing_transform_flags_t;
+
+typedef struct zmk_pointing_resolution_multipliers {
+    uint8_t wheel;
+    uint8_t hor_wheel;
+} zmk_pointing_resolution_multipliers_t;
+
 typedef struct zmk_pointing_proc_sink_if {
     void *self;
     edge_status_t (*set_temp_layer)(void *self, uint8_t layer, bool active);
@@ -29,11 +41,15 @@ typedef struct zmk_temp_layer_config {
     bool enabled;
 } zmk_temp_layer_config_t;
 
+#define ZMK_POINTING_MAX_ENDPOINTS 8
+
 typedef struct zmk_pointing_processors_app {
     edge_module_t module;
     zmk_pointing_proc_sink_if_t sink;
     zmk_scaler_config_t scaler;
     zmk_temp_layer_config_t temp_layer;
+    zmk_pointing_transform_flags_t transform_flags;
+    zmk_pointing_resolution_multipliers_t multipliers[ZMK_POINTING_MAX_ENDPOINTS];
     int16_t remainder_x;
     int16_t remainder_y;
     int16_t remainder_wheel;
@@ -48,6 +64,17 @@ edge_status_t zmk_pointing_processors_init(zmk_pointing_processors_app_t *app);
 
 void zmk_pointing_processors_set_scaler(zmk_pointing_processors_app_t *app, uint16_t mul,
                                         uint16_t div);
+
+void zmk_pointing_processors_set_transform(zmk_pointing_processors_app_t *app,
+                                           zmk_pointing_transform_flags_t flags);
+
+void zmk_pointing_processors_set_resolution_multiplier(zmk_pointing_processors_app_t *app,
+                                                       uint8_t endpoint_idx, uint8_t wheel_res,
+                                                       uint8_t hwheel_res);
+
+zmk_pointing_resolution_multipliers_t
+zmk_pointing_processors_get_resolution_multiplier(const zmk_pointing_processors_app_t *app,
+                                                  uint8_t endpoint_idx);
 
 void zmk_pointing_processors_set_temp_layer(zmk_pointing_processors_app_t *app, uint8_t layer,
                                             uint32_t timeout_ms);

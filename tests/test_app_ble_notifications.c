@@ -89,9 +89,36 @@ static void test_ble_notifications_ring_buffer_and_ans(void **state) {
     assert_false(ble_notifications_get_by_id(&notifs, id2, &item));
 }
 
+static void test_ble_notifications_title_and_message_separation(void **state) {
+    (void)state;
+    ble_notifications_t notifs;
+    ble_notifications_init(&notifs, NULL, NULL);
+
+    /* Notification with "Sender\0Body of text" format */
+    const char raw_notif[] = "Alice\0Meeting reminder for 3 PM";
+    uint8_t id =
+        ble_notifications_push(&notifs, BLE_NOTIF_CAT_EMAIL, raw_notif, sizeof(raw_notif) - 1);
+    assert_true(id > 0);
+
+    ble_notification_item_t item;
+    assert_true(ble_notifications_get_by_id(&notifs, id, &item));
+    assert_string_equal(ble_notification_get_title(&item), "Alice");
+    assert_string_equal(ble_notification_get_message(&item), "Meeting reminder for 3 PM");
+
+    /* Notification without title (pure message) */
+    const char plain_msg[] = "Simple alert text";
+    uint8_t id2 =
+        ble_notifications_push(&notifs, BLE_NOTIF_CAT_SIMPLE_ALERT, plain_msg, strlen(plain_msg));
+    assert_true(id2 > 0);
+    assert_true(ble_notifications_get_by_id(&notifs, id2, &item));
+    assert_string_equal(ble_notification_get_title(&item), "");
+    assert_string_equal(ble_notification_get_message(&item), "Simple alert text");
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_ble_notifications_ring_buffer_and_ans),
+        cmocka_unit_test(test_ble_notifications_title_and_message_separation),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

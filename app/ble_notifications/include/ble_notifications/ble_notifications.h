@@ -81,6 +81,9 @@ edge_status_t ble_notifications_accept_call(ble_notifications_t *self);
 edge_status_t ble_notifications_reject_call(ble_notifications_t *self);
 edge_status_t ble_notifications_mute_call(ble_notifications_t *self);
 
+const char *ble_notification_get_title(const ble_notification_item_t *item);
+const char *ble_notification_get_message(const ble_notification_item_t *item);
+
 const edge_module_t *ble_notifications_module(void);
 
 #ifdef __cplusplus

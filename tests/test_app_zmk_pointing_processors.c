@@ -62,6 +62,68 @@ static void test_pointing_scaler_with_remainder(void **state) {
     assert_int_equal(sink_ctx.last_dx, 2);
 }
 
+static void test_pointing_transform_xy_swap_and_inversions(void **state) {
+    (void)state;
+    mock_sink_t sink_ctx = {0};
+    zmk_pointing_proc_sink_if_t sink = {
+        .self = &sink_ctx,
+        .set_temp_layer = mock_set_temp_layer,
+        .forward_motion = mock_forward_motion,
+    };
+
+    zmk_pointing_processors_app_t app;
+    zmk_pointing_processors_construct(&app, EDGE_MOD_ZMK_POINTING_PROC, 40, &sink);
+    zmk_pointing_processors_init(&app);
+
+    /* 1. XY Swap: dx=10, dy=-5 -> dx=-5, dy=10 */
+    zmk_pointing_processors_set_transform(&app, ZMK_POINTING_TRANSFORM_XY_SWAP);
+    assert_int_equal(zmk_pointing_processors_process_motion(&app, 10, -5, 0, 100), EDGE_OK);
+    assert_int_equal(sink_ctx.last_dx, -5);
+    assert_int_equal(sink_ctx.last_dy, 10);
+
+    /* 2. X Invert: dx=10, dy=-5 -> dx=-10, dy=-5 */
+    zmk_pointing_processors_set_transform(&app, ZMK_POINTING_TRANSFORM_X_INVERT);
+    assert_int_equal(zmk_pointing_processors_process_motion(&app, 10, -5, 0, 110), EDGE_OK);
+    assert_int_equal(sink_ctx.last_dx, -10);
+    assert_int_equal(sink_ctx.last_dy, -5);
+
+    /* 3. Y Invert: dx=10, dy=-5 -> dx=10, dy=5 */
+    zmk_pointing_processors_set_transform(&app, ZMK_POINTING_TRANSFORM_Y_INVERT);
+    assert_int_equal(zmk_pointing_processors_process_motion(&app, 10, -5, 0, 120), EDGE_OK);
+    assert_int_equal(sink_ctx.last_dx, 10);
+    assert_int_equal(sink_ctx.last_dy, 5);
+
+    /* 4. Combined XY Swap + X Invert + Y Invert: dx=10, dy=-5 -> swap to (-5, 10) -> invert to (5,
+     * -10) */
+    zmk_pointing_processors_set_transform(
+        &app, (zmk_pointing_transform_flags_t)(ZMK_POINTING_TRANSFORM_XY_SWAP |
+                                               ZMK_POINTING_TRANSFORM_X_INVERT |
+                                               ZMK_POINTING_TRANSFORM_Y_INVERT));
+    assert_int_equal(zmk_pointing_processors_process_motion(&app, 10, -5, 0, 130), EDGE_OK);
+    assert_int_equal(sink_ctx.last_dx, 5);
+    assert_int_equal(sink_ctx.last_dy, -10);
+}
+
+static void test_pointing_resolution_multipliers(void **state) {
+    (void)state;
+    zmk_pointing_processors_app_t app;
+    zmk_pointing_processors_construct(&app, EDGE_MOD_ZMK_POINTING_PROC, 40, NULL);
+    zmk_pointing_processors_init(&app);
+
+    /* Default multiplier is 15 (standard Windows/HID 120/8 = 15) */
+    zmk_pointing_resolution_multipliers_t m0 =
+        zmk_pointing_processors_get_resolution_multiplier(&app, 0);
+    assert_int_equal(m0.wheel, 15);
+    assert_int_equal(m0.hor_wheel, 15);
+
+    /* Set custom resolution for endpoint 1 (e.g. high-res scroll wheel = 120) */
+    zmk_pointing_processors_set_resolution_multiplier(&app, 1, 120, 60);
+    zmk_pointing_resolution_multipliers_t m1 =
+        zmk_pointing_processors_get_resolution_multiplier(&app, 1);
+    assert_int_equal(m1.wheel, 120);
+    assert_int_equal(m1.hor_wheel, 60);
+}
+
 static void test_pointing_temp_layer_activation_and_timeout(void **state) {
     (void)state;
     mock_sink_t sink_ctx = {0};
@@ -98,6 +160,8 @@ static void test_pointing_temp_layer_activation_and_timeout(void **state) {
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_pointing_scaler_with_remainder),
+        cmocka_unit_test(test_pointing_transform_xy_swap_and_inversions),
+        cmocka_unit_test(test_pointing_resolution_multipliers),
         cmocka_unit_test(test_pointing_temp_layer_activation_and_timeout),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);

@@ -115,12 +115,43 @@ static void test_stopwatch_lap_recording(void **state) {
 
     /* Verify index 4 (past buffer) is ENOENT */
     assert_int_equal(stopwatch_get_lap(&sw, 4, &lap), EDGE_ENOENT);
+
+    /* Verify lap durations: Lap 5 took 7000 - 5500 = 1500ms; Lap 4 took 5500 - 4000 = 1500ms */
+    assert_int_equal(stopwatch_get_lap_duration_ms(&sw, 0), 1500);
+    assert_int_equal(stopwatch_get_lap_duration_ms(&sw, 1), 1500);
+}
+
+static void test_stopwatch_lap_boundary_and_rollover(void **state) {
+    (void)state;
+    g_mock_now_ms = 0;
+    const stopwatch_clock_if_t clock_if = {
+        .get_tick_ms = mock_get_tick_ms,
+        .self = NULL,
+    };
+
+    stopwatch_app_t sw;
+    stopwatch_construct(&sw, EDGE_MOD_STOPWATCH, 20u, &clock_if);
+    stopwatch_start(&sw);
+
+    /* Lap 1 at 500ms -> duration is 500ms */
+    g_mock_now_ms = 500;
+    assert_int_equal(stopwatch_add_lap(&sw), EDGE_OK);
+    assert_int_equal(stopwatch_get_lap_duration_ms(&sw, 0), 500);
+
+    /* Lap 2 at 1200ms -> duration is 1200 - 500 = 700ms */
+    g_mock_now_ms = 1200;
+    assert_int_equal(stopwatch_add_lap(&sw), EDGE_OK);
+    assert_int_equal(stopwatch_get_lap_duration_ms(&sw, 0), 700);
+
+    /* Out of bounds index -> returns 0 */
+    assert_int_equal(stopwatch_get_lap_duration_ms(&sw, 5), 0);
 }
 
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_stopwatch_basic_start_pause_resume),
         cmocka_unit_test(test_stopwatch_lap_recording),
+        cmocka_unit_test(test_stopwatch_lap_boundary_and_rollover),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
