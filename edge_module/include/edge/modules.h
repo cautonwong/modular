@@ -52,6 +52,20 @@ extern "C" {
     X(ALARM, 0x1E00, app)                                                                          \
     X(STOPWATCH, 0x1F00, app)                                                                      \
     X(RELAY, 0x2000, app)                                                                          \
+    X(ZMK_MATRIX, 0x2100, app)                                                                     \
+    X(ZMK_KEYMAP, 0x2200, app)                                                                     \
+    X(ZMK_BEHAVIOR, 0x2300, app)                                                                   \
+    X(ZMK_HID, 0x2400, app)                                                                        \
+    X(ZMK_ENDPOINTS, 0x2500, app)                                                                  \
+    X(ZMK_SPLIT, 0x2600, app)                                                                      \
+    X(ZMK_POINTING, 0x2700, app)                                                                   \
+    X(ZMK_RGB, 0x2800, app)                                                                        \
+    X(ZMK_PM, 0x2900, app)                                                                         \
+    X(ZMK_WPM, 0x2A00, app)                                                                        \
+    X(ZMK_COMBO, 0x2B00, app)                                                                      \
+    X(ZMK_SENSORS, 0x2C00, app)                                                                    \
+    X(ZMK_BEHAVIOR_QUEUE, 0x2D00, app)                                                             \
+    X(ZMK_SETTINGS, 0x2E00, app)                                                                   \
     X(WATCH_SETTINGS, 0x2F00, app)                                                                 \
     X(BLE_WEATHER, 0x3000, app)                                                                    \
     X(BLE_MUSIC, 0x3100, app)                                                                      \
@@ -68,17 +82,25 @@ extern "C" {
     X(FLASHLIGHT, 0x3C00, app)                                                                     \
     X(GAME_PADDLE, 0x3D00, app)                                                                    \
     X(GAME_TWOS, 0x3E00, app)                                                                      \
-    X(PAINT, 0x3F00, app)
+    X(PAINT, 0x3F00, app)                                                                          \
+    X(ZMK_EXT_POWER, 0x4000, app)                                                                  \
+    X(ZMK_LEDS, 0x4100, app)                                                                       \
+    X(ZMK_POINTING_PROC, 0x4200, app)                                                              \
+    X(ZMK_DISPLAY, 0x4300, app)                                                                    \
+    X(ZMK_STUDIO, 0x4400, app)                                                                     \
+    X(ZMK_BACKLIGHT, 0x4500, app)                                                                  \
+    X(ZMK_BATTERY, 0x4600, app)                                                                    \
+    X(ZMK_BOOT, 0x4700, app)
 
 /* One block per layer token used above, inclusive. */
 #define EDGE_MODULE_BLOCK_app_LO 0x1000u
-#define EDGE_MODULE_BLOCK_app_HI 0x3FFFu
-#define EDGE_MODULE_BLOCK_infra_LO 0x4000u
-#define EDGE_MODULE_BLOCK_infra_HI 0x4FFFu
-#define EDGE_MODULE_BLOCK_sys_LO 0x5000u
-#define EDGE_MODULE_BLOCK_sys_HI 0x5FFFu
-#define EDGE_MODULE_BLOCK_board_LO 0x6000u
-#define EDGE_MODULE_BLOCK_board_HI 0x6FFFu
+#define EDGE_MODULE_BLOCK_app_HI 0x4FFFu
+#define EDGE_MODULE_BLOCK_infra_LO 0x5000u
+#define EDGE_MODULE_BLOCK_infra_HI 0x5FFFu
+#define EDGE_MODULE_BLOCK_sys_LO 0x6000u
+#define EDGE_MODULE_BLOCK_sys_HI 0x6FFFu
+#define EDGE_MODULE_BLOCK_board_LO 0x7000u
+#define EDGE_MODULE_BLOCK_board_HI 0x7FFFu
 
 #define EDGE_MODULE_DEFINE(name, segment, layer) EDGE_MOD_##name = (segment),
 

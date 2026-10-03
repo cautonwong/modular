@@ -90,7 +90,7 @@ edge_add_area(app)
 
 # Legal family x board combinations (D39). An unknown family/board fails above;
 # a known-but-unlisted pair is a product composition error and fails here.
-set(EDGE_LEGAL_FAMILY_BOARD "example:example;meter:example;meter:mps2;meter:riscv_virt;watch:example;watch:pinetime")
+set(EDGE_LEGAL_FAMILY_BOARD "example:example;meter:example;meter:mps2;meter:riscv_virt;watch:example;watch:pinetime;example:keyboard_mock;keyboard:keyboard_mock")
 
 function(edge_add_product name)
     cmake_parse_arguments(P "" "family;board" "apps;infra" ${ARGN})
@@ -204,6 +204,8 @@ edge_add_product(meter_host family meter board example infra flash gpio apps dlt
 edge_add_product(meter_mps2 family meter board mps2 infra flash gpio apps dlt645 relay)
 edge_add_product(meter_gateway_host family meter board example infra flash uart apps dlt645 modbus_slave meter_core)
 edge_add_product(meter_rtems family meter board example infra flash apps dlt645)
+edge_add_product(keyboard_host family example board keyboard_mock infra hid_report apps zmk_matrix zmk_keymap zmk_behavior zmk_endpoints zmk_pm zmk_wpm)
+edge_add_product(corne_split family keyboard board keyboard_mock infra hid_report apps zmk_matrix zmk_keymap zmk_behavior zmk_split zmk_endpoints zmk_pm zmk_wpm)
 if(TARGET meter_rtems)
     target_link_libraries(meter_rtems PRIVATE pal_rtos_rtems)
 endif()

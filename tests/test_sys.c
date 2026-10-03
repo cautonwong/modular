@@ -8,6 +8,7 @@
 #include "edge/event.h"
 #include "edge/events.h"
 #include "example/sys.h"
+#include "keyboard/sys.h"
 #include "meter/sys.h"
 #include "watch/sys.h"
 
@@ -523,6 +524,23 @@ static void test_watch_wrapper(void **state) {
     assert_int_equal(sys_watch_init(&sys, apps, 1u, NULL, 1u, &queue, subs, 2u), EDGE_EINVAL);
 }
 
+static void test_keyboard_wrapper(void **state) {
+    (void)state;
+    fake_app_t a;
+    make_app(&a, 1u, 1u);
+    edge_module_t *apps[] = {&a.module};
+    edge_event_t storage[4];
+    edge_event_queue_t queue;
+    edge_sys_subscription_t subs[2];
+    edge_sys_t sys;
+
+    assert_int_equal(edge_event_queue_init(&queue, storage, 4u), EDGE_OK);
+    assert_int_equal(sys_keyboard_init(&sys, apps, 1u, &queue, subs, 2u), EDGE_OK);
+    assert_int_equal(edge_sys_start(&sys), EDGE_OK);
+
+    assert_int_equal(sys_keyboard_init(NULL, apps, 1u, &queue, subs, 2u), EDGE_EINVAL);
+}
+
 static void test_publish_deferred_queue(void **state) {
     (void)state;
     fake_app_t a;
@@ -809,6 +827,7 @@ int main(void) {
         TEST(test_deinit_stops_scheduler_only),
         TEST(test_meter_wrapper),
         TEST(test_watch_wrapper),
+        TEST(test_keyboard_wrapper),
         TEST(test_publish_deferred_queue),
         TEST(test_publish_overflow_and_binding),
         TEST(test_unsubscribe),

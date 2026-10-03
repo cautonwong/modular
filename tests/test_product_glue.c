@@ -138,6 +138,87 @@ static void test_gateway_transport_rejects_missing_state(void **state) {
     assert_int_equal(transport.write(NULL, "x", 1u), EDGE_EINVAL);
 }
 
+#include "corne_split/glue.h"
+#include "hid_report/hid_report.h"
+#include "keyboard_host/glue.h"
+#include "zmk_behavior/behavior.h"
+#include "zmk_keymap/keymap.h"
+
+static void test_keyboard_host_glue(void **state) {
+    (void)state;
+    hid_report_builder_t builder;
+    hid_report_builder_init(&builder);
+
+    zmk_behavior_hid_if_t hid_if;
+    product_keyboard_make_behavior_hid(&hid_if, &builder);
+    assert_non_null(hid_if.press_key);
+    assert_int_equal(hid_if.press_key(hid_if.self, 0x04, 0x02), EDGE_OK);
+    assert_int_equal(hid_if.release_key(hid_if.self, 0x04, 0x02), EDGE_OK);
+    assert_int_equal(hid_if.press_consumer_key(hid_if.self, 0x01), EDGE_OK);
+    assert_int_equal(hid_if.release_consumer_key(hid_if.self, 0x01), EDGE_OK);
+    assert_int_equal(hid_if.press_mouse_button(hid_if.self, 0x01), EDGE_OK);
+    assert_int_equal(hid_if.release_mouse_button(hid_if.self, 0x01), EDGE_OK);
+
+    zmk_behavior_app_t bhv;
+    zmk_behavior_construct(&bhv, EDGE_MOD_ZMK_BEHAVIOR, 50, &hid_if, NULL);
+    assert_int_equal(zmk_behavior_init(&bhv), EDGE_OK);
+
+    zmk_keymap_behavior_if_t kb_if;
+    product_keyboard_make_keymap_behavior(&kb_if, &bhv);
+    assert_non_null(kb_if.invoke_binding);
+    assert_int_equal(kb_if.invoke_binding(kb_if.self, ZMK_BHV_KEY_PRESS, 0x04, 0, true, 100),
+                     EDGE_OK);
+
+    zmk_keymap_app_t keymap;
+    zmk_keymap_construct(&keymap, EDGE_MOD_ZMK_KEYMAP, 1u, &kb_if, NULL, 1u, 1u);
+    assert_int_equal(zmk_keymap_init(&keymap), EDGE_OK);
+
+    zmk_matrix_event_sink_if_t mat_sink;
+    product_keyboard_make_matrix_sink(&mat_sink, &keymap);
+    assert_non_null(mat_sink.post_position_event);
+    assert_int_equal(mat_sink.post_position_event(mat_sink.self, 0, true, 100), EDGE_OK);
+}
+
+static void test_corne_split_glue(void **state) {
+    (void)state;
+    hid_report_builder_t builder;
+    hid_report_builder_init(&builder);
+
+    zmk_behavior_hid_if_t hid_if;
+    product_corne_make_behavior_hid(&hid_if, &builder);
+    assert_non_null(hid_if.press_key);
+    assert_int_equal(hid_if.press_key(hid_if.self, 0x04, 0x02), EDGE_OK);
+    assert_int_equal(hid_if.release_key(hid_if.self, 0x04, 0x02), EDGE_OK);
+    assert_int_equal(hid_if.press_consumer_key(hid_if.self, 0x01), EDGE_OK);
+    assert_int_equal(hid_if.release_consumer_key(hid_if.self, 0x01), EDGE_OK);
+    assert_int_equal(hid_if.press_mouse_button(hid_if.self, 0x01), EDGE_OK);
+    assert_int_equal(hid_if.release_mouse_button(hid_if.self, 0x01), EDGE_OK);
+
+    zmk_behavior_app_t bhv;
+    zmk_behavior_construct(&bhv, EDGE_MOD_ZMK_BEHAVIOR, 50, &hid_if, NULL);
+    assert_int_equal(zmk_behavior_init(&bhv), EDGE_OK);
+
+    zmk_keymap_behavior_if_t kb_if;
+    product_corne_make_keymap_behavior(&kb_if, &bhv);
+    assert_non_null(kb_if.invoke_binding);
+    assert_int_equal(kb_if.invoke_binding(kb_if.self, ZMK_BHV_KEY_PRESS, 0x04, 0, true, 100),
+                     EDGE_OK);
+
+    zmk_keymap_app_t keymap;
+    zmk_keymap_construct(&keymap, EDGE_MOD_ZMK_KEYMAP, 1u, &kb_if, NULL, 1u, 1u);
+    assert_int_equal(zmk_keymap_init(&keymap), EDGE_OK);
+
+    zmk_matrix_event_sink_if_t mat_sink;
+    product_corne_make_matrix_sink(&mat_sink, &keymap);
+    assert_non_null(mat_sink.post_position_event);
+    assert_int_equal(mat_sink.post_position_event(mat_sink.self, 0, true, 100), EDGE_OK);
+
+    zmk_split_receiver_if_t split_rx;
+    product_corne_make_split_receiver(&split_rx, &keymap);
+    assert_non_null(split_rx.on_remote_position_changed);
+    assert_int_equal(split_rx.on_remote_position_changed(split_rx.self, 0, true, 100), EDGE_OK);
+}
+
 static void test_glue_factories_are_null_safe(void **state) {
     (void)state;
     uint8_t buffer[64] = {0};
@@ -149,6 +230,13 @@ static void test_glue_factories_are_null_safe(void **state) {
     product_meter_mps2_make_relay_out(NULL, buffer);
     product_meter_gateway_host_make_storage(NULL, buffer);
     product_meter_gateway_host_make_modbus(NULL, NULL, &gateway);
+    product_keyboard_make_behavior_hid(NULL, NULL);
+    product_keyboard_make_keymap_behavior(NULL, NULL);
+    product_keyboard_make_matrix_sink(NULL, NULL);
+    product_corne_make_behavior_hid(NULL, NULL);
+    product_corne_make_keymap_behavior(NULL, NULL);
+    product_corne_make_matrix_sink(NULL, NULL);
+    product_corne_make_split_receiver(NULL, NULL);
 }
 
 static void test_watch_host_glue(void **state) {
@@ -515,6 +603,8 @@ int main(void) {
         cmocka_unit_test(test_glue_factories_are_null_safe),
         cmocka_unit_test(test_watch_host_glue),
         cmocka_unit_test(test_pinetime_glue),
+        cmocka_unit_test(test_keyboard_host_glue),
+        cmocka_unit_test(test_corne_split_glue),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

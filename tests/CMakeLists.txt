@@ -45,7 +45,7 @@ edge_add_contract_violation_test(test_contract_violation_board contract_violatio
 edge_add_contract_violation_test(test_contract_violation_rtos contract_violations/rtos.c)
 
 edge_add_host_test(test_event SOURCES test_event.c DEPS edge_module)
-edge_add_host_test(test_sys SOURCES test_sys.c DEPS edge_module sys_example sys_meter sys_watch)
+edge_add_host_test(test_sys SOURCES test_sys.c DEPS edge_module sys_example sys_meter sys_watch sys_keyboard)
 edge_add_host_test(test_architecture SOURCES test_architecture.c DEPS edge_module)
 edge_add_host_test(test_app_dlt645 SOURCES test_app_dlt645.c DEPS app_dlt645 edge_test_contract)
 edge_add_host_test(test_app_relay SOURCES test_app_relay.c DEPS app_relay edge_test_contract)
@@ -132,5 +132,33 @@ edge_add_host_test(test_product_glue SOURCES test_product_glue.c
     ../product/meter_rtems/glue.c
     ../product/watch_host/glue.c
     ../product/pinetime/glue.c
-    DEPS app_dlt645 app_meter_core app_modbus_slave app_relay app_touch_gesture app_button_handler app_watch_power app_heart_rate app_step_counter app_watch_time app_ble_services app_alarm app_stopwatch app_timer app_watch_settings app_ble_weather app_ble_music app_ble_nav app_ble_notifications app_ble_motion app_ble_fs app_ble_dfu app_firmware_validator app_watch_ui app_metronome app_calculator app_dice app_ble_passkey app_flashlight app_game_paddle app_game_twos app_paint infra_battery_adc infra_cst816s infra_hrs3300 infra_bma421 infra_st7789 infra_flash_spi infra_haptic infra_rle infra_flash infra_gpio infra_uart board_pinetime)
-target_include_directories(test_product_glue PRIVATE ${EDGE_ROOT}/product ${EDGE_ROOT}/product/meter_gateway_host ${EDGE_ROOT}/product/watch_host ${EDGE_ROOT}/product/pinetime ${EDGE_ROOT}/product/meter_rtems)
+    ../product/keyboard_host/glue.c
+    ../product/corne_split/glue.c
+    DEPS app_dlt645 app_meter_core app_modbus_slave app_relay app_touch_gesture app_button_handler app_watch_power app_heart_rate app_step_counter app_watch_time app_ble_services app_alarm app_stopwatch app_timer app_watch_settings app_ble_weather app_ble_music app_ble_nav app_ble_notifications app_ble_motion app_ble_fs app_ble_dfu app_firmware_validator app_watch_ui app_metronome app_calculator app_dice app_ble_passkey app_flashlight app_game_paddle app_game_twos app_paint infra_battery_adc infra_cst816s infra_hrs3300 infra_bma421 infra_st7789 infra_flash_spi infra_haptic infra_rle infra_flash infra_gpio infra_uart board_pinetime app_zmk_matrix app_zmk_keymap app_zmk_behavior app_zmk_split infra_hid_report)
+target_include_directories(test_product_glue PRIVATE ${EDGE_ROOT}/product ${EDGE_ROOT}/product/meter_gateway_host ${EDGE_ROOT}/product/watch_host ${EDGE_ROOT}/product/pinetime ${EDGE_ROOT}/product/meter_rtems ${EDGE_ROOT}/product/keyboard_host ${EDGE_ROOT}/product/corne_split)
+
+# ZMK Keyboard test suites
+edge_add_host_test(test_infra_hid_report SOURCES test_infra_hid_report.c DEPS infra_hid_report)
+edge_add_host_test(test_infra_kscan SOURCES test_infra_kscan.c DEPS infra_kscan)
+edge_add_host_test(test_app_zmk_matrix SOURCES test_app_zmk_matrix.c DEPS app_zmk_matrix edge_test_contract)
+edge_add_host_test(test_app_zmk_keymap SOURCES test_app_zmk_keymap.c DEPS app_zmk_keymap edge_test_contract)
+edge_add_host_test(test_app_zmk_combo SOURCES test_app_zmk_combo.c DEPS app_zmk_combo edge_test_contract)
+edge_add_host_test(test_app_zmk_behavior SOURCES test_app_zmk_behavior.c DEPS app_zmk_behavior edge_test_contract)
+edge_add_host_test(test_app_zmk_endpoints SOURCES test_app_zmk_endpoints.c DEPS app_zmk_endpoints edge_test_contract)
+edge_add_host_test(test_app_zmk_split SOURCES test_app_zmk_split.c DEPS app_zmk_split edge_test_contract)
+edge_add_host_test(test_app_zmk_pointing SOURCES test_app_zmk_pointing.c DEPS app_zmk_pointing edge_test_contract)
+edge_add_host_test(test_app_zmk_rgb SOURCES test_app_zmk_rgb.c DEPS app_zmk_rgb edge_test_contract)
+edge_add_host_test(test_app_zmk_pm SOURCES test_app_zmk_pm.c DEPS app_zmk_pm edge_test_contract)
+edge_add_host_test(test_app_zmk_wpm SOURCES test_app_zmk_wpm.c DEPS app_zmk_wpm edge_test_contract)
+edge_add_host_test(test_board_keyboard_mock SOURCES test_board_keyboard_mock.c DEPS board_keyboard_mock edge_test_contract)
+edge_add_host_test(test_app_zmk_sensors SOURCES test_app_zmk_sensors.c DEPS app_zmk_sensors edge_test_contract)
+edge_add_host_test(test_app_zmk_behavior_queue SOURCES test_app_zmk_behavior_queue.c DEPS app_zmk_behavior_queue edge_test_contract)
+edge_add_host_test(test_app_zmk_settings SOURCES test_app_zmk_settings.c DEPS app_zmk_settings edge_test_contract)
+edge_add_host_test(test_app_zmk_ext_power SOURCES test_app_zmk_ext_power.c DEPS app_zmk_ext_power edge_test_contract)
+edge_add_host_test(test_app_zmk_leds SOURCES test_app_zmk_leds.c DEPS app_zmk_leds edge_test_contract)
+edge_add_host_test(test_app_zmk_pointing_processors SOURCES test_app_zmk_pointing_processors.c DEPS app_zmk_pointing_processors edge_test_contract)
+edge_add_host_test(test_app_zmk_display SOURCES test_app_zmk_display.c DEPS app_zmk_display edge_test_contract)
+edge_add_host_test(test_app_zmk_studio SOURCES test_app_zmk_studio.c DEPS app_zmk_studio edge_test_contract)
+edge_add_host_test(test_app_zmk_backlight SOURCES test_app_zmk_backlight.c DEPS app_zmk_backlight edge_test_contract)
+edge_add_host_test(test_app_zmk_battery SOURCES test_app_zmk_battery.c DEPS app_zmk_battery edge_test_contract)
+edge_add_host_test(test_app_zmk_boot SOURCES test_app_zmk_boot.c DEPS app_zmk_boot edge_test_contract)
