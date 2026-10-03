@@ -21,7 +21,12 @@ static int32_t read_i32_be(const uint8_t *buf) {
 
 static edge_status_t vesc_can_poll(edge_module_t *mod) {
     vesc_can_app_t *app = (vesc_can_app_t *)edge_module_data(mod);
-    return vesc_can_process_incoming(app);
+    const edge_status_t status = vesc_can_process_incoming(app);
+
+    /* The two senders the reference runs from their own threads, on this module's tick instead. */
+    vesc_can_tick_status(app, (float)app->module.period);
+
+    return status;
 }
 
 static edge_status_t vesc_can_on_event(edge_module_t *mod, const edge_event_t *evt) {
@@ -58,9 +63,6 @@ void vesc_can_construct(vesc_can_app_t *app, uint32_t module_id, uint32_t priori
     if (app->config.baudrate == 0) {
         app->config.baudrate = 500000;
     }
-    if (app->config.status_rate_hz <= 0.0f) {
-        app->config.status_rate_hz = 50.0f;
-    }
 
     if (port) {
         app->port = *port;
@@ -76,6 +78,8 @@ edge_status_t vesc_can_init(vesc_can_app_t *app) {
     app->last_set_current = 0.0f;
     app->last_set_rpm = 0.0f;
     app->new_cmd_received = false;
+    app->status_1_accum_ms = 0.0f;
+    app->status_2_accum_ms = 0.0f;
     return EDGE_OK;
 }
 
@@ -100,6 +104,43 @@ edge_status_t vesc_can_send_status_1(vesc_can_app_t *app) {
     write_i32_be(&data[0], erpm);
     write_i16_be(&data[4], current);
     write_i16_be(&data[6], duty);
+
+    return app->port.send_frame(app->port.self, can_id, data, 8);
+}
+
+/*
+ * Reference comm_can.c:1226, comm_can_send_status2: the two charge counters, each in amp-hours at
+ * 1e4 - what the CAN peer uses to keep its own totals for a multi-controller vehicle.
+ */
+edge_status_t vesc_can_send_status_2(vesc_can_app_t *app) {
+    if (!app || !app->port.send_frame) {
+        return EDGE_EINVAL;
+    }
+
+    const uint32_t can_id =
+        ((uint32_t)CAN_PACKET_STATUS_2 << 8) | (uint32_t)app->config.controller_id;
+    uint8_t data[8];
+
+    write_i32_be(&data[0], (int32_t)(app->status_to_broadcast.amp_hours * 1e4f));
+    write_i32_be(&data[4], (int32_t)(app->status_to_broadcast.amp_hours_charged * 1e4f));
+
+    return app->port.send_frame(app->port.self, can_id, data, 8);
+}
+
+/*
+ * Reference comm_can.c:1235, comm_can_send_status3: the same two counters in watt-hours.
+ */
+edge_status_t vesc_can_send_status_3(vesc_can_app_t *app) {
+    if (!app || !app->port.send_frame) {
+        return EDGE_EINVAL;
+    }
+
+    const uint32_t can_id =
+        ((uint32_t)CAN_PACKET_STATUS_3 << 8) | (uint32_t)app->config.controller_id;
+    uint8_t data[8];
+
+    write_i32_be(&data[0], (int32_t)(app->status_to_broadcast.watt_hours * 1e4f));
+    write_i32_be(&data[4], (int32_t)(app->status_to_broadcast.watt_hours_charged * 1e4f));
 
     return app->port.send_frame(app->port.self, can_id, data, 8);
 }
@@ -130,16 +171,78 @@ edge_status_t vesc_can_send_status_5(vesc_can_app_t *app) {
         return EDGE_EINVAL;
     }
 
-    uint32_t can_id = ((uint32_t)CAN_PACKET_STATUS_5 << 8) | (uint32_t)app->config.controller_id;
+    const uint32_t can_id =
+        ((uint32_t)CAN_PACKET_STATUS_5 << 8) | (uint32_t)app->config.controller_id;
     uint8_t data[8];
 
-    int32_t v_in = (int32_t)(app->status_to_broadcast.v_in * 10.0f);
-    int32_t tacho = (int32_t)(app->status_to_broadcast.erpm / 6.0f);
-
-    write_i32_be(&data[0], v_in);
-    write_i32_be(&data[4], tacho);
+    /* comm_can.c:1255-1261: the tachometer whole, the input voltage at a tenth and one int16 the
+     * reference reserves. This builder used to write the voltage as a 32-bit field and the
+     * tachometer after it, which is not the frame the reference sends. */
+    write_i32_be(&data[0], app->status_to_broadcast.tachometer);
+    write_i16_be(&data[4], (int16_t)(app->status_to_broadcast.v_in * 1e1f));
+    write_i16_be(&data[6], 0);
 
     return app->port.send_frame(app->port.self, can_id, data, 8);
+}
+
+edge_status_t vesc_can_send_masked(vesc_can_app_t *app, uint8_t msgs) {
+    if (app == (void *)0) {
+        return EDGE_EINVAL;
+    }
+
+    edge_status_t status = EDGE_OK;
+
+    /* Bits 0 to 4, the five frames this port builds. Bit 5 is status 6, whose fields are three
+     * external ADC channels and the servo output; no product here has either, so it is not sent as
+     * zeros but left out, which is a difference a peer can see in its own frame count. */
+    if ((msgs >> 0) & 1u) {
+        status = vesc_can_send_status_1(app);
+    }
+    if ((msgs >> 1) & 1u) {
+        status = vesc_can_send_status_2(app);
+    }
+    if ((msgs >> 2) & 1u) {
+        status = vesc_can_send_status_3(app);
+    }
+    if ((msgs >> 3) & 1u) {
+        status = vesc_can_send_status_4(app);
+    }
+    if ((msgs >> 4) & 1u) {
+        status = vesc_can_send_status_5(app);
+    }
+
+    return status;
+}
+
+void vesc_can_tick_status(vesc_can_app_t *app, float dt_ms) {
+    if (app == (void *)0 || dt_ms <= 0.0f) {
+        return;
+    }
+
+    /* comm_can.c:1526-1565: each sender runs only in the VESC CAN mode, and only while its rate is
+     * non-zero - the reference spins on a ten-millisecond sleep in that case rather than sending.
+     */
+    if (app->config.can_mode != (uint8_t)VESC_CAN_MODE_VESC) {
+        return;
+    }
+
+    if (app->config.status_rate_1_hz > 0.0f) {
+        app->status_1_accum_ms += dt_ms;
+        const float period_ms = 1000.0f / app->config.status_rate_1_hz;
+        if (app->status_1_accum_ms >= period_ms) {
+            app->status_1_accum_ms -= period_ms;
+            (void)vesc_can_send_masked(app, app->config.status_msgs_r1);
+        }
+    }
+
+    if (app->config.status_rate_2_hz > 0.0f) {
+        app->status_2_accum_ms += dt_ms;
+        const float period_ms = 1000.0f / app->config.status_rate_2_hz;
+        if (app->status_2_accum_ms >= period_ms) {
+            app->status_2_accum_ms -= period_ms;
+            (void)vesc_can_send_masked(app, app->config.status_msgs_r2);
+        }
+    }
 }
 
 edge_status_t vesc_can_send_duty(vesc_can_app_t *app, uint8_t target_id, float duty) {
