@@ -2482,6 +2482,101 @@ static void test_vesc_host_apply_all_foc_command(void **state) {
         EDGE_EINVAL);
 }
 
+/*
+ * The hall detection's own command, through the product: the mock ports answer as a hall sensor
+ * would, the procedure sweeps and reads them, and what comes back is the table and its verdict. The
+ * host's configuration is a hall sensor port by its own defaults, so this is the path a board with
+ * halls would take; a product without them is refused before the run, which the command layer's own
+ * test covers.
+ */
+static void test_vesc_host_detect_hall_foc_command(void **state) {
+    (void)state;
+    memset(apply_var_values, 0, sizeof(apply_var_values));
+    memset(apply_var_present, 0, sizeof(apply_var_present));
+
+    vesc_host_glue_state_t glue;
+    memset(&glue, 0, sizeof(glue));
+    glue.v_bus = 24.0f;
+    foc_virtual_motor_init(&glue.vmotor, 0.05f, 0.00005f, 0.005f, 7, 0.0005f);
+
+    foc_inverter_port_t inverter;
+    vesc_host_make_inverter_port(&inverter, &glue);
+    foc_current_port_t current;
+    vesc_host_make_current_port(&current, &glue);
+    foc_rotor_port_t rotor;
+    vesc_host_make_rotor_port(&rotor, &glue);
+    foc_core_t foc;
+    foc_config_t foc_cfg = {.r_ohm = 0.05f,
+                            .l_henry = 0.00005f,
+                            .lambda_wb = 0.005f,
+                            .si_motor_poles = 14u,
+                            .si_gear_ratio = 3.0f,
+                            .si_wheel_diameter = 0.083f,
+                            .current_max_a = 50.0f,
+                            .current_min_a = -50.0f,
+                            .duty_max = 0.95f,
+                            .current_kp = 0.1f,
+                            .current_ki = 50.0f,
+                            .vbus_ov_threshold = 60.0f,
+                            .vbus_uv_threshold = 8.0f,
+                            .temp_fet_max_c = 100.0f,
+                            .sensorless_mode = false};
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &foc_cfg, &inverter, &current, &rotor);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    glue.foc = &foc;
+
+    motor_id_measure_port_t id_port;
+    vesc_host_make_motor_id_measure_port(&id_port, &glue);
+    assert_non_null(id_port.read_hall);
+    motor_id_app_t motor_id;
+    motor_id_construct(&motor_id, EDGE_MOD_MOTOR_ID, 40u, &id_port);
+    assert_int_equal(motor_id_init(&motor_id), EDGE_OK);
+
+    const motor_config_var_port_t var_port = {
+        .read = apply_var_read, .write = apply_var_write, .self = NULL};
+    static alignas(MOTOR_CONFIG_STORAGE_ALIGN) unsigned char cfg_storage[MOTOR_CONFIG_STORAGE_SIZE];
+    motor_config_t *cfg = (motor_config_t *)cfg_storage;
+    motor_config_construct(cfg, EDGE_MOD_MOTOR_CONFIG, 30u, &var_port);
+    assert_int_equal(motor_config_init(cfg), EDGE_OK);
+
+    vesc_host_ops_ctx_t ctx = {.glue = &glue, .motor_id = &motor_id, .config = cfg};
+    vesc_comm_ops_port_t ops;
+    vesc_host_make_ops_port(&ops, &ctx);
+    assert_non_null(ops.detect_hall_foc);
+
+    uint8_t table[8];
+    memset(table, 0, sizeof(table));
+    bool result = false;
+    const edge_status_t status = ops.detect_hall_foc(ops.self, 5.0f, table, &result);
+
+    assert_int_equal(motor_id.state, MOTOR_ID_STATE_COMPLETE);
+    assert_int_equal(status, EDGE_OK);
+    assert_true(result);
+    assert_int_equal(table[0], 255u);
+    assert_int_equal(table[7], 255u);
+
+    /*
+     * The reference's own criterion, which the verdict reports: every reading but the two ends
+     * names a step, and the six steps are six different ones. Their angles are the sector's middle
+     * only on a rotor that follows the override exactly; this one is a plant that lags behind it,
+     * so what is asserted is the criterion rather than the arithmetic that a real sensor would
+     * satisfy.
+     */
+    for (int reading = 1; reading < 7; reading++) {
+        assert_true(table[reading] != 255u);
+    }
+    for (int first = 1; first < 7; first++) {
+        for (int second = first + 1; second < 7; second++) {
+            assert_true(table[first] != table[second]);
+        }
+    }
+
+    /* Guards, and the gate on the sensor port: a product without halls is refused. */
+    assert_int_equal(ops.detect_hall_foc(NULL, 5.0f, table, &result), EDGE_EINVAL);
+    assert_int_equal(ops.detect_hall_foc(ops.self, 5.0f, NULL, &result), EDGE_EINVAL);
+    assert_int_equal(ops.detect_hall_foc(ops.self, 5.0f, table, NULL), EDGE_EINVAL);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -2502,6 +2597,7 @@ int main(void) {
         cmocka_unit_test(test_vesc_host_masked_value_adapters),
         cmocka_unit_test(test_vesc_host_setup_values_count_the_peers_on_the_bus),
         cmocka_unit_test(test_vesc_host_restart_requests),
+        cmocka_unit_test(test_vesc_host_detect_hall_foc_command),
         cmocka_unit_test(test_vesc_host_adapter_guards),
         cmocka_unit_test(test_vesc_host_config_and_terminal_ports),
         cmocka_unit_test(test_vesc_host_adapters_nothing_called),

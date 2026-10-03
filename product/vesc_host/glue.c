@@ -826,6 +826,59 @@ static edge_status_t ops_jump_to_bootloader(void *self) {
     return EDGE_OK;
 }
 
+/*
+ * COMM_DETECT_HALL_FOC (comm/commands.c:2238-2276): the hall detection the command reaches. The
+ * reference stages a configuration of its own for the run - FOC at ten kilohertz with a pair of
+ * current gains - and puts the old one back; that is this function's, around the procedure's own
+ * drive, because the aggregate's configuration is the product's to edit. Its gate is the sensor
+ * port: a host configured without halls says ENOTSUP, which the handler answers with the
+ * reference's own table of two hundred and fifty-fives.
+ */
+static edge_status_t ops_detect_hall_foc(void *self, float current_a, uint8_t table[8],
+                                         bool *result) {
+    vesc_host_ops_ctx_t *ctx = (vesc_host_ops_ctx_t *)self;
+    if (ctx == (void *)0 || ctx->glue == (void *)0 || ctx->motor_id == (void *)0 ||
+        ctx->config == (void *)0 || ctx->glue->foc == (void *)0 || table == (void *)0 ||
+        result == (void *)0) {
+        return EDGE_EINVAL;
+    }
+
+    /* SENSOR_PORT_MODE_HALL is nought in the reference's own enum (datatypes.h). */
+    const mc_configuration_t *mc = motor_config_get_mc(ctx->config);
+    if (mc->m_sensor_port_mode != 0u) {
+        return EDGE_ENOTSUP;
+    }
+
+    motor_id_app_t *app = ctx->motor_id;
+    foc_core_t *foc = ctx->glue->foc;
+    const float foc_dt = 0.000100f;
+    const uint32_t cycles_per_ms = 10u;
+
+    const edge_status_t started = motor_id_detect_hall(app, current_a, mc->m_hall_extra_samples);
+    if (started != EDGE_OK) {
+        return started;
+    }
+
+    /* Bounded by the procedure's own longest run - a thousand milliseconds of ramp and some eleven
+     * thousand of sweeping - so a detection that never finishes cannot hang the caller. */
+    for (uint32_t ms = 0u; ms < 30000u; ++ms) {
+        if (app->state == MOTOR_ID_STATE_COMPLETE || app->state == MOTOR_ID_STATE_FAILED) {
+            break;
+        }
+        for (uint32_t cycle = 0u; cycle < cycles_per_ms; ++cycle) {
+            (void)foc_core_fast_loop(foc, foc_dt);
+            foc_virtual_motor_step(&ctx->glue->vmotor, foc->v_alpha, foc->v_beta, 0.0f, foc_dt,
+                                   0.0f);
+        }
+        (void)motor_id_step(app, 0.001f);
+    }
+
+    const motor_id_result_t *measured = motor_id_get_result(app);
+    memcpy(table, measured->hall_table, 8u);
+    *result = measured->hall_valid;
+    return (app->state == MOTOR_ID_STATE_COMPLETE) ? EDGE_OK : EDGE_ESTATE;
+}
+
 void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_host_ops_ctx_t *ctx) {
     if (out == (void *)0) {
         return;
@@ -838,6 +891,7 @@ void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_host_ops_ctx_t *ctx
         .detect_flux_linkage = ops_detect_flux_linkage,
         .detect_r_l = ops_detect_r_l,
         .detect_apply_all_foc = ops_detect_apply_all_foc,
+        .detect_hall_foc = ops_detect_hall_foc,
         .reboot = ops_reboot,
         .jump_to_bootloader = ops_jump_to_bootloader,
         .self = ctx,
@@ -1403,6 +1457,27 @@ static edge_status_t id_leave_res_ind_gains(void *self) {
     return EDGE_OK;
 }
 
+/*
+ * The host's halls, which a simulation does not have as pins: the reading is the sector the virtual
+ * motor's electrical angle is in, which is what a hall sensor on a six-step motor reports. The
+ * procedure sweeps that angle with its own override and reads this at every step, so what it sees
+ * is where its override has put the rotor.
+ */
+static uint8_t glue_read_hall(void *self) {
+    const vesc_host_glue_state_t *glue = (const vesc_host_glue_state_t *)self;
+
+    float deg = glue->vmotor.rotor_angle_rad * (float)(180.0 / 3.14159265358979323846) *
+                (float)glue->vmotor.pole_pairs;
+    while (deg < 0.0f) {
+        deg += 360.0f;
+    }
+    while (deg >= 360.0f) {
+        deg -= 360.0f;
+    }
+
+    return (uint8_t)((int)(deg / 60.0f) + 1);
+}
+
 void vesc_host_make_motor_id_measure_port(motor_id_measure_port_t *out,
                                           vesc_host_glue_state_t *state) {
     if (out == (void *)0 || state == (void *)0) {
@@ -1411,6 +1486,7 @@ void vesc_host_make_motor_id_measure_port(motor_id_measure_port_t *out,
     *out = (motor_id_measure_port_t){
         .self = state,
         .set_phase_override = id_set_phase_override,
+        .read_hall = glue_read_hall,
         .set_current = id_set_current,
         .reset_samples = id_reset_samples,
         .read_samples = id_read_samples,

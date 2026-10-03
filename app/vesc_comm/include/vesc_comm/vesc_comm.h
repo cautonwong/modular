@@ -450,6 +450,15 @@ typedef struct vesc_comm_ops_port {
      */
     edge_status_t (*reboot)(void *self);
     edge_status_t (*jump_to_bootloader)(void *self);
+
+    /*
+     * COMM_DETECT_HALL_FOC: the hall sensors' own detection (comm/commands.c:2238-2276), which the
+     * reference runs only when the configuration's sensor port is a hall one and answers with eight
+     * bytes of table and one byte of verdict. That gate is the product's, because the sensor port
+     * is its hardware: a product without halls answers ENOTSUP and the reply is the eight entries
+     * the reference sends in the same case.
+     */
+    edge_status_t (*detect_hall_foc)(void *self, float current_a, uint8_t table[8], bool *result);
     /* COMM_DETECT_MOTOR_FLUX_LINKAGE_OPENLOOP: run the open-loop flux-linkage measurement. The
      * reference blocks its command thread until it comes back, so an implementation that advances
      * the measurement to its end before returning is what that looks like from here. */
