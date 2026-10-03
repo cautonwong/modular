@@ -59,9 +59,26 @@ static void test_dice_init_and_roll(void **state) {
     assert_int_equal(dice_get_total_sum(&dice), sum);
 }
 
+static void test_dice_coin_toss(void **state) {
+    (void)state;
+    dice_app_t dice;
+    assert_int_equal(dice_init(&dice, &g_entropy, &g_motor), EDGE_OK);
+
+    /* 1 coin: D2 yields 1 or 2 */
+    assert_int_equal(dice_set_sides(&dice, DICE_D2), EDGE_OK);
+    assert_int_equal(dice_get_sides(&dice), DICE_D2);
+
+    for (int i = 0; i < 20; ++i) {
+        assert_int_equal(dice_roll(&dice), EDGE_OK);
+        uint8_t res = dice_get_result(&dice, 0);
+        assert_true(res == 1 || res == 2);
+    }
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_dice_init_and_roll),
+        cmocka_unit_test(test_dice_coin_toss),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);
