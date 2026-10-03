@@ -58,6 +58,33 @@ int bldc_tacho_step_delta(int comm_step, int last_step);
  */
 bool bldc_sensorless_now(uint8_t sensor_mode, float rpm, float hall_sl_erpm);
 
+/*
+ * mcpwm.c:2302-2307, mcpwm_read_hall_phase: the three hall pins as the reading the commutation is
+ * driven by, bit zero first. Nothing is filtered here - a reading of nought or seven is a reading,
+ * and the reference assigns it as the step at the site below (mcpwm.c:1940). Its own table builder
+ * keeps that same value rather than inventing one, which is why bldc_build_hall_tables passes such
+ * an entry through.
+ */
+uint8_t bldc_hall_phase(bool hall1, bool hall2, bool hall3);
+
+/*
+ * mcpwm.c:1939-1952, the hall branch of the ADC ISR: the reading *is* the step - it is assigned,
+ * not counted towards - and only a running motor has it applied to the phases. A reading that has
+ * not changed still applies once if nothing has commutated since the motor started, which is the
+ * reference's own catch-up for a motor that began its run on the step it is already standing on.
+ *
+ * What the caller does with an apply is the reference's own pair of calls: set_next_comm_step() and
+ * commutate(0), which is where the phase outputs and the tachometer live.
+ */
+typedef struct bldc_hall_commutation {
+    int comm_step;     /* the step after the reading, which the reference assigns either way */
+    bool step_changed; /* and so the tachometer sees a commutation */
+    bool apply;        /* whether the phases are to be set to it */
+} bldc_hall_commutation_t;
+
+void bldc_hall_commutation(int comm_step, int hall_phase, bool running, bool has_commutated,
+                           bldc_hall_commutation_t *out);
+
 #ifdef __cplusplus
 }
 #endif

@@ -60,3 +60,30 @@ bool bldc_sensorless_now(uint8_t sensor_mode, float rpm, float hall_sl_erpm) {
     return (sensor_mode == BLDC_SENSOR_MODE_SENSORLESS) ||
            ((sensor_mode == BLDC_SENSOR_MODE_HYBRID) && (fabsf(rpm) > hall_sl_erpm));
 }
+
+uint8_t bldc_hall_phase(bool hall1, bool hall2, bool hall3) {
+    /* mcpwm.c:2307, mcpwm_read_hall_phase, its own bit order. */
+    return (uint8_t)((hall1 ? 1u : 0u) | (hall2 ? 2u : 0u) | (hall3 ? 4u : 0u));
+}
+
+void bldc_hall_commutation(int comm_step, int hall_phase, bool running, bool has_commutated,
+                           bldc_hall_commutation_t *out) {
+    if (out == (void *)0) {
+        return;
+    }
+
+    /* mcpwm.c:1939-1952, in the reference's own order. */
+    out->comm_step = comm_step;
+    out->step_changed = false;
+    out->apply = false;
+
+    if (comm_step != hall_phase) {
+        out->comm_step = hall_phase;
+        out->step_changed = true;
+        if (running) {
+            out->apply = true;
+        }
+    } else if (running && !has_commutated) {
+        out->apply = true;
+    }
+}

@@ -200,6 +200,149 @@ static void test_bldc_drive_module_behaviour(void **state) {
     assert_null(bldc_drive_module(NULL));
 }
 
+/*
+ * mcpwm_read_hall_phase (mcpwm.c:2307): the three pins as one reading, bit zero first. The whole of
+ * it is eight readings, and this is that run's output.
+ */
+static void test_bldc_hall_phase_matches_the_reference(void **state) {
+    (void)state;
+
+    for (int bits = 0; bits < 8; bits++) {
+        assert_int_equal(bldc_hall_phase((bits & 1) != 0, (bits & 2) != 0, (bits & 4) != 0), bits);
+    }
+}
+
+/*
+ * The hall branch of the reference's ADC ISR (mcpwm.c:1939-1952) as a pure decision. Four cases
+ * carry what matters, and all four are that run's output: a changed reading while running applies
+ * the step the reading named; the same reading with nothing committed yet applies it once anyway;
+ * the same reading after a commutation applies nothing; and a motor that is not running takes the
+ * step without applying it. A reading of nought or seven is a step here exactly as it is there.
+ */
+static void test_bldc_hall_commutation_matches_the_reference(void **state) {
+    (void)state;
+
+    bldc_hall_commutation_t out;
+
+    /* 1,0,running=1,has_commutated=0 -> step 0, changed, applied. */
+    bldc_hall_commutation(1, 0, true, false, &out);
+    assert_int_equal(out.comm_step, 0);
+    assert_true(out.step_changed);
+    assert_true(out.apply);
+
+    /* 1,1,1,0 -> unchanged, and applied because nothing has commutated yet. */
+    bldc_hall_commutation(1, 1, true, false, &out);
+    assert_int_equal(out.comm_step, 1);
+    assert_false(out.step_changed);
+    assert_true(out.apply);
+
+    /* 1,1,1,1 -> unchanged and applied to nothing. */
+    bldc_hall_commutation(1, 1, true, true, &out);
+    assert_false(out.step_changed);
+    assert_false(out.apply);
+
+    /* 1,3,0,0 -> the step is taken, nothing is applied. */
+    bldc_hall_commutation(1, 3, false, false, &out);
+    assert_int_equal(out.comm_step, 3);
+    assert_true(out.step_changed);
+    assert_false(out.apply);
+
+    /* 6,7,1,1 -> seven is a step like any other reading. */
+    bldc_hall_commutation(6, 7, true, true, &out);
+    assert_int_equal(out.comm_step, 7);
+    assert_true(out.step_changed);
+    assert_true(out.apply);
+
+    /* Nothing to write the decision into. */
+    bldc_hall_commutation(1, 2, true, false, NULL);
+}
+
+typedef struct mock_bldc_ports {
+    uint8_t pins;
+    int applies;
+    int last_step;
+    edge_status_t apply_status;
+} mock_bldc_ports_t;
+
+static uint8_t mock_read_hall(void *self) {
+    return ((mock_bldc_ports_t *)self)->pins;
+}
+
+static edge_status_t mock_apply_step(void *self, int comm_step) {
+    mock_bldc_ports_t *ports = (mock_bldc_ports_t *)self;
+    ports->applies++;
+    ports->last_step = comm_step;
+    return ports->apply_status;
+}
+
+/*
+ * The same decision, driven through the module: the reading comes from the hall port, the step goes
+ * to the phase port, and the drive's own state is what carries it between calls - including the
+ * catch-up apply for a motor that started on the step it is already standing on.
+ */
+static void test_bldc_drive_hall_commutation(void **state) {
+    (void)state;
+
+    mock_bldc_ports_t ports = {.pins = 0x01u, .apply_status = EDGE_OK};
+    bldc_hall_port_t hall = {.read_hall = mock_read_hall, .self = &ports};
+    bldc_phase_port_t phase = {.apply_step = mock_apply_step, .self = &ports};
+
+    bldc_drive_config_t config = {.sensor_mode = BLDC_SENSOR_MODE_SENSORED,
+                                  .hall_sl_erpm = 4000.0f,
+                                  .hall_table = {0, 5, 3, 1, 6, 4, 2, 0}};
+    bldc_drive_t drive;
+    bldc_drive_construct(&drive, EDGE_MOD_BLDC_DRIVE, 25u, &config);
+    assert_int_equal(bldc_drive_init(&drive), EDGE_OK);
+    assert_false(bldc_drive_has_commutated(&drive));
+
+    /* No hall port yet: a drive that cannot read the halls says so. */
+    assert_int_equal(bldc_drive_commutate_hall(&drive, true), EDGE_ENOTSUP);
+    assert_int_equal(bldc_drive_commutate_hall(NULL, true), EDGE_EINVAL);
+
+    bldc_drive_set_hall_port(&drive, &hall);
+    bldc_drive_set_phase_port(&drive, &phase);
+
+    /* The reading is one and the step is one, so nothing changes - but nothing has been applied
+     * either, which is the reference's catch-up. */
+    assert_int_equal(bldc_drive_commutate_hall(&drive, true), EDGE_OK);
+    assert_int_equal(ports.applies, 1);
+    assert_int_equal(ports.last_step, 1);
+    assert_true(bldc_drive_has_commutated(&drive));
+
+    /* Not running: the step is taken and nothing is applied. */
+    ports.pins = 0x03u;
+    assert_int_equal(bldc_drive_commutate_hall(&drive, false), EDGE_OK);
+    assert_int_equal(bldc_drive_get_comm_step(&drive), 3);
+    assert_int_equal(ports.applies, 1);
+
+    /* Running again with nothing changed, and something already commutated: applied to nothing,
+     * which is the reference's other branch. */
+    assert_int_equal(bldc_drive_commutate_hall(&drive, true), EDGE_OK);
+    assert_int_equal(ports.applies, 1);
+
+    /* A reading that does change is applied, and the tachometer saw the commutation. */
+    ports.pins = 0x02u;
+    assert_int_equal(bldc_drive_commutate_hall(&drive, true), EDGE_OK);
+    assert_int_equal(ports.applies, 2);
+    assert_int_equal(ports.last_step, 2);
+
+    /* A phase port that refuses is reported, and nothing is recorded as applied. */
+    bldc_drive_t bare;
+    bldc_drive_construct(&bare, EDGE_MOD_BLDC_DRIVE, 25u, &config);
+    assert_int_equal(bldc_drive_init(&bare), EDGE_OK);
+    bldc_drive_set_hall_port(&bare, &hall);
+    ports.pins = 0x06u;
+    assert_int_equal(bldc_drive_commutate_hall(&bare, true), EDGE_ENOTSUP);
+
+    ports.apply_status = EDGE_EIO;
+    bldc_drive_set_phase_port(&bare, &phase);
+    assert_int_equal(bldc_drive_commutate_hall(&bare, true), EDGE_EIO);
+    assert_false(bldc_drive_has_commutated(&bare));
+
+    bldc_drive_set_hall_port(NULL, &hall);
+    bldc_drive_set_phase_port(NULL, &phase);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_bldc_hall_tables_match_the_reference),
@@ -207,6 +350,9 @@ int main(void) {
         cmocka_unit_test(test_bldc_tacho_delta_matches_the_reference),
         cmocka_unit_test(test_bldc_sensorless_decision_matches_the_reference),
         cmocka_unit_test(test_bldc_drive_module_behaviour),
+        cmocka_unit_test(test_bldc_hall_phase_matches_the_reference),
+        cmocka_unit_test(test_bldc_hall_commutation_matches_the_reference),
+        cmocka_unit_test(test_bldc_drive_hall_commutation),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

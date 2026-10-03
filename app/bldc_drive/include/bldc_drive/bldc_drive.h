@@ -30,6 +30,26 @@ typedef struct bldc_drive_config {
     int8_t hall_table[8];
 } bldc_drive_config_t;
 
+/*
+ * What the drive needs from the world, in the two directions the reference reads and writes itself:
+ * the three hall pins, which it reads in mcpwm_read_hall_phase (mcpwm.c:2302), and the bridge's
+ * phases, which set_next_comm_step writes (:1104-1170). Both are optional, and a drive told to
+ * commutate without them says so rather than driving blind - a product with no halls has no
+ * six-step motor on it.
+ */
+typedef struct bldc_hall_port {
+    void *self;
+    /* The three pins as one reading, bit zero first, exactly as the reference reads them. */
+    uint8_t (*read_hall)(void *self);
+} bldc_hall_port_t;
+
+typedef struct bldc_phase_port {
+    void *self;
+    /* Hold the bridge at the step: one phase high, one low, one left floating, which is what the
+     * reference's own step table does. */
+    edge_status_t (*apply_step)(void *self, int comm_step);
+} bldc_phase_port_t;
+
 typedef struct bldc_drive {
     edge_module_t module;
     bldc_drive_config_t config;
@@ -50,6 +70,14 @@ typedef struct bldc_drive {
      * aggregate that measures it is the product's to read.
      */
     bool sensorless_now;
+
+    /*
+     * The two ports, and the reference's own has_commutated global (mcpwm.c:2622), which is what
+     * its catch-up branch reads when a reading has not changed since the run began.
+     */
+    const bldc_hall_port_t *hall;
+    const bldc_phase_port_t *phase;
+    bool has_commutated;
 } bldc_drive_t;
 
 void bldc_drive_construct(bldc_drive_t *self, uint32_t module_id, uint32_t priority,
@@ -58,6 +86,22 @@ edge_status_t bldc_drive_init(bldc_drive_t *self);
 
 /* The speed the sensor-mode decision is made on, in electrical rpm as the reference's own. */
 void bldc_drive_set_rpm(bldc_drive_t *self, float rpm);
+
+void bldc_drive_set_hall_port(bldc_drive_t *self, const bldc_hall_port_t *port);
+void bldc_drive_set_phase_port(bldc_drive_t *self, const bldc_phase_port_t *port);
+
+/*
+ * One hall-driven commutation, which is mcpwm.c:1939-1952's branch: the reading is taken, the
+ * decision the pure function above makes is applied to the state, and a step the caller is to apply
+ * goes to the bridge - all of it only while the motor is running, as there.
+ *
+ * EDGE_OK when it ran, EDGE_ENOTSUP when the drive has no hall port to read, and the phase port's
+ * own status if applying the step failed.
+ */
+edge_status_t bldc_drive_commutate_hall(bldc_drive_t *self, bool running);
+
+/* Whether a step has been applied to the bridge since the drive was initialised (:2622). */
+bool bldc_drive_has_commutated(const bldc_drive_t *self);
 
 /* The step the drive is commutating at, one to six, and how it last moved. */
 void bldc_drive_advance_step(bldc_drive_t *self, int steps);
