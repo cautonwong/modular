@@ -886,6 +886,50 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
         return send_reply(self, out);
     }
 
+    case COMM_DETECT_HALL_FOC: {
+        /*
+         * Reference comm/commands.c:2238-2276: a current in at a thousandth, eight bytes of hall
+         * table and one byte of verdict out. The reference stages a configuration of its own for
+         * the run and puts the old one back; that is the product's here, around its own callback,
+         * because the sensor port the gate is written on is its hardware. A product whose port is
+         * not a hall one answers ENOTSUP, and the reply is the table of two hundred and fifty-fives
+         * the reference sends in the same case.
+         */
+        if (len < 5u) {
+            return EDGE_EINVAL;
+        }
+
+        size_t ind = 1u; /* past the command id, as every handler's own offset is */
+        const float current = buffer_get_float32(data, 1e3f, &ind);
+
+        uint8_t table[8];
+        memset(table, 0, sizeof(table));
+        bool result = false;
+
+        if (self->ops == (void *)0 || self->ops->detect_hall_foc == (void *)0) {
+            return EDGE_ENOTSUP;
+        }
+
+        const edge_status_t status =
+            self->ops->detect_hall_foc(self->ops->self, current, table, &result);
+        if (status == EDGE_EINVAL) {
+            return status;
+        }
+
+        size_t out = 0;
+        self->cmd_reply_buf[out++] = COMM_DETECT_HALL_FOC;
+        if (status == EDGE_OK) {
+            memcpy(&self->cmd_reply_buf[out], table, 8u);
+            out += 8u;
+            self->cmd_reply_buf[out++] = result ? 0u : 1u;
+        } else {
+            memset(&self->cmd_reply_buf[out], 255, 8u);
+            out += 8u;
+            self->cmd_reply_buf[out++] = 1u;
+        }
+        return send_reply(self, out);
+    }
+
     case COMM_REBOOT:
         /*
          * Reference comm/commands.c:695-698: the backup block is stored and the machine resets, and

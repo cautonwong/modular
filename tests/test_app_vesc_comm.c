@@ -1789,6 +1789,101 @@ static void test_restart_commands_reach_the_product(void **state) {
                      EDGE_ENOTSUP);
 }
 
+/*
+ * COMM_DETECT_HALL_FOC: the reference answers it with the command id, eight bytes of hall table and
+ * one byte of verdict, and with a table of two hundred and fifty-fives when the sensor port is not
+ * a hall one (comm/commands.c:2238-2276). The product owns that gate, so what this layer is tested
+ * for is the packet it parses, the reply it builds in each case, and the refusal when nobody
+ * implemented the callback at all.
+ */
+typedef struct mock_hall_detect_ctx {
+    int calls;
+    float current;
+    uint8_t table[8];
+    bool result;
+    edge_status_t status;
+} mock_hall_detect_ctx_t;
+
+static edge_status_t mock_detect_hall_foc(void *self, float current_a, uint8_t table[8],
+                                          bool *result) {
+    mock_hall_detect_ctx_t *ctx = (mock_hall_detect_ctx_t *)self;
+    ctx->calls++;
+    ctx->current = current_a;
+    if (ctx->status != EDGE_OK) {
+        return ctx->status;
+    }
+    memcpy(table, ctx->table, 8u);
+    *result = ctx->result;
+    return EDGE_OK;
+}
+
+static void test_detect_hall_foc_command(void **state) {
+    (void)state;
+    mock_comm_ctx_t tx;
+    memset(&tx, 0, sizeof(tx));
+    edge_stream_tx_port_t tx_port = {.write = mock_stream_write, .self = &tx};
+
+    /* A packet of the command id and one scaled float, built with the codec. */
+    uint8_t packet[5];
+    int32_t at = 0;
+    packet[at++] = COMM_DETECT_HALL_FOC;
+    vesc_buffer_append_float32(packet, 7.5f, 1e3f, &at);
+    assert_int_equal(at, 5);
+
+    /* A product that has not implemented it, and one that has. */
+    vesc_comm_ops_port_t bare_ops = {
+        .terminal_cmd = mock_terminal_cmd, .forward_can = mock_forward_can, .self = NULL};
+    vesc_comm_t *bare = test_comm_alloc();
+    vesc_comm_construct(bare, EDGE_MOD_VESC_COMM, 10u, &tx_port, NULL, NULL, NULL, &bare_ops,
+                        &test_identity);
+    assert_int_equal(vesc_comm_init(bare), EDGE_OK);
+    assert_int_equal(vesc_comm_process_command(bare, packet, sizeof(packet)), EDGE_ENOTSUP);
+
+    mock_hall_detect_ctx_t detect = {
+        .result = true, .status = EDGE_OK, .table = {255u, 0u, 33u, 66u, 100u, 133u, 166u, 255u}};
+    vesc_comm_ops_port_t ops = {.terminal_cmd = mock_terminal_cmd,
+                                .forward_can = mock_forward_can,
+                                .detect_hall_foc = mock_detect_hall_foc,
+                                .self = &detect};
+    vesc_comm_t *comm = test_comm_alloc();
+    vesc_comm_construct(comm, EDGE_MOD_VESC_COMM, 10u, &tx_port, NULL, NULL, NULL, &ops,
+                        &test_identity);
+    assert_int_equal(vesc_comm_init(comm), EDGE_OK);
+
+    tx.tx_count = 0u;
+    assert_int_equal(vesc_comm_process_command(comm, packet, sizeof(packet)), EDGE_OK);
+    assert_int_equal(detect.calls, 1);
+    assert_float_equal(detect.current, 7.5f, 1e-4f); /* parsed, not scaled */
+
+    const uint8_t *reply = tx.tx_buf + 2u; /* past the start byte and the length */
+    assert_int_equal(reply[0], COMM_DETECT_HALL_FOC);
+    const uint8_t expected[8] = {255u, 0u, 33u, 66u, 100u, 133u, 166u, 255u};
+    assert_memory_equal(&reply[1], expected, sizeof(expected));
+    assert_int_equal(reply[9], 0u); /* the verdict, nought for a detection that passed */
+
+    /* A short packet is refused before it is read. */
+    assert_int_equal(vesc_comm_process_command(comm, packet, 2u), EDGE_EINVAL);
+
+    /* A product whose port is not a hall one answers ENOTSUP - the same three bytes the reference's
+     * own else branch sends: eight two hundred and fifty-fives and a verdict of one. */
+    detect.status = EDGE_ENOTSUP;
+    tx.tx_count = 0u;
+    assert_int_equal(vesc_comm_process_command(comm, packet, sizeof(packet)), EDGE_OK);
+    const uint8_t *blind_reply = tx.tx_buf + 2u;
+    assert_int_equal(blind_reply[0], COMM_DETECT_HALL_FOC);
+    for (size_t i = 1u; i < 9u; i++) {
+        assert_int_equal(blind_reply[i], 255u);
+    }
+    assert_int_equal(blind_reply[9], 1u);
+
+    /* And a verdict that did not pass is a one in the same place. */
+    detect.status = EDGE_OK;
+    detect.result = false;
+    tx.tx_count = 0u;
+    assert_int_equal(vesc_comm_process_command(comm, packet, sizeof(packet)), EDGE_OK);
+    assert_int_equal((tx.tx_buf + 2u)[9], 1u);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -1807,6 +1902,7 @@ int main(void) {
         cmocka_unit_test(test_detect_r_l_command),
         cmocka_unit_test(test_detect_param_is_refused_and_apply_all_forwards),
         cmocka_unit_test(test_restart_commands_reach_the_product),
+        cmocka_unit_test(test_detect_hall_foc_command),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
