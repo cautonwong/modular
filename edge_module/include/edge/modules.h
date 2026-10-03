@@ -54,7 +54,8 @@ extern "C" {
     X(PAS, 0x2B00, app)                                                                            \
     X(BALANCE, 0x2C00, app)                                                                        \
     X(VESC_TERMINAL, 0x2D00, app)                                                                  \
-    X(VESC_BMS, 0x2E00, app)
+    X(VESC_BMS, 0x2E00, app)                                                                       \
+    X(BLDC_DRIVE, 0x2F00, app)
 
 /* One block per layer token used above, inclusive. */
 #define EDGE_MODULE_BLOCK_app_LO 0x1000u

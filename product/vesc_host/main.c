@@ -1,6 +1,7 @@
 #include "adc_input/adc_input.h"
 #include "balance/balance.h"
 #include "bldc/sys.h"
+#include "bldc_drive/bldc_drive.h"
 #include "edge/clock.h"
 #include "edge/event.h"
 #include "edge/events.h"
@@ -465,6 +466,27 @@ int main(void) {
         return 23;
     }
 
+    /*
+     * The six-step drive, phase F. Its configuration is the motor configuration's own sensor mode,
+     * hall table and hall_sl_erpm, which is where the reference's six-step layer reads them from
+     * too (mcpwm.c:501 builds one of those tables, :2586 uses the other two); the speed its
+     * sensor-mode decision needs arrives from the aggregate each cycle, the way that layer reads
+     * its own motor state. What it does not have yet - the hall inputs, the phase outputs, the
+     * commutation and the start-up modes - is named in its header and in the phase table.
+     */
+    const mc_configuration_t *bldc_mc = motor_config_get_mc(motor_cfg);
+    bldc_drive_config_t bldc_cfg;
+    memset(&bldc_cfg, 0, sizeof(bldc_cfg));
+    bldc_cfg.sensor_mode = (uint8_t)bldc_mc->sensor_mode;
+    bldc_cfg.hall_sl_erpm = bldc_mc->hall_sl_erpm;
+    memcpy(bldc_cfg.hall_table, bldc_mc->hall_table, sizeof(bldc_cfg.hall_table));
+
+    bldc_drive_t bldc_app;
+    bldc_drive_construct(&bldc_app, EDGE_MOD_BLDC_DRIVE, 25u, &bldc_cfg);
+    if (bldc_drive_init(&bldc_app) != EDGE_OK) {
+        return 24;
+    }
+
     /* Assemble App List */
     /*
      * The throttle app is not scheduled here. Its step applies deadband, curve and ramp to a raw
@@ -474,7 +496,7 @@ int main(void) {
      * EDGE_EINVAL from every poll - a failure that went unseen until the step's result stopped
      * being dropped, because edge_sys_step() was answering EDGE_ESTATE the whole time.
      */
-    edge_module_t *apps[13];
+    edge_module_t *apps[14];
     apps[0] = foc_core_module(&foc);
     apps[1] = vesc_comm_module(comm);
     apps[2] = motor_config_module(motor_cfg);
@@ -488,6 +510,7 @@ int main(void) {
     apps[10] = balance_module(&balance_app);
     apps[11] = vesc_terminal_module(&term_app);
     apps[12] = vesc_bms_module(&bms_app);
+    apps[13] = bldc_drive_module(&bldc_app);
 
     /* System & Event Infrastructure */
     edge_event_t event_storage[16];
@@ -497,7 +520,7 @@ int main(void) {
     edge_sys_subscription_t subs[16];
     edge_sys_t sys;
 
-    if (sys_bldc_init(&sys, apps, 13, &event_queue, subs, 16) != EDGE_OK) {
+    if (sys_bldc_init(&sys, apps, 14, &event_queue, subs, 16) != EDGE_OK) {
         return 1;
     }
     /*
@@ -534,7 +557,7 @@ int main(void) {
         if (step_rc != EDGE_OK) {
             printf("FAIL: the scheduler rejected a step at cycle %d (rc 0x%x)\n", i,
                    (unsigned)step_rc);
-            for (size_t m = 0u; m < 13u; m++) {
+            for (size_t m = 0u; m < 14u; m++) {
                 if (apps[m]->failed) {
                     printf("      module 0x%x failed\n", (unsigned)apps[m]->module_id);
                 }

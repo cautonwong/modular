@@ -93,6 +93,7 @@ edge_add_host_test(test_soc_stm32f4_tim SOURCES test_soc_stm32f4_tim.c DEPS soc_
 edge_add_host_test(test_soc_stm32f4_adc SOURCES test_soc_stm32f4_adc.c DEPS soc_stm32f4)
 edge_add_host_test(test_pal_power SOURCES test_pal_power.c DEPS pal_host pal_os)
 edge_add_host_test(test_app_motor_id SOURCES test_app_motor_id.c DEPS app_motor_id)
+edge_add_host_test(test_app_bldc_drive SOURCES test_app_bldc_drive.c DEPS app_bldc_drive)
 edge_add_host_test(test_app_ppm SOURCES test_app_ppm.c DEPS app_ppm)
 edge_add_host_test(test_app_adc_input SOURCES test_app_adc_input.c DEPS app_adc_input)
 edge_add_host_test(test_app_vesc_can SOURCES test_app_vesc_can.c DEPS app_vesc_can app_vesc_comm)
