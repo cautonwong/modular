@@ -886,6 +886,31 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
         return send_reply(self, out);
     }
 
+    case COMM_REBOOT:
+        /*
+         * Reference comm/commands.c:695-698: the backup block is stored and the machine resets, and
+         * no reply goes out - the connection simply ends. Both halves are the product's, and in
+         * that order, so the call carries both: a product that has neither a store nor a reset line
+         * has nothing to do with this command and says so.
+         */
+        if (self->ops == (void *)0 || self->ops->reboot == (void *)0) {
+            return EDGE_ENOTSUP;
+        }
+        return self->ops->reboot(self->ops->self);
+
+    case COMM_JUMP_TO_BOOTLOADER:
+        /*
+         * Reference comm/commands.c:304-306, which reaches flash_helper_jump_to_bootloader: the
+         * motor is released, the serial ports stopped, the watchdog slowed and the interrupt system
+         * disabled before the jump, and no reply is sent. Its ..._ALL_CAN sibling forwards the
+         * command to the bus first, which needs a bus that can send; that half arrives with the CAN
+         * status receive path's siblings rather than here.
+         */
+        if (self->ops == (void *)0 || self->ops->jump_to_bootloader == (void *)0) {
+            return EDGE_ENOTSUP;
+        }
+        return self->ops->jump_to_bootloader(self->ops->self);
+
     default:
         return EDGE_ENOTSUP;
     }

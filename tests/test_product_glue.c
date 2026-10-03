@@ -1041,6 +1041,41 @@ static void test_vesc_host_setup_values_count_the_peers_on_the_bus(void **state)
     assert_float_equal(setup.ah_charge_tot, telem.amp_hours_charged + 0.01f, 1e-3f);
 }
 
+/*
+ * The two restart commands' product half: a simulation has neither a reset line nor a bootloader,
+ * so it records the request - which is what its run acts on - and a product built without a glue
+ * state has nothing to record it on and says so.
+ */
+static void test_vesc_host_restart_requests(void **state) {
+    (void)state;
+    vesc_host_glue_state_t glue_state;
+    memset(&glue_state, 0, sizeof(glue_state));
+
+    vesc_host_ops_ctx_t ctx = {.glue = &glue_state};
+    vesc_comm_ops_port_t ops;
+    vesc_host_make_ops_port(&ops, &ctx);
+    assert_non_null(ops.reboot);
+    assert_non_null(ops.jump_to_bootloader);
+
+    assert_false(glue_state.reboot_requested);
+    assert_false(glue_state.bootloader_requested);
+
+    assert_int_equal(ops.reboot(ops.self), EDGE_OK);
+    assert_true(glue_state.reboot_requested);
+
+    assert_int_equal(ops.jump_to_bootloader(ops.self), EDGE_OK);
+    assert_true(glue_state.bootloader_requested);
+
+    /* A context with no glue state behind it cannot record anything. */
+    vesc_host_ops_ctx_t bare;
+    memset(&bare, 0, sizeof(bare));
+    vesc_comm_ops_port_t bare_ops;
+    vesc_host_make_ops_port(&bare_ops, &bare);
+    assert_int_equal(bare_ops.reboot(bare_ops.self), EDGE_EINVAL);
+    assert_int_equal(bare_ops.jump_to_bootloader(bare_ops.self), EDGE_EINVAL);
+    assert_int_equal(bare_ops.reboot(NULL), EDGE_EINVAL);
+}
+
 static void test_vesc_host_masked_value_adapters(void **state) {
     (void)state;
     vesc_host_glue_state_t glue_state;
@@ -2466,6 +2501,7 @@ int main(void) {
         cmocka_unit_test(test_vesc_host_motor_id_detection),
         cmocka_unit_test(test_vesc_host_masked_value_adapters),
         cmocka_unit_test(test_vesc_host_setup_values_count_the_peers_on_the_bus),
+        cmocka_unit_test(test_vesc_host_restart_requests),
         cmocka_unit_test(test_vesc_host_adapter_guards),
         cmocka_unit_test(test_vesc_host_config_and_terminal_ports),
         cmocka_unit_test(test_vesc_host_adapters_nothing_called),

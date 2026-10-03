@@ -439,6 +439,17 @@ typedef struct vesc_comm_ops_port {
     /* COMM_FORWARD_CAN: hand a whole packet to another controller over CAN. `data` is the
      * payload after the target id, which the codec has already peeled off. */
     edge_status_t (*forward_can)(void *self, uint8_t target_id, const uint8_t *data, size_t len);
+
+    /*
+     * COMM_REBOOT and COMM_JUMP_TO_BOOTLOADER. The reference's reboot handler stores the backup
+     * block and resets (comm/commands.c:695-698); its bootloader jump releases the motor, stops the
+     * serial ports, slows the watchdog and disables interrupts before jumping to the bootloader's
+     * vector table (flash_helper.c). Both halves are the product's - it owns the flash and the
+     * reset line - so each is one call from here, and the reboot one carries the store as well
+     * because that is the order the reference performs them in.
+     */
+    edge_status_t (*reboot)(void *self);
+    edge_status_t (*jump_to_bootloader)(void *self);
     /* COMM_DETECT_MOTOR_FLUX_LINKAGE_OPENLOOP: run the open-loop flux-linkage measurement. The
      * reference blocks its command thread until it comes back, so an implementation that advances
      * the measurement to its end before returning is what that looks like from here. */

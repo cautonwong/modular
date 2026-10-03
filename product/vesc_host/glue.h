@@ -63,6 +63,15 @@ typedef struct vesc_host_glue_state {
     float saved_current_kp;
     float saved_current_ki;
     bool res_ind_gains_saved;
+
+    /*
+     * A shutdown the running system asked for: the simulation has no reset line and no bootloader
+     * to jump to, so the request is recorded here and the simulation's own run ends where a board
+     * would restart. The backup block's store happens on the way out through the modules'
+     * power_off, which is where this port keeps it for an ordinary shutdown too.
+     */
+    bool reboot_requested;
+    bool bootloader_requested;
 } vesc_host_glue_state_t;
 
 void vesc_host_make_flash_sector_port(flash_sector_port_t *out, vesc_host_glue_state_t *state);

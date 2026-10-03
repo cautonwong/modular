@@ -798,6 +798,34 @@ static edge_status_t ops_detect_apply_all_foc(void *self, bool detect_can, float
     return status;
 }
 
+/*
+ * COMM_REBOOT and COMM_JUMP_TO_BOOTLOADER (comm/commands.c:695-698 and :304-306, which reaches
+ * flash_helper_jump_to_bootloader): a board stores its backup block and resets, or releases the
+ * motor, stops its ports and jumps to the bootloader's vector table. A simulation has neither a
+ * reset line nor a bootloader, so it records the request and its own run ends there - which is the
+ * simulation's reset - and the store happens on the way out through the modules' power_off, the
+ * same path an ordinary shutdown takes.
+ */
+static edge_status_t ops_reboot(void *self) {
+    vesc_host_ops_ctx_t *ctx = (vesc_host_ops_ctx_t *)self;
+    if (ctx == (void *)0 || ctx->glue == (void *)0) {
+        return EDGE_EINVAL;
+    }
+
+    ctx->glue->reboot_requested = true;
+    return EDGE_OK;
+}
+
+static edge_status_t ops_jump_to_bootloader(void *self) {
+    vesc_host_ops_ctx_t *ctx = (vesc_host_ops_ctx_t *)self;
+    if (ctx == (void *)0 || ctx->glue == (void *)0) {
+        return EDGE_EINVAL;
+    }
+
+    ctx->glue->bootloader_requested = true;
+    return EDGE_OK;
+}
+
 void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_host_ops_ctx_t *ctx) {
     if (out == (void *)0) {
         return;
@@ -810,6 +838,8 @@ void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_host_ops_ctx_t *ctx
         .detect_flux_linkage = ops_detect_flux_linkage,
         .detect_r_l = ops_detect_r_l,
         .detect_apply_all_foc = ops_detect_apply_all_foc,
+        .reboot = ops_reboot,
+        .jump_to_bootloader = ops_jump_to_bootloader,
         .self = ctx,
     };
 }
