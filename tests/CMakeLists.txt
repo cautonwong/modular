@@ -45,7 +45,7 @@ edge_add_contract_violation_test(test_contract_violation_board contract_violatio
 edge_add_contract_violation_test(test_contract_violation_rtos contract_violations/rtos.c)
 
 edge_add_host_test(test_event SOURCES test_event.c DEPS edge_module)
-edge_add_host_test(test_sys SOURCES test_sys.c DEPS edge_module sys_example sys_meter)
+edge_add_host_test(test_sys SOURCES test_sys.c DEPS edge_module sys_example sys_meter sys_watch)
 edge_add_host_test(test_architecture SOURCES test_architecture.c DEPS edge_module)
 edge_add_host_test(test_app_dlt645 SOURCES test_app_dlt645.c DEPS app_dlt645 edge_test_contract)
 edge_add_host_test(test_app_relay SOURCES test_app_relay.c DEPS app_relay edge_test_contract)
@@ -76,11 +76,61 @@ edge_add_host_test(test_runner_threads SOURCES test_runner_threads.c DEPS sys_ex
 edge_add_host_test(test_flash_glue SOURCES test_flash_glue.c ../product/example/glue.c
     DEPS app_dlt645 infra_flash)
 
+edge_add_host_test(test_infra_battery_adc SOURCES test_infra_battery_adc.c DEPS infra_battery_adc)
+edge_add_host_test(test_infra_cst816s SOURCES test_infra_cst816s.c DEPS infra_cst816s)
+edge_add_host_test(test_app_touch_gesture SOURCES test_app_touch_gesture.c DEPS app_touch_gesture)
+edge_add_host_test(test_app_button_handler SOURCES test_app_button_handler.c DEPS app_button_handler)
+edge_add_host_test(test_app_watch_power SOURCES test_app_watch_power.c DEPS app_watch_power)
+edge_add_host_test(test_infra_hrs3300 SOURCES test_infra_hrs3300.c DEPS infra_hrs3300)
+edge_add_host_test(test_app_heart_rate SOURCES test_app_heart_rate.c DEPS app_heart_rate)
+if(NOT WIN32)
+    target_link_libraries(test_app_heart_rate PRIVATE m)
+endif()
+edge_add_host_test(test_infra_bma421 SOURCES test_infra_bma421.c DEPS infra_bma421)
+edge_add_host_test(test_app_step_counter SOURCES test_app_step_counter.c DEPS app_step_counter)
+edge_add_host_test(test_app_watch_time SOURCES test_app_watch_time.c DEPS app_watch_time)
+edge_add_host_test(test_infra_st7789 SOURCES test_infra_st7789.c DEPS infra_st7789)
+edge_add_host_test(test_infra_flash_spi SOURCES test_infra_flash_spi.c DEPS infra_flash_spi)
+edge_add_host_test(test_infra_haptic SOURCES test_infra_haptic.c DEPS infra_haptic)
+edge_add_host_test(test_board_pinetime SOURCES test_board_pinetime.c DEPS board_pinetime soc_nrf52)
+edge_add_host_test(test_soc_nrf52_spim SOURCES test_soc_nrf52_spim.c DEPS soc_nrf52)
+edge_add_host_test(test_soc_nrf52_twim SOURCES test_soc_nrf52_twim.c DEPS soc_nrf52)
+edge_add_host_test(test_soc_nrf52_saadc SOURCES test_soc_nrf52_saadc.c DEPS soc_nrf52)
+edge_add_host_test(test_soc_nrf52_rtc SOURCES test_soc_nrf52_rtc.c DEPS soc_nrf52)
+edge_add_host_test(test_soc_nrf52_wdt SOURCES test_soc_nrf52_wdt.c DEPS soc_nrf52)
+edge_add_host_test(test_soc_nrf52_nvmc SOURCES test_soc_nrf52_nvmc.c DEPS soc_nrf52)
+edge_add_host_test(test_app_ble_services SOURCES test_app_ble_services.c DEPS app_ble_services)
+edge_add_host_test(test_infra_rle SOURCES test_infra_rle.c DEPS infra_rle)
+edge_add_host_test(test_app_alarm SOURCES test_app_alarm.c DEPS app_alarm)
+edge_add_host_test(test_app_stopwatch SOURCES test_app_stopwatch.c DEPS app_stopwatch)
+edge_add_host_test(test_app_timer SOURCES test_app_timer.c DEPS app_timer)
+edge_add_host_test(test_app_watch_settings SOURCES test_app_watch_settings.c DEPS app_watch_settings)
+edge_add_host_test(test_app_ble_weather SOURCES test_app_ble_weather.c DEPS app_ble_weather)
+edge_add_host_test(test_app_ble_music SOURCES test_app_ble_music.c DEPS app_ble_music)
+edge_add_host_test(test_app_ble_nav SOURCES test_app_ble_nav.c DEPS app_ble_nav)
+edge_add_host_test(test_app_ble_notifications SOURCES test_app_ble_notifications.c DEPS app_ble_notifications)
+edge_add_host_test(test_app_ble_motion SOURCES test_app_ble_motion.c DEPS app_ble_motion)
+edge_add_host_test(test_app_ble_fs SOURCES test_app_ble_fs.c DEPS app_ble_fs)
+edge_add_host_test(test_app_ble_dfu SOURCES test_app_ble_dfu.c DEPS app_ble_dfu)
+edge_add_host_test(test_app_watch_ui SOURCES test_app_watch_ui.c DEPS app_watch_ui)
+edge_add_host_test(test_app_metronome SOURCES test_app_metronome.c DEPS app_metronome)
+edge_add_host_test(test_app_calculator SOURCES test_app_calculator.c DEPS app_calculator)
+edge_add_host_test(test_app_dice SOURCES test_app_dice.c DEPS app_dice)
+edge_add_host_test(test_app_ble_passkey SOURCES test_app_ble_passkey.c DEPS app_ble_passkey)
+edge_add_host_test(test_app_flashlight SOURCES test_app_flashlight.c DEPS app_flashlight)
+edge_add_host_test(test_app_game_paddle SOURCES test_app_game_paddle.c DEPS app_game_paddle)
+edge_add_host_test(test_app_game_twos SOURCES test_app_game_twos.c DEPS app_game_twos)
+edge_add_host_test(test_app_paint SOURCES test_app_paint.c DEPS app_paint)
+edge_add_host_test(test_app_firmware_validator SOURCES test_app_firmware_validator.c DEPS app_firmware_validator)
+
 # Every product's glue is in the coverage scope, so every trampoline is exercised
 # here instead of living only inside a product executable.
 edge_add_host_test(test_product_glue SOURCES test_product_glue.c
     ../product/meter_host/glue.c
     ../product/meter_mps2/glue.c
     ../product/meter_gateway_host/glue.c
-    DEPS app_dlt645 app_meter_core app_modbus_slave app_relay infra_flash infra_gpio infra_uart)
-target_include_directories(test_product_glue PRIVATE ${EDGE_ROOT}/product/meter_gateway_host)
+    ../product/meter_rtems/glue.c
+    ../product/watch_host/glue.c
+    ../product/pinetime/glue.c
+    DEPS app_dlt645 app_meter_core app_modbus_slave app_relay app_touch_gesture app_button_handler app_watch_power app_heart_rate app_step_counter app_watch_time app_ble_services app_alarm app_stopwatch app_timer app_watch_settings app_ble_weather app_ble_music app_ble_nav app_ble_notifications app_ble_motion app_ble_fs app_ble_dfu app_firmware_validator app_watch_ui app_metronome app_calculator app_dice app_ble_passkey app_flashlight app_game_paddle app_game_twos app_paint infra_battery_adc infra_cst816s infra_hrs3300 infra_bma421 infra_st7789 infra_flash_spi infra_haptic infra_rle infra_flash infra_gpio infra_uart board_pinetime)
+target_include_directories(test_product_glue PRIVATE ${EDGE_ROOT}/product ${EDGE_ROOT}/product/meter_gateway_host ${EDGE_ROOT}/product/watch_host ${EDGE_ROOT}/product/pinetime ${EDGE_ROOT}/product/meter_rtems)
