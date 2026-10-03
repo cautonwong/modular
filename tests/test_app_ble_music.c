@@ -91,9 +91,53 @@ static void test_ble_music_state_and_progress(void **state) {
     assert_int_equal(s_last_command_sent, BLE_MUSIC_CMD_NEXT);
 }
 
+static void test_ble_music_speeds_and_capping(void **state) {
+    (void)state;
+
+    s_mock_tick_ms = 100000ULL;
+    ble_music_transport_port_t transport = {
+        .self = NULL,
+        .get_tick_ms = mock_get_tick_ms,
+        .send_event = mock_send_event,
+    };
+    ble_music_t music;
+    ble_music_init(&music, &transport, NULL);
+
+    ble_music_set_total_length(&music, 100);
+    ble_music_set_position(&music, 10);
+    ble_music_set_playback_speed(&music, 200); // 2.0x speed
+    ble_music_set_repeat(&music, true);
+    ble_music_set_shuffle(&music, true);
+    ble_music_set_track_number(&music, 5);
+    ble_music_set_tracks_total(&music, 12);
+    ble_music_set_status(&music, true);
+
+    ble_music_info_t info;
+    assert_true(ble_music_get_info(&music, &info));
+    assert_true(info.repeat);
+    assert_true(info.shuffle);
+    assert_int_equal(info.track_number, 5);
+    assert_int_equal(info.tracks_total, 12);
+
+    // Advance 10 real seconds at 2.0x speed -> 20 track seconds elapsed -> progress = 30
+    s_mock_tick_ms += 10000ULL;
+    assert_int_equal(ble_music_get_progress(&music), 30);
+
+    // Advance 50 real seconds (100 track seconds) -> progress should cap at track_length 100
+    s_mock_tick_ms += 50000ULL;
+    assert_int_equal(ble_music_get_progress(&music), 100);
+
+    // Volume commands
+    assert_int_equal(ble_music_send_command(&music, BLE_MUSIC_CMD_VOLUP), EDGE_OK);
+    assert_int_equal(s_last_command_sent, BLE_MUSIC_CMD_VOLUP);
+    assert_int_equal(ble_music_send_command(&music, BLE_MUSIC_CMD_VOLDOWN), EDGE_OK);
+    assert_int_equal(s_last_command_sent, BLE_MUSIC_CMD_VOLDOWN);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_ble_music_state_and_progress),
+        cmocka_unit_test(test_ble_music_speeds_and_capping),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

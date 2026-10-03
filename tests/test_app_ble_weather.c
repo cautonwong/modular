@@ -154,10 +154,65 @@ static void test_ble_weather_forecast_packet(void **state) {
     assert_false(fc.days[3].valid);
 }
 
+static void test_ble_weather_polar_and_negative_temperatures(void **state) {
+    (void)state;
+
+    ble_weather_time_port_t time_port = {
+        .self = NULL,
+        .get_minute_of_day = mock_get_minute_of_day,
+        .get_timestamp_sec = mock_get_timestamp,
+    };
+
+    ble_weather_t weather;
+    ble_weather_init(&weather, &time_port, NULL);
+
+    // Negative temperature rounding: -550 (-5.50 C) -> -6 C
+    assert_int_equal(ble_weather_celsius(-550), -6);
+    assert_int_equal(ble_weather_celsius(-520), -5);
+    assert_int_equal(ble_weather_celsius(0), 0);
+    // Fahrenheit conversion: 0 C -> 32 F, -1000 (-10.00 C) -> 14 F
+    assert_int_equal(ble_weather_fahrenheit(0), 32);
+    assert_int_equal(ble_weather_fahrenheit(-1000), 14);
+
+    // Polar Night: sunrise = -2 -> is_night is always true
+    uint8_t pkt[53] = {0};
+    pkt[0] = 0x00;
+    pkt[1] = 0x01;
+    pkt[49] = (uint8_t)-2;
+    pkt[50] = (uint8_t)-1; /* -2 as int16 = 0xFFFE */
+    pkt[51] = (uint8_t)-2;
+    pkt[52] = (uint8_t)-1;
+    assert_int_equal(ble_weather_process_packet(&weather, pkt, sizeof(pkt)), EDGE_OK);
+
+    s_mock_minute_of_day = 720; // Midday
+    assert_true(ble_weather_is_night(&weather));
+    s_mock_minute_of_day = 0; // Midnight
+    assert_true(ble_weather_is_night(&weather));
+}
+
+static void test_ble_weather_invalid_packets(void **state) {
+    (void)state;
+    ble_weather_t weather;
+    ble_weather_init(&weather, NULL, NULL);
+
+    uint8_t short_pkt[1] = {0x00};
+    assert_int_equal(ble_weather_process_packet(&weather, short_pkt, sizeof(short_pkt)),
+                     EDGE_EINVAL);
+    assert_int_equal(ble_weather_process_packet(NULL, short_pkt, 10), EDGE_EINVAL);
+    assert_int_equal(ble_weather_process_packet(&weather, NULL, 10), EDGE_EINVAL);
+
+    // Invalid message type (e.g. 0xFF)
+    uint8_t bad_type_pkt[10] = {0xFF, 0x00};
+    assert_int_equal(ble_weather_process_packet(&weather, bad_type_pkt, sizeof(bad_type_pkt)),
+                     EDGE_ENOTSUP);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_ble_weather_current_packet),
         cmocka_unit_test(test_ble_weather_forecast_packet),
+        cmocka_unit_test(test_ble_weather_polar_and_negative_temperatures),
+        cmocka_unit_test(test_ble_weather_invalid_packets),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

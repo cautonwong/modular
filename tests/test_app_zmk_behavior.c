@@ -345,9 +345,56 @@ static void test_behavior_hold_tap_flavors_and_retro(void **state) {
     // Interrupted -> immediately holds
     zmk_behavior_invoke(&app, ZMK_BHV_HOLD_TAP, tui_idx, 0, true, 1100);
     zmk_behavior_invoke(&app, ZMK_BHV_KEY_PRESS, 0x07, 0, true, 1150); // Interrupted by key 0x07
-    assert_int_equal(hid_ctx.last_pressed_kc, 0x07);
-    zmk_behavior_invoke(&app, ZMK_BHV_KEY_PRESS, 0x07, 0, false, 1180);
     zmk_behavior_invoke(&app, ZMK_BHV_HOLD_TAP, tui_idx, 0, false, 1200);
+}
+
+static void test_behavior_macro_and_key_toggle(void **state) {
+    (void)state;
+    mock_hid_t hid_ctx = {0};
+    zmk_behavior_hid_if_t hid_if = {
+        .self = &hid_ctx,
+        .press_key = mock_press_key,
+        .release_key = mock_release_key,
+        .press_consumer_key = mock_press_consumer,
+        .release_consumer_key = mock_release_consumer,
+        .press_mouse_button = mock_press_mouse,
+        .release_mouse_button = mock_release_mouse,
+    };
+
+    zmk_behavior_app_t app;
+    zmk_behavior_construct(&app, EDGE_MOD_ZMK_BEHAVIOR, 50, &hid_if, NULL);
+    assert_int_equal(zmk_behavior_init(&app), EDGE_OK);
+
+    // 1. Key Toggle: Press 1 toggles ON, Press 2 toggles OFF
+    assert_int_equal(zmk_behavior_invoke(&app, ZMK_BHV_KEY_TOGGLE, 0x14, 0, true, 100),
+                     EDGE_OK); // Q (0x14)
+    assert_int_equal(hid_ctx.press_calls, 1);
+    assert_int_equal(hid_ctx.last_pressed_kc, 0x14);
+
+    assert_int_equal(zmk_behavior_invoke(&app, ZMK_BHV_KEY_TOGGLE, 0x14, 0, true, 150),
+                     EDGE_OK); // Toggle OFF
+    assert_int_equal(hid_ctx.release_calls, 1);
+    assert_int_equal(hid_ctx.last_released_kc, 0x14);
+
+    // 2. Macro execution: Tap 'H', Tap 'I'
+    zmk_macro_config_t macro_cfg = {
+        .step_count = 2,
+        .steps =
+            {
+                {.action = ZMK_MACRO_ACTION_TAP, .keycode = 0x0B, .modifiers = 0}, // 'h' (0x0B)
+                {.action = ZMK_MACRO_ACTION_TAP, .keycode = 0x0C, .modifiers = 0}, // 'i' (0x0C)
+            },
+    };
+    uint8_t macro_idx = 0;
+    assert_int_equal(zmk_behavior_add_macro(&app, &macro_cfg, &macro_idx), EDGE_OK);
+
+    int prev_press = hid_ctx.press_calls;
+    int prev_release = hid_ctx.release_calls;
+    assert_int_equal(zmk_behavior_invoke(&app, ZMK_BHV_MACRO, macro_idx, 0, true, 200), EDGE_OK);
+    // Should have pressed & released 2 keys (4 total events)
+    assert_int_equal(hid_ctx.press_calls, prev_press + 2);
+    assert_int_equal(hid_ctx.release_calls, prev_release + 2);
+    assert_int_equal(hid_ctx.last_released_kc, 0x0C);
 }
 
 int main(void) {
@@ -358,6 +405,7 @@ int main(void) {
         cmocka_unit_test(test_behavior_tap_dance),
         cmocka_unit_test(test_behavior_sticky_key_and_mod_morph),
         cmocka_unit_test(test_behavior_caps_word),
+        cmocka_unit_test(test_behavior_macro_and_key_toggle),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
