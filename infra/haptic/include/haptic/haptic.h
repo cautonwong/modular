@@ -12,14 +12,16 @@ extern "C" {
 
 typedef enum haptic_pattern {
     HAPTIC_PATTERN_NONE = 0,
-    HAPTIC_PATTERN_SHORT,  /* 50ms ON */
-    HAPTIC_PATTERN_DOUBLE, /* 50ms ON, 50ms OFF, 50ms ON */
-    HAPTIC_PATTERN_LONG,   /* 250ms ON */
-    HAPTIC_PATTERN_RINGING /* Repeating 100ms ON, 200ms OFF */
+    HAPTIC_PATTERN_SHORT,   /* 50ms ON */
+    HAPTIC_PATTERN_DOUBLE,  /* 50ms ON, 50ms OFF, 50ms ON */
+    HAPTIC_PATTERN_LONG,    /* 250ms ON */
+    HAPTIC_PATTERN_RINGING, /* Repeating 100ms ON, 200ms OFF */
+    HAPTIC_PATTERN_CUSTOM   /* Custom duration ON */
 } haptic_pattern_t;
 
 typedef struct haptic {
     haptic_pattern_t pattern;
+    uint32_t custom_duration_ms;
     uint32_t pattern_timer_ms;
     uint8_t step_index;
     bool is_active;
@@ -28,6 +30,7 @@ typedef struct haptic {
 
 void haptic_init(haptic_t *self);
 edge_status_t haptic_play(haptic_t *self, haptic_pattern_t pattern);
+edge_status_t haptic_run_for_duration(haptic_t *self, uint32_t duration_ms);
 void haptic_stop(haptic_t *self);
 
 /**

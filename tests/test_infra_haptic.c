@@ -43,10 +43,33 @@ static void test_haptic_double_pattern(void **state) {
     assert_false(h.is_active);
 }
 
+static void test_haptic_custom_duration(void **state) {
+    (void)state;
+    haptic_t h;
+    haptic_init(&h);
+
+    /* Run for 30ms (e.g. dice roll or button click) */
+    assert_int_equal(haptic_run_for_duration(&h, 30u), EDGE_OK);
+    assert_true(h.is_active);
+
+    bool pin = false;
+    assert_int_equal(haptic_update(&h, 15u, &pin), EDGE_OK); /* 15ms -> ON */
+    assert_true(pin);
+
+    assert_int_equal(haptic_update(&h, 20u, &pin), EDGE_OK); /* 35ms -> stopped */
+    assert_false(pin);
+    assert_false(h.is_active);
+
+    /* Run with 0ms -> immediate stop */
+    assert_int_equal(haptic_run_for_duration(&h, 0u), EDGE_OK);
+    assert_false(h.is_active);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_haptic_short_pattern),
         cmocka_unit_test(test_haptic_double_pattern),
+        cmocka_unit_test(test_haptic_custom_duration),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

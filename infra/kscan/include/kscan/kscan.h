@@ -52,6 +52,9 @@ edge_status_t kscan_matrix_process_debounce(kscan_matrix_t *self, uint32_t times
 /* Query stable state of a key */
 bool kscan_matrix_is_pressed(const kscan_matrix_t *self, uint8_t row, uint8_t col);
 
+/* Detect matrix ghosting condition for non-diode matrices */
+bool kscan_detect_ghosting(const kscan_matrix_t *self, uint8_t row, uint8_t col);
+
 #ifdef __cplusplus
 }
 #endif

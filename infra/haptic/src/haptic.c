@@ -12,6 +12,7 @@ edge_status_t haptic_play(haptic_t *self, haptic_pattern_t pattern) {
         return EDGE_EINVAL;
     }
     self->pattern = pattern;
+    self->custom_duration_ms = 0u;
     self->pattern_timer_ms = 0u;
     self->step_index = 0u;
     self->is_active = (pattern != HAPTIC_PATTERN_NONE);
@@ -20,11 +21,29 @@ edge_status_t haptic_play(haptic_t *self, haptic_pattern_t pattern) {
     return EDGE_OK;
 }
 
+edge_status_t haptic_run_for_duration(haptic_t *self, uint32_t duration_ms) {
+    if (self == NULL) {
+        return EDGE_EINVAL;
+    }
+    if (duration_ms == 0u) {
+        haptic_stop(self);
+        return EDGE_OK;
+    }
+    self->pattern = HAPTIC_PATTERN_CUSTOM;
+    self->custom_duration_ms = duration_ms;
+    self->pattern_timer_ms = 0u;
+    self->step_index = 0u;
+    self->is_active = true;
+    self->motor_pin_state = true;
+    return EDGE_OK;
+}
+
 void haptic_stop(haptic_t *self) {
     if (self == NULL) {
         return;
     }
     self->pattern = HAPTIC_PATTERN_NONE;
+    self->custom_duration_ms = 0u;
     self->is_active = false;
     self->motor_pin_state = false;
     self->pattern_timer_ms = 0u;
@@ -79,6 +98,14 @@ edge_status_t haptic_update(haptic_t *self, uint32_t dt_ms, bool *out_motor_on) 
             self->motor_pin_state = true;
         } else {
             self->motor_pin_state = false;
+        }
+        break;
+
+    case HAPTIC_PATTERN_CUSTOM:
+        if (self->pattern_timer_ms < self->custom_duration_ms) {
+            self->motor_pin_state = true;
+        } else {
+            haptic_stop(self);
         }
         break;
 
