@@ -137,6 +137,15 @@ typedef struct motor_id_result {
      * all-in-one detection puts into the configuration as its current limits.
      */
     float i_max_a;
+
+    /*
+     * mcpwm_foc.c:2464-2474, the tail of mcpwm_foc_hall_detect: the table it read back - each
+     * reading's angle in the two hundred counts an entry holds, or two hundred and fifty-five where
+     * the reading was seen too few times - and whether the detection passed, which the reference
+     * calls exactly two readings short.
+     */
+    uint8_t hall_table[8];
+    bool hall_valid;
     bool valid;
 } motor_id_result_t;
 
@@ -155,6 +164,15 @@ typedef struct motor_id_result {
 typedef struct motor_id_measure_port {
     void *self;
     edge_status_t (*set_phase_override)(void *self, float angle_rad, bool enable);
+
+    /*
+     * mcpwm_foc.c:2438 reads the hall pins once per step of the sweep it runs while measuring, and
+     * the reference takes that reading over one plus twice the extra samples the configuration asks
+     * for (utils/utils_sys.c:92-115). The product that has hall pins answers this; a product
+     * without them leaves it unset and the detection says it cannot run rather than reading a
+     * guess.
+     */
+    uint8_t (*read_hall)(void *self);
     edge_status_t (*set_current)(void *self, float iq);
     edge_status_t (*reset_samples)(void *self);
     edge_status_t (*read_samples)(void *self, float *i_sum, float *v_sum, uint32_t *count);
@@ -400,8 +418,31 @@ edge_status_t motor_id_measure_r_l(motor_id_app_t *app, float current_max_a);
 edge_status_t motor_id_measure_r_l_imax(motor_id_app_t *app, float current_max_a,
                                         float current_min_a, float max_power_loss,
                                         float hw_lim_current_a);
+
+/*
+ * mcpwm_foc.c:2383-2490, mcpwm_foc_hall_detect: the hall sensors' own detection, which the command
+ * reaches. It holds the motor with a phase override, ramps its current up over a thousand
+ * milliseconds, sweeps the electrical angle three times each way at five milliseconds a step while
+ * reading the halls, and derives each reading's angle from the sums that sweep accumulated. Its
+ * answers land in the result: the table, and whether exactly two readings were short of samples.
+ *
+ * The reading is taken over one plus twice `extra_samples` reads of the pins, each pin by majority
+ * - the reference's own utils_read_hall - which is why the count is the caller's to give.
+ */
+edge_status_t motor_id_detect_hall(motor_id_app_t *app, float current_a, int extra_samples);
+
+/*
+ * The three pieces the detection above is built from, which are the reference's own arithmetic and
+ * are checked against it: the majority a hall reading is taken by (util/utils_sys.c:92-115), the
+ * sweep's accumulation of an angle into its reading's sums (mcpwm_foc.c:2440-2446), and the table
+ * those sums name (mcpwm_foc.c:2464-2474).
+ */
+uint8_t motor_id_hall_majority(int hall1_sum, int hall2_sum, int hall3_sum, int samples);
+void motor_id_hall_accumulate(float sin_hall[8], float cos_hall[8], int hall_iterations[8],
+                              uint8_t reading, float sin_angle, float cos_angle);
+int motor_id_hall_angle_table(const float sin_hall[8], const float cos_hall[8],
+                              const int hall_iterations[8], uint8_t table[8], bool *result);
 edge_status_t motor_id_measure_flux_linkage(motor_id_app_t *app);
-edge_status_t motor_id_detect_hall(motor_id_app_t *app);
 
 /*
  * The gains a detection exists to produce, which the reference computes from what it just measured:
