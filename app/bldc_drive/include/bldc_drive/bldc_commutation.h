@@ -123,6 +123,53 @@ void bldc_hall_detect_sample(bldc_hall_detect_counts_t counts, uint8_t reading, 
  */
 int bldc_hall_detect_result(bldc_hall_detect_counts_t counts, bool hall_sensor_port, int8_t out[8]);
 
+/*
+ * mcpwm.c:1322-1341, the limits the sensorless start-up is commutated by. It is the reference's own
+ * arithmetic with its own clamps: the running limit grows with the bus voltage over whichever is
+ * larger of the speed and sl_min_erpm, is advanced towards the braking value as the speed rises,
+ * and is held between one and the ceiling sl_bemf_coupling_k sets with sl_min_erpm_cycle_int_limit.
+ * The two commutation-time figures are the switching frequency over six commutations per
+ * revolution.
+ *
+ * The speed it is given is already the reference's own low-passed value; the filter is state, so it
+ * belongs to whatever runs the thread. At a standstill comm_time_sum is infinite, as it is there:
+ * that is a division by zero the reference does not guard.
+ */
+typedef struct bldc_rpm_dep_params {
+    float sl_cycle_int_limit;          /* mcconf sl_cycle_int_limit */
+    float sl_bemf_coupling_k;          /* mcconf sl_bemf_coupling_k */
+    float sl_min_erpm;                 /* mcconf sl_min_erpm */
+    float sl_cycle_int_rpm_br;         /* mcconf sl_cycle_int_rpm_br */
+    float sl_phase_advance_at_br;      /* mcconf sl_phase_advance_at_br */
+    float sl_min_erpm_cycle_int_limit; /* mcconf sl_min_erpm_cycle_int_limit */
+    float m_bldc_f_sw_max;             /* mcconf m_bldc_f_sw_max */
+} bldc_rpm_dep_params_t;
+
+typedef struct bldc_rpm_dep {
+    float cycle_int_limit;
+    float cycle_int_limit_running;
+    float cycle_int_limit_max;
+    float comm_time_sum;
+    float comm_time_sum_min_rpm;
+} bldc_rpm_dep_t;
+
+void bldc_rpm_dep_calc(const bldc_rpm_dep_params_t *params, float rpm_abs, float v_in,
+                       bldc_rpm_dep_t *out);
+
+/*
+ * mcpwm.c:1886-1901, the decision to let one measured phase difference into the cycle integrator.
+ * Its three conditions are the reference's: the commutation cycle is in its first half, or nothing
+ * has commutated since the run began, or the phase being measured is inside the band the supply
+ * voltage and the duty leave around half of it - that band's own two limits are computed here from
+ * the same expression, including the clamp to a quarter of the supply.
+ *
+ * The phase difference arrives already taken to zero when it is smaller than ten counts
+ * (mcpwm.c:1880-1882): that gate is against raw readings, so it belongs to whatever reads the
+ * phases.
+ */
+bool bldc_cycle_integrator_adds(float v_diff, float pwm_cycles_sum, float last_pwm_cycles_sum,
+                                bool has_commutated, float ph_now_raw, float duty, float v_in);
+
 #ifdef __cplusplus
 }
 #endif

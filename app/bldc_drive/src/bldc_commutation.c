@@ -159,3 +159,63 @@ int bldc_hall_detect_result(bldc_hall_detect_counts_t counts, bool hall_sensor_p
 
     return (invalid_samp_num == 2 && tot_nums == 6) ? 0 : -1;
 }
+
+/*
+ * util/utils_math.h's utils_map, which nothing else in this app needed until now: the linear
+ * interpolation the reference writes its limits in, its own arithmetic rather than a
+ * reinterpretation.
+ */
+static float bldc_map(float x, float in_min, float in_max, float out_min, float out_max) {
+    return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+
+void bldc_rpm_dep_calc(const bldc_rpm_dep_params_t *params, float rpm_abs, float v_in,
+                       bldc_rpm_dep_t *out) {
+    if (params == (void *)0 || out == (void *)0) {
+        return;
+    }
+
+    /* mcpwm.c:1323-1341, statement for statement, its clamps included. */
+    out->cycle_int_limit = params->sl_cycle_int_limit;
+    out->cycle_int_limit_running =
+        out->cycle_int_limit +
+        v_in * params->sl_bemf_coupling_k /
+            ((rpm_abs > params->sl_min_erpm) ? rpm_abs : params->sl_min_erpm);
+    out->cycle_int_limit_running =
+        bldc_map(rpm_abs, 0.0f, params->sl_cycle_int_rpm_br, out->cycle_int_limit_running,
+                 out->cycle_int_limit_running * params->sl_phase_advance_at_br);
+    out->cycle_int_limit_max = out->cycle_int_limit + v_in * params->sl_bemf_coupling_k /
+                                                          params->sl_min_erpm_cycle_int_limit;
+
+    if (out->cycle_int_limit_running < 1.0f) {
+        out->cycle_int_limit_running = 1.0f;
+    }
+
+    if (out->cycle_int_limit_running > out->cycle_int_limit_max) {
+        out->cycle_int_limit_running = out->cycle_int_limit_max;
+    }
+
+    out->comm_time_sum = params->m_bldc_f_sw_max / ((rpm_abs / 60.0f) * 6.0f);
+    out->comm_time_sum_min_rpm = params->m_bldc_f_sw_max / ((params->sl_min_erpm / 60.0f) * 6.0f);
+}
+
+bool bldc_cycle_integrator_adds(float v_diff, float pwm_cycles_sum, float last_pwm_cycles_sum,
+                                bool has_commutated, float ph_now_raw, float duty, float v_in) {
+    /* mcpwm.c:1889-1900. */
+    if (v_diff <= 0.0f) {
+        return false;
+    }
+
+    /*
+     * The reference truncates this band's limit into an int, and its phase reading is an ADC count;
+     * so is this one, which is why the comparison can be made in floats without changing it.
+     */
+    const int min = (int)((1.0f - fabsf(duty)) * v_in * 0.3f);
+    float band = (float)min;
+    if (band > (v_in / 4.0f)) {
+        band = v_in / 4.0f;
+    }
+
+    return (pwm_cycles_sum > (last_pwm_cycles_sum / 2.0f)) || !has_commutated ||
+           ((ph_now_raw > band) && (ph_now_raw < (v_in - band)));
+}
