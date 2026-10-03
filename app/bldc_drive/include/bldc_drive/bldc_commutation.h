@@ -235,6 +235,23 @@ bool bldc_comm_sensorless_step(const bldc_comm_input_t *in, const bldc_rpm_dep_p
 int bldc_hall_angle_table(const float sin_hall[8], const float cos_hall[8],
                           const int hall_iterations[8], uint8_t table[8], bool *result);
 
+/*
+ * util/utils_sys.c:92-115, utils_read_hall_hw: a hall reading taken over one plus twice the extra
+ * samples the configuration asks for, each of the three pins decided by the majority of those
+ * reads. The reference counts the pins up and compares each against half the count, so a tie is not
+ * a majority and nought wins it - which is what its own integer division amounts to.
+ */
+uint8_t bldc_hall_majority(int hall1_sum, int hall2_sum, int hall3_sum, int samples);
+
+/*
+ * mcpwm_foc.c:2440-2446, one step of the hall-detect procedure's sweep: the angle it swept to joins
+ * the sums of whichever reading the halls named, and that reading's own count grows with it. The
+ * reading is the raw one, nought to seven, which is what the procedure files its sums under and
+ * what the angle table above is later built from.
+ */
+void bldc_hall_accumulate(float sin_hall[8], float cos_hall[8], int hall_iterations[8],
+                          uint8_t reading, float sin_angle, float cos_angle);
+
 #ifdef __cplusplus
 }
 #endif

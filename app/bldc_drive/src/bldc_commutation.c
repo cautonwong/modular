@@ -331,3 +331,24 @@ int bldc_hall_angle_table(const float sin_hall[8], const float cos_hall[8],
     *result = (fails == 2);
     return fails;
 }
+
+uint8_t bldc_hall_majority(int hall1_sum, int hall2_sum, int hall3_sum, int samples) {
+    /* util/utils_sys.c:93 and :113, which is the reference's own two lines. */
+    const int threshold = samples / 2;
+
+    return (uint8_t)((hall1_sum > threshold ? 1u : 0u) | (hall2_sum > threshold ? 2u : 0u) |
+                     (hall3_sum > threshold ? 4u : 0u));
+}
+
+void bldc_hall_accumulate(float sin_hall[8], float cos_hall[8], int hall_iterations[8],
+                          uint8_t reading, float sin_angle, float cos_angle) {
+    if (sin_hall == (void *)0 || cos_hall == (void *)0 || hall_iterations == (void *)0 ||
+        reading > 7u) {
+        return;
+    }
+
+    /* mcpwm_foc.c:2440-2446's own three statements. */
+    sin_hall[reading] += sin_angle;
+    cos_hall[reading] += cos_angle;
+    hall_iterations[reading]++;
+}
