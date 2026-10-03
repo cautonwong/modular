@@ -48,16 +48,20 @@
 
 上表的 412/181 从未带过**逐符号清单**（本文只有族级叙述），所以对它做不了符号级重算；能做的、也是这里做的，是把每个**候选开口项**逐条在树上实测一遍，并记下证据。方法：在 `app/ product/ soc/ infra/` 里搜符号名（`--include=*.c --include=*.h`），命中为已成、为 0 或仅剩桩为未成。结果如下（数值为本次实测的命中数）：
 
-**实测仍开口（余 7 项；第 6 条已修，留在原位作纠正）**：
+**本轮新关闭（各带提交号，可在树上核）**：
 
-1. `comm_can_send_status` —— **0 处** ✗。参考的 CAN 周期性状态帧：需要 `app/vesc_can` 里的定时节拍与 `can_status_rate_*` 的调度。触发：组合根接 CAN 周期任务时。
-2. `comm_can_update_rx_frame` —— **0 处** ✗。跨节点状态聚合（参考用它算 `num_vescs` 与多驱状态表）。触发：同上，多驱或双机场景。
-3. `COMM_REBOOT` / `COMM_JUMP_TO_BOOTLOADER` —— 命中的只有命令 id 枚举与注释，**无处理器** ✗（`commands.c` 的已处理集合里没有）。缺的是 `soc` 层的复位封装（跳 bootloader 还需跳转与向量表处理）。
-4. `measure_r_l_imax` —— **0 处** ✗。它是升流扫到饱和以找最大电流（`conf_general.c:1528`），本端口只做了其中的 R/L。触发：需要把测得的 imax 放进回复或限值时的需求。
-5. `motor_id_detect_hall` —— 存在但是 **ENOTSUP 桩** ✓。需原始霍尔输入；本仓库没有带霍尔的产品（已登记为「有霍尔板子时随它落地」✓）。
-6. ~~`COMM_SET_CURRENT_OFF_DELAY`~~ —— **已成 ✓**（`foc_core_arm_current_off_delay` 接在相对电流路径尾部的 `set_current_off_delay(0.1)` 上，门为 `l_abs_current_max` 对 `cc_min_current` ✓）。同时纠正本文件早先的错误：参考**没有**这个 COMM id ✗，只有 CAN 侧一个（归 CAN 那条开口项 ✓）。
-7. FET 温度降流组与随其存在的加减速温度组 —— 无 FET 传感器 ✓，即参考自己的 disabled 分支（保持配置值 ✓，`3f59067` 的注释与 `docs/adr-conformance.md` 均记录 ✓）。
-8. 输入电流/功率/电池组与 BMS 限值 —— 前者的唯一消费方是输入电流映射项，而它需要先有**滤波后的母线电流** ✓；后者需总线上有电池 ✓。
+1. ~~`comm_can_send_status`~~ —— **已成 ✓**（`d118f2a`：两个发送器的速率与掩码、`can_mode` 门、status 2/3 补齐、status 5 布局按参考修正 ✓）。
+2. ~~`comm_can_update_rx_frame`~~ —— **已成 ✓**（`53def54`：四张对端状态表、按 id 或首个空槽归位、0.1 s 论新鲜度、聚合进 `num_vescs` 与总量，经聚合根的 peer 端口到产品 glue ✓）。
+3. ~~`COMM_REBOOT` / `COMM_JUMP_TO_BOOTLOADER`~~ —— **已成 ✓**（`4905d14`：两者都有处理器与产品回调；reboot 按参考先落盘再复位、无回包 ✓；`..._ALL_CAN` 变体需可发送的总线，已在处理器里具名 ✓）。
+4. ~~`measure_r_l_imax`~~ —— **已成 ✓**（`98d5d98`：探针走、终结电阻、两电感与 `sqrt(max_power_loss/r/1.5)` 截到板级限值 ✓，并已接进 all-in-one 流程 ✓）。
+5. ~~`COMM_SET_CURRENT_OFF_DELAY`~~ —— **已成 ✓**（`8fae3f9`；并纠正本文件早先的错误：参考**没有**这个 COMM id ✗，只有 CAN 侧一个，归 CAN 那条 ✓）。
+
+**仍开口（余 4 项；三类「缺源」加一项范围决策）**：
+
+1. `motor_id_detect_hall` —— 仍为 **ENOTSUP 桩** ✓，需原始霍尔输入；本仓库无带霍尔的产品（触发：出现带霍尔的产品，或 host 仿真补上霍尔输入 ✓）。
+2. FET 温度降流组与随其存在的加减速温度组 —— 无 FET 传感器 ✓，即参考自己的 disabled 分支（保持配置值 ✓，`3f59067` 的注释与 `docs/adr-conformance.md` 均记录 ✓）。
+3. 输入电流/功率/电池组与 BMS 限值 —— 前者的唯一消费方是输入电流映射项，而它需要先有**滤波后的母线电流** ✓；后者需总线上有电池 ✓。
+4. `COMM_DETECT_MOTOR_PARAM`（六步 BLDC 检测）✗ —— **范围决策**（不是「缺源」）：它需要参考的**整套六步驱动层**（`motor/mcpwm.c` 实测 **3021 行** ✓）及其霍尔采样、`comm_mode` 换相、`sl_*` 无感积分器，而本仓库没有任何产品使用六步/BLDC、也没有任何霍尔输入；一个没有消费者的 3000 行驱动会直接违背本仓「无死代码」的规矩。（另两项 `:3391`/`:4091` 属本端口尚无的 duty 模式 PI 与速度模式迟滞 ✓，与 `vesc6` 的闪存/CAN 外设同属 D 期真板面 ✓。）
 
 **实测已成、但矩阵或旧叙述仍说「开」的（举例，均可在树上直接核）**：
 
@@ -68,7 +72,15 @@
 - 位置环与派生限值 —— 已成 ✓（`c6ddd90`/`3f59067`）。
 - 备份块与应用配置持久化 —— 已成 ✓（`38bc0d1`/`4b6c048`/`29754e4`/`e306dc2`/`9cfbb44`）。
 
-上面列表中仍开的 7 项就是当前的全部开口；其余声称为「待迁」的，要么属于本仓库自己的路线图（见 `docs/adr-conformance.md` 的图例说明），要么已被上面的提交关闭。
+上面「仍开口」的 4 项就是当前的全部开口；其余声称为「待迁」的，要么属于本仓库自己的路线图（见 `docs/adr-conformance.md` 的图例说明），要么已被上面的提交关闭。
+
+---
+
+## 1.2 为何不做符号级重算（附可复现的论据）
+
+审计提出 412/181 无法推进到符号级。试过了：`tools/audit_bldc_symbols.py` 按矩阵自己列出的子系统头文件抽取参考的公开函数，再逐条在树上查。它报出的覆盖率是 **17.6%（386 个符号中 68 个命中）**，而同一批符号里 `mcpwm_foc_set_duty` / `_set_current` / `_set_brake_current` / 七个观测器 / `foc_run_fw` / HFI 全链 / R·L·磁链测量 / `measure_inductance` 族 **全部都已实现并带差分 golden** ✓。
+
+差别不在实现，而在**名字**：本端口按消费者定义接口重命名并重新分配（`mcpwm_foc_set_duty` → `foc_core_set_duty`、`mcpwm_foc_get_rpm` → `foc_core_get_telemetry().speed_rpm`、`mcpwm_foc_measure_inductance` → `motor_id_measure_inductance`、`mc_interface_get_setup_values` → 产品 glue 的 `motor_get_setup_values`）。所以名称匹配量的是「保留了参考的命名与否」，而不是「行为是否在内」——拿它当指标会比那张陈旧快照**更**误导。该工具因此留作**论据**（可复现地展示这一点），不作指标；当前状态以第 1.1 节的族级实测与 `docs/adr-conformance.md` 为准。
 
 ---
 
