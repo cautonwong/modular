@@ -1,5 +1,6 @@
 #include "bldc_drive/bldc_drive.h"
 
+#include <math.h>
 #include <string.h>
 
 static edge_status_t bldc_drive_poll(edge_module_t *mod) {
@@ -62,6 +63,15 @@ edge_status_t bldc_drive_init(bldc_drive_t *self) {
     self->last_step = 0;
     self->rpm = 0.0f;
     self->has_commutated = false;
+
+    /* The sensorless branch starts where the reference's own state does: nothing integrated, no
+     * cycle counted, and the limits computed for a machine at rest. */
+    self->comm = (bldc_comm_state_t){0};
+    self->pwm_cycles_sum = 0.0f;
+    self->last_pwm_cycles_sum = 0.0f;
+    self->last_v_diff = 0.0f;
+    bldc_rpm_dep_calc(&self->config.rpm_dep, 0.0f, 0.0f, &self->rpm_dep);
+
     self->sensorless_now =
         bldc_sensorless_now(self->config.sensor_mode, 0.0f, self->config.hall_sl_erpm);
     return EDGE_OK;
@@ -180,6 +190,102 @@ const bldc_hall_detect_counts_t *bldc_drive_hall_detect_counts(const bldc_drive_
      * complain about rather than doing itself. */
     return (self != (void *)0) ? (const bldc_hall_detect_counts_t *)&self->hall_detect_counts
                                : (void *)0;
+}
+
+void bldc_drive_set_bemf_port(bldc_drive_t *self, const bldc_bemf_port_t *port) {
+    if (self == (void *)0) {
+        return;
+    }
+    self->bemf = port;
+}
+
+edge_status_t bldc_drive_commutate_sensorless(bldc_drive_t *self, float duty,
+                                              float switching_frequency_now) {
+    if (self == (void *)0) {
+        return EDGE_EINVAL;
+    }
+
+    /* mcpwm.c:1931-1933: a motor that is not running sensorless keeps no integral at all. */
+    if (!self->sensorless_now) {
+        self->comm.cycle_integrator = 0.0f;
+        return EDGE_OK;
+    }
+
+    if (self->bemf == (void *)0 || self->bemf->read_phase_difference == (void *)0 ||
+        self->bemf->read_v_in == (void *)0) {
+        return EDGE_ENOTSUP;
+    }
+
+    float v_diff = 0.0f;
+    float ph_now_raw = 0.0f;
+    const edge_status_t status =
+        self->bemf->read_phase_difference(self->bemf->self, &v_diff, &ph_now_raw);
+    if (status != EDGE_OK) {
+        return status;
+    }
+
+    /* mcpwm.c:1880-1882's own noise gate, which is against raw counts. */
+    if (fabsf(v_diff) < 10.0f) {
+        v_diff = 0.0f;
+    }
+    self->last_v_diff = v_diff;
+
+    const float v_in = self->bemf->read_v_in(self->bemf->self);
+    const float rpm_abs = fabsf(self->rpm);
+
+    /* mcpwm.c:1322-1341 runs every cycle of the reference's own sensor thread, and so here. */
+    bldc_rpm_dep_calc(&self->config.rpm_dep, rpm_abs, v_in, &self->rpm_dep);
+
+    const bldc_comm_input_t in = {.v_diff = v_diff,
+                                  .pwm_cycles_sum = self->pwm_cycles_sum,
+                                  .last_pwm_cycles_sum = self->last_pwm_cycles_sum,
+                                  .ph_now_raw = ph_now_raw,
+                                  .duty = duty,
+                                  .v_in = v_in,
+                                  .rpm_abs = rpm_abs,
+                                  .switching_frequency_now = switching_frequency_now,
+                                  .vdiv_corr = self->config.vdiv_corr,
+                                  .comm_mode = self->config.comm_mode,
+                                  .has_commutated = self->has_commutated};
+
+    if (bldc_comm_sensorless_step(&in, &self->config.rpm_dep, &self->rpm_dep, &self->comm)) {
+        /*
+         * commutate(1): the step advances, the tachometer moves with it, the bridge takes the new
+         * step, and the commutation cycle's two counts are reset - which is the reference's own
+         * order in commutate() before its timer event.
+         */
+        self->last_pwm_cycles_sum = self->pwm_cycles_sum;
+        self->pwm_cycles_sum = 0.0f;
+        bldc_drive_advance_step(self, 1);
+        (void)bldc_drive_get_tacho_delta(self);
+
+        if (self->phase != (void *)0 && self->phase->apply_step != (void *)0) {
+            const edge_status_t applied =
+                self->phase->apply_step(self->phase->self, self->comm_step);
+            if (applied != EDGE_OK) {
+                return applied;
+            }
+            self->has_commutated = true;
+        }
+    }
+
+    /*
+     * mcpwm.c:1874-1877 samples the detection table from the first half of the commutation cycle,
+     * and :1934-1936 counts that cycle up by the switching frequency over the machine's own - both
+     * after the decision above, as the reference has them.
+     */
+    bldc_drive_hall_detect_sample(self, self->pwm_cycles_sum > (self->last_pwm_cycles_sum / 2.0f));
+    self->pwm_cycles_sum += self->config.rpm_dep.m_bldc_f_sw_max / switching_frequency_now;
+
+    return EDGE_OK;
+}
+
+const bldc_comm_state_t *bldc_drive_comm_state(const bldc_drive_t *self) {
+    return (self != (void *)0) ? &self->comm : (void *)0;
+}
+
+float bldc_drive_last_v_diff(const bldc_drive_t *self) {
+    return (self != (void *)0) ? self->last_v_diff : 0.0f;
 }
 
 void bldc_drive_advance_step(bldc_drive_t *self, int steps) {

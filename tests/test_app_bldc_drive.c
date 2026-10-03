@@ -640,6 +640,138 @@ static void test_bldc_comm_sensorless_step_matches_the_reference(void **state) {
     assert_false(bldc_comm_sensorless_step(&in, &params, &dep, &integrator_state));
 }
 
+typedef struct mock_bemf {
+    float v_diff;
+    float ph_now_raw;
+    float v_in;
+    edge_status_t status;
+    int reads;
+} mock_bemf_t;
+
+static edge_status_t mock_read_phase_diff(void *self, float *v_diff, float *ph_now_raw) {
+    mock_bemf_t *bemf = (mock_bemf_t *)self;
+    bemf->reads++;
+    if (bemf->status != EDGE_OK) {
+        return bemf->status;
+    }
+    *v_diff = bemf->v_diff;
+    *ph_now_raw = bemf->ph_now_raw;
+    return EDGE_OK;
+}
+
+static float mock_read_v_in(void *self) {
+    return ((mock_bemf_t *)self)->v_in;
+}
+
+/*
+ * The sensorless branch as a module: the BEMF port is what it measures with, the phase port is what
+ * it commutates with, and the state between calls is the aggregate's. The arithmetic underneath is
+ * the pure functions above; what this asserts is that the branch reaches them, in the reference's
+ * own order, and that a cycle which crosses its limit commutates, moves the step and takes the
+ * bridge with it.
+ */
+static void test_bldc_drive_sensorless_commutation(void **state) {
+    (void)state;
+
+    mock_bemf_t bemf = {.v_diff = 0.0f, .ph_now_raw = 0.0f, .v_in = 24.0f, .status = EDGE_OK};
+    bldc_bemf_port_t bemf_port = {
+        .read_phase_difference = mock_read_phase_diff, .read_v_in = mock_read_v_in, .self = &bemf};
+    mock_bldc_ports_t ports = {.pins = 0x01u, .apply_status = EDGE_OK};
+    bldc_hall_port_t hall = {.read_hall = mock_read_hall, .self = &ports};
+    bldc_phase_port_t phase = {.apply_step = mock_apply_step, .self = &ports};
+
+    bldc_drive_config_t config = {.sensor_mode = BLDC_SENSOR_MODE_SENSORLESS,
+                                  .hall_sl_erpm = 4000.0f,
+                                  .hall_table = {0, 5, 3, 1, 6, 4, 2, 0},
+                                  .vdiv_corr = 1.4545455f,
+                                  .comm_mode = BLDC_COMM_MODE_INTEGRATE,
+                                  .rpm_dep = {.sl_cycle_int_limit = 50.0f,
+                                              .sl_bemf_coupling_k = 300.0f,
+                                              .sl_min_erpm = 200.0f,
+                                              .sl_cycle_int_rpm_br = 1000.0f,
+                                              .sl_phase_advance_at_br = 1.0f,
+                                              .sl_min_erpm_cycle_int_limit = 1100.0f,
+                                              .m_bldc_f_sw_max = 40000.0f}};
+
+    bldc_drive_t drive;
+    bldc_drive_construct(&drive, EDGE_MOD_BLDC_DRIVE, 25u, &config);
+    assert_int_equal(bldc_drive_init(&drive), EDGE_OK);
+    bldc_drive_set_hall_port(&drive, &hall);
+    bldc_drive_set_phase_port(&drive, &phase);
+    assert_true(bldc_drive_is_sensorless(&drive));
+
+    /* No BEMF port: a drive that cannot measure says so rather than integrating nothing. */
+    assert_int_equal(bldc_drive_commutate_sensorless(&drive, 0.5f, 20000.0f), EDGE_ENOTSUP);
+    assert_int_equal(bldc_drive_commutate_sensorless(NULL, 0.5f, 20000.0f), EDGE_EINVAL);
+
+    bldc_drive_set_bemf_port(&drive, &bemf_port);
+
+    /* A difference under ten counts is the reference's own noise gate. */
+    bemf.v_diff = 5.0f;
+    assert_int_equal(bldc_drive_commutate_sensorless(&drive, 0.5f, 20000.0f), EDGE_OK);
+    assert_float_equal(bldc_drive_last_v_diff(&drive), 0.0f, 1e-9f);
+    assert_int_equal(ports.applies, 0);
+
+    /* A hundred counts integrates by 100/20000 a cycle, so the configuration's own limit of
+     * 0.0363636 is eight of them: seven do not commute, and the eighth does. */
+    bemf.v_diff = 100.0f;
+    bemf.ph_now_raw = 100.0f;
+    for (int i = 0; i < 7; i++) {
+        assert_int_equal(bldc_drive_commutate_sensorless(&drive, 0.5f, 20000.0f), EDGE_OK);
+    }
+    assert_int_equal(ports.applies, 0);
+
+    bool commuted = false;
+    for (int i = 0; i < 3 && !commuted; i++) {
+        assert_int_equal(bldc_drive_commutate_sensorless(&drive, 0.5f, 20000.0f), EDGE_OK);
+        commuted = ports.applies > 0;
+    }
+    assert_true(commuted);
+    assert_int_equal(bldc_drive_get_comm_step(&drive), 2); /* one step on from where it was */
+    assert_true(bldc_drive_has_commutated(&drive));
+    const bldc_comm_state_t *comm = bldc_drive_comm_state(&drive);
+    assert_non_null(comm);
+    assert_float_equal(comm->cycle_integrator, 0.0f, 1e-9f); /* reset by the commutation */
+    /*
+     * The detection table is sampled from the first half of the commutation cycle, which is
+     * measured against the cycle before it - so it is a few cycles after a commutation that the
+     * samples land, and the cell they land in moves with the step. What is asserted is that they
+     * were taken at all.
+     */
+    for (int i = 0; i < 6; i++) {
+        assert_int_equal(bldc_drive_commutate_sensorless(&drive, 0.5f, 20000.0f), EDGE_OK);
+    }
+    const bldc_hall_detect_counts_t *detect = bldc_drive_hall_detect_counts(&drive);
+    assert_non_null(detect);
+    int samples = 0;
+    for (int row = 0; row < 8; row++) {
+        for (int step = 1; step < 7; step++) {
+            samples += (*detect)[row][step];
+        }
+    }
+    assert_true(samples >= 1);
+
+    /* The port's own failure is reported. */
+    bemf.status = EDGE_EIO;
+    assert_int_equal(bldc_drive_commutate_sensorless(&drive, 0.5f, 20000.0f), EDGE_EIO);
+
+    /* A motor that is not running sensorless keeps no integral, whatever the port says. */
+    bldc_drive_config_t sensored_cfg = config;
+    sensored_cfg.sensor_mode = BLDC_SENSOR_MODE_SENSORED;
+    bldc_drive_t sensored;
+    bldc_drive_construct(&sensored, EDGE_MOD_BLDC_DRIVE, 25u, &sensored_cfg);
+    assert_int_equal(bldc_drive_init(&sensored), EDGE_OK);
+    bldc_drive_set_bemf_port(&sensored, &bemf_port);
+    assert_false(bldc_drive_is_sensorless(&sensored));
+    const int reads_before = bemf.reads;
+    assert_int_equal(bldc_drive_commutate_sensorless(&sensored, 0.5f, 20000.0f), EDGE_OK);
+    assert_int_equal(bemf.reads, reads_before); /* a sensored motor is not measured at all */
+
+    bldc_drive_set_bemf_port(NULL, &bemf_port);
+    assert_null(bldc_drive_comm_state(NULL));
+    assert_float_equal(bldc_drive_last_v_diff(NULL), 0.0f, 1e-9f);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_bldc_hall_tables_match_the_reference),
@@ -656,6 +788,7 @@ int main(void) {
         cmocka_unit_test(test_bldc_rpm_dep_matches_the_reference),
         cmocka_unit_test(test_bldc_cycle_integrator_gate_matches_the_reference),
         cmocka_unit_test(test_bldc_comm_sensorless_step_matches_the_reference),
+        cmocka_unit_test(test_bldc_drive_sensorless_commutation),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

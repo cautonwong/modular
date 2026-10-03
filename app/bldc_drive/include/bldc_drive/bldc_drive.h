@@ -28,7 +28,27 @@ typedef struct bldc_drive_config {
     uint8_t sensor_mode; /* mcconf sensor_mode: SENSORLESS / SENSORED / HYBRID */
     float hall_sl_erpm;  /* mcconf hall_sl_erpm: where hybrid hands over to sensorless */
     int8_t hall_table[8];
+
+    /* The sensorless start-up's own figures (mcconf sl_* and m_bldc_f_sw_max) and the board's
+     * divider correction, which is VDIV_CORR in conf_general.h:119. */
+    bldc_rpm_dep_params_t rpm_dep;
+    float vdiv_corr;
+
+    /* mcconf comm_mode: BLDC_COMM_MODE_INTEGRATE or _DELAY, which is how the sensorless start-up
+     * commutes before it can trust its own BEMF. */
+    uint8_t comm_mode;
 } bldc_drive_config_t;
+
+/*
+ * The phase measurements the sensorless branch is driven by, which the reference reads out of its
+ * own ADC: the difference between the phase it is measuring and the one it is comparing against,
+ * that phase as it was read, and the supply those counts are in.
+ */
+typedef struct bldc_bemf_port {
+    void *self;
+    edge_status_t (*read_phase_difference)(void *self, float *v_diff, float *ph_now_raw);
+    float (*read_v_in)(void *self);
+} bldc_bemf_port_t;
 
 /*
  * What the drive needs from the world, in the two directions the reference reads and writes itself:
@@ -77,6 +97,7 @@ typedef struct bldc_drive {
      */
     const bldc_hall_port_t *hall;
     const bldc_phase_port_t *phase;
+    const bldc_bemf_port_t *bemf;
     bool has_commutated;
 
     /*
@@ -91,6 +112,18 @@ typedef struct bldc_drive {
      * COMM_DETECT_MOTOR_PARAM reads back as the configuration's own table.
      */
     bldc_hall_detect_counts_t hall_detect_counts;
+
+    /*
+     * The sensorless branch's own state (mcpwm.c:2546-2630): the integral and the DELAY mode's
+     * bookkeeping, the limits they are compared against, the commutation cycle's two counts - which
+     * is what the reference's commutate() resets and its integrator gate reads - and the BEMF
+     * difference the last cycle measured.
+     */
+    bldc_comm_state_t comm;
+    bldc_rpm_dep_t rpm_dep;
+    float pwm_cycles_sum;
+    float last_pwm_cycles_sum;
+    float last_v_diff;
 } bldc_drive_t;
 
 void bldc_drive_construct(bldc_drive_t *self, uint32_t module_id, uint32_t priority,
@@ -102,6 +135,24 @@ void bldc_drive_set_rpm(bldc_drive_t *self, float rpm);
 
 void bldc_drive_set_hall_port(bldc_drive_t *self, const bldc_hall_port_t *port);
 void bldc_drive_set_phase_port(bldc_drive_t *self, const bldc_phase_port_t *port);
+void bldc_drive_set_bemf_port(bldc_drive_t *self, const bldc_bemf_port_t *port);
+
+/*
+ * One cycle of the sensorless branch (mcpwm.c:1886-1937), driven from the phase measurements the
+ * BEMF port hands in: the integrator's gate and the mode decision decide whether to commutate, and
+ * a commutation advances the step by one, moves the tachometer with it and puts the new step on the
+ * bridge - which is what the reference's commutate(1) does. Every cycle also counts the commutation
+ * cycle up by the switching frequency over the machine's own, and samples the hall-detection table
+ * from the first half of that cycle, as the reference does at mcpwm.c:1874-1877 and :1934-1936.
+ *
+ * A drive that is not running sensorless zeroes the integral, which is its own else branch (:1931),
+ * and one with no BEMF port says ENOTSUP rather than integrating nothing.
+ */
+edge_status_t bldc_drive_commutate_sensorless(bldc_drive_t *self, float duty,
+                                              float switching_frequency_now);
+
+const bldc_comm_state_t *bldc_drive_comm_state(const bldc_drive_t *self);
+float bldc_drive_last_v_diff(const bldc_drive_t *self);
 
 /* The commanded direction, one for forwards and nought for backwards, as mcpwm.c:1024-1028 sets it.
  */
