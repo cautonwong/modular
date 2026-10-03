@@ -133,12 +133,38 @@ edge_status_t zmk_behavior_add_macro(zmk_behavior_app_t *self, const zmk_macro_c
     return EDGE_OK;
 }
 
+static void notify_hold_taps_on_other_key(zmk_behavior_app_t *self, bool other_pressed,
+                                          uint32_t timestamp_ms) {
+    for (uint8_t i = 0; i < self->hold_tap_count; i++) {
+        zmk_ht_instance_t *ht = &self->hold_taps[i];
+        if (ht->active && !ht->is_held) {
+            ht->interrupted = true;
+            if (!other_pressed) {
+                ht->other_key_released = true;
+            }
+            if (ht->config.flavor == ZMK_HT_HOLD_PREFERRED ||
+                ht->config.flavor == ZMK_HT_TAP_UNLESS_INTERRUPTED) {
+                ht->is_held = true;
+                zmk_behavior_invoke(self, (uint16_t)ht->hold_behavior_id, ht->hold_param1, 0, true,
+                                    timestamp_ms);
+            } else if (ht->config.flavor == ZMK_HT_BALANCED) {
+                if (ht->other_key_released) {
+                    ht->is_held = true;
+                    zmk_behavior_invoke(self, (uint16_t)ht->hold_behavior_id, ht->hold_param1, 0,
+                                        true, timestamp_ms);
+                }
+            }
+        }
+    }
+}
+
 static edge_status_t handle_key_press(zmk_behavior_app_t *self, uint8_t keycode, uint8_t modifiers,
                                       bool pressed, uint32_t timestamp_ms) {
-    (void)timestamp_ms;
     if (self->hid == NULL) {
         return EDGE_EINVAL;
     }
+
+    notify_hold_taps_on_other_key(self, pressed, timestamp_ms);
 
     uint8_t eff_mods = modifiers;
 
@@ -149,8 +175,7 @@ static edge_status_t handle_key_press(zmk_behavior_app_t *self, uint8_t keycode,
         } else if (keycode == 0x2D || (keycode >= 0x1E && keycode <= 0x27)) {
             /* Numbers or minus/underscore keep Caps Word alive */
         } else {
-            /* Any separator/whitespace key (Space 0x2C, Enter 0x28, Esc 0x29, Tab 0x2B, etc.)
-             * deactivates */
+            /* Any separator/whitespace key deactivates */
             self->caps_word.active = false;
         }
     }
@@ -203,11 +228,9 @@ edge_status_t zmk_behavior_invoke(zmk_behavior_app_t *self, uint16_t behavior_id
             ht->active = true;
             ht->is_held = false;
             ht->is_tapped = false;
+            ht->interrupted = false;
+            ht->other_key_released = false;
             ht->press_time_ms = timestamp_ms;
-
-            if (ht->config.flavor == ZMK_HT_HOLD_PREFERRED) {
-                /* Wait for release or timeout */
-            }
             return EDGE_OK;
         } else {
             /* Release */
@@ -220,10 +243,19 @@ edge_status_t zmk_behavior_invoke(zmk_behavior_app_t *self, uint16_t behavior_id
                 ht->active = false;
                 if (ht->is_held) {
                     ht->is_held = false;
+                    if (ht->config.retro_tap && !ht->interrupted) {
+                        /* Retro tap: held past term but no other key pressed -> tap */
+                        zmk_behavior_invoke(self, (uint16_t)ht->hold_behavior_id, ht->hold_param1,
+                                            0, false, timestamp_ms);
+                        zmk_behavior_invoke(self, (uint16_t)ht->tap_behavior_id, ht->tap_param1, 0,
+                                            true, timestamp_ms);
+                        return zmk_behavior_invoke(self, (uint16_t)ht->tap_behavior_id,
+                                                   ht->tap_param1, 0, false, timestamp_ms);
+                    }
                     return zmk_behavior_invoke(self, (uint16_t)ht->hold_behavior_id,
                                                ht->hold_param1, 0, false, timestamp_ms);
                 } else {
-                    /* Tapped within term */
+                    /* Tapped */
                     ht->last_tap_time_ms = timestamp_ms;
                     zmk_behavior_invoke(self, (uint16_t)ht->tap_behavior_id, ht->tap_param1, 0,
                                         true, timestamp_ms);
@@ -375,10 +407,12 @@ edge_status_t zmk_behavior_tick(zmk_behavior_app_t *self, uint32_t timestamp_ms)
         zmk_ht_instance_t *ht = &self->hold_taps[i];
         if (ht->active && !ht->is_held) {
             if ((timestamp_ms - ht->press_time_ms) >= ht->config.tapping_term_ms) {
-                /* Expired -> promote to hold */
-                ht->is_held = true;
-                zmk_behavior_invoke(self, (uint16_t)ht->hold_behavior_id, ht->hold_param1, 0, true,
-                                    timestamp_ms);
+                if (ht->config.flavor != ZMK_HT_TAP_UNLESS_INTERRUPTED || ht->interrupted) {
+                    /* Expired -> promote to hold */
+                    ht->is_held = true;
+                    zmk_behavior_invoke(self, (uint16_t)ht->hold_behavior_id, ht->hold_param1, 0,
+                                        true, timestamp_ms);
+                }
             }
         }
     }

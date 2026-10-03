@@ -61,6 +61,21 @@ edge_status_t zmk_split_shutdown(zmk_split_app_t *self) {
     return EDGE_OK;
 }
 
+static uint8_t zmk_split_crc8(const uint8_t *data, size_t len) {
+    uint8_t crc = 0x00;
+    for (size_t i = 0; i < len; i++) {
+        crc ^= data[i];
+        for (int j = 0; j < 8; j++) {
+            if (crc & 0x80) {
+                crc = (uint8_t)((crc << 1) ^ 0x07);
+            } else {
+                crc <<= 1;
+            }
+        }
+    }
+    return crc;
+}
+
 edge_status_t zmk_split_forward_position(zmk_split_app_t *self, uint32_t position, bool pressed,
                                          uint32_t timestamp_ms) {
     if (self == NULL) {
@@ -71,6 +86,7 @@ edge_status_t zmk_split_forward_position(zmk_split_app_t *self, uint32_t positio
     }
 
     zmk_split_packet_t pkt = {0};
+    pkt.seq_num = ++self->tx_seq;
     pkt.msg_type = ZMK_SPLIT_MSG_POSITION_STATE;
     /* Apply peripheral position offset */
     uint32_t global_pos = position + self->position_offset;
@@ -80,6 +96,8 @@ edge_status_t zmk_split_forward_position(zmk_split_app_t *self, uint32_t positio
     pkt.payload[3] = (uint8_t)((timestamp_ms >> 8) & 0xFF);
     pkt.payload[4] = (uint8_t)((timestamp_ms >> 16) & 0xFF);
     pkt.payload[5] = (uint8_t)((timestamp_ms >> 24) & 0xFF);
+
+    pkt.crc8 = zmk_split_crc8((const uint8_t *)&pkt, sizeof(pkt) - 1);
 
     self->packets_sent++;
     return self->transport->send_packet(self->transport->self, (const uint8_t *)&pkt, sizeof(pkt));
@@ -91,6 +109,14 @@ edge_status_t zmk_split_receive_packet(zmk_split_app_t *self, const uint8_t *dat
     }
 
     const zmk_split_packet_t *pkt = (const zmk_split_packet_t *)data;
+
+    /* Verify CRC8 checksum */
+    uint8_t expected_crc = zmk_split_crc8(data, sizeof(zmk_split_packet_t) - 1);
+    if (pkt->crc8 != expected_crc) {
+        return EDGE_EIO; /* Corrupted packet rejected */
+    }
+
+    self->rx_seq = pkt->seq_num;
     self->packets_received++;
 
     if (pkt->msg_type == ZMK_SPLIT_MSG_POSITION_STATE) {
@@ -106,6 +132,11 @@ edge_status_t zmk_split_receive_packet(zmk_split_app_t *self, const uint8_t *dat
         }
     } else if (pkt->msg_type == ZMK_SPLIT_MSG_BATTERY_STATE) {
         self->peripheral_battery_pct = pkt->payload[0];
+    } else if (pkt->msg_type == ZMK_SPLIT_MSG_LAYER_STATE) {
+        self->active_layers = (uint32_t)pkt->payload[0] | ((uint32_t)pkt->payload[1] << 8) |
+                              ((uint32_t)pkt->payload[2] << 16) | ((uint32_t)pkt->payload[3] << 24);
+    } else if (pkt->msg_type == ZMK_SPLIT_MSG_ACTIVITY_STATE) {
+        self->peripheral_active = (pkt->payload[0] != 0);
     }
 
     return EDGE_OK;

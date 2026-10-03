@@ -26,8 +26,10 @@ typedef struct zmk_combo_binding {
 typedef struct zmk_combo_config {
     uint8_t positions[ZMK_COMBO_MAX_KEYS_PER_COMBO];
     uint8_t position_count;
-    uint32_t layers_mask; /* 0 = all layers */
-    uint16_t timeout_ms;  /* Max interval between first key and all keys pressed */
+    uint32_t layers_mask;           /* 0 = all layers */
+    uint16_t timeout_ms;            /* Max interval between first key and all keys pressed */
+    uint16_t require_prior_idle_ms; /* Minimum idle time before first key press */
+    bool slow_release;              /* Release only when all keys are released */
     zmk_combo_binding_t binding;
 } zmk_combo_config_t;
 
@@ -48,6 +50,7 @@ typedef struct zmk_combo_app {
     /* Tracks active pressed physical keys */
     bool key_pressed[ZMK_COMBO_MAX_POSITIONS];
     uint32_t key_press_time[ZMK_COMBO_MAX_POSITIONS];
+    uint32_t last_activity_time_ms;
 } zmk_combo_app_t;
 
 void zmk_combo_construct(zmk_combo_app_t *self, uint32_t module_id, uint32_t priority,
