@@ -1134,9 +1134,27 @@ static void motor_id_chain_step(motor_id_app_t *app) {
     }
 
     case MOTOR_ID_CHAIN_IND_FINAL:
-        /* The measurement the walk settled on has completed, so the sequence is done. */
+        /*
+         * The measurement the walk settled on has completed, so the sequence is done. The
+         * all-in-one detection's own last step hangs here rather than on a chain of its own,
+         * because the inductance procedure sets the chain for its walk and would overwrite one:
+         * :1562-1565 derives the ceiling from the power loss and the resistance just measured,
+         * truncated by the board's current limit, and that is what becomes the machine's current
+         * limits.
+         */
         app->chain = MOTOR_ID_CHAIN_NONE;
         motor_id_res_ind_release_gains(app);
+        if (app->imax_pending) {
+            app->imax_pending = false;
+            if (!failed) {
+                float i_max = sqrtf(app->imax_max_power_loss / app->result.r_ohm / 1.5f);
+                if (i_max > app->imax_hw_lim_a) {
+                    i_max = app->imax_hw_lim_a;
+                }
+                app->result.i_max_a = i_max;
+                app->result.valid = (app->result.r_ohm > 0.0f);
+            }
+        }
         return;
 
     case MOTOR_ID_CHAIN_RES_SCAN:
@@ -1214,35 +1232,16 @@ static void motor_id_chain_step(motor_id_app_t *app) {
 
     case MOTOR_ID_CHAIN_IMAX_RES_FINAL:
         /* :1555-1562: the resistance at the current the walk settled on, and then the two
-         * inductances measured there. */
+         * inductances measured there. The derivation of the ceiling waits for those, and the flag
+         * is how the shared final case knows to do it. */
         app->chain = MOTOR_ID_CHAIN_NONE;
         if (failed || app->result.r_ohm == 0.0f) {
             return;
         }
-        app->chain = MOTOR_ID_CHAIN_IMAX_IND_FINAL;
+        app->imax_pending = true;
         (void)motor_id_measure_inductance_current(app, app->imax_last_a,
                                                   MOTOR_ID_IMAX_FINAL_SAMPLES);
         return;
-
-    case MOTOR_ID_CHAIN_IMAX_IND_FINAL: {
-        /*
-         * :1562-1565: the ceiling the reference derives from the power loss and the resistance it
-         * just measured, truncated by the board's own current limit. That number is what the
-         * all-in-one detection writes into the configuration as the machine's current limits.
-         */
-        app->chain = MOTOR_ID_CHAIN_NONE;
-        if (failed) {
-            return;
-        }
-
-        float i_max = sqrtf(app->imax_max_power_loss / app->result.r_ohm / 1.5f);
-        if (i_max > app->imax_hw_lim_a) {
-            i_max = app->imax_hw_lim_a;
-        }
-        app->result.i_max_a = i_max;
-        app->result.valid = (app->result.r_ohm > 0.0f);
-        return;
-    }
 
     case MOTOR_ID_CHAIN_NONE:
     default:
@@ -1372,6 +1371,7 @@ edge_status_t motor_id_measure_r_l_imax(motor_id_app_t *app, float current_max_a
     }
 
     app->result.valid = false;
+    app->imax_pending = false;
     app->imax_current_max_a = current_max_a;
     app->imax_current_min_a = current_min_a;
     app->imax_max_power_loss = max_power_loss;

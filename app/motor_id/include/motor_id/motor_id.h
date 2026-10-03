@@ -105,10 +105,9 @@ typedef enum motor_id_chain {
     MOTOR_ID_CHAIN_RES_SCAN,
     MOTOR_ID_CHAIN_RES_FINAL,
     /* conf_general.c:1528's own sequence: the probe walk, its final resistance, then the two
-     * inductances at that current. */
+     * inductances at that current - after which the ceiling is derived in the shared final case. */
     MOTOR_ID_CHAIN_IMAX_SCAN,
-    MOTOR_ID_CHAIN_IMAX_RES_FINAL,
-    MOTOR_ID_CHAIN_IMAX_IND_FINAL
+    MOTOR_ID_CHAIN_IMAX_RES_FINAL
 } motor_id_chain_t;
 
 typedef struct motor_id_result {
@@ -327,6 +326,12 @@ typedef struct motor_id_app {
     float imax_max_power_loss;
     float imax_hw_lim_a;
     float imax_probe_r_ohm;
+    /*
+     * The inductance procedure sets the chain for its own walk, so the step that derives i_max
+     * cannot be a chain case of its own: this flag is what the shared final case reads to know that
+     * the sequence it is ending is the all-in-one detection's.
+     */
+    bool imax_pending;
     /* Whether the composed sequence's own current-loop gains are still in place, so that the single
      * exit point puts them back once and only when it changed them. */
     bool res_ind_gains_active;
