@@ -64,9 +64,45 @@ static void test_rgb_controls_and_effects(void **state) {
     assert_false(hw_ctx.on);
 }
 
+static void test_rgb_hsv_conversion_and_rendering(void **state) {
+    (void)state;
+    // Pure Red: H=0, S=100, V=100 -> R=255, G=0, B=0
+    uint8_t r = 0, g = 0, b = 0;
+    zmk_rgb_hsv_to_rgb(0, 100, 100, &r, &g, &b);
+    assert_int_equal(r, 255);
+    assert_int_equal(g, 0);
+    assert_int_equal(b, 0);
+
+    // Pure Green: H=120, S=100, V=100 -> R=0, G=255, B=0
+    zmk_rgb_hsv_to_rgb(120, 100, 100, &r, &g, &b);
+    assert_int_equal(r, 0);
+    assert_int_equal(g, 255);
+    assert_int_equal(b, 0);
+
+    // Pure Blue: H=240, S=100, V=100 -> R=0, G=0, B=255
+    zmk_rgb_hsv_to_rgb(240, 100, 100, &r, &g, &b);
+    assert_int_equal(r, 0);
+    assert_int_equal(g, 0);
+    assert_int_equal(b, 255);
+
+    // Render frame across 4 LEDs
+    zmk_rgb_app_t app;
+    zmk_rgb_construct(&app, EDGE_MOD_ZMK_RGB, 50, NULL);
+    zmk_rgb_init(&app);
+    zmk_rgb_set_effect(&app, ZMK_RGB_EFFECT_RAINBOW);
+
+    zmk_rgb_pixel_t pixels[4] = {0};
+    zmk_rgb_render_frame(&app, 1000, 4, pixels);
+    // At least one color channel in each pixel should be non-zero
+    for (int i = 0; i < 4; i++) {
+        assert_true(pixels[i].r > 0 || pixels[i].g > 0 || pixels[i].b > 0);
+    }
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_rgb_controls_and_effects),
+        cmocka_unit_test(test_rgb_hsv_conversion_and_rendering),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

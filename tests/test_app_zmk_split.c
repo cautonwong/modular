@@ -79,9 +79,25 @@ static void test_split_peripheral_to_central_forwarding(void **state) {
     assert_int_equal(central_rx.last_time, 100);
 }
 
+static void test_split_crc_error_rejection(void **state) {
+    (void)state;
+    mock_receiver_t central_rx = {0};
+    zmk_split_receiver_if_t rx_if = {.self = &central_rx,
+                                     .on_remote_position_changed = mock_on_remote_position};
+    zmk_split_app_t central;
+    zmk_split_construct(&central, EDGE_MOD_ZMK_SPLIT, 50, ZMK_SPLIT_ROLE_CENTRAL, 0, NULL, &rx_if);
+    assert_int_equal(zmk_split_init(&central), EDGE_OK);
+
+    uint8_t bad_packet[sizeof(zmk_split_packet_t)] = {0x01, 0x01, 0x05, 0x01, 0x00,
+                                                      0x00, 0x00, 0x00, 0xFF /* corrupted CRC */};
+    assert_int_equal(zmk_split_receive_packet(&central, bad_packet, sizeof(bad_packet)), EDGE_EIO);
+    assert_int_equal(central_rx.calls, 0); // Not dispatched!
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_split_peripheral_to_central_forwarding),
+        cmocka_unit_test(test_split_crc_error_rejection),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

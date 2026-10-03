@@ -271,10 +271,90 @@ static void test_behavior_caps_word(void **state) {
     zmk_behavior_invoke(&app, ZMK_BHV_KEY_PRESS, 0x05, 0, false, 160);
 }
 
+static void test_behavior_hold_tap_flavors_and_retro(void **state) {
+    (void)state;
+    mock_hid_t hid_ctx = {0};
+    zmk_behavior_hid_if_t hid_if = {
+        .self = &hid_ctx,
+        .press_key = mock_press_key,
+        .release_key = mock_release_key,
+        .press_consumer_key = mock_press_consumer,
+        .release_consumer_key = mock_release_consumer,
+        .press_mouse_button = mock_press_mouse,
+        .release_mouse_button = mock_release_mouse,
+    };
+
+    zmk_behavior_app_t app;
+    zmk_behavior_construct(&app, EDGE_MOD_ZMK_BEHAVIOR, 50, &hid_if, NULL);
+    assert_int_equal(zmk_behavior_init(&app), EDGE_OK);
+
+    // 1. Retro-tap: when held past tapping term with NO other key pressed -> tap on release
+    zmk_ht_config_t retro_cfg = {
+        .flavor = ZMK_HT_HOLD_PREFERRED,
+        .tapping_term_ms = 200,
+        .quick_tap_ms = 0,
+        .retro_tap = true,
+    };
+    uint8_t retro_idx = 0;
+    zmk_behavior_add_hold_tap(&app, &retro_cfg, ZMK_BHV_KEY_PRESS, 0xE0, ZMK_BHV_KEY_PRESS, 0x04,
+                              &retro_idx);
+
+    zmk_behavior_invoke(&app, ZMK_BHV_HOLD_TAP, retro_idx, 0, true, 100);
+    zmk_behavior_tick(&app, 350); // Timeout expires -> becomes hold
+    // Release with no other keys -> retro-tap should fire Tap (0x04)
+    zmk_behavior_invoke(&app, ZMK_BHV_HOLD_TAP, retro_idx, 0, false, 400);
+    assert_int_equal(hid_ctx.last_pressed_kc, 0x04);
+
+    // 2. Quick-tap: second press within quick_tap_ms fires tap immediately
+    zmk_ht_config_t qtap_cfg = {
+        .flavor = ZMK_HT_HOLD_PREFERRED,
+        .tapping_term_ms = 200,
+        .quick_tap_ms = 150,
+        .retro_tap = false,
+    };
+    uint8_t qtap_idx = 0;
+    zmk_behavior_add_hold_tap(&app, &qtap_cfg, ZMK_BHV_KEY_PRESS, 0xE0, ZMK_BHV_KEY_PRESS, 0x05,
+                              &qtap_idx);
+
+    // First tap
+    zmk_behavior_invoke(&app, ZMK_BHV_HOLD_TAP, qtap_idx, 0, true, 500);
+    zmk_behavior_invoke(&app, ZMK_BHV_HOLD_TAP, qtap_idx, 0, false, 550);
+    assert_int_equal(hid_ctx.last_pressed_kc, 0x05);
+
+    // Second press at 600ms (delta 50ms < 150ms quick_tap_ms) -> immediately fires tap
+    zmk_behavior_invoke(&app, ZMK_BHV_HOLD_TAP, qtap_idx, 0, true, 600);
+    assert_int_equal(hid_ctx.last_pressed_kc, 0x05);
+    zmk_behavior_invoke(&app, ZMK_BHV_HOLD_TAP, qtap_idx, 0, false, 650);
+
+    // 3. TAP_UNLESS_INTERRUPTED: holding past term does NOT hold unless interrupted
+    zmk_ht_config_t tui_cfg = {
+        .flavor = ZMK_HT_TAP_UNLESS_INTERRUPTED,
+        .tapping_term_ms = 200,
+        .quick_tap_ms = 0,
+        .retro_tap = false,
+    };
+    uint8_t tui_idx = 0;
+    zmk_behavior_add_hold_tap(&app, &tui_cfg, ZMK_BHV_KEY_PRESS, 0xE0, ZMK_BHV_KEY_PRESS, 0x06,
+                              &tui_idx);
+
+    zmk_behavior_invoke(&app, ZMK_BHV_HOLD_TAP, tui_idx, 0, true, 700);
+    zmk_behavior_tick(&app, 950); // Past term, no other key -> stays inactive hold
+    zmk_behavior_invoke(&app, ZMK_BHV_HOLD_TAP, tui_idx, 0, false, 1000);
+    assert_int_equal(hid_ctx.last_pressed_kc, 0x06); // Fires tap (0x06)
+
+    // Interrupted -> immediately holds
+    zmk_behavior_invoke(&app, ZMK_BHV_HOLD_TAP, tui_idx, 0, true, 1100);
+    zmk_behavior_invoke(&app, ZMK_BHV_KEY_PRESS, 0x07, 0, true, 1150); // Interrupted by key 0x07
+    assert_int_equal(hid_ctx.last_pressed_kc, 0x07);
+    zmk_behavior_invoke(&app, ZMK_BHV_KEY_PRESS, 0x07, 0, false, 1180);
+    zmk_behavior_invoke(&app, ZMK_BHV_HOLD_TAP, tui_idx, 0, false, 1200);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_behavior_key_press_and_repeat),
         cmocka_unit_test(test_behavior_hold_tap),
+        cmocka_unit_test(test_behavior_hold_tap_flavors_and_retro),
         cmocka_unit_test(test_behavior_tap_dance),
         cmocka_unit_test(test_behavior_sticky_key_and_mod_morph),
         cmocka_unit_test(test_behavior_caps_word),

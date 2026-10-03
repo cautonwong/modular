@@ -98,10 +98,47 @@ static void test_combo_timeout_does_not_fire(void **state) {
     assert_int_equal(bhv_sink.calls, 0);
 }
 
+static void test_combo_slow_release(void **state) {
+    (void)state;
+    mock_behavior_sink_t bhv_sink = {0};
+    zmk_combo_behavior_if_t bhv_if = {.self = &bhv_sink, .invoke_binding = mock_invoke_binding};
+
+    zmk_combo_app_t combo;
+    zmk_combo_construct(&combo, EDGE_MOD_ZMK_COMBO, 50, &bhv_if);
+    assert_int_equal(zmk_combo_init(&combo), EDGE_OK);
+
+    zmk_combo_config_t cfg = {
+        .positions = {10, 11},
+        .position_count = 2,
+        .layers_mask = 0,
+        .timeout_ms = 50,
+        .require_prior_idle_ms = 0,
+        .slow_release = true,
+        .binding = {ZMK_BHV_KEY_PRESS, 0x30, 0},
+    };
+    zmk_combo_add_combo(&combo, &cfg);
+
+    // Press 10 then 11
+    zmk_combo_process_key(&combo, 10, true, 100, 0);
+    zmk_combo_process_key(&combo, 11, true, 120, 0);
+    assert_int_equal(bhv_sink.calls, 1);
+    assert_true(bhv_sink.last_pressed);
+
+    // Release 10 -> since slow_release is true and 11 is still held, combo is NOT released yet!
+    zmk_combo_process_key(&combo, 10, false, 150, 0);
+    assert_int_equal(bhv_sink.calls, 1);
+
+    // Release 11 -> all keys released -> now combo releases!
+    zmk_combo_process_key(&combo, 11, false, 180, 0);
+    assert_int_equal(bhv_sink.calls, 2);
+    assert_false(bhv_sink.last_pressed);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_combo_trigger_and_release),
         cmocka_unit_test(test_combo_timeout_does_not_fire),
+        cmocka_unit_test(test_combo_slow_release),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

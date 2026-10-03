@@ -71,6 +71,8 @@ typedef struct zmk_ht_instance {
     bool active;
     bool is_held;
     bool is_tapped;
+    bool interrupted;
+    bool other_key_released;
     uint32_t press_time_ms;
     uint32_t last_tap_time_ms;
 } zmk_ht_instance_t;

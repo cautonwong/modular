@@ -80,6 +80,7 @@ bool zmk_combo_process_key(zmk_combo_app_t *self, uint32_t position, bool presse
     }
 
     if (pressed) {
+        bool handled = false;
         self->key_pressed[position] = true;
         self->key_press_time[position] = timestamp_ms;
 
@@ -94,6 +95,13 @@ bool zmk_combo_process_key(zmk_combo_app_t *self, uint32_t position, bool presse
             for (uint8_t k = 0; k < cfg->position_count; k++) {
                 if (cfg->positions[k] == position) {
                     if (st->pressed_mask == 0) {
+                        /* Check prior idle requirement */
+                        if (cfg->require_prior_idle_ms > 0 && self->last_activity_time_ms > 0) {
+                            if ((timestamp_ms - self->last_activity_time_ms) <
+                                cfg->require_prior_idle_ms) {
+                                break; /* Skipped due to idle requirement */
+                            }
+                        }
                         st->start_time_ms = timestamp_ms;
                     }
                     st->pressed_mask |= (uint8_t)(1u << k);
@@ -109,13 +117,16 @@ bool zmk_combo_process_key(zmk_combo_app_t *self, uint32_t position, bool presse
                                     self->behavior_port->self, cfg->binding.behavior_id,
                                     cfg->binding.param1, cfg->binding.param2, true, timestamp_ms);
                             }
-                            return true; /* Combo fired */
+                            handled = true;
                         }
                     }
                 }
             }
         }
+        self->last_activity_time_ms = timestamp_ms;
+        return handled;
     } else {
+        bool handled = false;
         self->key_pressed[position] = false;
 
         for (uint8_t c = 0; c < self->combo_count; c++) {
@@ -126,6 +137,12 @@ bool zmk_combo_process_key(zmk_combo_app_t *self, uint32_t position, bool presse
                 if (cfg->positions[k] == position) {
                     st->pressed_mask &= (uint8_t) ~(1u << k);
                     if (st->active) {
+                        if (cfg->slow_release && st->pressed_mask != 0) {
+                            /* Slow release: don't release until all constituent keys are released
+                             */
+                            handled = true;
+                            continue;
+                        }
                         st->active = false;
                         if (self->behavior_port != NULL &&
                             self->behavior_port->invoke_binding != NULL) {
@@ -133,12 +150,12 @@ bool zmk_combo_process_key(zmk_combo_app_t *self, uint32_t position, bool presse
                                 self->behavior_port->self, cfg->binding.behavior_id,
                                 cfg->binding.param1, cfg->binding.param2, false, timestamp_ms);
                         }
-                        return true; /* Released combo */
+                        handled = true;
                     }
                 }
             }
         }
+        self->last_activity_time_ms = timestamp_ms;
+        return handled;
     }
-
-    return false;
 }

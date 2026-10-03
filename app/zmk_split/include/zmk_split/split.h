@@ -21,13 +21,17 @@ enum zmk_split_role {
 enum zmk_split_msg_type {
     ZMK_SPLIT_MSG_POSITION_STATE = 0x01,
     ZMK_SPLIT_MSG_BATTERY_STATE = 0x02,
-    ZMK_SPLIT_MSG_PING = 0x03,
-    ZMK_SPLIT_MSG_PONG = 0x04,
+    ZMK_SPLIT_MSG_LAYER_STATE = 0x03,
+    ZMK_SPLIT_MSG_ACTIVITY_STATE = 0x04,
+    ZMK_SPLIT_MSG_PING = 0x05,
+    ZMK_SPLIT_MSG_PONG = 0x06,
 };
 
 typedef struct __attribute__((packed)) zmk_split_packet {
+    uint8_t seq_num;
     uint8_t msg_type;
-    uint8_t payload[7];
+    uint8_t payload[6];
+    uint8_t crc8;
 } zmk_split_packet_t;
 
 typedef struct zmk_split_app {
@@ -38,7 +42,11 @@ typedef struct zmk_split_app {
     uint8_t role;            /* ZMK_SPLIT_ROLE_CENTRAL or PERIPHERAL */
     uint8_t position_offset; /* e.g. 0 for left half, 36 for right half */
     bool connected;
+    uint8_t tx_seq;
+    uint8_t rx_seq;
     uint8_t peripheral_battery_pct;
+    uint32_t active_layers;
+    bool peripheral_active;
     uint32_t packets_sent;
     uint32_t packets_received;
 } zmk_split_app_t;

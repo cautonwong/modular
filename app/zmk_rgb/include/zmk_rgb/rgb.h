@@ -17,8 +17,15 @@ enum zmk_rgb_effect {
     ZMK_RGB_EFFECT_BREATHE = 1,
     ZMK_RGB_EFFECT_SPECTRUM = 2,
     ZMK_RGB_EFFECT_SWIRL = 3,
-    ZMK_RGB_EFFECT_COUNT = 4,
+    ZMK_RGB_EFFECT_RAINBOW = 4,
+    ZMK_RGB_EFFECT_COUNT = 5,
 };
+
+typedef struct zmk_rgb_pixel {
+    uint8_t r;
+    uint8_t g;
+    uint8_t b;
+} zmk_rgb_pixel_t;
 
 typedef struct zmk_rgb_driver_if {
     void *self;
@@ -53,6 +60,13 @@ edge_status_t zmk_rgb_set_saturation(zmk_rgb_app_t *self, uint8_t saturation);
 edge_status_t zmk_rgb_set_brightness(zmk_rgb_app_t *self, uint8_t brightness);
 edge_status_t zmk_rgb_set_effect(zmk_rgb_app_t *self, uint8_t effect);
 edge_status_t zmk_rgb_next_effect(zmk_rgb_app_t *self);
+
+/* HSV to RGB color space transformation */
+void zmk_rgb_hsv_to_rgb(uint16_t h, uint8_t s, uint8_t v, uint8_t *r, uint8_t *g, uint8_t *b);
+
+/* Computes per-LED color animation frame */
+void zmk_rgb_render_frame(const zmk_rgb_app_t *self, uint32_t timestamp_ms, uint16_t led_count,
+                          zmk_rgb_pixel_t *out_pixels);
 
 #ifdef __cplusplus
 }

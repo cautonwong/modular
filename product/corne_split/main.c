@@ -138,9 +138,23 @@ int main(void) {
 
     /* 2. Simulate key press from remote split right half (Pos 0 + offset 21 = Pos 21 -> 'P') */
     zmk_split_packet_t pkt = {
+        .seq_num = 1,
         .msg_type = ZMK_SPLIT_MSG_POSITION_STATE,
         .payload = {21, 1, 120, 0, 0, 0},
     };
+    uint8_t crc = 0;
+    const uint8_t *raw = (const uint8_t *)&pkt;
+    for (size_t i = 0; i < sizeof(pkt) - 1; i++) {
+        crc ^= raw[i];
+        for (int j = 0; j < 8; j++) {
+            if (crc & 0x80) {
+                crc = (uint8_t)((crc << 1) ^ 0x07);
+            } else {
+                crc <<= 1;
+            }
+        }
+    }
+    pkt.crc8 = crc;
     zmk_split_receive_packet(&split_central, (const uint8_t *)&pkt, sizeof(pkt));
     if (!hid_report_is_keycode_pressed(&hid_builder, 0x13)) {
         return 9;
