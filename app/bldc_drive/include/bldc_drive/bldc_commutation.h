@@ -220,6 +220,21 @@ typedef struct bldc_comm_input {
 bool bldc_comm_sensorless_step(const bldc_comm_input_t *in, const bldc_rpm_dep_params_t *params,
                                const bldc_rpm_dep_t *dep, bldc_comm_state_t *state);
 
+/*
+ * mcpwm_foc.c:2464-2474, the tail of mcpwm_foc_hall_detect: what a hall reading's angle is, from
+ * the sums that procedure accumulated while it swept the electrical angle over the motor three
+ * times each way. A reading that was seen more than thirty times names an angle, taken as the
+ * arctangent of its sums and normalized into nought to three hundred and sixty degrees, then scaled
+ * to the two hundred counts a hall table entry holds; one that was not seen enough names nothing,
+ * two hundred and fifty-five. The result is the reference's own: a detection passes when exactly
+ * two readings were short, which is what the two ends of a six-step rotation look like.
+ *
+ * Returns how many readings were short, which is the reference's own local and its caller's
+ * verdict.
+ */
+int bldc_hall_angle_table(const float sin_hall[8], const float cos_hall[8],
+                          const int hall_iterations[8], uint8_t table[8], bool *result);
+
 #ifdef __cplusplus
 }
 #endif

@@ -3,6 +3,14 @@
 #include <math.h>
 #include <string.h>
 
+/*
+ * The same constant app/foc_core's own header defines, and for the same reason: this translation
+ * unit is not given the toolchain's M_PI, and the value has to stay the double literal the
+ * reference uses (mcpwm_foc.c's RAD2DEG_f divides by it, and the reference's own M_PI is glibc's
+ * double).
+ */
+#define M_PI 3.14159265358979323846
+
 void bldc_build_hall_tables(const int8_t hall_to_phase[8], int8_t forward[8], int8_t reverse[8]) {
     /* mcpwm.c:502: the reference's own map, indexed by the step it stored. */
     static const int8_t fwd_to_rev[7] = {-1, 1, 6, 5, 4, 3, 2};
@@ -280,4 +288,46 @@ bool bldc_comm_sensorless_step(const bldc_comm_input_t *in, const bldc_rpm_dep_p
     }
 
     return false;
+}
+
+/*
+ * util/utils_math.h's utils_norm_angle: the reference's own two whiles rather than a modulo, which
+ * is the faster form it says it is.
+ */
+static void bldc_norm_angle_deg(float *angle) {
+    while (*angle < 0.0f) {
+        *angle += 360.0f;
+    }
+    while (*angle >= 360.0f) {
+        *angle -= 360.0f;
+    }
+}
+
+int bldc_hall_angle_table(const float sin_hall[8], const float cos_hall[8],
+                          const int hall_iterations[8], uint8_t table[8], bool *result) {
+    if (sin_hall == (void *)0 || cos_hall == (void *)0 || hall_iterations == (void *)0 ||
+        table == (void *)0 || result == (void *)0) {
+        return 0;
+    }
+
+    /*
+     * mcpwm_foc.c:2464-2474, statement for statement. The reference's RAD2DEG_f is the arctangent
+     * times the double quotient of a hundred and eighty over pi, cast to a float, and its scaling
+     * to the table's two hundred counts keeps its own two double literals.
+     */
+    int fails = 0;
+
+    for (int i = 0; i < 8; i++) {
+        if (hall_iterations[i] > 30) {
+            float ang = atan2f(sin_hall[i], cos_hall[i]) * (float)(180.0 / M_PI);
+            bldc_norm_angle_deg(&ang);
+            table[i] = (uint8_t)(ang * 200.0 / 360.0);
+        } else {
+            table[i] = 255u;
+            fails++;
+        }
+    }
+
+    *result = (fails == 2);
+    return fails;
 }
