@@ -21,6 +21,9 @@
 #include "edge/errors.h"
 #include "edge/event.h"
 
+/* The double literal the reference uses, as app/foc_core's header and the app itself define it. */
+#define M_PI 3.14159265358979323846
+
 /* The reference's forward-to-reverse map, indexed by the step: {-1,1,6,5,4,3,2}. */
 static void test_bldc_hall_tables_match_the_reference(void **state) {
     (void)state;
@@ -772,6 +775,60 @@ static void test_bldc_drive_sensorless_commutation(void **state) {
     assert_float_equal(bldc_drive_last_v_diff(NULL), 0.0f, 1e-9f);
 }
 
+/*
+ * The hall-detect procedure's own table (mcpwm_foc.c:2464-2474), from the harness run of its tail:
+ * six readings seen forty times each name the angles their sums average to - nought, sixty, a
+ * hundred and twenty, and so on, each scaled to the two hundred counts an entry holds. A reading
+ * that comes out negative is normalized into the same range, which is what makes two hundred and
+ * twenty-five degrees a hundred and twenty-five. The two readings short of samples name nothing,
+ * and the result is the reference's own verdict: exactly two of them pass.
+ */
+static void test_bldc_hall_angle_table_matches_the_reference(void **state) {
+    (void)state;
+
+    float sin_hall[8] = {0};
+    float cos_hall[8] = {0};
+    int iterations[8] = {0};
+    uint8_t table[8];
+    bool result = false;
+
+    for (int i = 1; i < 7; i++) {
+        const float ang = (float)((i - 1) * 60) * (float)M_PI / 180.0f;
+        sin_hall[i] = sinf(ang) * 40.0f;
+        cos_hall[i] = cosf(ang) * 40.0f;
+        iterations[i] = 40;
+    }
+    iterations[0] = 10;
+    iterations[7] = 3;
+
+    assert_int_equal(bldc_hall_angle_table(sin_hall, cos_hall, iterations, table, &result), 2);
+    assert_true(result);
+    const uint8_t expected[8] = {255u, 0u, 33u, 66u, 100u, 133u, 166u, 255u};
+    assert_memory_equal(table, expected, sizeof(expected));
+
+    /* A reading whose angle comes out negative is normalized rather than wrapped by a modulo. */
+    iterations[0] = 40;
+    sin_hall[0] = -1.0f;
+    cos_hall[0] = -1.0f;
+    assert_int_equal(bldc_hall_angle_table(sin_hall, cos_hall, iterations, table, &result), 1);
+    assert_false(result);
+    assert_int_equal(table[0], 125u);
+
+    /* One short reading is not the pass mark either. */
+    iterations[7] = 40;
+    iterations[6] = 4;
+    assert_int_equal(bldc_hall_angle_table(sin_hall, cos_hall, iterations, table, &result), 1);
+    assert_false(result);
+    assert_int_equal(table[6], 255u);
+
+    /* Guards: nothing to read, and nothing to write into. */
+    assert_int_equal(bldc_hall_angle_table(NULL, cos_hall, iterations, table, &result), 0);
+    assert_int_equal(bldc_hall_angle_table(sin_hall, NULL, iterations, table, &result), 0);
+    assert_int_equal(bldc_hall_angle_table(sin_hall, cos_hall, NULL, table, &result), 0);
+    assert_int_equal(bldc_hall_angle_table(sin_hall, cos_hall, iterations, NULL, &result), 0);
+    assert_int_equal(bldc_hall_angle_table(sin_hall, cos_hall, iterations, table, NULL), 0);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_bldc_hall_tables_match_the_reference),
@@ -789,6 +846,7 @@ int main(void) {
         cmocka_unit_test(test_bldc_cycle_integrator_gate_matches_the_reference),
         cmocka_unit_test(test_bldc_comm_sensorless_step_matches_the_reference),
         cmocka_unit_test(test_bldc_drive_sensorless_commutation),
+        cmocka_unit_test(test_bldc_hall_angle_table_matches_the_reference),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
