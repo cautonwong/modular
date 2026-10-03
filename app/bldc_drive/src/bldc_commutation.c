@@ -219,3 +219,65 @@ bool bldc_cycle_integrator_adds(float v_diff, float pwm_cycles_sum, float last_p
     return (pwm_cycles_sum > (last_pwm_cycles_sum / 2.0f)) || !has_commutated ||
            ((ph_now_raw > band) && (ph_now_raw < (v_in - band)));
 }
+
+bool bldc_comm_sensorless_step(const bldc_comm_input_t *in, const bldc_rpm_dep_params_t *params,
+                               const bldc_rpm_dep_t *dep, bldc_comm_state_t *state) {
+    if (in == (void *)0 || params == (void *)0 || dep == (void *)0 || state == (void *)0) {
+        return false;
+    }
+
+    /* mcpwm.c:1886-1888: what the gate let in is integrated over the switching period. */
+    if (bldc_cycle_integrator_adds(in->v_diff, in->pwm_cycles_sum, in->last_pwm_cycles_sum,
+                                   in->has_commutated, in->ph_now_raw, in->duty, in->v_in)) {
+        state->cycle_integrator += in->v_diff / in->switching_frequency_now;
+    }
+
+    /*
+     * mcpwm.c:1902-1913: the INTEGRATE mode commutes once the integral passes the limit the speed
+     * leaves - the running one, or the configuration's own before anything has commutated - or the
+     * ceiling it is held under. Both resets are the reference's.
+     */
+    if (in->comm_mode == BLDC_COMM_MODE_INTEGRATE) {
+        const float scaled = 0.0005f * in->vdiv_corr;
+        const float limit =
+            (in->has_commutated ? dep->cycle_int_limit_running : dep->cycle_int_limit) * scaled;
+
+        if ((state->cycle_integrator >= (dep->cycle_int_limit_max * scaled)) ||
+            (state->cycle_integrator >= limit)) {
+            state->cycle_integrator = 0.0f;
+            state->cycle_sum = 0.0f;
+            return true;
+        }
+        return false;
+    }
+
+    /*
+     * mcpwm.c:1914-1929: the DELAY mode counts switching periods while the measurement stays
+     * positive and commutes at its own speed-dependent threshold, folding the integral into the two
+     * figures the detection reads back. A measurement that is not positive forces both to zero.
+     */
+    if (in->comm_mode == BLDC_COMM_MODE_DELAY) {
+        if (in->v_diff > 0.0f) {
+            state->cycle_sum += params->m_bldc_f_sw_max / in->switching_frequency_now;
+
+            const float threshold =
+                bldc_map(in->rpm_abs, 0.0f, params->sl_cycle_int_rpm_br, dep->comm_time_sum / 2.0f,
+                         (dep->comm_time_sum / 2.0f) * params->sl_phase_advance_at_br);
+
+            if (state->cycle_sum >= threshold) {
+                state->cycle_integrator_sum +=
+                    state->cycle_integrator * (1.0f / (0.0005f * in->vdiv_corr));
+                state->cycle_integrator_iterations += 1.0f;
+                state->cycle_integrator = 0.0f;
+                state->cycle_sum = 0.0f;
+                return true;
+            }
+        } else {
+            state->cycle_integrator = 0.0f;
+            state->cycle_sum = 0.0f;
+        }
+        return false;
+    }
+
+    return false;
+}
