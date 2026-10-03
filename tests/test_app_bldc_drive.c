@@ -838,6 +838,32 @@ static void test_bldc_bemf_coupling_matches_the_reference(void **state) {
     assert_false(bldc_spinup_passed(6u));
 }
 
+/*
+ * The configuration the parameter command stages before any attempt (conf_general.c:525-534): a
+ * sensorless BLDC motor commuting by integrating, the caller's minimum speed, and the four figures
+ * the reference starts that run from. Every value is one of its own assignments, including the
+ * three enums, which are its noughts.
+ */
+static void test_bldc_stage_sensorless_bldc_matches_the_reference(void **state) {
+    (void)state;
+
+    bldc_staged_config_t staged;
+    bldc_stage_sensorless_bldc(700.0f, &staged);
+
+    assert_int_equal(staged.motor_type, 0u);  /* MOTOR_TYPE_BLDC */
+    assert_int_equal(staged.sensor_mode, 0u); /* SENSOR_MODE_SENSORLESS */
+    assert_int_equal(staged.comm_mode, BLDC_COMM_MODE_INTEGRATE);
+    assert_float_equal(staged.sl_phase_advance_at_br, 1.0f, 1e-6f);
+    assert_float_equal(staged.sl_min_erpm, 700.0f, 1e-6f);
+    assert_float_equal(staged.sl_bemf_coupling_k, 300.0f, 1e-6f);
+    assert_float_equal(staged.sl_cycle_int_limit, 50.0f, 1e-6f);
+    assert_float_equal(staged.sl_min_erpm_cycle_int_limit, 1100.0f, 1e-6f);
+    assert_false(staged.m_invert_direction);
+
+    /* Nothing to stage into. */
+    bldc_stage_sensorless_bldc(700.0f, NULL);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_bldc_hall_tables_match_the_reference),
@@ -857,6 +883,7 @@ int main(void) {
         cmocka_unit_test(test_bldc_drive_sensorless_commutation),
         cmocka_unit_test(test_bldc_spinup_attempts_match_the_reference),
         cmocka_unit_test(test_bldc_bemf_coupling_matches_the_reference),
+        cmocka_unit_test(test_bldc_stage_sensorless_bldc_matches_the_reference),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
