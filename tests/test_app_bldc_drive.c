@@ -7,6 +7,7 @@
  * for character, because that is what they are: statements inside larger functions that read the
  * hardware's own state. The numbers below are that run's output.
  */
+#include <math.h>
 #include <setjmp.h>
 #include <stdarg.h>
 #include <stddef.h>
@@ -474,6 +475,78 @@ static void test_bldc_drive_direction_and_hall_detect(void **state) {
     bldc_drive_hall_detect_sample(&no_hall, true); /* no hall port: nothing to count */
 }
 
+/*
+ * The sensorless start-up's own limits (mcpwm.c:1322-1341), from the harness run of the reference's
+ * own block: at a standstill the running limit is the ceiling, because sl_min_erpm is what the bemf
+ * term is divided by; it is held between one and that ceiling; and the commutation-time figure is
+ * infinite at a standstill, which is the reference's own division by zero rather than a guard.
+ */
+static void test_bldc_rpm_dep_matches_the_reference(void **state) {
+    (void)state;
+
+    const bldc_rpm_dep_params_t params = {.sl_cycle_int_limit = 50.0f,
+                                          .sl_bemf_coupling_k = 300.0f,
+                                          .sl_min_erpm = 200.0f,
+                                          .sl_cycle_int_rpm_br = 1000.0f,
+                                          .sl_phase_advance_at_br = 1.0f,
+                                          .sl_min_erpm_cycle_int_limit = 1100.0f,
+                                          .m_bldc_f_sw_max = 40000.0f};
+    bldc_rpm_dep_t dep;
+
+    /* 24 V standing still: 50 + 24*300/200, clamped down to the ceiling 50 + 24*300/1100. */
+    bldc_rpm_dep_calc(&params, 0.0f, 24.0f, &dep);
+    assert_float_equal(dep.cycle_int_limit, 50.0f, 1e-4f);
+    assert_float_equal(dep.cycle_int_limit_max, 56.5455f, 1e-3f);
+    assert_float_equal(dep.cycle_int_limit_running, 56.5455f, 1e-3f);
+    assert_true(isinf(dep.comm_time_sum));
+    assert_float_equal(dep.comm_time_sum_min_rpm, 2000.0f, 1e-2f);
+
+    /* The bemf term is over the speed once it is past sl_min_erpm, and the advance mapping pulls
+     * the running limit down towards the braking value as it rises. */
+    bldc_rpm_dep_calc(&params, 2000.0f, 24.0f, &dep);
+    assert_float_equal(dep.cycle_int_limit_running, 53.60f, 1e-2f);
+    assert_float_equal(dep.comm_time_sum, 200.0f, 1e-2f);
+
+    bldc_rpm_dep_calc(&params, 8000.0f, 24.0f, &dep);
+    assert_float_equal(dep.cycle_int_limit_running, 50.90f, 1e-2f);
+    assert_float_equal(dep.comm_time_sum, 50.0f, 1e-2f);
+
+    /* The same at 50 V, where the ceiling itself is higher. */
+    bldc_rpm_dep_calc(&params, 500.0f, 50.0f, &dep);
+    assert_float_equal(dep.cycle_int_limit_max, 63.6364f, 1e-3f);
+    assert_float_equal(dep.cycle_int_limit_running, 63.6364f, 1e-3f);
+
+    bldc_rpm_dep_calc(&params, 8000.0f, 50.0f, &dep);
+    assert_float_equal(dep.cycle_int_limit_running, 51.8750f, 1e-3f);
+
+    /* Nothing to compute, and nothing to compute into. */
+    bldc_rpm_dep_calc(NULL, 0.0f, 24.0f, &dep);
+    bldc_rpm_dep_calc(&params, 0.0f, 24.0f, NULL);
+}
+
+/*
+ * The cycle integrator's gate (mcpwm.c:1886-1901). The first four cases are the harness run's; the
+ * last three are the same expression's other branch, where the band the duty leaves around half the
+ * supply is what decides - at half duty and 24 V that band is three to twenty-one counts.
+ */
+static void test_bldc_cycle_integrator_gate_matches_the_reference(void **state) {
+    (void)state;
+
+    /* A phase difference that is not positive adds nothing. */
+    assert_false(bldc_cycle_integrator_adds(-5.0f, 100.0f, 100.0f, true, 100.0f, 0.5f, 24.0f));
+    assert_false(bldc_cycle_integrator_adds(0.0f, 100.0f, 100.0f, true, 100.0f, 0.5f, 24.0f));
+
+    /* Positive with the commutation cycle in its first half, and positive with nothing commutated
+     * yet: both add. */
+    assert_true(bldc_cycle_integrator_adds(5.0f, 100.0f, 100.0f, true, 600.0f, 0.5f, 24.0f));
+    assert_true(bldc_cycle_integrator_adds(5.0f, 100.0f, 100.0f, false, 600.0f, 0.5f, 24.0f));
+
+    /* Neither, so the band decides: a reading outside it adds nothing, one inside adds. */
+    assert_false(bldc_cycle_integrator_adds(5.0f, 10.0f, 100.0f, true, 600.0f, 0.5f, 24.0f));
+    assert_true(bldc_cycle_integrator_adds(5.0f, 10.0f, 100.0f, true, 12.0f, 0.5f, 24.0f));
+    assert_false(bldc_cycle_integrator_adds(5.0f, 10.0f, 100.0f, true, 2.0f, 0.5f, 24.0f));
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_bldc_hall_tables_match_the_reference),
@@ -487,6 +560,8 @@ int main(void) {
         cmocka_unit_test(test_bldc_hall_phase_from_table_matches_the_reference),
         cmocka_unit_test(test_bldc_hall_detect_matches_the_reference),
         cmocka_unit_test(test_bldc_drive_direction_and_hall_detect),
+        cmocka_unit_test(test_bldc_rpm_dep_matches_the_reference),
+        cmocka_unit_test(test_bldc_cycle_integrator_gate_matches_the_reference),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
