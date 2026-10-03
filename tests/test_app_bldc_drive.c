@@ -775,6 +775,42 @@ static void test_bldc_drive_sensorless_commutation(void **state) {
     assert_float_equal(bldc_drive_last_v_diff(NULL), 0.0f, 1e-9f);
 }
 
+/*
+ * The parameter detection's three attempts at spinning a motor up (conf_general.c:563-585), which
+ * the reference reaches by editing one configuration in place: the first is the staged parameters,
+ * the second doubles the minimum speed and lowers the cycle integral limit to twenty, and the third
+ * doubles the speed again and delays the commutation mode - so the second's limit is still in force
+ * through the third.
+ */
+static void test_bldc_spinup_attempts_match_the_reference(void **state) {
+    (void)state;
+
+    bldc_spinup_attempt_t attempt;
+
+    bldc_spinup_attempt_params(0u, 200.0f, 50.0f, &attempt);
+    assert_float_equal(attempt.sl_min_erpm, 200.0f, 1e-6f);
+    assert_float_equal(attempt.sl_cycle_int_limit, 50.0f, 1e-6f);
+    assert_int_equal(attempt.comm_mode, BLDC_COMM_MODE_INTEGRATE);
+
+    bldc_spinup_attempt_params(1u, 200.0f, 50.0f, &attempt);
+    assert_float_equal(attempt.sl_min_erpm, 400.0f, 1e-6f);
+    assert_float_equal(attempt.sl_cycle_int_limit, 20.0f, 1e-6f);
+    assert_int_equal(attempt.comm_mode, BLDC_COMM_MODE_INTEGRATE);
+
+    bldc_spinup_attempt_params(2u, 200.0f, 50.0f, &attempt);
+    assert_float_equal(attempt.sl_min_erpm, 800.0f, 1e-6f);
+    assert_float_equal(attempt.sl_cycle_int_limit, 20.0f, 1e-6f);
+    assert_int_equal(attempt.comm_mode, BLDC_COMM_MODE_DELAY);
+
+    /* Past the third is the third, which is where the reference's own loop stops. */
+    bldc_spinup_attempt_params(9u, 200.0f, 50.0f, &attempt);
+    assert_float_equal(attempt.sl_min_erpm, 800.0f, 1e-6f);
+    assert_int_equal(attempt.comm_mode, BLDC_COMM_MODE_DELAY);
+
+    /* Nothing to write into. */
+    bldc_spinup_attempt_params(0u, 200.0f, 50.0f, NULL);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_bldc_hall_tables_match_the_reference),
@@ -792,6 +828,7 @@ int main(void) {
         cmocka_unit_test(test_bldc_cycle_integrator_gate_matches_the_reference),
         cmocka_unit_test(test_bldc_comm_sensorless_step_matches_the_reference),
         cmocka_unit_test(test_bldc_drive_sensorless_commutation),
+        cmocka_unit_test(test_bldc_spinup_attempts_match_the_reference),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

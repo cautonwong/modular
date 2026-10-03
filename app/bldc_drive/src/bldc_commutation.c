@@ -64,6 +64,30 @@ int bldc_tacho_step_delta(int comm_step, int last_step) {
     return tacho_diff;
 }
 
+void bldc_spinup_attempt_params(uint32_t attempt, float min_rpm, float cycle_int_limit,
+                                bldc_spinup_attempt_t *out) {
+    if (out == (void *)0) {
+        return;
+    }
+
+    /* The parameters the command staged, which the first attempt runs with (:531-533). */
+    out->sl_min_erpm = min_rpm;
+    out->sl_cycle_int_limit = cycle_int_limit;
+    out->comm_mode = BLDC_COMM_MODE_INTEGRATE;
+
+    /* :566-570: the second attempt doubles the speed and lowers the limit to twenty. */
+    if (attempt >= 1u) {
+        out->sl_min_erpm = 2.0f * min_rpm;
+        out->sl_cycle_int_limit = 20.0f;
+    }
+
+    /* :577-581: the third doubles it again and delays the commutation mode. */
+    if (attempt >= 2u) {
+        out->sl_min_erpm = 4.0f * min_rpm;
+        out->comm_mode = BLDC_COMM_MODE_DELAY;
+    }
+}
+
 bool bldc_sensorless_now(uint8_t sensor_mode, float rpm, float hall_sl_erpm) {
     /* mcpwm.c:2587-2593, whose speed comparison is against the absolute value of its own rpm. */
     return (sensor_mode == BLDC_SENSOR_MODE_SENSORLESS) ||

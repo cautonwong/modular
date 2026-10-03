@@ -59,6 +59,26 @@ int bldc_tacho_step_delta(int comm_step, int last_step);
 bool bldc_sensorless_now(uint8_t sensor_mode, float rpm, float hall_sl_erpm);
 
 /*
+ * conf_general_detect_motor_param's three attempts at spinning a motor up (conf_general.c:563-585):
+ * the first uses the parameters the command staged, the second doubles the minimum speed and lowers
+ * the cycle integral limit to twenty, and the third doubles the speed again and delays the
+ * commutation mode. The reference edits one configuration in place across the three, so what each
+ * attempt's parameters are is the sum of the branches taken to reach it - which is why the second
+ * attempt's limit is still the third's. Between them the motor is released and driven again; that
+ * is the caller's.
+ *
+ * An attempt past the third is the third's, which is where the reference's loop stops.
+ */
+typedef struct bldc_spinup_attempt {
+    float sl_min_erpm;
+    float sl_cycle_int_limit;
+    uint8_t comm_mode;
+} bldc_spinup_attempt_t;
+
+void bldc_spinup_attempt_params(uint32_t attempt, float min_rpm, float cycle_int_limit,
+                                bldc_spinup_attempt_t *out);
+
+/*
  * mcpwm.c:2302-2307, mcpwm_read_hall_phase: the three hall pins as the reading the commutation is
  * driven by, bit zero first. Nothing is filtered here - a reading of nought or seven is a reading,
  * and the reference assigns it as the step at the site below (mcpwm.c:1940). Its own table builder
