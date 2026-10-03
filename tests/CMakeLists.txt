@@ -162,3 +162,12 @@ edge_add_host_test(test_app_zmk_studio SOURCES test_app_zmk_studio.c DEPS app_zm
 edge_add_host_test(test_app_zmk_backlight SOURCES test_app_zmk_backlight.c DEPS app_zmk_backlight edge_test_contract)
 edge_add_host_test(test_app_zmk_battery SOURCES test_app_zmk_battery.c DEPS app_zmk_battery edge_test_contract)
 edge_add_host_test(test_app_zmk_boot SOURCES test_app_zmk_boot.c DEPS app_zmk_boot edge_test_contract)
+
+# Additional SoC and Board tests
+edge_add_host_test(test_soc_rp2040 SOURCES test_soc_rp2040.c DEPS soc_rp2040)
+edge_add_host_test(test_soc_stm32f4 SOURCES test_soc_stm32f4.c DEPS soc_stm32f4)
+edge_add_host_test(test_board_colmi_p8 SOURCES test_board_colmi_p8.c DEPS board_colmi_p8 soc_nrf52)
+edge_add_host_test(test_board_nice_nano SOURCES test_board_nice_nano.c DEPS board_nice_nano soc_nrf52)
+edge_add_host_test(test_board_rpi_pico SOURCES test_board_rpi_pico.c DEPS board_rpi_pico soc_rp2040)
+edge_add_host_test(test_board_blackpill SOURCES test_board_blackpill.c DEPS board_blackpill soc_stm32f4)
+
