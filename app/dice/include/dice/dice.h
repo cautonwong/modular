@@ -16,6 +16,7 @@ extern "C" {
 #define DICE_MAX_COUNT 6u
 
 typedef enum dice_sides {
+    DICE_D2 = 2,
     DICE_D4 = 4,
     DICE_D6 = 6,
     DICE_D8 = 8,

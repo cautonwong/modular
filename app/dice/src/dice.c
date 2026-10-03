@@ -97,6 +97,7 @@ edge_status_t dice_set_sides(dice_app_t *self, dice_sides_t sides) {
         return EDGE_EINVAL;
     }
     switch (sides) {
+    case DICE_D2:
     case DICE_D4:
     case DICE_D6:
     case DICE_D8:

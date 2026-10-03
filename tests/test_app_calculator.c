@@ -80,11 +80,34 @@ static void test_calculator_sign_flip_and_backspace(void **state) {
     assert_int_equal(calculator_get_display_value(&calc), 7LL * CALCULATOR_FIXED_POINT_OFFSET);
 }
 
+static void test_calculator_decimals(void **state) {
+    (void)state;
+    calculator_app_t calc;
+    calculator_construct(&calc, EDGE_MOD_CALCULATOR, 50u);
+
+    /* 2.5 + 3.25 = 5.75 */
+    calculator_input_digit(&calc, 2);
+    calculator_input_dot(&calc);
+    calculator_input_digit(&calc, 5);
+    assert_int_equal(calculator_get_display_value(&calc), 2500000LL); /* 2.5 * 1000000 */
+
+    calculator_input_op(&calc, CALC_OP_ADD);
+    calculator_input_digit(&calc, 3);
+    calculator_input_dot(&calc);
+    calculator_input_digit(&calc, 2);
+    calculator_input_digit(&calc, 5);
+    assert_int_equal(calculator_get_display_value(&calc), 3250000LL); /* 3.25 * 1000000 */
+
+    calculator_input_equals(&calc);
+    assert_int_equal(calculator_get_result(&calc), 5750000LL); /* 5.75 * 1000000 */
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_calculator_basic_arithmetic),
         cmocka_unit_test(test_calculator_division_by_zero),
         cmocka_unit_test(test_calculator_sign_flip_and_backspace),
+        cmocka_unit_test(test_calculator_decimals),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);
