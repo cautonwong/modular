@@ -201,12 +201,16 @@ int32_t ble_music_get_progress(const ble_music_t *self) {
     if (self == NULL) {
         return 0;
     }
+    int32_t progress = self->info.track_progress;
     if (self->info.playing && self->transport.get_tick_ms != NULL) {
         uint64_t now_ms = self->transport.get_tick_ms(self->transport.self);
         uint64_t elapsed_ms = now_ms - self->info.last_update_ms;
         int32_t delta_sec =
             (int32_t)((elapsed_ms * (uint64_t)self->info.playback_speed) / 100000ULL);
-        return self->info.track_progress + delta_sec;
+        progress += delta_sec;
     }
-    return self->info.track_progress;
+    if (self->info.track_length > 0 && progress > self->info.track_length) {
+        progress = self->info.track_length;
+    }
+    return progress;
 }
