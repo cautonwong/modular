@@ -1,6 +1,7 @@
 #include "bldc_drive/bldc_commutation.h"
 
 #include <math.h>
+#include <string.h>
 
 void bldc_build_hall_tables(const int8_t hall_to_phase[8], int8_t forward[8], int8_t reverse[8]) {
     /* mcpwm.c:502: the reference's own map, indexed by the step it stored. */
@@ -86,4 +87,75 @@ void bldc_hall_commutation(int comm_step, int hall_phase, bool running, bool has
     } else if (running && !has_commutated) {
         out->apply = true;
     }
+}
+
+int bldc_hall_phase_from_table(const int8_t forward[8], const int8_t reverse[8], uint8_t reading,
+                               int direction) {
+    if (forward == (void *)0 || reverse == (void *)0) {
+        return 0;
+    }
+
+    /*
+     * mcpwm.c:2303: one array, indexed with the direction's own offset. This port keeps the two
+     * halves as two arrays, so the same lookup is the choice between them - and the reading is
+     * taken to its three bits, which the reference's own read_hall() already guarantees.
+     */
+    const int index = (int)(reading & 7u);
+    return (int)((direction != 0) ? reverse[index] : forward[index]);
+}
+
+void bldc_hall_detect_reset(bldc_hall_detect_counts_t counts) {
+    /* mcpwm.c:2243's memset over the same eight by seven. */
+    memset(counts, 0, sizeof(int) * 8u * 7u);
+}
+
+void bldc_hall_detect_sample(bldc_hall_detect_counts_t counts, uint8_t reading, int comm_step,
+                             bool in_first_half) {
+    /* mcpwm.c:1874-1877: the gate is the caller's to make, and the column is the step it is at. */
+    if (!in_first_half || comm_step < 1 || comm_step > 6) {
+        return;
+    }
+
+    counts[reading & 7u][comm_step]++;
+}
+
+int bldc_hall_detect_result(bldc_hall_detect_counts_t counts, bool hall_sensor_port,
+                            int8_t out[8]) {
+    if (!hall_sensor_port || out == (void *)0) {
+        return hall_sensor_port ? -1 : -3;
+    }
+
+    /* mcpwm.c:2262-2275: each reading's step is the one with the most samples, and only a reading
+     * with more than fifteen of them names anything. */
+    for (int i = 0; i < 8; i++) {
+        int samples = 0;
+        int res = -1;
+
+        for (int j = 1; j < 7; j++) {
+            if (counts[i][j] > samples) {
+                samples = counts[i][j];
+                if (samples > BLDC_HALL_DETECT_MIN_SAMPLES) {
+                    res = j;
+                }
+            }
+            out[i] = (int8_t)res;
+        }
+    }
+
+    /* mcpwm.c:2279-2297: a table reads back when exactly two readings name nothing and the other
+     * six name six different steps. */
+    int invalid_samp_num = 0;
+    int nums[7] = {0, 0, 0, 0, 0, 0, 0};
+    int tot_nums = 0;
+
+    for (int i = 0; i < 8; i++) {
+        if (out[i] == -1) {
+            invalid_samp_num++;
+        } else if (nums[out[i]] == 0) {
+            nums[out[i]] = 1;
+            tot_nums++;
+        }
+    }
+
+    return (invalid_samp_num == 2 && tot_nums == 6) ? 0 : -1;
 }

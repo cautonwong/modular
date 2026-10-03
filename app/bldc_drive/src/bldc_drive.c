@@ -96,10 +96,15 @@ edge_status_t bldc_drive_commutate_hall(bldc_drive_t *self, bool running) {
         return EDGE_ENOTSUP;
     }
 
-    /* mcpwm.c:1939: the reading is taken, and the decision is the pure function's. */
+    /*
+     * mcpwm.c:1939 reads mcpwm_read_hall_phase(), and that is the reading looked up in the table
+     * half the commanded direction selects - not the pins themselves. This port had been using the
+     * raw reading as the step until this slice, which is the same value only while the
+     * configuration's table happens to be the identity.
+     */
     const uint8_t pins = self->hall->read_hall(self->hall->self);
     const int hall_phase =
-        (int)bldc_hall_phase((pins & 1u) != 0u, (pins & 2u) != 0u, (pins & 4u) != 0u);
+        bldc_hall_phase_from_table(self->hall_forward, self->hall_reverse, pins, self->direction);
 
     bldc_hall_commutation_t decision;
     bldc_hall_commutation(self->comm_step, hall_phase, running, self->has_commutated, &decision);
@@ -128,6 +133,53 @@ edge_status_t bldc_drive_commutate_hall(bldc_drive_t *self, bool running) {
 
 bool bldc_drive_has_commutated(const bldc_drive_t *self) {
     return (self != (void *)0) && self->has_commutated;
+}
+
+void bldc_drive_set_direction(bldc_drive_t *self, int direction) {
+    if (self == (void *)0) {
+        return;
+    }
+    self->direction = direction;
+}
+
+int bldc_drive_get_direction(const bldc_drive_t *self) {
+    return (self != (void *)0) ? self->direction : 0;
+}
+
+void bldc_drive_hall_detect_reset(bldc_drive_t *self) {
+    if (self == (void *)0) {
+        return;
+    }
+    bldc_hall_detect_reset(self->hall_detect_counts);
+}
+
+void bldc_drive_hall_detect_sample(bldc_drive_t *self, bool in_first_half) {
+    if (self == (void *)0 || self->hall == (void *)0 || self->hall->read_hall == (void *)0) {
+        return;
+    }
+
+    /*
+     * mcpwm.c:1876 counts against the raw reading rather than the looked-up phase - which is why
+     * the pins are assembled here rather than taken from the commutation above.
+     */
+    const uint8_t pins = self->hall->read_hall(self->hall->self);
+    const uint8_t reading =
+        bldc_hall_phase((pins & 1u) != 0u, (pins & 2u) != 0u, (pins & 4u) != 0u);
+    bldc_hall_detect_sample(self->hall_detect_counts, reading, self->comm_step, in_first_half);
+}
+
+int bldc_drive_hall_detect_result(bldc_drive_t *self, bool hall_sensor_port, int8_t out[8]) {
+    if (self == (void *)0) {
+        return -1;
+    }
+    return bldc_hall_detect_result(self->hall_detect_counts, hall_sensor_port, out);
+}
+
+const bldc_hall_detect_counts_t *bldc_drive_hall_detect_counts(const bldc_drive_t *self) {
+    /* The cast only adds const to an array type, which the language leaves to the compiler to
+     * complain about rather than doing itself. */
+    return (self != (void *)0) ? (const bldc_hall_detect_counts_t *)&self->hall_detect_counts
+                               : (void *)0;
 }
 
 void bldc_drive_advance_step(bldc_drive_t *self, int steps) {

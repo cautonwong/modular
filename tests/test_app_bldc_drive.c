@@ -302,17 +302,17 @@ static void test_bldc_drive_hall_commutation(void **state) {
     bldc_drive_set_hall_port(&drive, &hall);
     bldc_drive_set_phase_port(&drive, &phase);
 
-    /* The reading is one and the step is one, so nothing changes - but nothing has been applied
-     * either, which is the reference's catch-up. */
+    /* Reading one, and the configuration's table forwards names step three for it - so the step
+     * changes, and it is applied because the motor is running. */
     assert_int_equal(bldc_drive_commutate_hall(&drive, true), EDGE_OK);
     assert_int_equal(ports.applies, 1);
-    assert_int_equal(ports.last_step, 1);
+    assert_int_equal(ports.last_step, 3);
     assert_true(bldc_drive_has_commutated(&drive));
 
-    /* Not running: the step is taken and nothing is applied. */
+    /* Not running: the step is taken and nothing is applied. Reading three is step one forwards. */
     ports.pins = 0x03u;
     assert_int_equal(bldc_drive_commutate_hall(&drive, false), EDGE_OK);
-    assert_int_equal(bldc_drive_get_comm_step(&drive), 3);
+    assert_int_equal(bldc_drive_get_comm_step(&drive), 1);
     assert_int_equal(ports.applies, 1);
 
     /* Running again with nothing changed, and something already commutated: applied to nothing,
@@ -320,11 +320,12 @@ static void test_bldc_drive_hall_commutation(void **state) {
     assert_int_equal(bldc_drive_commutate_hall(&drive, true), EDGE_OK);
     assert_int_equal(ports.applies, 1);
 
-    /* A reading that does change is applied, and the tachometer saw the commutation. */
+    /* A reading that does change is applied, and the tachometer saw the commutation. Reading two is
+     * step five forwards. */
     ports.pins = 0x02u;
     assert_int_equal(bldc_drive_commutate_hall(&drive, true), EDGE_OK);
     assert_int_equal(ports.applies, 2);
-    assert_int_equal(ports.last_step, 2);
+    assert_int_equal(ports.last_step, 5);
 
     /* A phase port that refuses is reported, and nothing is recorded as applied. */
     bldc_drive_t bare;
@@ -343,6 +344,136 @@ static void test_bldc_drive_hall_commutation(void **state) {
     bldc_drive_set_phase_port(NULL, &phase);
 }
 
+/*
+ * mcpwm_read_hall_phase (mcpwm.c:2302-2304): the reading looked up in the half of the table the
+ * commanded direction selects. The numbers are the harness run's own, and they are what shows the
+ * two halves are not the same lookup: forwards the table is the mapped one, backwards it is the raw
+ * one.
+ */
+static void test_bldc_hall_phase_from_table_matches_the_reference(void **state) {
+    (void)state;
+
+    /* The configuration's table and its forward mapping, as bldc_build_hall_tables makes them. */
+    const int8_t reverse[8] = {0, 5, 3, 1, 6, 4, 2, 0};
+    const int8_t forward[8] = {0, 3, 5, 1, 2, 4, 6, 0};
+    const int forward_expected[8] = {0, 3, 5, 1, 2, 4, 6, 0};
+    const int reverse_expected[8] = {0, 5, 3, 1, 6, 4, 2, 0};
+
+    for (uint8_t reading = 0u; reading < 8u; reading++) {
+        assert_int_equal(bldc_hall_phase_from_table(forward, reverse, reading, 0),
+                         forward_expected[reading]);
+        assert_int_equal(bldc_hall_phase_from_table(forward, reverse, reading, 1),
+                         reverse_expected[reading]);
+    }
+
+    /* A reading is three bits, and nothing to look up in. */
+    assert_int_equal(bldc_hall_phase_from_table(forward, reverse, 0xFFu, 0), forward_expected[7]);
+    assert_int_equal(bldc_hall_phase_from_table(NULL, reverse, 1u, 0), 0);
+    assert_int_equal(bldc_hall_phase_from_table(forward, NULL, 1u, 0), 0);
+}
+
+/*
+ * The detection table's own numbers, from the harness run of mcpwm_reset_hall_detect_table and
+ * mcpwm_get_hall_detect_result: twenty samples for each reading's own step, and a sample above the
+ * gate which is not counted; then the same table with one reading short, and finally a sensor port
+ * that is not a hall one.
+ */
+static void test_bldc_hall_detect_matches_the_reference(void **state) {
+    (void)state;
+
+    bldc_hall_detect_counts_t counts;
+    int8_t out[8];
+
+    bldc_hall_detect_reset(counts);
+    for (int reading = 1; reading < 7; reading++) {
+        for (int n = 0; n < 20; n++) {
+            bldc_hall_detect_sample(counts, (uint8_t)reading, reading, true);
+        }
+        /* Above the gate, so the reference's own condition leaves it out. */
+        bldc_hall_detect_sample(counts, (uint8_t)reading, (reading % 6) + 1, false);
+    }
+
+    assert_int_equal(bldc_hall_detect_result(counts, true, out), 0);
+    const int8_t expected[8] = {-1, 1, 2, 3, 4, 5, 6, -1};
+    assert_memory_equal(out, expected, sizeof(expected));
+
+    /* One reading fewer than the reference needs named. */
+    bldc_hall_detect_reset(counts);
+    for (int reading = 1; reading < 6; reading++) {
+        for (int n = 0; n < 20; n++) {
+            bldc_hall_detect_sample(counts, (uint8_t)reading, reading, true);
+        }
+    }
+    assert_int_equal(bldc_hall_detect_result(counts, true, out), -1);
+
+    /* Not a hall sensor port, and nothing to write into. */
+    assert_int_equal(bldc_hall_detect_result(counts, false, out), -3);
+    assert_int_equal(bldc_hall_detect_result(counts, true, NULL), -1);
+    assert_int_equal(bldc_hall_detect_result(counts, false, NULL), -3);
+
+    /* A step outside one to six is not a column the reference's table has. */
+    bldc_hall_detect_sample(counts, 1u, 0, true);
+    bldc_hall_detect_sample(counts, 1u, 7, true);
+}
+
+/*
+ * The same detection table through the drive, and the configuration's table looked up by direction
+ * - which is the correction this slice carries: the commutation is driven by the looked-up phase,
+ * not by the raw reading, so the two directions name different steps for the same halls.
+ */
+static void test_bldc_drive_direction_and_hall_detect(void **state) {
+    (void)state;
+
+    mock_bldc_ports_t ports = {.pins = 0x01u, .apply_status = EDGE_OK};
+    bldc_hall_port_t hall = {.read_hall = mock_read_hall, .self = &ports};
+    bldc_phase_port_t phase = {.apply_step = mock_apply_step, .self = &ports};
+
+    bldc_drive_config_t config = {.sensor_mode = BLDC_SENSOR_MODE_SENSORED,
+                                  .hall_sl_erpm = 4000.0f,
+                                  .hall_table = {0, 5, 3, 1, 6, 4, 2, 0}};
+    bldc_drive_t drive;
+    bldc_drive_construct(&drive, EDGE_MOD_BLDC_DRIVE, 25u, &config);
+    assert_int_equal(bldc_drive_init(&drive), EDGE_OK);
+    bldc_drive_set_hall_port(&drive, &hall);
+    bldc_drive_set_phase_port(&drive, &phase);
+
+    /* Reading one, forwards: the forward half names step three. */
+    bldc_drive_set_direction(&drive, 0);
+    assert_int_equal(bldc_drive_get_direction(&drive), 0);
+    assert_int_equal(bldc_drive_commutate_hall(&drive, true), EDGE_OK);
+    assert_int_equal(ports.last_step, 3);
+
+    /* The same halls backwards: the raw half names step five, and the commutation follows it. */
+    bldc_drive_set_direction(&drive, 1);
+    assert_int_equal(bldc_drive_commutate_hall(&drive, true), EDGE_OK);
+    assert_int_equal(ports.last_step, 5);
+
+    /* The detection table: the drive's own, filled from its hall port and its commutation step. */
+    bldc_drive_hall_detect_reset(&drive);
+    const bldc_hall_detect_counts_t *counts = bldc_drive_hall_detect_counts(&drive);
+    assert_non_null(counts);
+    bldc_drive_hall_detect_sample(&drive, true);
+    assert_int_equal((*counts)[1][5], 1); /* pin reading one, step five */
+    bldc_drive_hall_detect_sample(&drive, false);
+    assert_int_equal((*counts)[1][5], 1); /* the gate kept it out */
+
+    int8_t table[8];
+    assert_int_equal(bldc_drive_hall_detect_result(&drive, true, table), -1); /* one sample only */
+
+    /* Guards. */
+    bldc_drive_set_direction(NULL, 1);
+    assert_int_equal(bldc_drive_get_direction(NULL), 0);
+    bldc_drive_hall_detect_reset(NULL);
+    bldc_drive_hall_detect_sample(NULL, true);
+    assert_int_equal(bldc_drive_hall_detect_result(NULL, true, table), -1);
+    assert_null(bldc_drive_hall_detect_counts(NULL));
+
+    bldc_drive_t no_hall;
+    bldc_drive_construct(&no_hall, EDGE_MOD_BLDC_DRIVE, 25u, &config);
+    assert_int_equal(bldc_drive_init(&no_hall), EDGE_OK);
+    bldc_drive_hall_detect_sample(&no_hall, true); /* no hall port: nothing to count */
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_bldc_hall_tables_match_the_reference),
@@ -353,6 +484,9 @@ int main(void) {
         cmocka_unit_test(test_bldc_hall_phase_matches_the_reference),
         cmocka_unit_test(test_bldc_hall_commutation_matches_the_reference),
         cmocka_unit_test(test_bldc_drive_hall_commutation),
+        cmocka_unit_test(test_bldc_hall_phase_from_table_matches_the_reference),
+        cmocka_unit_test(test_bldc_hall_detect_matches_the_reference),
+        cmocka_unit_test(test_bldc_drive_direction_and_hall_detect),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
