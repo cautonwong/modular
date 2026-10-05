@@ -40,6 +40,63 @@ extern "C" {
 #define SOC_STM32F4_CAN1_RX0_IRQn 20
 
 /* Calculations & Register Helpers */
+/*
+ * RM0090 3.8: the FLASH interface's own registers, which the reference reaches through ChibiOS's
+ * hal_flash (its flash_helper.c drives FLASH_Unlock/FLASH_EraseSector/FLASH_ProgramWord/FLASH_Lock)
+ * and which this port owns directly.
+ */
+typedef struct soc_stm32f4_flash_regs {
+    volatile uint32_t acr;     /* 0x00 */
+    volatile uint32_t keyr;    /* 0x04 */
+    volatile uint32_t optkeyr; /* 0x08 */
+    volatile uint32_t sr;      /* 0x0C */
+    volatile uint32_t cr;      /* 0x10 */
+    volatile uint32_t optcr;   /* 0x14 */
+} soc_stm32f4_flash_regs_t;
+
+/* SR (RM0090 3.8.5): the end-of-operation bit, the four errors and the busy flag. */
+#define SOC_FLASH_SR_EOP (1u << 0)
+#define SOC_FLASH_SR_OPER_ERR (1u << 1)
+#define SOC_FLASH_SR_WRPERR (1u << 4)
+#define SOC_FLASH_SR_PGAERR (1u << 5)
+#define SOC_FLASH_SR_PGPERR (1u << 6)
+#define SOC_FLASH_SR_PGSERR (1u << 7)
+#define SOC_FLASH_SR_BSY (1u << 16)
+#define SOC_FLASH_SR_ERRORS                                                                        \
+    (SOC_FLASH_SR_OPER_ERR | SOC_FLASH_SR_WRPERR | SOC_FLASH_SR_PGAERR | SOC_FLASH_SR_PGPERR |     \
+     SOC_FLASH_SR_PGSERR)
+
+/* CR (RM0090 3.8.4): the two programming bits, the sector-erase bit, its number, the start and the
+ * lock. SNB is four bits wide, which is what selects one of the twelve sectors. */
+#define SOC_FLASH_CR_PG (1u << 0)
+#define SOC_FLASH_CR_SER (1u << 1)
+#define SOC_FLASH_CR_MER (1u << 2)
+#define SOC_FLASH_CR_SNB_SHIFT 3u
+#define SOC_FLASH_CR_SNB_MASK (0xFu << SOC_FLASH_CR_SNB_SHIFT)
+#define SOC_FLASH_CR_STRT (1u << 16)
+#define SOC_FLASH_CR_LOCK (1u << 31)
+
+/* The two keys (RM0090 3.8.2), written to KEYR in this order to open the interface. */
+#define SOC_FLASH_KEY1 0x45670123u
+#define SOC_FLASH_KEY2 0xCDEF89ABu
+
+/*
+ * The reference's own arithmetic around the interface: the unlock's two writes and the lock's bit.
+ * Clearing LOCK is what the hardware does when the second key is right, and these two do it too - a
+ * model that only stored the key would leave every run after them looking locked.
+ */
+bool soc_stm32f4_flash_unlock(soc_stm32f4_flash_regs_t *flash);
+void soc_stm32f4_flash_lock(soc_stm32f4_flash_regs_t *flash);
+
+/*
+ * One sector erased and one word programmed (RM0090 3.3.3 and 3.3.4), each in the order the manual
+ * gives: the bit and its number, the start, the wait, the clear. Both report what SR held when the
+ * wait ended, errors included, which is what the reference's callers test.
+ */
+bool soc_stm32f4_flash_erase_sector(soc_stm32f4_flash_regs_t *flash, uint32_t sector,
+                                    uint32_t *status);
+bool soc_stm32f4_flash_program_word(soc_stm32f4_flash_regs_t *flash, volatile uint32_t *address,
+                                    uint32_t value, uint32_t *status);
 uint32_t soc_stm32f4_calc_pwm_arr(uint32_t timer_clk_hz, uint32_t switching_freq_hz);
 uint8_t soc_stm32f4_calc_deadtime_reg(float deadtime_ns, uint32_t timer_clk_hz);
 
