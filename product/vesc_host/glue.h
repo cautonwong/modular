@@ -16,6 +16,14 @@
 #include "vesc_comm/vesc_comm.h"
 #include "vesc_terminal/vesc_terminal.h"
 
+/*
+ * The two aggregates the state below reaches through are held as pointers, so their definitions
+ * stay with the product's own sources instead of following this header into every target that
+ * includes it.
+ */
+typedef struct bldc_drive bldc_drive_t;
+typedef struct timeout_guard timeout_guard_t;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -23,6 +31,26 @@ extern "C" {
 typedef struct vesc_host_glue_state {
     foc_virtual_motor_t vmotor;
     foc_core_t *foc;
+    /*
+     * What the parameter detection's port reaches through: the aggregate whose configuration it
+     * stages and puts back (conf_general.c:525-534, :634), the six-step drive whose tachometer,
+     * cycle integrator and hall-detection counts the reference reads through mc_interface, and the
+     * timeout guard it switches off for the run (:543-551) and restores on the way out. The
+     * composition root sets all three; a product with none of them leaves those callbacks unable to
+     * answer, which is what the procedure's own port check is for.
+     */
+    motor_config_t *config;
+    bldc_drive_t *bldc;
+    timeout_guard_t *timeout;
+    /*
+     * What the run saves while it holds them: the configuration it staged (the reference edits its
+     * own copy and puts it back) and the timeout's two settings, which it reads before it switches
+     * the timeout off and restores on every way out.
+     */
+    mc_configuration_t saved_mcconf;
+    bool mcconf_saved;
+    uint32_t saved_timeout_ms;
+    float saved_timeout_brake_a;
     float v_bus;
     /* The EEPROM emulation's two sectors, one FLASH_EMUL_PAGE_SIZE each: the configuration's
      * variable table is stored in this image, so the emulation's page size sets its size. */

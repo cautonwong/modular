@@ -124,6 +124,13 @@ typedef struct bldc_drive {
     float pwm_cycles_sum;
     float last_pwm_cycles_sum;
     float last_v_diff;
+
+    /*
+     * The tachometer's own count, which is the sum of the deltas each commutation makes - what the
+     * reference's update_rpm_tacho accumulates and its mc_interface_get_tachometer_value hands out.
+     * The parameter command's three watches are what read it back.
+     */
+    int32_t tacho;
 } bldc_drive_t;
 
 void bldc_drive_construct(bldc_drive_t *self, uint32_t module_id, uint32_t priority,
@@ -164,6 +171,10 @@ void bldc_drive_hall_detect_reset(bldc_drive_t *self);
 void bldc_drive_hall_detect_sample(bldc_drive_t *self, bool in_first_half);
 int bldc_drive_hall_detect_result(bldc_drive_t *self, bool hall_sensor_port, int8_t out[8]);
 const bldc_hall_detect_counts_t *bldc_drive_hall_detect_counts(const bldc_drive_t *self);
+
+/* mcpwm.c:2558-2566's count, and mcpwm.c:2195-2200's average-and-clear. */
+int32_t bldc_drive_tacho(const bldc_drive_t *self);
+float bldc_drive_read_reset_cycle_integrator(bldc_drive_t *self);
 
 /*
  * One hall-driven commutation, which is mcpwm.c:1939-1952's branch: the reading is taken, the

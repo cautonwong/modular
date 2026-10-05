@@ -1,6 +1,8 @@
 #include "glue.h"
+#include "bldc_drive/bldc_drive.h"
 #include "flash/flash.h"
 #include "motor_config/motor_config.h"
+#include "timeout_guard/timeout_guard.h"
 #include "vesc_can/vesc_can.h"
 #include "vesc_terminal/vesc_terminal.h"
 #include <math.h>
@@ -879,6 +881,78 @@ static edge_status_t ops_detect_hall_foc(void *self, float current_a, uint8_t ta
     return (app->state == MOTOR_ID_STATE_COMPLETE) ? EDGE_OK : EDGE_ESTATE;
 }
 
+/*
+ * conf_general.c:514-715, conf_general_detect_motor_param, as the command reaches it. The
+ * reference's command thread blocks while its control loop keeps running in the interrupt, so what
+ * that looks like here is advancing the plant, the six-step layer and the procedure together until
+ * it ends; the reference's timeout is off for the run, so nothing feeds it while this happens.
+ */
+static edge_status_t ops_detect_motor_param(void *self, float current_a, float min_rpm,
+                                            float low_duty, float *int_limit,
+                                            float *bemf_coupling_k, uint8_t hall_table[8],
+                                            int32_t *hall_res) {
+    vesc_host_ops_ctx_t *ctx = (vesc_host_ops_ctx_t *)self;
+    if (ctx == (void *)0 || ctx->glue == (void *)0 || ctx->motor_id == (void *)0 ||
+        ctx->config == (void *)0 || int_limit == (void *)0 || bemf_coupling_k == (void *)0 ||
+        hall_table == (void *)0 || hall_res == (void *)0) {
+        return EDGE_EINVAL;
+    }
+
+    motor_id_app_t *app = ctx->motor_id;
+    foc_core_t *foc = ctx->glue->foc;
+    bldc_drive_t *bldc = ctx->glue->bldc;
+    if (foc == (void *)0) {
+        return EDGE_EINVAL;
+    }
+
+    const edge_status_t started = motor_id_detect_motor_param(app, current_a, min_rpm, low_duty);
+    if (started != EDGE_OK) {
+        return started;
+    }
+
+    /*
+     * The bound is the procedure's own worst case - five seconds of waiting for a fault to clear,
+     * three attempts of a second's settling each with their watches, and the low-duty run - with
+     * room to spare, so a run that never finishes cannot hang the caller.
+     */
+    const float foc_dt = 0.000100f;
+    const uint32_t cycles_per_ms = 10u;
+    for (uint32_t ms = 0u; ms < 60000u; ++ms) {
+        if (app->state == MOTOR_ID_STATE_COMPLETE || app->state == MOTOR_ID_STATE_FAILED) {
+            break;
+        }
+        for (uint32_t cycle = 0u; cycle < cycles_per_ms; ++cycle) {
+            (void)foc_core_fast_loop(foc, foc_dt);
+            foc_virtual_motor_step(&ctx->glue->vmotor, foc->v_alpha, foc->v_beta, 0.0f, foc_dt,
+                                   0.0f);
+            /*
+             * The reference runs its six-step layer and takes the hall-detection samples in the
+             * ADC interrupt that keeps running while the command blocks, which is what stepping the
+             * two together here stands for: the sample gate is the difference it last measured.
+             */
+            if (bldc != (void *)0) {
+                bldc_drive_hall_detect_sample(bldc, bldc_drive_last_v_diff(bldc) < 50.0f);
+                edge_module_t *bldc_module = bldc_drive_module(bldc);
+                if (bldc_module != (void *)0 && bldc_module->poll != (void *)0) {
+                    (void)bldc_module->poll(bldc_module);
+                }
+            }
+        }
+        (void)motor_id_step(app, 0.001f);
+    }
+
+    const motor_id_result_t *measured = motor_id_get_result(app);
+    *int_limit = measured->int_limit;
+    *bemf_coupling_k = measured->bemf_coupling_k;
+    memcpy(hall_table, measured->hall_table, 8u);
+    *hall_res = measured->hall_res;
+    /*
+     * Whether the run passed is the procedure's own five-step criterion; a run that did not is not
+     * a refusal, and the command sends what it left with the two numbers cleared.
+     */
+    return (app->state == MOTOR_ID_STATE_COMPLETE) ? EDGE_OK : EDGE_ESTATE;
+}
+
 void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_host_ops_ctx_t *ctx) {
     if (out == (void *)0) {
         return;
@@ -892,6 +966,7 @@ void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_host_ops_ctx_t *ctx
         .detect_r_l = ops_detect_r_l,
         .detect_apply_all_foc = ops_detect_apply_all_foc,
         .detect_hall_foc = ops_detect_hall_foc,
+        .detect_motor_param = ops_detect_motor_param,
         .reboot = ops_reboot,
         .jump_to_bootloader = ops_jump_to_bootloader,
         .self = ctx,
@@ -1222,6 +1297,136 @@ static edge_status_t id_leave_measurement_config(void *self) {
     return EDGE_OK;
 }
 
+/*
+ * The parameter detection's own port (conf_general.c:514-715). What it needs that the procedures
+ * above do not is a running six-step drive rather than a motor held still, and the timeout the
+ * reference switches off for the run.
+ */
+static edge_status_t id_stage_bldc_config(void *self, float sl_min_erpm, float sl_cycle_int_limit,
+                                          bool delay_comm_mode) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    if (s == (void *)0 || s->config == (void *)0) {
+        return EDGE_EINVAL;
+    }
+
+    const mc_configuration_t *now = motor_config_get_mc(s->config);
+    s->saved_mcconf = *now;
+    s->mcconf_saved = true;
+
+    /*
+     * conf_general.c:525-534's nine assignments, six of them the reference's own constants - the
+     * motor is a BLDC one commutated sensorless on the integrated back EMF, its advance is one, its
+     * coupling three hundred, its ceiling eleven hundred and its direction not inverted - and the
+     * three the attempts vary are the arguments. The six-step drive's own helper is where the
+     * constants come from, so they live in one place; the two the caller varies are set over it.
+     */
+    bldc_staged_config_t staged;
+    bldc_stage_sensorless_bldc(sl_min_erpm, &staged);
+    staged.sl_cycle_int_limit = sl_cycle_int_limit;
+    staged.comm_mode = delay_comm_mode ? 1u : 0u; /* COMM_MODE_DELAY / COMM_MODE_INTEGRATE */
+
+    mc_configuration_t mcconf = *now;
+    mcconf.motor_type = (mc_motor_type)staged.motor_type;
+    mcconf.sensor_mode = (mc_sensor_mode)staged.sensor_mode;
+    mcconf.comm_mode = (mc_comm_mode)staged.comm_mode;
+    mcconf.sl_phase_advance_at_br = staged.sl_phase_advance_at_br;
+    mcconf.sl_min_erpm = staged.sl_min_erpm;
+    mcconf.sl_bemf_coupling_k = staged.sl_bemf_coupling_k;
+    mcconf.sl_cycle_int_limit = staged.sl_cycle_int_limit;
+    mcconf.sl_min_erpm_cycle_int_limit = staged.sl_min_erpm_cycle_int_limit;
+    mcconf.m_invert_direction = staged.m_invert_direction;
+    return motor_config_update_mc(s->config, &mcconf);
+}
+
+static edge_status_t id_restore_bldc_config(void *self) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    if (s == (void *)0 || s->config == (void *)0 || !s->mcconf_saved) {
+        return EDGE_EINVAL;
+    }
+    /* conf_general.c:634 and :710: the configuration the run staged is put back. */
+    const edge_status_t rc = motor_config_update_mc(s->config, &s->saved_mcconf);
+    s->mcconf_saved = false;
+    return rc;
+}
+
+static uint32_t id_read_tacho(void *self) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    return (s != (void *)0 && s->bldc != (void *)0) ? (uint32_t)bldc_drive_tacho(s->bldc) : 0u;
+}
+
+static float id_read_reset_avg_cycle_integrator(void *self) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    return (s != (void *)0 && s->bldc != (void *)0)
+               ? bldc_drive_read_reset_cycle_integrator(s->bldc)
+               : 0.0f;
+}
+
+static edge_status_t id_switch_comm_mode_delay(void *self) {
+    /* mcpwm_switch_comm_mode(COMM_MODE_DELAY), mcpwm.c:2205-2210, which sets the live mode. */
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    if (s == (void *)0 || s->config == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    mc_configuration_t mcconf = *motor_config_get_mc(s->config);
+    mcconf.comm_mode = (mc_comm_mode)1; /* COMM_MODE_DELAY */
+    return motor_config_update_mc(s->config, &mcconf);
+}
+
+static edge_status_t id_reset_hall_detect(void *self) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    if (s == (void *)0 || s->bldc == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    /* mcpwm.c:2242, mcpwm_reset_hall_detect_table. */
+    bldc_drive_hall_detect_reset(s->bldc);
+    return EDGE_OK;
+}
+
+static edge_status_t id_read_hall_detect_result(void *self, uint8_t table[8], int *res) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    if (s == (void *)0 || s->bldc == (void *)0 || s->config == (void *)0 || table == (void *)0 ||
+        res == (void *)0) {
+        return EDGE_EINVAL;
+    }
+
+    /*
+     * mcpwm.c:2257-2299, mcpwm_get_hall_detect_result: the eight entries and the count of readings
+     * that came up short. Whether the port is a hall one is the configuration's own gate there.
+     */
+    const mc_configuration_t *mc = motor_config_get_mc(s->config);
+    int8_t entries[8];
+    *res = bldc_drive_hall_detect_result(s->bldc, mc->m_sensor_port_mode == 0u, entries);
+    for (int i = 0; i < 8; i++) {
+        table[i] = (uint8_t)entries[i];
+    }
+    return EDGE_OK;
+}
+
+static edge_status_t id_disable_timeout(void *self) {
+    /*
+     * conf_general.c:543-551: the three settings read, then sixty seconds with no brake and the
+     * kill switch disabled for the run. The kill-switch mode is a product's own and is not a thing
+     * this guard carries, so what is saved here is the count and the current.
+     */
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    if (s == (void *)0 || s->timeout == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    timeout_guard_get_timeout(s->timeout, &s->saved_timeout_ms, &s->saved_timeout_brake_a);
+    timeout_guard_set_timeout(s->timeout, 60000u, 0.0f);
+    return EDGE_OK;
+}
+
+static edge_status_t id_restore_timeout(void *self) {
+    /* conf_general.c:634 and :710: the saved settings back, on every way out. */
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    if (s == (void *)0 || s->timeout == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    timeout_guard_set_timeout(s->timeout, s->saved_timeout_ms, s->saved_timeout_brake_a);
+    return EDGE_OK;
+}
+
 static edge_status_t id_set_openloop_current(void *self, float current_a, float rpm) {
     return foc_core_set_openloop_current(id_foc(self), current_a, rpm);
 }
@@ -1498,6 +1703,15 @@ void vesc_host_make_motor_id_measure_port(motor_id_measure_port_t *out,
         .read_vdq = id_read_vdq,
         .read_idq = id_read_idq,
         .read_duty = id_read_duty,
+        .read_tacho = id_read_tacho,
+        .read_reset_avg_cycle_integrator = id_read_reset_avg_cycle_integrator,
+        .stage_bldc_config = id_stage_bldc_config,
+        .restore_bldc_config = id_restore_bldc_config,
+        .switch_comm_mode_delay = id_switch_comm_mode_delay,
+        .disable_timeout = id_disable_timeout,
+        .restore_timeout = id_restore_timeout,
+        .reset_hall_detect = id_reset_hall_detect,
+        .read_hall_detect_result = id_read_hall_detect_result,
         .read_speed_rad_s = id_read_speed_rad_s,
         .read_vbus = id_read_vbus,
         .read_rpm = id_read_rpm,

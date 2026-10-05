@@ -43,6 +43,17 @@ void timeout_guard_construct(timeout_guard_t *self, uint32_t module_id, uint32_t
 edge_status_t timeout_guard_init(timeout_guard_t *self);
 edge_status_t timeout_guard_deinit(timeout_guard_t *self);
 edge_status_t timeout_guard_feed(timeout_guard_t *self, uint64_t now_ticks);
+
+/*
+ * conf_general_detect_motor_param's own pair (conf_general.c:543-551, :634, :710): the reference
+ * reads its timeout's settings, configures sixty seconds with no brake and the kill switch disabled
+ * for the run, and puts what it read back on every way out. What it carries is a count of
+ * milliseconds and a brake current; a kill-switch mode is a product's own and is saved around the
+ * call. Setting a new one re-arms the guard, which is the other half of timeout_configure().
+ */
+void timeout_guard_get_timeout(const timeout_guard_t *self, uint32_t *timeout_ms,
+                               float *brake_current_a);
+void timeout_guard_set_timeout(timeout_guard_t *self, uint32_t timeout_ms, float brake_current_a);
 bool timeout_guard_is_timed_out(const timeout_guard_t *self);
 edge_module_t *timeout_guard_module(timeout_guard_t *self);
 

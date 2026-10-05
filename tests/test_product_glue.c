@@ -9,6 +9,7 @@
 
 #include <cmocka.h>
 
+#include "bldc_drive/bldc_drive.h"
 #include "dlt645/dlt645.h"
 #include "flash/flash.h"
 #include "gateway.h"
@@ -18,6 +19,7 @@
 #include "modbus_slave/modbus_slave.h"
 #include "pulse_meter/pulse_meter.h"
 #include "relay/relay.h"
+#include "timeout_guard/timeout_guard.h"
 #include "uart/uart.h"
 /* By path, not by bare name: four products ship a glue.h and this target compiles all of them. */
 #include "vesc6_stm32f4/glue.h"
@@ -1074,6 +1076,165 @@ static void test_vesc_host_restart_requests(void **state) {
     assert_int_equal(bare_ops.reboot(bare_ops.self), EDGE_EINVAL);
     assert_int_equal(bare_ops.jump_to_bootloader(bare_ops.self), EDGE_EINVAL);
     assert_int_equal(bare_ops.reboot(NULL), EDGE_EINVAL);
+}
+
+/* The configuration store the detection tests below hand the aggregate; defined with them. */
+static edge_status_t apply_var_read(void *self, uint16_t index, uint16_t *value);
+static edge_status_t apply_var_write(void *self, uint16_t index, uint16_t value);
+
+/*
+ * The all-in-one detection through the product (conf_general.c:514-715): the command's three
+ * numbers go in, the run spins the six-step drive up on the plant the test gives it, and what comes
+ * back is the procedure's own ceiling and coupling factor with the drive's hall table and count.
+ * The bounds here are the port's own: nothing is guessed about how far the plant gets, only that
+ * what the reply carries is what the run measured and that the configuration and the timeout came
+ * back.
+ */
+static edge_status_t param_bemf_difference(void *self, float *v_diff, float *ph_now_raw) {
+    vesc_host_glue_state_t *glue = (vesc_host_glue_state_t *)self;
+    if (glue == (void *)0 || v_diff == (void *)0 || ph_now_raw == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    /* A phase difference under the reference's own fifty-count gate, so the samples are taken. */
+    *v_diff = 20.0f;
+    *ph_now_raw = 2048.0f;
+    return EDGE_OK;
+}
+
+static float param_bemf_v_in(void *self) {
+    vesc_host_glue_state_t *glue = (vesc_host_glue_state_t *)self;
+    return (glue != (void *)0) ? glue->v_bus : 0.0f;
+}
+
+static void test_vesc_host_detect_motor_param_command(void **state) {
+    (void)state;
+
+    vesc_host_glue_state_t glue;
+    memset(&glue, 0, sizeof(glue));
+    glue.v_bus = 24.0f;
+    foc_virtual_motor_init(&glue.vmotor, 0.05f, 0.00005f, 0.005f, 7, 0.0005f);
+
+    foc_inverter_port_t inverter;
+    vesc_host_make_inverter_port(&inverter, &glue);
+    foc_current_port_t current;
+    vesc_host_make_current_port(&current, &glue);
+    foc_rotor_port_t rotor;
+    vesc_host_make_rotor_port(&rotor, &glue);
+    foc_core_t foc;
+    foc_config_t foc_cfg = {.r_ohm = 0.05f,
+                            .l_henry = 0.00005f,
+                            .lambda_wb = 0.005f,
+                            .si_motor_poles = 14u,
+                            .si_gear_ratio = 3.0f,
+                            .si_wheel_diameter = 0.083f,
+                            .current_max_a = 50.0f,
+                            .current_min_a = -50.0f,
+                            .duty_max = 0.95f,
+                            .current_kp = 0.1f,
+                            .current_ki = 50.0f,
+                            .vbus_ov_threshold = 60.0f,
+                            .vbus_uv_threshold = 8.0f,
+                            .temp_fet_max_c = 100.0f,
+                            .sensorless_mode = false};
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &foc_cfg, &inverter, &current, &rotor);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    glue.foc = &foc;
+
+    motor_config_var_port_t var_port = {
+        .read = apply_var_read, .write = apply_var_write, .self = NULL};
+    static alignas(MOTOR_CONFIG_STORAGE_ALIGN) unsigned char cfg_storage[MOTOR_CONFIG_STORAGE_SIZE];
+    motor_config_t *cfg = (motor_config_t *)cfg_storage;
+    motor_config_construct(cfg, EDGE_MOD_MOTOR_CONFIG, 30u, &var_port);
+    assert_int_equal(motor_config_init(cfg), EDGE_OK);
+    glue.config = cfg;
+
+    /* The six-step drive the run spins up, with the plant's own back EMF behind it. */
+    bldc_drive_config_t bldc_cfg = {.sensor_mode = 0u, /* SENSOR_MODE_SENSORLESS */
+                                    .hall_sl_erpm = 0.0f,
+                                    .hall_table = {0, 1, 2, 3, 4, 5, 6, 7},
+                                    .rpm_dep = {0},
+                                    .vdiv_corr = 1.0f,
+                                    .comm_mode = 0u}; /* COMM_MODE_INTEGRATE */
+    bldc_drive_t bldc;
+    bldc_drive_construct(&bldc, EDGE_MOD_BLDC_DRIVE, 25u, &bldc_cfg);
+    assert_int_equal(bldc_drive_init(&bldc), EDGE_OK);
+    bldc_bemf_port_t bemf = {.read_phase_difference = param_bemf_difference,
+                             .read_v_in = param_bemf_v_in,
+                             .self = &glue};
+    bldc_drive_set_bemf_port(&bldc, &bemf);
+    glue.bldc = &bldc;
+
+    /* The timeout the run switches off for its duration and puts back afterwards. */
+    static alignas(
+        TIMEOUT_GUARD_STORAGE_ALIGN) unsigned char guard_storage[TIMEOUT_GUARD_STORAGE_SIZE];
+    timeout_guard_t *guard = (timeout_guard_t *)guard_storage;
+    timeout_guard_construct(guard, EDGE_MOD_TIMEOUT_GUARD, 5u, NULL, 500u, 5.0f, 1000u);
+    assert_int_equal(timeout_guard_init(guard), EDGE_OK);
+    glue.timeout = guard;
+
+    motor_id_measure_port_t id_port;
+    vesc_host_make_motor_id_measure_port(&id_port, &glue);
+    assert_non_null(id_port.stage_bldc_config);
+    assert_non_null(id_port.restore_bldc_config);
+    assert_non_null(id_port.read_tacho);
+    assert_non_null(id_port.read_reset_avg_cycle_integrator);
+    assert_non_null(id_port.reset_hall_detect);
+    assert_non_null(id_port.read_hall_detect_result);
+    assert_non_null(id_port.disable_timeout);
+    assert_non_null(id_port.restore_timeout);
+    motor_id_app_t motor_id;
+    motor_id_construct(&motor_id, EDGE_MOD_MOTOR_ID, 40u, &id_port);
+    assert_int_equal(motor_id_init(&motor_id), EDGE_OK);
+
+    vesc_host_ops_ctx_t ctx = {.glue = &glue, .motor_id = &motor_id, .config = cfg};
+    vesc_comm_ops_port_t ops;
+    vesc_host_make_ops_port(&ops, &ctx);
+    assert_non_null(ops.detect_motor_param);
+
+    /* A configuration the run will stage over, so that the restore has something to put back. */
+    const mc_configuration_t *before = motor_config_get_mc(cfg);
+    const mc_motor_type before_type = before->motor_type;
+
+    float int_limit = -1.0f;
+    float coupling_k = -1.0f;
+    uint8_t table[8];
+    memset(table, 0xEE, sizeof(table));
+    int32_t hall_res = -1;
+    const edge_status_t status = ops.detect_motor_param(ops.self, 5.0f, 200.0f, 0.2f, &int_limit,
+                                                        &coupling_k, table, &hall_res);
+
+    /* The run ended one way or the other, and what it reports is what the procedure kept. */
+    assert_true(motor_id.state == MOTOR_ID_STATE_COMPLETE ||
+                motor_id.state == MOTOR_ID_STATE_FAILED);
+    const motor_id_result_t *measured = motor_id_get_result(&motor_id);
+    assert_float_equal(int_limit, measured->int_limit, 1e-6f);
+    assert_float_equal(coupling_k, measured->bemf_coupling_k, 1e-6f);
+    assert_int_equal(hall_res, measured->hall_res);
+    for (int i = 0; i < 8; i++) {
+        assert_int_equal(table[i], measured->hall_table[i]);
+    }
+    assert_int_equal(status, (motor_id.state == MOTOR_ID_STATE_COMPLETE) ? EDGE_OK : EDGE_ESTATE);
+
+    /* The configuration is back, and so is the timeout it switched off for the run. */
+    const mc_configuration_t *after = motor_config_get_mc(cfg);
+    assert_int_equal(after->motor_type, before_type);
+    uint32_t timeout_ms = 0u;
+    float brake_current = 0.0f;
+    timeout_guard_get_timeout(guard, &timeout_ms, &brake_current);
+    assert_int_equal(timeout_ms, 500u);
+    assert_float_equal(brake_current, 5.0f, 1e-6f);
+
+    /* Guards: nothing to read into, and no plant behind the context. */
+    assert_int_equal(
+        ops.detect_motor_param(ops.self, 5.0f, 200.0f, 0.2f, NULL, &coupling_k, table, &hall_res),
+        EDGE_EINVAL);
+    vesc_host_ops_ctx_t bare;
+    memset(&bare, 0, sizeof(bare));
+    vesc_comm_ops_port_t bare_ops;
+    vesc_host_make_ops_port(&bare_ops, &bare);
+    assert_int_equal(bare_ops.detect_motor_param(bare_ops.self, 5.0f, 200.0f, 0.2f, &int_limit,
+                                                 &coupling_k, table, &hall_res),
+                     EDGE_EINVAL);
 }
 
 static void test_vesc_host_masked_value_adapters(void **state) {
@@ -2598,6 +2759,7 @@ int main(void) {
         cmocka_unit_test(test_vesc_host_setup_values_count_the_peers_on_the_bus),
         cmocka_unit_test(test_vesc_host_restart_requests),
         cmocka_unit_test(test_vesc_host_detect_hall_foc_command),
+        cmocka_unit_test(test_vesc_host_detect_motor_param_command),
         cmocka_unit_test(test_vesc_host_adapter_guards),
         cmocka_unit_test(test_vesc_host_config_and_terminal_ports),
         cmocka_unit_test(test_vesc_host_adapters_nothing_called),
