@@ -30,6 +30,8 @@
 | 四 | ZMK Studio 的 `UNLOCK_DEVICE` 无任何认证/物理前提，直接 `unlocked = true` | `app/zmk_studio/src/studio.c` | **成立** | 见下 §四 |
 | 五 | Studio RPC 吞掉 `keymap` 返回的错误，客户端收到 SUCCESS | `app/zmk_studio/src/studio.c` | **成立（一处措辞需更正）** | 见下 §五 |
 | 六 | RP2040/STM32F4 的 SoC 驱动是寄存器/RAM 模型，SPI/I2C 不是硬件通信 | `soc/rp2040`、`soc/stm32f4` | **成立** | 见下 §六 |
+| 七 | RP2040 watchdog 的 feed 没有重装计时器（只置 ENABLE） | `soc/rp2040/src/soc_rp2040.c` | **成立** | 见下 §七 |
+| 八 | STM32F4 的 SPI/I2C 停在模型层，I2C 地址被丢弃 | `soc/stm32f4/src/soc_stm32f4.c` | **成立** | 见下 §八 |
 | 二–十二 | （待核验） | — | 待定 | — |
 
 ---
@@ -306,10 +308,77 @@ if (rx_buf != NULL) {
 的函数在真板上静默跑成一个内存拷贝。
 ---
 
+## 七、RP2040 watchdog 的 feed —— **成立**
+
+`soc/rp2040/src/soc_rp2040.c:59-64`：
+
+```c
+void soc_rp2040_wdt_feed(soc_rp2040_wdt_regs_t *wdt) {
+    if (wdt == NULL) {
+        return;
+    }
+    wdt->ctrl |= 0x40000000u;
+}
+```
+
+与提案引用的一字不差。RP2040 的 `WATCHDOG_LOAD` 才是重装计数的寄存器，而这里**只或了一下 CTRL 的
+ENABLE 位**，从不写 `load`。
+
+两个旁证说明这不是「没写完」而是「写错了」：
+
+1. **作者知道 `load` 存在且会用**：同文件 `:55` 的 `wdt_start` 里就是 `wdt->load = delay_ms * 2000u;`，
+   结构体也在 `soc_rp2040.h:31` 定义了 `load`。
+2. **它真的被调用**：`board/rpi_pico/src/board.c:51` 走的就是 `soc_rp2040_wdt_feed(&g_hw_inst->wdt);`，
+   属于周期性喂狗路径。
+
+**测试反而把错误语义固定下来了**：`tests/test_soc_rp2040.c:42-43`
+
+```c
+soc_rp2040_wdt_feed(&wdt);
+assert_int_equal(wdt.ctrl & 0x40000000u, 0x40000000u);
+```
+
+它只断言 ENABLE 位还在，**没有任何一句检查 `load` 被重装**。换句话说：现有 CI 对这个函数「正确」的
+定义，正好就是那个不喂狗的行为。
+
+**另外一处观察（需外部数据手册核实、本文不作为判定依据）**：`:55` 把 `delay_ms` 乘以 **2000**
+装入 `load`（1000 ms → 2,000,000）。RP2040 的 watchdog 计数常以微秒为单位，按此应是 1,000,000；
+若属实则超时也是 2 倍。这一点我没有在本地资料里核实，只列为线索。
+
+**判定：成立**。
+
+## 八、STM32F4 的 SPI/I2C —— **成立**
+
+SPI 部分与 §六 同一个事实（`soc/stm32f4/src/soc_stm32f4.c:73-75` 的写—回读），不重复。
+I2C 部分提案的说法更硬，逐行核到：
+
+`soc/stm32f4/src/soc_stm32f4.c:90-100`
+
+```c
+bool soc_stm32f4_i2c_write(soc_stm32f4_i2c_regs_t *i2c, uint8_t addr, const uint8_t *data,
+                           size_t len) {
+    if (i2c == NULL || (data == NULL && len > 0u)) {
+        return false;
+    }
+    (void)addr;                              /* 从机地址被显式丢弃 */
+    for (size_t i = 0u; i < len; ++i) {
+        i2c->dr = data[i];
+    }
+    return true;
+}
+```
+
+`(void)addr;` 不是推断，是字面上存在的：全仓搜 `(void)addr` 只命中两处，`:95`（write）与 `:106`（read）。
+**一份 I2C API 接收从机地址，然后把地址丢掉** —— 多从机总线上指不定写到哪个设备，而函数无条件
+`return true`。读函数同形。
+
+**判定：成立**。
+
+---
+
 ## 尚未核验（后续按节补）
 
-提案的其余段落：七、RP2040
-watchdog feed 语义；八、STM32F4 SPI/I2C；九、BlackPill board 的 system_reset/low-power；十、CI
+提案的其余段落：九、BlackPill board 的 system_reset/low-power；十、CI
 「只 build 不 run」；十一、静态分析盲区；十二、CodeQL 覆盖；十三、值得保留的 CI 实践；十四、
 「门禁强 ≠ 产品正确」；以及第二部分（module ID / events / 低功耗 / wake source 的架构建议 ——
 **属设计与主张，不是可核验断言**，本文只核验其中能被证伪的具体事实）与第三部分（3060 行起）。
