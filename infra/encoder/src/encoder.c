@@ -95,50 +95,69 @@ edge_status_t encoder_as5047_read_diag(encoder_as5047_t *self, uint16_t *diag_va
     return EDGE_OK;
 }
 
-/* MT6816 */
-void encoder_mt6816_construct(encoder_mt6816_t *self, encoder_spi_transfer_fn spi_transfer,
-                              void *spi_ctx) {
-    if (!self) {
+/* MT6816 is the routine below, whose own state is cleared by encoder_mt6816_begin. */
+/* driver/spi_bb.c:309-316, the driver's own odd-parity test: the fold, then the low bit of its
+ * complement. */
+bool encoder_mt6816_parity_ok(uint16_t x) {
+    x ^= (uint16_t)(x >> 8);
+    x ^= (uint16_t)(x >> 4);
+    x ^= (uint16_t)(x >> 2);
+    x ^= (uint16_t)(x >> 1);
+    return (bool)((~x) & 1u);
+}
+
+void encoder_mt6816_begin(encoder_mt6816_state_t *st) {
+    if (st == (void *)0) {
         return;
     }
-    memset(self, 0, sizeof(*self));
-    self->spi_transfer = spi_transfer;
-    self->spi_ctx = spi_ctx;
+    memset(st, 0, sizeof(*st));
 }
 
-edge_status_t encoder_mt6816_init(encoder_mt6816_t *self) {
-    if (!self || !self->spi_transfer) {
-        return EDGE_EINVAL;
+/*
+ * enc_mt6816.c:40-106, its routine: the timestep clamped at a second, the sensor's two registers
+ * read and made into one word, and then, if that word's parity holds, the magnet being where it
+ * should be - the sensor's own second bit. A magnet that is not raises its own count and rate while
+ * the angle holds where it was; a whole word shifts the two flag bits off and gives the angle the
+ * low fourteen make, with both rates falling; a word whose parity fails raises the bus error
+ * instead.
+ */
+float encoder_mt6816_routine(encoder_mt6816_state_t *st, const encoder_mt6816_port_t *port,
+                             float now_s) {
+    if (st == (void *)0 || port == (void *)0 || port->read_registers == (void *)0) {
+        return 0.0f;
     }
-    return EDGE_OK;
-}
 
-edge_status_t encoder_mt6816_read_angle_raw(encoder_mt6816_t *self, uint16_t *raw_angle) {
-    if (!self || !raw_angle || !self->spi_transfer) {
-        return EDGE_EINVAL;
+    float timestep = now_s - st->last_update_s;
+    if (timestep > 1.0f) {
+        timestep = 1.0f;
     }
-    uint16_t rx = 0;
-    edge_status_t st = self->spi_transfer(self->spi_ctx, 0x8300, &rx);
-    if (st != EDGE_OK) {
-        return st;
-    }
-    *raw_angle = (rx >> 2) & 0x3FFF;
-    self->last_angle_raw = *raw_angle;
-    self->no_magnet = (rx & 0x02) != 0;
-    return EDGE_OK;
-}
+    st->last_update_s = now_s;
 
-edge_status_t encoder_mt6816_read_angle_rad(encoder_mt6816_t *self, float *angle_rad) {
-    if (!self || !angle_rad) {
-        return EDGE_EINVAL;
+    uint16_t reg03 = 0u;
+    uint16_t reg04 = 0u;
+    if (port->read_registers(port->self, &reg03, &reg04) != EDGE_OK) {
+        return st->last_enc_angle;
     }
-    uint16_t raw = 0;
-    edge_status_t st = encoder_mt6816_read_angle_raw(self, &raw);
-    if (st != EDGE_OK) {
-        return st;
+
+    uint16_t pos = (uint16_t)((reg03 << 8) | reg04);
+    st->spi_val = pos;
+
+    if (encoder_mt6816_parity_ok(pos)) {
+        if ((pos & 0x0002u) != 0u) { /* MT6816_NO_MAGNET_ERROR_MASK */
+            ++st->no_magnet_error_cnt;
+            st->no_magnet_error_rate -= timestep * (st->no_magnet_error_rate - 1.0f);
+        } else {
+            pos = (uint16_t)(pos >> 2);
+            st->last_enc_angle = ((float)pos * 360.0f) / 16384.0f;
+            st->spi_error_rate -= timestep * (st->spi_error_rate - 0.0f);
+            st->no_magnet_error_rate -= timestep * (st->no_magnet_error_rate - 0.0f);
+        }
+    } else {
+        ++st->spi_error_cnt;
+        st->spi_error_rate -= timestep * (st->spi_error_rate - 1.0f);
     }
-    *angle_rad = ((float)raw / (float)MT6816_CPR) * (2.0f * (float)M_PI);
-    return EDGE_OK;
+
+    return st->last_enc_angle;
 }
 
 /* ABI Quadrature is the index machine above, whose own state is cleared by encoder_abi_begin. */

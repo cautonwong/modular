@@ -45,14 +45,92 @@ static void test_encoder_as5047(void **state) {
     assert_true(fabsf(angle_rad - (float)M_PI / 2.0f) < 0.01f);
 }
 
-static void test_encoder_mt6816(void **state) {
-    (void)state;
-    encoder_mt6816_t enc;
-    encoder_mt6816_construct(&enc, mock_spi_transfer, NULL);
-    assert_int_equal(encoder_mt6816_init(&enc), EDGE_OK);
+typedef struct mock_mt6816_plant {
+    uint16_t reg03;
+    uint16_t reg04;
+    bool fail;
+} mock_mt6816_plant_t;
 
-    float angle_rad = 0.0f;
-    assert_int_equal(encoder_mt6816_read_angle_rad(&enc, &angle_rad), EDGE_OK);
+static edge_status_t mt6816_plant_read(void *self, uint16_t *reg03, uint16_t *reg04) {
+    mock_mt6816_plant_t *p = (mock_mt6816_plant_t *)self;
+    if (p->fail) {
+        return EDGE_ESTATE;
+    }
+    *reg03 = p->reg03;
+    *reg04 = p->reg04;
+    return EDGE_OK;
+}
+
+/*
+ * enc_mt6816.c:40-106's routine and driver/spi_bb.c:309-316's parity, which is what the family is
+ * held against: one word made of the sensor's two registers, that word's odd parity, the second bit
+ * saying whether the magnet is where it should be, and the low fourteen over a quarter turn of
+ * turns.
+ */
+static void test_encoder_mt6816_matches_the_reference(void **state) {
+    (void)state;
+
+    /*
+     * The fold's low bit is what decides: it is set when the bits come to one, so a word whose
+     * count is even passes and one whose count is odd does not - which is what the parity bit these
+     * words carry on top is there to make true.
+     */
+    assert_true(encoder_mt6816_parity_ok(0x0000u));
+    assert_true(encoder_mt6816_parity_ok(0x0003u));
+    assert_false(encoder_mt6816_parity_ok(0x0001u));
+    assert_false(encoder_mt6816_parity_ok(0x8000u));
+
+    encoder_mt6816_state_t st;
+    encoder_mt6816_begin(&st);
+    mock_mt6816_plant_t plant = {0};
+    encoder_mt6816_port_t port = {.self = &plant, .read_registers = mt6816_plant_read};
+
+    /* A whole word of four thousand counts, with the parity bit set so that it holds. */
+    uint16_t word = (uint16_t)(4000u << 2);
+    if (!encoder_mt6816_parity_ok(word)) {
+        word |= 0x8000u;
+    }
+    plant.reg03 = (uint16_t)(word >> 8);
+    plant.reg04 = (uint16_t)(word & 0xFFu);
+    assert_float_equal(encoder_mt6816_routine(&st, &port, 0.001f), 4000.0f * 360.0f / 16384.0f,
+                       1e-4f);
+    assert_int_equal(st.spi_error_cnt, 0u);
+    assert_int_equal(st.no_magnet_error_cnt, 0u);
+    assert_int_equal(st.spi_val, word);
+
+    /*
+     * The magnet's own bit raises its count and its rate, and the angle holds where it was. The
+     * parity bit goes on top so that the word is one that passes: two bits, which is even.
+     */
+    const float held = st.last_enc_angle;
+    word = 0x8002u;
+    plant.reg03 = (uint16_t)(word >> 8);
+    plant.reg04 = (uint16_t)(word & 0xFFu);
+    assert_true(encoder_mt6816_parity_ok(word));
+    encoder_mt6816_routine(&st, &port, 0.002f);
+    assert_int_equal(st.no_magnet_error_cnt, 1u);
+    assert_float_equal(st.no_magnet_error_rate, 0.001f, 1e-6f);
+    assert_float_equal(st.last_enc_angle, held, 1e-6f);
+
+    /* A word whose parity fails raises the bus count instead: one bit is an odd count. */
+    word = 0x0001u;
+    plant.reg03 = 0u;
+    plant.reg04 = (uint16_t)(word & 0xFFu);
+    assert_false(encoder_mt6816_parity_ok(word));
+    encoder_mt6816_routine(&st, &port, 0.003f);
+    assert_int_equal(st.spi_error_cnt, 1u);
+    assert_float_equal(st.spi_error_rate, 0.001f, 1e-6f);
+    assert_float_equal(st.last_enc_angle, held, 1e-6f);
+
+    /* A bus the port could not read leaves everything as it was. */
+    plant.fail = true;
+    assert_float_equal(encoder_mt6816_routine(&st, &port, 0.004f), held, 1e-6f);
+
+    encoder_mt6816_begin(NULL);
+    assert_float_equal(encoder_mt6816_routine(NULL, &port, 0.0f), 0.0f, 1e-6f);
+    assert_float_equal(encoder_mt6816_routine(&st, NULL, 0.0f), 0.0f, 1e-6f);
+    encoder_mt6816_port_t bare = {0};
+    assert_float_equal(encoder_mt6816_routine(&st, &bare, 0.0f), 0.0f, 1e-6f);
 }
 
 /*
@@ -422,18 +500,14 @@ static void test_encoder_spi_failure_and_guards(void **state) {
     assert_true(encoder_as5047_read_angle_rad(&as, &angle) != EDGE_OK);
     assert_true(encoder_as5047_read_diag(&as, &raw) != EDGE_OK);
 
-    /* MT6816. */
-    encoder_mt6816_construct(NULL, mock_spi_transfer, NULL);
-    assert_int_equal(encoder_mt6816_init(NULL), EDGE_EINVAL);
-    assert_true(encoder_mt6816_read_angle_raw(NULL, &raw) != EDGE_OK);
-    assert_true(encoder_mt6816_read_angle_rad(NULL, &angle) != EDGE_OK);
-    encoder_mt6816_t mt;
-    encoder_mt6816_construct(&mt, failing_spi, NULL);
-    /* Its init does not touch the bus, so a dead one still initialises; what must not happen is a
-     * read reporting an angle. */
-    assert_int_equal(encoder_mt6816_init(&mt), EDGE_OK);
-    assert_true(encoder_mt6816_read_angle_raw(&mt, &raw) != EDGE_OK);
-    assert_true(encoder_mt6816_read_angle_rad(&mt, &angle) != EDGE_OK);
+    /* MT6816: no configuration, no port. */
+    encoder_mt6816_begin(NULL);
+    encoder_mt6816_state_t mt;
+    encoder_mt6816_begin(&mt);
+    assert_int_equal(mt.spi_error_cnt, 0u);
+    assert_float_equal(encoder_mt6816_routine(&mt, NULL, 0.0f), 0.0f, 1e-6f);
+    encoder_mt6816_port_t bare_mt = {0};
+    assert_float_equal(encoder_mt6816_routine(&mt, &bare_mt, 0.0f), 0.0f, 1e-6f);
 
     /* The incremental encoder's own machine: no configuration, no port, nothing happens. */
     encoder_abi_config_t abi;
@@ -670,7 +744,7 @@ int main(void) {
 
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_encoder_as5047),
-        cmocka_unit_test(test_encoder_mt6816),
+        cmocka_unit_test(test_encoder_mt6816_matches_the_reference),
         cmocka_unit_test(test_encoder_abi_index_machine),
         cmocka_unit_test(test_encoder_pwm_matches_the_reference),
         cmocka_unit_test(test_encoder_amt22_matches_the_reference),
