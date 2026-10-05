@@ -29,6 +29,7 @@
 | 三 | Macro 的 `WAIT`（`wait_ms` / `default_wait_ms`）声明了但没实现 | `app/zmk_behavior` | **成立** | 见下 §三 |
 | 四 | ZMK Studio 的 `UNLOCK_DEVICE` 无任何认证/物理前提，直接 `unlocked = true` | `app/zmk_studio/src/studio.c` | **成立** | 见下 §四 |
 | 五 | Studio RPC 吞掉 `keymap` 返回的错误，客户端收到 SUCCESS | `app/zmk_studio/src/studio.c` | **成立（一处措辞需更正）** | 见下 §五 |
+| 六 | RP2040/STM32F4 的 SoC 驱动是寄存器/RAM 模型，SPI/I2C 不是硬件通信 | `soc/rp2040`、`soc/stm32f4` | **成立** | 见下 §六 |
 | 二–十二 | （待核验） | — | 待定 | — |
 
 ---
@@ -241,9 +242,73 @@ resp[2] = 0;                                      /* 永远 SUCCESS */
 
 ---
 
+## 六、SoC 驱动是「寄存器模型」—— **成立**（两个芯片都成立）
+
+### RP2040：连基址都没有
+
+`soc/rp2040/` 只有两个源文件（`include/soc_rp2040/soc_rp2040.h`、`src/soc_rp2040.c`）。对它搜
+MMIO 的标志物：
+
+```text
+git grep -n "0xd0000000\|0xD0000000\|SIO_BASE\|volatile" f2f3da10 -- soc/rp2040/
+```
+
+→ **无任何命中**。也就是说那套 `..._sio_regs_t` / `..._spi_regs_t` 结构体从来到尾都是普通的
+RAM 结构体，没有一处被指到 0xd0000000 上。调用方式是 `board_*_hw_t hw; board_*_hw_init(&hw);`
+（例：`board/pinetime/include/pinetime/board.h:58`、`board/nice_nano/...:30`），即**寄存器是调用方
+传进来的内存**。
+
+提案引的两段一字不差：
+
+- SPI：`soc/rp2040/src/soc_rp2040.c:93-95` —— `spi->sspdr = tx_byte;` 紧接着
+  `rx_buf[i] = (uint8_t)(spi->sspdr & 0xFFu);`（写进去、马上从同一个字段读回来）
+- I2C：同文件 `:122` 与 `:137-138` —— `i2c->ic_data_cmd = cmd;` 后
+  `data[i] = (uint8_t)(i2c->ic_data_cmd & 0xFFu);`
+
+真 SPI 需要 TX/RX FIFO、busy、FIFO 空满、时钟与 CS；真 I2C 需要 START/ADDR/ACK/BUSY/STOP。
+这里两者都是「写一个字段、立刻读回同一个字段」，既没有 FIFO 也没有状态位。
+
+### STM32F4：有基址，但基址从未被用
+
+这一半比 RP2040 更值得单说，因为它**看起来**是硬件驱动：
+
+- `soc/stm32f4/include/soc_stm32f4/soc_stm32f4.h:21-24` 定义了 `SOC_STM32F4_SPI2_BASE
+  ((uintptr_t)0x40003800u)`、`I2C1_BASE`、`I2C2_BASE`、`IWDG_BASE`，结构体成员也带了
+  `volatile uint32_t moder; /* 0x00 */` 这种真实偏移注释。
+
+但对全仓搜 `SOC_STM32F4_SPI2_BASE` / `SOC_STM32F4_I2C1_BASE`，**只命中那两行宏定义本身**，
+没有任何解引用。函数签名全部收调用方给的指针：
+`soc_stm32f4_spi_init(soc_stm32f4_spi_regs_t *spi, …)`（`:125`）、
+`soc_stm32f4_spi_transfer(soc_stm32f4_spi_regs_t *spi, …)`（`:126`）、
+`soc_stm32f4_i2c_write(soc_stm32f4_i2c_regs_t *i2c, …)`（`:131`）。
+
+于是 SPI 的传输体（`soc/stm32f4/src/soc_stm32f4.c:71-76`）与 RP2040 完全同形：
+
+```c
+uint8_t tx_byte = tx_buf ? tx_buf[i] : 0xFFu;
+spi->dr = tx_byte;
+if (rx_buf != NULL) {
+    rx_buf[i] = (uint8_t)(spi->dr & 0xFFu);
+}
+```
+
+### 两点补充（提案没提，但影响判定的分量）
+
+1. **仓库自己也从未把它标注为模型。** 搜 `docs/` 下的 `register model` / `mmio` / `host model` /
+   `simulat`，没有任何一处声明「这是主机模拟、不是硬件驱动」；`-- soc/` 下也没有 README。
+   名字叫 `soc_*`、注释写着真实偏移，读者会自然以为是可用的 HAL —— 这就是问题所在。
+2. **它们几乎不报错。** RP2040 的三个入口在结尾都是无条件 `return true;`
+   （`soc_rp2040.c:98`、`:124`、`:140`），只有入参检查会 `false`。
+
+**判定：成立**，且对两个芯片都成立（提案第八节对 STM32F4 的说法是同一件事的另一种表述，两项应合看）。
+方向上可接受的做法只有两种：要么把它做成真的 MMIO 驱动（`volatile` + 真实基址 + FIFO/状态位等待），
+要么在头文件里把「这是主机模型（host model）、不驱动硬件」写清楚 —— 而不是让一个叫 `soc_stm32f4_spi_transfer`
+的函数在真板上静默跑成一个内存拷贝。
+---
+
 ## 尚未核验（后续按节补）
 
-提案的其余段落：六、RP2040/STM32F4 SoC 驱动是「寄存器模型」；七、RP2040
+提案的其余段落：七、RP2040
 watchdog feed 语义；八、STM32F4 SPI/I2C；九、BlackPill board 的 system_reset/low-power；十、CI
 「只 build 不 run」；十一、静态分析盲区；十二、CodeQL 覆盖；十三、值得保留的 CI 实践；十四、
 「门禁强 ≠ 产品正确」；以及第二部分（module ID / events / 低功耗 / wake source 的架构建议 ——
