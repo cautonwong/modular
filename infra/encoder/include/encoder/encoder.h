@@ -51,14 +51,51 @@ typedef struct encoder_abi {
     float speed_rpm;
 } encoder_abi_t;
 
-/* Sin/Cos Analog Resolver */
-typedef struct encoder_sincos {
-    float sin_offset;
-    float cos_offset;
+/*
+ * enc_sincos.c:44-101, enc_sincos_read_deg: the analog resolver. The reference's ENCSINCOS_state
+ * (encoder_datatype.h:177-186) is the two filters, the angle it last reported, when it last ran and
+ * the two error rates and counts its amplitude window keeps.
+ */
+typedef struct encoder_sincos_state {
+    uint32_t signal_below_min_error_cnt;
+    uint32_t signal_above_max_error_cnt;
+    float signal_low_error_rate;
+    float signal_above_max_error_rate;
+    float last_enc_angle;
+    float sin_filter;
+    float cos_filter;
+    float last_update_s;
+} encoder_sincos_state_t;
+
+/*
+ * Its configuration (encoder_datatype.h:188-204). The two gains are stored as one over the
+ * amplitude - the reference's own comment says so, which is why reading never divides by one - and
+ * the phase correction is kept both as the angle and as its sine and cosine.
+ */
+typedef struct encoder_sincos_config {
     float sin_gain;
     float cos_gain;
-    float last_angle_rad;
-} encoder_sincos_t;
+    float sin_offset;
+    float cos_offset;
+    float filter_constant;
+    float phase_correction_deg;
+    float sin_phase;
+    float cos_phase;
+    float ratio;
+    float delay_comp_sign;
+    encoder_sincos_state_t state;
+} encoder_sincos_config_t;
+
+/*
+ * The two things the family reads that are not the sensor itself, which the reference reaches
+ * through mc_interface and its timer: the speed the delay compensation is built from, and the clock
+ * its timestep is measured against, in seconds.
+ */
+typedef struct encoder_sincos_port {
+    void *self;
+    float (*read_rpm)(void *self);
+    float (*now_seconds)(void *self);
+} encoder_sincos_port_t;
 
 /* Hall 6-step Commutation Decoder */
 typedef struct encoder_hall {
@@ -89,12 +126,10 @@ edge_status_t encoder_abi_init(encoder_abi_t *self);
 edge_status_t encoder_abi_update(encoder_abi_t *self, int32_t step_delta, float dt,
                                  float *out_angle_rad);
 
-/* SinCos API */
-void encoder_sincos_construct(encoder_sincos_t *self, float sin_offset, float cos_offset,
-                              float sin_gain, float cos_gain);
-edge_status_t encoder_sincos_init(encoder_sincos_t *self);
-edge_status_t encoder_sincos_update(encoder_sincos_t *self, float sin_val, float cos_val,
-                                    float *out_angle_rad);
+/* SinCos API: enc_sincos.c:35-42, whose init and deinit are both a clearing, and :44-101. */
+void encoder_sincos_begin(encoder_sincos_config_t *cfg);
+float encoder_sincos_read_deg(encoder_sincos_config_t *cfg, const encoder_sincos_port_t *port,
+                              float sin_volts, float cos_volts);
 
 /* Hall API */
 void encoder_hall_construct(encoder_hall_t *self, const uint8_t *custom_tab);
