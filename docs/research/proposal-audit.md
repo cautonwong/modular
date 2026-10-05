@@ -27,6 +27,7 @@
 | 一 | PineTime 主程序构造 28 个 module，只有少数几个调了 `init()`；`edge_sys_start()` 不会代调 | `product/pinetime/main.c`、`sys/runtime/src/sys.c` | **成立** | 见下 §一 |
 | 二 | ZMK Hold-Tap 的 `quick_tap` 把开机后首击误判为连击（`last_tap_time_ms` 初值 0） | `app/zmk_behavior/src/behavior.c` | **成立** | 见下 §二 |
 | 三 | Macro 的 `WAIT`（`wait_ms` / `default_wait_ms`）声明了但没实现 | `app/zmk_behavior` | **成立** | 见下 §三 |
+| 四 | ZMK Studio 的 `UNLOCK_DEVICE` 无任何认证/物理前提，直接 `unlocked = true` | `app/zmk_studio/src/studio.c` | **成立** | 见下 §四 |
 | 二–十二 | （待核验） | — | 待定 | — |
 
 ---
@@ -163,10 +164,50 @@ for (uint8_t s = 0; s < macro->step_count; s++) {
 
 ---
 
+## 四、ZMK Studio 的 Unlock —— **成立**（安全边界确实不存在）
+
+提案引的那两行一字不差，而且周围确实什么都没有：
+
+`app/zmk_studio/src/studio.c:64-68`
+
+```c
+case ZMK_STUDIO_CORE_CMD_UNLOCK_DEVICE: {
+    app->unlocked = true;
+    resp[2] = 0;
+    resp[3] = 1;
+    resp_len = 4;
+    break;
+}
+```
+
+逐项核验提案列的「没有」清单，**四项全部成立**：
+
+| 提案说没有 | 实测 |
+| --- | --- |
+| physical unlock | `app/` 下没有任何 `studio_unlock` behavior/按键组合；`unlocked` 的全部读写都在 `studio.c` 自己里（见 `git grep -n unlocked f2f3da10 -- app/ tests/` 的结果） |
+| authentication / challenge / token / pairing | 没有。处理函数不看任何输入，不看传输来源，不看 `rx_state`，只写一个 bool |
+| timeout（空闲回锁） | `grep -n "timeout\|timer\|idle" app/zmk_studio/src/studio.c` **无任何命中**；struct 里也没有计时字段 |
+| disconnect → lock | 三处把 `unlocked` 置 false 的地方分别是：`app_power_off()`（`:218`）、construct（`:256`）、`zmk_studio_init()`（`:266`）。**没有一处是断连或空闲触发的** |
+
+而这次不是「什么都没做」——**机制都在，只有钥匙是白送的**：`studio.h:40-41` 定义了
+`UNLOCK_DEVICE = 3` 与 `LOCK_DEVICE = 4`，`studio.c:79 / :136 / :172 / :186` 四个写命令都真的检查了
+`if (!app->unlocked)` 并返回 Locked 错误，`GET_LOCK_STATE`（`:59-62`）也能报状态。也就是说，
+**锁的作用域是真的，但锁的开启无任何前提** —— 任何能发 RPC 的一端（USB / BLE）发一个
+`UNLOCK_DEVICE` 就拿到写权限。
+
+**测试反而把这个行为固定下来了**：`tests/test_app_zmk_studio.c:141`
+`assert_true(zmk_studio_is_unlocked(&app));` —— 它在上一条 RPC 发出后直接断言已解锁，
+没有任何一条用例检查「未物理解锁时 unlock 应被拒」。
+
+**判定：成立**。修法方向也认同提案：把安全状态的变更从 RPC handler 里拿出来，换成
+`studio_unlock_authorize()` / `studio_lock()` 这类入口，再由物理侧（behavior）与超时/断连
+去驱动它。
+
+---
+
 ## 尚未核验（后续按节补）
 
-提案的其余段落：四、ZMK Studio
-Unlock 缺口；五、Studio RPC 吞错；六、RP2040/STM32F4 SoC 驱动是「寄存器模型」；七、RP2040
+提案的其余段落：五、Studio RPC 吞错；六、RP2040/STM32F4 SoC 驱动是「寄存器模型」；七、RP2040
 watchdog feed 语义；八、STM32F4 SPI/I2C；九、BlackPill board 的 system_reset/low-power；十、CI
 「只 build 不 run」；十一、静态分析盲区；十二、CodeQL 覆盖；十三、值得保留的 CI 实践；十四、
 「门禁强 ≠ 产品正确」；以及第二部分（module ID / events / 低功耗 / wake source 的架构建议 ——
