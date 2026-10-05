@@ -43,13 +43,35 @@ typedef struct encoder_mt6816 {
     bool no_magnet;
 } encoder_mt6816_t;
 
-/* Incremental ABI Quadrature Encoder */
-typedef struct encoder_abi {
-    uint32_t counts_per_rev;
-    int32_t count_accumulator;
-    float last_angle_rad;
-    float speed_rpm;
-} encoder_abi_t;
+/*
+ * enc_abi.c:100-124, the index pulse's own machine, and the state it keeps
+ * (encoder_datatype.h:153-158): whether the index has been found, the count it was last seen at,
+ * how many pulses in a row have been implausible, and how many there have been at all.
+ */
+typedef struct encoder_abi_state {
+    bool index_found;
+    uint32_t cnt_at_ind_last;
+    int bad_pulses;
+    uint32_t index_pulse_cnt;
+} encoder_abi_state_t;
+
+/* Its configuration is the timer's own reload, which is the counts in one revolution. */
+typedef struct encoder_abi_config {
+    uint32_t counts;
+    encoder_abi_state_t state;
+} encoder_abi_config_t;
+
+/*
+ * What the machine reads and writes that belongs to the hardware: the counter the timer holds, and
+ * the index pin, whose level once a few instructions have settled is the reference's own noise
+ * test. Writing the counter back is the caller's, because it is the timer's register.
+ */
+typedef struct encoder_abi_port {
+    void *self;
+    uint32_t (*read_count)(void *self);
+    void (*write_count)(void *self, uint32_t count);
+    bool (*read_index_high)(void *self);
+} encoder_abi_port_t;
 
 /*
  * enc_sincos.c:44-101, enc_sincos_read_deg: the analog resolver. The reference's ENCSINCOS_state
@@ -120,11 +142,14 @@ edge_status_t encoder_mt6816_init(encoder_mt6816_t *self);
 edge_status_t encoder_mt6816_read_angle_raw(encoder_mt6816_t *self, uint16_t *raw_angle);
 edge_status_t encoder_mt6816_read_angle_rad(encoder_mt6816_t *self, float *angle_rad);
 
-/* ABI API */
-void encoder_abi_construct(encoder_abi_t *self, uint32_t counts_per_rev);
-edge_status_t encoder_abi_init(encoder_abi_t *self);
-edge_status_t encoder_abi_update(encoder_abi_t *self, int32_t step_delta, float dt,
-                                 float *out_angle_rad);
+/*
+ * ABI API: enc_abi.c:38-42, whose init clears its state, :92-93's own reading, and :100-124's index
+ * machine. The rest of the reference's init is the timer's and the EXTI line's, which are the
+ * product's to wire.
+ */
+void encoder_abi_begin(encoder_abi_config_t *cfg);
+float encoder_abi_read_deg(uint32_t count, uint32_t counts);
+void encoder_abi_index_pulse(encoder_abi_config_t *cfg, const encoder_abi_port_t *port);
 
 /* SinCos API: enc_sincos.c:35-42, whose init and deinit are both a clearing, and :44-101. */
 void encoder_sincos_begin(encoder_sincos_config_t *cfg);

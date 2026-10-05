@@ -55,15 +55,107 @@ static void test_encoder_mt6816(void **state) {
     assert_int_equal(encoder_mt6816_read_angle_rad(&enc, &angle_rad), EDGE_OK);
 }
 
-static void test_encoder_abi(void **state) {
-    (void)state;
-    encoder_abi_t enc;
-    encoder_abi_construct(&enc, 4000);
-    assert_int_equal(encoder_abi_init(&enc), EDGE_OK);
+/*
+ * A plant whose counter and index pin the test drives, so the machine's own branches can be walked.
+ */
+typedef struct mock_abi_plant {
+    uint32_t count;
+    bool index_high;
+    int writes;
+    uint32_t last_written;
+} mock_abi_plant_t;
 
-    float angle_rad = 0.0f;
-    assert_int_equal(encoder_abi_update(&enc, 1000, 0.01f, &angle_rad), EDGE_OK);
-    assert_true(fabsf(angle_rad - (float)M_PI / 2.0f) < 0.01f);
+static uint32_t abi_plant_read_count(void *self) {
+    return ((mock_abi_plant_t *)self)->count;
+}
+
+static void abi_plant_write_count(void *self, uint32_t count) {
+    mock_abi_plant_t *p = (mock_abi_plant_t *)self;
+    p->writes++;
+    p->last_written = count;
+    p->count = count;
+}
+
+static bool abi_plant_index_high(void *self) {
+    return ((mock_abi_plant_t *)self)->index_high;
+}
+
+/*
+ * enc_abi.c:100-124, the index pulse's machine, branch by branch. Every assertion here is one of
+ * the reference's own steps: the pin's level once it has settled, the counter remembered and
+ * counted, the plausibility window of a twentieth of a revolution either side of the wrap, and the
+ * five bad pulses in a row that lose the index again.
+ */
+static void test_encoder_abi_index_machine(void **state) {
+    (void)state;
+
+    encoder_abi_config_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.counts = 4096u;
+    encoder_abi_begin(&cfg);
+    assert_false(cfg.state.index_found);
+    assert_int_equal(cfg.state.index_pulse_cnt, 0u);
+
+    mock_abi_plant_t plant = {0};
+    encoder_abi_port_t port = {.self = &plant,
+                               .read_count = abi_plant_read_count,
+                               .write_count = abi_plant_write_count,
+                               .read_index_high = abi_plant_index_high};
+
+    /* A pulse whose pin has already fallen is not the index. */
+    plant.index_high = false;
+    plant.count = 123u;
+    encoder_abi_index_pulse(&cfg, &port);
+    assert_int_equal(cfg.state.index_pulse_cnt, 0u);
+    assert_int_equal(plant.writes, 0);
+
+    /* The first one that holds is taken: the counter starts again from where it is. */
+    plant.index_high = true;
+    encoder_abi_index_pulse(&cfg, &port);
+    assert_true(cfg.state.index_found);
+    assert_int_equal(cfg.state.cnt_at_ind_last, 123u);
+    assert_int_equal(cfg.state.index_pulse_cnt, 1u);
+    assert_int_equal(cfg.state.bad_pulses, 0);
+    assert_int_equal(plant.writes, 1);
+    assert_int_equal(plant.last_written, 0u);
+
+    /* One at the very end of a revolution is where a revolution begins: plausible, so it resets. */
+    plant.count = 4095u;
+    encoder_abi_index_pulse(&cfg, &port);
+    assert_true(cfg.state.index_found);
+    assert_int_equal(cfg.state.bad_pulses, 0);
+    assert_int_equal(plant.writes, 2);
+
+    /* One in the middle of a revolution is not, and five of those in a row are too many. */
+    plant.count = 2048u;
+    for (int i = 0; i < 5; i++) {
+        encoder_abi_index_pulse(&cfg, &port);
+        assert_true(cfg.state.index_found);
+        assert_int_equal(cfg.state.bad_pulses, i + 1);
+    }
+    assert_int_equal(plant.writes, 2);
+    encoder_abi_index_pulse(&cfg, &port);
+    assert_int_equal(cfg.state.bad_pulses, 6);
+    assert_false(cfg.state.index_found);
+
+    /* With the index lost, the next one that holds is taken again. */
+    encoder_abi_index_pulse(&cfg, &port);
+    assert_true(cfg.state.index_found);
+    assert_int_equal(cfg.state.bad_pulses, 0);
+    assert_int_equal(plant.writes, 3);
+
+    /* And the reading is the counter over one revolution, in degrees. */
+    assert_float_equal(encoder_abi_read_deg(0u, 4096u), 0.0f, 1e-6f);
+    assert_float_equal(encoder_abi_read_deg(1024u, 4096u), 90.0f, 1e-4f);
+    assert_float_equal(encoder_abi_read_deg(4095u, 4096u), 359.91211f, 1e-3f);
+    assert_float_equal(encoder_abi_read_deg(100u, 0u), 0.0f, 1e-6f);
+
+    /* Nothing to read through or write into. */
+    encoder_abi_index_pulse(&cfg, NULL);
+    encoder_abi_index_pulse(NULL, &port);
+    encoder_abi_port_t bare = {0};
+    encoder_abi_index_pulse(&cfg, &bare);
+    encoder_abi_begin(NULL);
 }
 
 /*
@@ -343,14 +435,17 @@ static void test_encoder_spi_failure_and_guards(void **state) {
     assert_true(encoder_mt6816_read_angle_raw(&mt, &raw) != EDGE_OK);
     assert_true(encoder_mt6816_read_angle_rad(&mt, &angle) != EDGE_OK);
 
-    /* The resolver and the incremental encoder guard their own arguments. */
-    assert_int_equal(encoder_abi_init(NULL), EDGE_EINVAL);
-    encoder_abi_t abi;
-    encoder_abi_construct(NULL, 4096u);
-    encoder_abi_construct(&abi, 4096u);
-    assert_int_equal(encoder_abi_init(&abi), EDGE_OK);
-    assert_true(encoder_abi_update(NULL, 1, 0.01f, &angle) != EDGE_OK);
-    assert_true(encoder_abi_update(&abi, 1, 0.01f, NULL) != EDGE_OK);
+    /* The incremental encoder's own machine: no configuration, no port, nothing happens. */
+    encoder_abi_config_t abi;
+    memset(&abi, 0, sizeof(abi));
+    encoder_abi_port_t abi_port = {0};
+    encoder_abi_begin(NULL);
+    encoder_abi_begin(&abi);
+    assert_int_equal(abi.state.index_pulse_cnt, 0u);
+    assert_false(abi.state.index_found);
+    encoder_abi_index_pulse(NULL, NULL);
+    encoder_abi_index_pulse(&abi, NULL);
+    encoder_abi_index_pulse(NULL, &abi_port);
     /*
      * The resolver's own pair of guards, and the arithmetic a configuration with nothing in it
      * makes: its cosine of the phase correction is nought, so the cosine it takes is divided by it
@@ -386,7 +481,6 @@ static void test_encoder_response_checks_and_wraps(void **state) {
     (void)state;
     scripted_spi_t spi;
     uint16_t raw = 0u;
-    float angle = 0.0f;
 
     encoder_as5047_t as;
     encoder_as5047_construct(&as, scripted_transfer, &spi);
@@ -416,14 +510,9 @@ static void test_encoder_response_checks_and_wraps(void **state) {
     assert_int_equal(encoder_as5047_read_diag(&as, &raw), EDGE_OK);
     assert_int_equal(raw, 0x1234u & 0x3FFFu);
 
-    /* The incremental encoder wraps a negative accumulator rather than going negative. */
-    encoder_abi_t abi;
-    encoder_abi_construct(&abi, 4096u);
-    assert_int_equal(encoder_abi_init(&abi), EDGE_OK);
-    assert_int_equal(encoder_abi_update(&abi, -1, 0.01f, &angle), EDGE_OK);
-    assert_true(angle >= 0.0f);
-    assert_int_equal(encoder_abi_update(&abi, -8192, 0.01f, &angle), EDGE_OK);
-    assert_true(angle >= 0.0f);
+    /* The counter's own reading, over one revolution and in degrees. */
+    assert_float_equal(encoder_abi_read_deg(0u, 4096u), 0.0f, 1e-6f);
+    assert_float_equal(encoder_abi_read_deg(1024u, 4096u), 90.0f, 1e-4f);
 
     /*
      * The resolver's range is the reference's: degrees, half a turn either way, from a filter that
@@ -450,7 +539,7 @@ int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_encoder_as5047),
         cmocka_unit_test(test_encoder_mt6816),
-        cmocka_unit_test(test_encoder_abi),
+        cmocka_unit_test(test_encoder_abi_index_machine),
         cmocka_unit_test(test_encoder_sincos_matches_the_reference),
         cmocka_unit_test(test_encoder_hall),
         cmocka_unit_test(test_encoder_resolver_and_hall_guards),

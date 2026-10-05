@@ -141,43 +141,73 @@ edge_status_t encoder_mt6816_read_angle_rad(encoder_mt6816_t *self, float *angle
     return EDGE_OK;
 }
 
-/* ABI Quadrature */
-void encoder_abi_construct(encoder_abi_t *self, uint32_t counts_per_rev) {
-    if (!self) {
+/* ABI Quadrature is the index machine above, whose own state is cleared by encoder_abi_begin. */
+/*
+ * enc_abi.c:38-42 - the clearing half of the reference's init, whose other half is the timer's own
+ * encoder mode and its EXTI line - and :92-93's reading.
+ */
+void encoder_abi_begin(encoder_abi_config_t *cfg) {
+    if (cfg == (void *)0) {
         return;
     }
-    memset(self, 0, sizeof(*self));
-    self->counts_per_rev = (counts_per_rev == 0) ? 4096u : counts_per_rev;
+    memset(&cfg->state, 0, sizeof(cfg->state));
 }
 
-edge_status_t encoder_abi_init(encoder_abi_t *self) {
-    if (!self || self->counts_per_rev == 0) {
-        return EDGE_EINVAL;
+float encoder_abi_read_deg(uint32_t count, uint32_t counts) {
+    if (counts == 0u) {
+        return 0.0f;
     }
-    return EDGE_OK;
+    /* The reference's own arithmetic: the counter over a revolution, in degrees. */
+    return ((float)count * 360.0f) / (float)counts;
 }
 
-edge_status_t encoder_abi_update(encoder_abi_t *self, int32_t step_delta, float dt,
-                                 float *out_angle_rad) {
-    if (!self || !out_angle_rad) {
-        return EDGE_EINVAL;
-    }
-    self->count_accumulator += step_delta;
-    while (self->count_accumulator < 0) {
-        self->count_accumulator += (int32_t)self->counts_per_rev;
-    }
-    while (self->count_accumulator >= (int32_t)self->counts_per_rev) {
-        self->count_accumulator -= (int32_t)self->counts_per_rev;
+/*
+ * enc_abi.c:100-124. The index is only taken if the pin is still high once the caller's own
+ * settling has passed - the reference spends four instructions there to reject pulses too short to
+ * be anything but noise - and then where the counter was decides whether this is the index it is
+ * looking for: within a twentieth of the wrap on either side resets the counter and clears the bad
+ * count, while five implausible pulses in a row lose the index again.
+ *
+ * The reference reads the counter twice, once to test and once to remember; a port can only read
+ * the instant it is given, so the one reading serves both.
+ */
+void encoder_abi_index_pulse(encoder_abi_config_t *cfg, const encoder_abi_port_t *port) {
+    if (cfg == (void *)0 || port == (void *)0 || port->read_index_high == (void *)0 ||
+        port->read_count == (void *)0) {
+        return;
     }
 
-    self->last_angle_rad =
-        ((float)self->count_accumulator / (float)self->counts_per_rev) * (2.0f * (float)M_PI);
-    if (dt > 1e-6f) {
-        float rps = ((float)step_delta / (float)self->counts_per_rev) / dt;
-        self->speed_rpm = rps * 60.0f;
+    if (!port->read_index_high(port->self)) {
+        return;
     }
-    *out_angle_rad = self->last_angle_rad;
-    return EDGE_OK;
+
+    const uint32_t cnt = port->read_count(port->self);
+    const uint32_t lim = cfg->counts / 20u;
+
+    cfg->state.cnt_at_ind_last = cnt;
+    cfg->state.index_pulse_cnt++;
+
+    if (cfg->state.index_found) {
+        /* Some plausibility filtering: an index is only where a revolution begins. */
+        if (cnt > (cfg->counts - lim) || cnt < lim) {
+            if (port->write_count != (void *)0) {
+                port->write_count(port->self, 0u);
+            }
+            cfg->state.bad_pulses = 0;
+        } else {
+            cfg->state.bad_pulses++;
+
+            if (cfg->state.bad_pulses > 5) {
+                cfg->state.index_found = false;
+            }
+        }
+    } else {
+        if (port->write_count != (void *)0) {
+            port->write_count(port->self, 0u);
+        }
+        cfg->state.index_found = true;
+        cfg->state.bad_pulses = 0;
+    }
 }
 
 /*
