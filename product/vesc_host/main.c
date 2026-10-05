@@ -117,6 +117,7 @@ int main(void) {
     static alignas(
         MOTOR_CONFIG_STORAGE_ALIGN) unsigned char motor_cfg_storage[MOTOR_CONFIG_STORAGE_SIZE];
     motor_config_t *motor_cfg = (motor_config_t *)motor_cfg_storage;
+    glue_state.config = motor_cfg;
     motor_config_construct(motor_cfg, EDGE_MOD_MOTOR_CONFIG, 30u, &var_port);
     if (motor_config_init(motor_cfg) < 0) {
         return 10;
@@ -388,6 +389,7 @@ int main(void) {
         TIMEOUT_GUARD_STORAGE_ALIGN) unsigned char guard_storage[TIMEOUT_GUARD_STORAGE_SIZE];
     timeout_guard_t *guard = (timeout_guard_t *)guard_storage;
     timeout_guard_construct(guard, EDGE_MOD_TIMEOUT_GUARD, 5u, NULL, 500u, 5.0f, 1000u);
+    glue_state.timeout = guard;
     if (timeout_guard_init(guard) != EDGE_OK) {
         return 13;
     }
@@ -502,6 +504,7 @@ int main(void) {
 
     bldc_drive_t bldc_app;
     bldc_drive_construct(&bldc_app, EDGE_MOD_BLDC_DRIVE, 25u, &bldc_cfg);
+    glue_state.bldc = &bldc_app;
     if (bldc_drive_init(&bldc_app) != EDGE_OK) {
         return 24;
     }

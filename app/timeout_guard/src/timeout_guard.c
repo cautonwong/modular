@@ -77,6 +77,35 @@ void timeout_guard_construct(timeout_guard_t *self, uint32_t module_id, uint32_t
     self->timeout_count = 0;
 }
 
+/*
+ * conf_general_detect_motor_param's pair (conf_general.c:543-551, :634, :710). The reference saves
+ * what timeout_get_timeout_msec() and timeout_get_brake_current() report, configures sixty seconds
+ * with no brake and the kill switch disabled for the run, and puts the two back on every way out.
+ */
+void timeout_guard_get_timeout(const timeout_guard_t *self, uint32_t *timeout_ms,
+                               float *brake_current_a) {
+    if (self == (void *)0) {
+        return;
+    }
+    if (timeout_ms != (void *)0) {
+        *timeout_ms = self->timeout_ms;
+    }
+    if (brake_current_a != (void *)0) {
+        *brake_current_a = self->brake_current_a;
+    }
+}
+
+void timeout_guard_set_timeout(timeout_guard_t *self, uint32_t timeout_ms, float brake_current_a) {
+    if (self == (void *)0) {
+        return;
+    }
+    self->timeout_ms = timeout_ms > 0u ? timeout_ms : 1000u;
+    self->brake_current_a = brake_current_a;
+    /* A new setting is a fresh start, which is the other half of the reference's timeout_configure
+     * - and the guard here has been silent for however long the caller spent before calling it. */
+    self->has_timed_out = false;
+}
+
 edge_status_t timeout_guard_init(timeout_guard_t *self) {
     if (self == (void *)0) {
         return EDGE_EINVAL;

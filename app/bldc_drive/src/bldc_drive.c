@@ -318,7 +318,33 @@ int bldc_drive_get_tacho_delta(bldc_drive_t *self) {
      */
     const int delta = bldc_tacho_step_delta(self->comm_step, self->last_step);
     self->last_step = self->comm_step - 1;
+    self->tacho += (int32_t)delta;
     return delta;
+}
+
+/*
+ * mcpwm.c:2558-2566's own count: the sum of the deltas above, which is the figure the reference's
+ * update_rpm_tacho keeps and mc_interface_get_tachometer_value hands out.
+ */
+int32_t bldc_drive_tacho(const bldc_drive_t *self) {
+    return (self != (void *)0) ? self->tacho : 0;
+}
+
+/*
+ * mcpwm.c:2195-2200, mcpwm_read_reset_avg_cycle_integrator: the average the DELAY mode accumulated
+ * over the commutations since this was last called, with the two figures it averages cleared as it
+ * is taken - the reference's own division, so a run that accumulated none gives the infinity or the
+ * not-a-number that follows from it rather than an excuse not to divide.
+ */
+float bldc_drive_read_reset_cycle_integrator(bldc_drive_t *self) {
+    if (self == (void *)0) {
+        return 0.0f;
+    }
+
+    const float average = self->comm.cycle_integrator_sum / self->comm.cycle_integrator_iterations;
+    self->comm.cycle_integrator_sum = 0.0f;
+    self->comm.cycle_integrator_iterations = 0.0f;
+    return average;
 }
 
 bool bldc_drive_is_sensorless(const bldc_drive_t *self) {

@@ -459,6 +459,19 @@ typedef struct vesc_comm_ops_port {
      * the reference sends in the same case.
      */
     edge_status_t (*detect_hall_foc)(void *self, float current_a, uint8_t table[8], bool *result);
+    /*
+     * COMM_DETECT_MOTOR_PARAM: the all-in-one detection (conf_general.c:514-715), whose command
+     * hands over three scaled floats and takes back the cycle integrator's ceiling, the coupling
+     * factor, the eight hall-table bytes and the reference's own count of the readings that came up
+     * short. The reference's command runs to completion before it answers, so an implementation
+     * that drives the procedure to its end is what that looks like from here. The DC-offset
+     * calibration that prologue does first stays the product's, as it is for the other detections
+     * here: a product with no such calibration answers ENOTSUP and the command is refused rather
+     * than half answered.
+     */
+    edge_status_t (*detect_motor_param)(void *self, float current_a, float min_rpm, float low_duty,
+                                        float *int_limit, float *bemf_coupling_k,
+                                        uint8_t hall_table[8], int32_t *hall_res);
     /* COMM_DETECT_MOTOR_FLUX_LINKAGE_OPENLOOP: run the open-loop flux-linkage measurement. The
      * reference blocks its command thread until it comes back, so an implementation that advances
      * the measurement to its end before returning is what that looks like from here. */

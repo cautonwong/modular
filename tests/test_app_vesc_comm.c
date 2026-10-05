@@ -1093,7 +1093,7 @@ static void test_every_handled_command_id_is_reachable(void **state) {
     /* An id nobody handles answers nothing, which is what the reference does with an unknown
      * command - and what docs/bldc-migration.md records for the detection family. */
     const size_t before = ctx.tx_count;
-    uint8_t unknown[2] = {COMM_DETECT_MOTOR_PARAM, 0u};
+    uint8_t unknown[2] = {0xFEu, 0u};
     assert_int_equal(vesc_comm_process_command(comm, unknown, sizeof(unknown)), EDGE_ENOTSUP);
     assert_int_equal(ctx.tx_count, before);
 }
@@ -1667,7 +1667,17 @@ static void test_detect_param_is_refused_and_apply_all_forwards(void **state) {
     assert_int_equal(vesc_comm_init(comm), EDGE_OK);
 
     const uint8_t param[1] = {COMM_DETECT_MOTOR_PARAM};
-    assert_int_equal(vesc_comm_process_command(comm, param, sizeof(param)), EDGE_ENOTSUP);
+    assert_int_equal(vesc_comm_process_command(comm, param, sizeof(param)), EDGE_EINVAL);
+
+    /* A well-formed detection request with no callback behind it: the product has not implemented
+     * the run, so the command is refused rather than half answered. */
+    uint8_t param_full[13];
+    int32_t param_at = 0;
+    param_full[param_at++] = COMM_DETECT_MOTOR_PARAM;
+    vesc_buffer_append_float32(param_full, 5.0f, 1e3f, &param_at);
+    vesc_buffer_append_float32(param_full, 200.0f, 1e3f, &param_at);
+    vesc_buffer_append_float32(param_full, 0.2f, 1e3f, &param_at);
+    assert_int_equal(vesc_comm_process_command(comm, param_full, (size_t)param_at), EDGE_ENOTSUP);
 
     const uint8_t apply_short[1] = {COMM_DETECT_APPLY_ALL_FOC};
     assert_int_equal(vesc_comm_process_command(comm, apply_short, sizeof(apply_short)),
@@ -1804,6 +1814,122 @@ typedef struct mock_hall_detect_ctx {
     edge_status_t status;
 } mock_hall_detect_ctx_t;
 
+/*
+ * The all-in-one detection's reply (comm/commands.c:2096-2123): an int32 of the cycle integrator's
+ * ceiling at a thousandth, an int32 of the coupling factor at the same scale, the eight table bytes
+ * copied as they are, and one byte of the count of readings that came up short - with a run that
+ * did not pass clearing the two numbers and sending the rest of what the procedure left.
+ */
+typedef struct mock_param_detect_ctx {
+    int calls;
+    edge_status_t status;
+    float int_limit;
+    float coupling_k;
+    int32_t hall_res;
+    uint8_t table[8];
+    float last_current;
+    float last_min_rpm;
+    float last_low_duty;
+} mock_param_detect_ctx_t;
+
+static edge_status_t mock_detect_motor_param(void *self, float current_a, float min_rpm,
+                                             float low_duty, float *int_limit,
+                                             float *bemf_coupling_k, uint8_t table[8],
+                                             int32_t *hall_res) {
+    mock_param_detect_ctx_t *ctx = (mock_param_detect_ctx_t *)self;
+    ctx->calls++;
+    ctx->last_current = current_a;
+    ctx->last_min_rpm = min_rpm;
+    ctx->last_low_duty = low_duty;
+    if (ctx->status == EDGE_EINVAL || ctx->status == EDGE_ENOTSUP) {
+        return ctx->status;
+    }
+    /* What a procedure with nothing to report leaves behind is still what it reports. */
+    *int_limit = ctx->int_limit;
+    *bemf_coupling_k = ctx->coupling_k;
+    memcpy(table, ctx->table, 8u);
+    *hall_res = ctx->hall_res;
+    return ctx->status;
+}
+
+static void test_detect_motor_param_command(void **state) {
+    (void)state;
+    mock_comm_ctx_t tx;
+    memset(&tx, 0, sizeof(tx));
+    edge_stream_tx_port_t tx_port = {.write = mock_stream_write, .self = &tx};
+
+    uint8_t packet[13];
+    int32_t at = 0;
+    packet[at++] = COMM_DETECT_MOTOR_PARAM;
+    vesc_buffer_append_float32(packet, 5.0f, 1e3f, &at);
+    vesc_buffer_append_float32(packet, 200.0f, 1e3f, &at);
+    vesc_buffer_append_float32(packet, 0.2f, 1e3f, &at);
+    assert_int_equal(at, 13);
+
+    mock_param_detect_ctx_t detect;
+    memset(&detect, 0, sizeof(detect));
+    detect.status = EDGE_OK;
+    detect.int_limit = 100.0f;
+    detect.coupling_k = 123.456f;
+    detect.hall_res = 2;
+    for (int i = 0; i < 8; i++) {
+        detect.table[i] = (uint8_t)(0x10 + i);
+    }
+
+    vesc_comm_ops_port_t ops = {.terminal_cmd = mock_terminal_cmd,
+                                .forward_can = mock_forward_can,
+                                .detect_motor_param = mock_detect_motor_param,
+                                .self = &detect};
+    vesc_comm_t *comm = test_comm_alloc();
+    vesc_comm_construct(comm, EDGE_MOD_VESC_COMM, 10u, &tx_port, NULL, NULL, NULL, &ops,
+                        &test_identity);
+    assert_int_equal(vesc_comm_init(comm), EDGE_OK);
+
+    tx.tx_count = 0u;
+    assert_int_equal(vesc_comm_process_command(comm, packet, sizeof(packet)), EDGE_OK);
+    assert_int_equal(detect.calls, 1);
+    assert_float_equal(detect.last_current, 5.0f, 1e-3f);
+    assert_float_equal(detect.last_min_rpm, 200.0f, 1e-3f);
+    assert_float_equal(detect.last_low_duty, 0.2f, 1e-3f);
+
+    /* Two of the framing bytes, eighteen of payload, the checksum and the stop byte. */
+    assert_int_equal(tx.tx_len, 2u + 18u + 3u);
+    const uint8_t *p = tx.tx_buf + 2u;
+    assert_int_equal(p[0], COMM_DETECT_MOTOR_PARAM);
+    assert_int_equal((int32_t)(((uint32_t)p[1] << 24) | ((uint32_t)p[2] << 16) |
+                               ((uint32_t)p[3] << 8) | (uint32_t)p[4]),
+                     100000);
+    assert_int_equal((int32_t)(((uint32_t)p[5] << 24) | ((uint32_t)p[6] << 16) |
+                               ((uint32_t)p[7] << 8) | (uint32_t)p[8]),
+                     123456);
+    for (int i = 0; i < 8; i++) {
+        assert_int_equal(p[9 + i], 0x10 + i);
+    }
+    assert_int_equal(p[17], 2u);
+
+    /* A run that did not pass: the two numbers go to nought and the table and count stay. */
+    detect.status = EDGE_ESTATE;
+    detect.int_limit = 100.0f;
+    detect.coupling_k = 123.456f;
+    tx.tx_count = 0u;
+    assert_int_equal(vesc_comm_process_command(comm, packet, sizeof(packet)), EDGE_OK);
+    const uint8_t *q = tx.tx_buf + 2u;
+    assert_int_equal((int32_t)(((uint32_t)q[1] << 24) | ((uint32_t)q[2] << 16) |
+                               ((uint32_t)q[3] << 8) | (uint32_t)q[4]),
+                     0);
+    assert_int_equal((int32_t)(((uint32_t)q[5] << 24) | ((uint32_t)q[6] << 16) |
+                               ((uint32_t)q[7] << 8) | (uint32_t)q[8]),
+                     0);
+    assert_int_equal(q[9], 0x10);
+    assert_int_equal(q[17], 2u);
+
+    /* And a port-level refusal is the port's answer rather than a reply. */
+    detect.status = EDGE_ENOTSUP;
+    tx.tx_count = 0u;
+    assert_int_equal(vesc_comm_process_command(comm, packet, sizeof(packet)), EDGE_ENOTSUP);
+    assert_int_equal(tx.tx_count, 0u);
+}
+
 static edge_status_t mock_detect_hall_foc(void *self, float current_a, uint8_t table[8],
                                           bool *result) {
     mock_hall_detect_ctx_t *ctx = (mock_hall_detect_ctx_t *)self;
@@ -1903,6 +2029,7 @@ int main(void) {
         cmocka_unit_test(test_detect_param_is_refused_and_apply_all_forwards),
         cmocka_unit_test(test_restart_commands_reach_the_product),
         cmocka_unit_test(test_detect_hall_foc_command),
+        cmocka_unit_test(test_detect_motor_param_command),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

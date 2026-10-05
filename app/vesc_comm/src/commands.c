@@ -823,25 +823,57 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
     case COMM_ALIVE:
         return EDGE_OK;
 
-    /*
-     * The two detection commands that cannot run on this port are named here rather than left to
-     * the default, because what stops them is not that nobody has written them yet.
-     *
-     * The parameter detection drives the motor with the BLDC six-step commutator: it stages
-     * MOTOR_TYPE_BLDC with a sensorless start, an integrating commutation mode and its own sl_*
-     * limits (conf_general.c:514-536), and builds its hall table and its BEMF coupling constant
-     * from that drive and the raw hall inputs. This port has no six-step commutation layer at all,
-     * and no product with halls to commutate from - the same disposition the hall procedure itself
-     * carries (docs/adr-conformance.md).
-     *
-     * The all-in-one detection is that procedure plus the others, behind a prologue this port
-     * refuses deliberately: its first act is a DC-offset calibration (conf_general.c:1747,
-     * mcpwm_foc_dc_cal), and this port's phase currents come from a mid-scale offset with no
-     * calibration pass. Answering that it cannot is honest; answering with half a run's numbers is
-     * not.
-     */
-    case COMM_DETECT_MOTOR_PARAM:
-        return EDGE_ENOTSUP;
+    case COMM_DETECT_MOTOR_PARAM: {
+        /*
+         * Reference comm/commands.c:2096-2123: three scaled floats in, and out an int32 of the
+         * cycle integrator's ceiling at a thousandth, an int32 of the coupling factor at the same
+         * scale, the eight table bytes copied as they are, and one byte of the reference's own
+         * count of the readings that came up short.
+         *
+         * A run that did not pass zeroes the two numbers and nothing else (:2111-2114): the table
+         * and the count are what the procedure left behind, which is why they are its outputs
+         * rather than values this handler sets. The DC-offset calibration the reference's
+         * all-in-one command does first is the product's, around its own callback, as it is for the
+         * other detections here.
+         */
+        if (len < 13u) {
+            return EDGE_EINVAL;
+        }
+
+        size_t ind = 1u; /* past the command id, as every handler's own offset is */
+        const float current = buffer_get_float32(data, 1e3f, &ind);
+        const float min_rpm = buffer_get_float32(data, 1e3f, &ind);
+        const float low_duty = buffer_get_float32(data, 1e3f, &ind);
+
+        if (self->ops == (void *)0 || self->ops->detect_motor_param == (void *)0) {
+            return EDGE_ENOTSUP;
+        }
+
+        float int_limit = 0.0f;
+        float coupling_k = 0.0f;
+        uint8_t table[8];
+        int32_t hall_res = 0;
+        memset(table, 0, sizeof(table));
+
+        const edge_status_t status = self->ops->detect_motor_param(
+            self->ops->self, current, min_rpm, low_duty, &int_limit, &coupling_k, table, &hall_res);
+        if (status == EDGE_EINVAL || status == EDGE_ENOTSUP) {
+            return status;
+        }
+        if (status != EDGE_OK) {
+            int_limit = 0.0f;
+            coupling_k = 0.0f;
+        }
+
+        size_t out = 0;
+        self->cmd_reply_buf[out++] = COMM_DETECT_MOTOR_PARAM;
+        buffer_append_int32(self->cmd_reply_buf, (int32_t)(int_limit * 1000.0f), &out);
+        buffer_append_int32(self->cmd_reply_buf, (int32_t)(coupling_k * 1000.0f), &out);
+        memcpy(&self->cmd_reply_buf[out], table, 8u);
+        out += 8u;
+        self->cmd_reply_buf[out++] = (uint8_t)hall_res;
+        return send_reply(self, out);
+    }
 
     case COMM_DETECT_APPLY_ALL_FOC: {
         /*

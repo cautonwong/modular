@@ -1796,6 +1796,7 @@ edge_status_t motor_id_detect_motor_param(motor_id_app_t *app, float current_a, 
     app->result.int_limit = 0.0f;
     app->result.bemf_coupling_k = 0.0f;
     app->result.hall_valid = false;
+    app->result.hall_res = 0;
     app->result.valid = false;
     memset(app->result.hall_table, 0, sizeof(app->result.hall_table));
     app->param_current_a = current_a;
@@ -2020,6 +2021,7 @@ static void motor_id_param_tick(motor_id_app_t *app) {
             int hall_res = 0;
             (void)p->read_hall_detect_result(p->self, app->result.hall_table, &hall_res);
             app->result.hall_valid = (hall_res == 0);
+            app->result.hall_res = (int32_t)hall_res;
             app->param_int_limit = p->read_reset_avg_cycle_integrator(p->self);
         }
         app->result.int_limit = app->param_int_limit;

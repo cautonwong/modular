@@ -116,7 +116,7 @@ edge_add_host_test(test_product_glue SOURCES test_product_glue.c
     ../product/water_meter_host/glue.c
     ../product/vesc_host/glue.c
     ../product/vesc6_stm32f4/glue.c
-    DEPS app_dlt645 app_meter_core app_modbus_slave app_pulse_meter app_relay app_foc_core app_vesc_comm app_motor_config app_ppm app_adc_input app_vesc_can app_motor_id app_nunchuk app_pas app_balance app_vesc_terminal app_vesc_bms infra_flash infra_gpio infra_uart infra_vesc_buffer board_vesc6)
+    DEPS app_dlt645 app_meter_core app_modbus_slave app_pulse_meter app_relay app_foc_core app_vesc_comm app_motor_config app_ppm app_adc_input app_vesc_can app_motor_id app_nunchuk app_pas app_balance app_vesc_terminal app_vesc_bms app_bldc_drive app_timeout_guard infra_flash infra_gpio infra_uart infra_vesc_buffer board_vesc6)
 target_include_directories(test_product_glue PRIVATE ${EDGE_ROOT}/product ${EDGE_ROOT}/product/meter_gateway_host ${EDGE_ROOT}/product/water_meter_host ${EDGE_ROOT}/product/vesc_host)
 
 #

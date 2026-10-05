@@ -177,6 +177,13 @@ typedef struct motor_id_result {
      */
     uint8_t hall_table[8];
     bool hall_valid;
+    /*
+     * conf_general.c:662's own count, which mcpwm_get_hall_detect_result (:2257-2299) returns: how
+     * many of the eight readings were seen too few times to trust. The command sends it back as one
+     * byte, and a run that did not pass keeps it - the reference's failure path zeroes the two
+     * numbers and leaves the table and this count as the procedure left them.
+     */
+    int32_t hall_res;
 
     /*
      * conf_general_detect_motor_param's own two answers (:665, :708): the cycle integrator the
