@@ -118,6 +118,8 @@ typedef enum {
  * reference's terms.
  */
 typedef struct foc_limit_params {
+    float l_temp_fet_start;       /* mcconf l_temp_fet_start, the FET temperature's knees */
+    float l_temp_fet_end;         /* mcconf l_temp_fet_end */
     float l_temp_motor_start;     /* mcconf l_temp_motor_start, the motor temperature's knees */
     float l_temp_motor_end;       /* mcconf l_temp_motor_end */
     float l_erpm_start;           /* mcconf l_erpm_start, where both ERPM cuts begin */
