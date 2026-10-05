@@ -1726,6 +1726,469 @@ static void test_motor_id_detect_hall_runs_the_whole_sweep(void **state) {
     assert_int_equal(motor_id_detect_hall(&bare, 5.0f, 0), EDGE_ENOTSUP);
 }
 
+/*
+ * A plant for the parameter detection (conf_general.c:514-715). Where the procedure's other plants
+ * hold a motor still, this one is a drive that is spinning up: the duty it has reached and where it
+ * is headed, the count its tachometer is on, and the integrator whose reading hands back the
+ * average since the last one and clears itself.
+ *
+ * What the reference's own spin-up does through the motor is modelled by the duty walking to its
+ * target a step at a time: a current asks for the spin-up duty, letting the current go lets it
+ * fall, and set_duty names the target it is held at.
+ */
+typedef struct mock_param_plant {
+    float duty;
+    float duty_target;
+    float duty_step;
+    uint32_t tacho;
+    uint32_t tacho_step;
+    uint32_t fault;
+    bool running;
+    /* A drive that has been asked for a current or a duty is spinning, and keeps spinning - and
+     * keeps counting - after the current is let go of, which is how the reference counts the
+     * commutations of a motor that is coasting. */
+    bool spun_up;
+    float rpm;
+    float v_bus;
+
+    /* The integrator's readings in order. The reference takes four: it throws the first and the
+     * third away, keeps the second as the ceiling and the fourth as the running average. */
+    float integrator[4];
+    int integrator_reads;
+
+    float hall_table[8];
+    int hall_res;
+
+    /* What the plant was told. */
+    float staged_min_erpm[4];
+    float staged_limit[4];
+    bool staged_delay[4];
+    int stage_calls;
+    int switch_calls;
+    int disable_timeout_calls;
+    int restore_timeout_calls;
+    int release_calls;
+    int reset_hall_calls;
+    float iq_set;
+} mock_param_plant_t;
+
+static void mock_param_advance(mock_param_plant_t *p) {
+    if (p->duty < p->duty_target) {
+        p->duty = fminf(p->duty + p->duty_step, p->duty_target);
+    } else if (p->duty > p->duty_target) {
+        p->duty = fmaxf(p->duty - p->duty_step, p->duty_target);
+    }
+    if (p->spun_up) {
+        p->tacho += p->tacho_step;
+    }
+}
+
+static edge_status_t mock_param_set_current(void *self, float iq) {
+    mock_param_plant_t *p = (mock_param_plant_t *)self;
+    p->iq_set = iq;
+    p->duty_target = (iq > 0.0f) ? 0.5f : 0.0f;
+    if (iq > 0.0f) {
+        p->spun_up = true;
+    }
+    return EDGE_OK;
+}
+
+static edge_status_t mock_param_set_duty(void *self, float duty) {
+    mock_param_plant_t *p = (mock_param_plant_t *)self;
+    p->duty_target = duty;
+    p->spun_up = true;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_param_read_duty(void *self, float *duty_now) {
+    *duty_now = ((mock_param_plant_t *)self)->duty;
+    return EDGE_OK;
+}
+
+static uint32_t mock_param_read_tacho(void *self) {
+    return ((mock_param_plant_t *)self)->tacho;
+}
+
+static float mock_param_read_integrator(void *self) {
+    mock_param_plant_t *p = (mock_param_plant_t *)self;
+    const float value = p->integrator[p->integrator_reads <= 3 ? p->integrator_reads : 3];
+    p->integrator_reads++;
+    return value;
+}
+
+static edge_status_t mock_param_stage(void *self, float min_erpm, float cycle_int_limit,
+                                      bool delay_comm_mode) {
+    mock_param_plant_t *p = (mock_param_plant_t *)self;
+    const int i = p->stage_calls <= 3 ? p->stage_calls : 3;
+    p->staged_min_erpm[i] = min_erpm;
+    p->staged_limit[i] = cycle_int_limit;
+    p->staged_delay[i] = delay_comm_mode;
+    p->stage_calls++;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_param_switch_comm_mode(void *self) {
+    ((mock_param_plant_t *)self)->switch_calls++;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_param_disable_timeout(void *self) {
+    ((mock_param_plant_t *)self)->disable_timeout_calls++;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_param_restore_timeout(void *self) {
+    ((mock_param_plant_t *)self)->restore_timeout_calls++;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_param_restore_config(void *self) {
+    (void)self;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_param_release_motor(void *self) {
+    mock_param_plant_t *p = (mock_param_plant_t *)self;
+    p->running = false;
+    p->spun_up = false;
+    p->duty_target = 0.0f;
+    p->release_calls++;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_param_is_running(void *self, bool *running) {
+    *running = ((mock_param_plant_t *)self)->running;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_param_reset_hall_detect(void *self) {
+    ((mock_param_plant_t *)self)->reset_hall_calls++;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_param_read_hall_detect_result(void *self, uint8_t table[8], int *res) {
+    mock_param_plant_t *p = (mock_param_plant_t *)self;
+    for (int i = 0; i < 8; i++) {
+        table[i] = (uint8_t)p->hall_table[i];
+    }
+    *res = p->hall_res;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_param_read_rpm(void *self, float *rpm) {
+    *rpm = ((mock_param_plant_t *)self)->rpm;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_param_read_vbus(void *self, float *v_bus) {
+    *v_bus = ((mock_param_plant_t *)self)->v_bus;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_param_set_phase_override(void *self, float angle_rad, bool enable) {
+    (void)self;
+    (void)angle_rad;
+    (void)enable;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_param_reset_samples(void *self) {
+    (void)self;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_param_read_samples(void *self, float *i_sum, float *v_sum,
+                                             uint32_t *count) {
+    (void)self;
+    if (i_sum != NULL) {
+        *i_sum = 0.0f;
+    }
+    if (v_sum != NULL) {
+        *v_sum = 0.0f;
+    }
+    if (count != NULL) {
+        *count = 0u;
+    }
+    return EDGE_OK;
+}
+
+static edge_status_t mock_param_stop(void *self) {
+    (void)self;
+    return EDGE_OK;
+}
+
+static uint32_t mock_param_read_fault(void *self) {
+    return ((mock_param_plant_t *)self)->fault;
+}
+
+static motor_id_measure_port_t make_param_port(mock_param_plant_t *p) {
+    motor_id_measure_port_t port = {.self = p,
+                                    .set_phase_override = mock_param_set_phase_override,
+                                    .set_current = mock_param_set_current,
+                                    .reset_samples = mock_param_reset_samples,
+                                    .read_samples = mock_param_read_samples,
+                                    .get_fault = mock_param_read_fault,
+                                    .stop = mock_param_stop,
+                                    .set_duty = mock_param_set_duty,
+                                    .read_duty = mock_param_read_duty,
+                                    .read_rpm = mock_param_read_rpm,
+                                    .read_vbus = mock_param_read_vbus,
+                                    .release_motor = mock_param_release_motor,
+                                    .is_running = mock_param_is_running,
+                                    .stage_bldc_config = mock_param_stage,
+                                    .restore_bldc_config = mock_param_restore_config,
+                                    .switch_comm_mode_delay = mock_param_switch_comm_mode,
+                                    .disable_timeout = mock_param_disable_timeout,
+                                    .restore_timeout = mock_param_restore_timeout,
+                                    .read_tacho = mock_param_read_tacho,
+                                    .read_reset_avg_cycle_integrator = mock_param_read_integrator,
+                                    .reset_hall_detect = mock_param_reset_hall_detect,
+                                    .read_hall_detect_result = mock_param_read_hall_detect_result};
+    return port;
+}
+
+static void run_param_ms(motor_id_app_t *app, mock_param_plant_t *p, int ms) {
+    for (int i = 0; i < ms; i++) {
+        mock_param_advance(p);
+        assert_int_equal(motor_id_step(app, 0.001f), EDGE_OK);
+    }
+}
+
+/*
+ * conf_general.c:705-715 and the arithmetic around it: the settings an attempt runs with, the test
+ * a watched count is held to, the coupling factor and the five-step criterion.
+ */
+static void test_motor_id_spinup_params_match_the_reference(void **state) {
+    (void)state;
+
+    motor_id_spinup_params_t params;
+
+    motor_id_spinup_params(0u, 200.0f, &params);
+    assert_float_equal(params.sl_min_erpm, 200.0f, 1e-6f);
+    assert_float_equal(params.sl_cycle_int_limit, 50.0f, 1e-6f);
+    assert_false(params.delay_comm_mode);
+
+    motor_id_spinup_params(1u, 200.0f, &params);
+    assert_float_equal(params.sl_min_erpm, 400.0f, 1e-6f);
+    assert_float_equal(params.sl_cycle_int_limit, 20.0f, 1e-6f);
+    assert_false(params.delay_comm_mode);
+
+    motor_id_spinup_params(2u, 200.0f, &params);
+    assert_float_equal(params.sl_min_erpm, 800.0f, 1e-6f);
+    assert_float_equal(params.sl_cycle_int_limit, 20.0f, 1e-6f);
+    assert_true(params.delay_comm_mode);
+
+    /* Past the third is the third, which is where the reference's own loop stops. */
+    motor_id_spinup_params(9u, 200.0f, &params);
+    assert_float_equal(params.sl_min_erpm, 800.0f, 1e-6f);
+    assert_true(params.delay_comm_mode);
+
+    /* Nothing to write into. */
+    motor_id_spinup_params(0u, 200.0f, NULL);
+}
+
+static void test_motor_id_tacho_advanced_matches_the_reference(void **state) {
+    (void)state;
+
+    assert_false(motor_id_tacho_advanced(100u, 102u, 3u));
+    assert_true(motor_id_tacho_advanced(100u, 103u, 3u));
+    assert_true(motor_id_tacho_advanced(100u, 150u, 50u));
+    assert_false(motor_id_tacho_advanced(100u, 149u, 50u));
+    assert_true(motor_id_tacho_advanced(100u, 200u, 100u));
+    /* The reference subtracts unsigned counts, so a count that has wrapped around is a count that
+     * has advanced. */
+    assert_true(motor_id_tacho_advanced(0xFFFFFFFEu, 1u, 3u));
+}
+
+static void test_motor_id_bemf_coupling_k_matches_the_reference(void **state) {
+    (void)state;
+
+    /* :705-708: subtract, divide, multiply - in that order and with no guard on the divisor. */
+    assert_float_equal(motor_id_bemf_coupling_k(120.0f, 100.0f, 24.0f, 1000.0f),
+                       (120.0f - 100.0f) / 24.0f * 1000.0f, 1e-3f);
+    assert_float_equal(motor_id_bemf_coupling_k(100.0f, 100.0f, 24.0f, 1000.0f), 0.0f, 1e-6f);
+    assert_true(isinf(motor_id_bemf_coupling_k(120.0f, 100.0f, 0.0f, 1000.0f)));
+}
+
+static void test_motor_id_spinup_passed_matches_the_reference(void **state) {
+    (void)state;
+
+    assert_false(motor_id_spinup_passed(0u));
+    assert_false(motor_id_spinup_passed(4u));
+    assert_true(motor_id_spinup_passed(5u));
+    assert_false(motor_id_spinup_passed(6u));
+}
+
+/* The guards: the arguments, the state, and the callbacks the procedure cannot run without. */
+static void test_motor_id_detect_motor_param_guards(void **state) {
+    (void)state;
+    mock_param_plant_t plant = {.v_bus = 24.0f};
+    motor_id_measure_port_t port = make_param_port(&plant);
+    motor_id_app_t app;
+
+    assert_int_equal(motor_id_detect_motor_param(NULL, 5.0f, 200.0f, 0.2f), EDGE_EINVAL);
+
+    motor_id_construct(&app, EDGE_MOD_MOTOR_ID, 40u, &port);
+    assert_int_equal(motor_id_init(&app), EDGE_OK);
+    assert_int_equal(motor_id_detect_motor_param(&app, 0.0f, 200.0f, 0.2f), EDGE_EINVAL);
+    assert_int_equal(motor_id_detect_motor_param(&app, 5.0f, 0.0f, 0.2f), EDGE_EINVAL);
+
+    /* One callback the procedure needs gone: it says it cannot run rather than running blind. */
+    motor_id_measure_port_t partial = port;
+    partial.read_tacho = NULL;
+    motor_id_app_t partial_app;
+    motor_id_construct(&partial_app, EDGE_MOD_MOTOR_ID, 40u, &partial);
+    assert_int_equal(motor_id_init(&partial_app), EDGE_OK);
+    assert_int_equal(motor_id_detect_motor_param(&partial_app, 5.0f, 200.0f, 0.2f), EDGE_ENOTSUP);
+
+    /* Started, then asked again while it is running. */
+    assert_int_equal(motor_id_detect_motor_param(&app, 5.0f, 200.0f, 0.2f), EDGE_OK);
+    assert_int_equal(motor_id_detect_motor_param(&app, 5.0f, 200.0f, 0.2f), EDGE_EBUSY);
+}
+
+/* The run test plants share: a drive that spins up to the spin-up duty, samples its halls, and
+ * coasts down to the low duty the caller asks for. */
+static void mock_param_plant_init(mock_param_plant_t *p, float duty_step, uint32_t tacho_step) {
+    memset(p, 0, sizeof(*p));
+    p->duty_step = duty_step;
+    p->tacho_step = tacho_step;
+    p->v_bus = 24.0f;
+    p->rpm = 1000.0f;
+    p->integrator[0] = 10.0f;
+    p->integrator[1] = 100.0f;
+    p->integrator[2] = 0.0f;
+    p->integrator[3] = 120.0f;
+    for (int i = 0; i < 8; i++) {
+        p->hall_table[i] = (float)(7 - i);
+    }
+    p->hall_res = 0;
+}
+
+/*
+ * The mid-watch switch (conf_general.c:594-613): the duty passes half of the spin-up value, the
+ * reference switches the commutation mode there, and the switch is what tells it the motor is
+ * running - so the attempt loop stops after the one that switched.
+ */
+static void test_motor_id_detect_motor_param_switches_commutation(void **state) {
+    (void)state;
+    mock_param_plant_t plant;
+    mock_param_plant_init(&plant, 0.01f, 2u);
+    motor_id_measure_port_t port = make_param_port(&plant);
+    motor_id_app_t app;
+
+    motor_id_construct(&app, EDGE_MOD_MOTOR_ID, 40u, &port);
+    assert_int_equal(motor_id_init(&app), EDGE_OK);
+    assert_int_equal(motor_id_detect_motor_param(&app, 5.0f, 200.0f, 0.2f), EDGE_OK);
+
+    run_param_ms(&app, &plant, 4000);
+
+    assert_int_equal(app.state, MOTOR_ID_STATE_COMPLETE);
+    assert_int_equal(plant.switch_calls, 1);
+    /* Only the staging and no re-staging: the switch ended the attempts. */
+    assert_int_equal(plant.stage_calls, 1);
+    assert_float_equal(plant.staged_min_erpm[0], 200.0f, 1e-6f);
+    assert_float_equal(plant.staged_limit[0], 50.0f, 1e-6f);
+    assert_false(plant.staged_delay[0]);
+    assert_int_equal(plant.disable_timeout_calls, 1);
+    assert_int_equal(plant.restore_timeout_calls, 1);
+    assert_int_equal(plant.reset_hall_calls, 1);
+    assert_int_equal(plant.release_calls, 1);
+    assert_float_equal(plant.iq_set, 0.0f, 1e-6f);
+
+    const motor_id_result_t *result = motor_id_get_result(&app);
+    assert_true(result->valid);
+    assert_float_equal(result->int_limit, 100.0f, 1e-6f);
+    assert_float_equal(result->bemf_coupling_k, (120.0f - 100.0f) / 24.0f * 1000.0f, 1e-3f);
+    assert_true(result->hall_valid);
+    for (int i = 0; i < 8; i++) {
+        assert_int_equal(result->hall_table[i], 7 - i);
+    }
+}
+
+/*
+ * The three attempts (conf_general.c:563-585): a duty that jumps past the spin-up value leaves the
+ * commutation mode alone, which is what makes the reference try again - twice, doubling the minimum
+ * speed each time and lowering the integrator's ceiling on the second, which stays through the
+ * third.
+ */
+static void test_motor_id_detect_motor_param_rides_through_three_attempts(void **state) {
+    (void)state;
+    mock_param_plant_t plant;
+    mock_param_plant_init(&plant, 0.6f, 2u);
+    motor_id_measure_port_t port = make_param_port(&plant);
+    motor_id_app_t app;
+
+    motor_id_construct(&app, EDGE_MOD_MOTOR_ID, 40u, &port);
+    assert_int_equal(motor_id_init(&app), EDGE_OK);
+    assert_int_equal(motor_id_detect_motor_param(&app, 5.0f, 200.0f, 0.2f), EDGE_OK);
+
+    run_param_ms(&app, &plant, 8000);
+
+    assert_int_equal(app.state, MOTOR_ID_STATE_COMPLETE);
+    assert_int_equal(plant.switch_calls, 0);
+    assert_int_equal(plant.stage_calls, 3);
+    assert_float_equal(plant.staged_min_erpm[0], 200.0f, 1e-6f);
+    assert_float_equal(plant.staged_min_erpm[1], 400.0f, 1e-6f);
+    assert_float_equal(plant.staged_min_erpm[2], 800.0f, 1e-6f);
+    assert_float_equal(plant.staged_limit[0], 50.0f, 1e-6f);
+    assert_float_equal(plant.staged_limit[1], 20.0f, 1e-6f);
+    assert_float_equal(plant.staged_limit[2], 20.0f, 1e-6f);
+    assert_false(plant.staged_delay[1]);
+    assert_true(plant.staged_delay[2]);
+    /* Each retry lets the motor go first. */
+    assert_int_equal(plant.release_calls, 3);
+}
+
+/*
+ * A duty that never reaches half of the spin-up value and never switches the mode: neither timeout
+ * is survived, and the run gives up with the configuration and the timeout put back.
+ */
+static void test_motor_id_detect_motor_param_fails_when_the_duty_never_rises(void **state) {
+    (void)state;
+    mock_param_plant_t plant;
+    mock_param_plant_init(&plant, 0.0f, 2u);
+    motor_id_measure_port_t port = make_param_port(&plant);
+    motor_id_app_t app;
+
+    motor_id_construct(&app, EDGE_MOD_MOTOR_ID, 40u, &port);
+    assert_int_equal(motor_id_init(&app), EDGE_OK);
+    assert_int_equal(motor_id_detect_motor_param(&app, 5.0f, 200.0f, 0.2f), EDGE_OK);
+
+    run_param_ms(&app, &plant, 4000);
+
+    assert_int_equal(app.state, MOTOR_ID_STATE_FAILED);
+    assert_false(motor_id_get_result(&app)->valid);
+    assert_int_equal(plant.restore_timeout_calls, 1);
+    assert_float_equal(plant.iq_set, 0.0f, 1e-6f);
+    assert_int_equal(plant.reset_hall_calls, 0);
+}
+
+/*
+ * A tachometer that never moves: the three watches run out, so only two of the five steps are
+ * earned - the spin-up and the slow-down - and the run reports that it did not pass while still
+ * handing back the readings it did take.
+ */
+static void test_motor_id_detect_motor_param_reports_fewer_than_five_steps(void **state) {
+    (void)state;
+    mock_param_plant_t plant;
+    mock_param_plant_init(&plant, 0.01f, 0u);
+    motor_id_measure_port_t port = make_param_port(&plant);
+    motor_id_app_t app;
+
+    motor_id_construct(&app, EDGE_MOD_MOTOR_ID, 40u, &port);
+    assert_int_equal(motor_id_init(&app), EDGE_OK);
+    assert_int_equal(motor_id_detect_motor_param(&app, 5.0f, 200.0f, 0.2f), EDGE_OK);
+
+    run_param_ms(&app, &plant, 16000);
+
+    assert_int_equal(app.state, MOTOR_ID_STATE_FAILED);
+    const motor_id_result_t *result = motor_id_get_result(&app);
+    assert_false(result->valid);
+    assert_true(result->hall_valid);
+    assert_float_equal(result->int_limit, 100.0f, 1e-6f);
+    assert_float_equal(plant.iq_set, 0.0f, 1e-6f);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -1756,6 +2219,15 @@ int main(void) {
         cmocka_unit_test(test_motor_id_hall_majority_matches_the_reference),
         cmocka_unit_test(test_motor_id_hall_accumulate_matches_the_reference),
         cmocka_unit_test(test_motor_id_detect_hall_runs_the_whole_sweep),
+        cmocka_unit_test(test_motor_id_spinup_params_match_the_reference),
+        cmocka_unit_test(test_motor_id_tacho_advanced_matches_the_reference),
+        cmocka_unit_test(test_motor_id_bemf_coupling_k_matches_the_reference),
+        cmocka_unit_test(test_motor_id_spinup_passed_matches_the_reference),
+        cmocka_unit_test(test_motor_id_detect_motor_param_guards),
+        cmocka_unit_test(test_motor_id_detect_motor_param_switches_commutation),
+        cmocka_unit_test(test_motor_id_detect_motor_param_rides_through_three_attempts),
+        cmocka_unit_test(test_motor_id_detect_motor_param_fails_when_the_duty_never_rises),
+        cmocka_unit_test(test_motor_id_detect_motor_param_reports_fewer_than_five_steps),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

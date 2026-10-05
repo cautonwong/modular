@@ -59,40 +59,6 @@ int bldc_tacho_step_delta(int comm_step, int last_step);
 bool bldc_sensorless_now(uint8_t sensor_mode, float rpm, float hall_sl_erpm);
 
 /*
- * conf_general_detect_motor_param's three attempts at spinning a motor up (conf_general.c:563-585):
- * the first uses the parameters the command staged, the second doubles the minimum speed and lowers
- * the cycle integral limit to twenty, and the third doubles the speed again and delays the
- * commutation mode. The reference edits one configuration in place across the three, so what each
- * attempt's parameters are is the sum of the branches taken to reach it - which is why the second
- * attempt's limit is still the third's. Between them the motor is released and driven again; that
- * is the caller's.
- *
- * An attempt past the third is the third's, which is where the reference's loop stops.
- */
-typedef struct bldc_spinup_attempt {
-    float sl_min_erpm;
-    float sl_cycle_int_limit;
-    uint8_t comm_mode;
-} bldc_spinup_attempt_t;
-
-void bldc_spinup_attempt_params(uint32_t attempt, float min_rpm, float cycle_int_limit,
-                                bldc_spinup_attempt_t *out);
-
-/* conf_general.c:715: the detection passes only when all five of its own steps did. */
-#define BLDC_SPINUP_OK_STEPS 5u
-
-bool bldc_spinup_passed(uint32_t ok_steps);
-
-/*
- * conf_general.c:705-708, the coupling factor the parameter command derives: the cycle integrator
- * it averaged while the motor ran free at a low duty, less the limit it measured at rest, over the
- * supply voltage, times the speed it averaged. The reference's two inputs are its ADC's supply in
- * counts and its own rpm; both are the caller's here.
- */
-float bldc_bemf_coupling_k(float avg_cycle_integrator_running, float int_limit, float v_in,
-                           float rpm);
-
-/*
  * conf_general_detect_motor_param's staged configuration (conf_general.c:525-536): before any
  * attempt the reference turns the motor into a sensorless BLDC one that commutes by integrating,
  * with the caller's minimum speed and the four other figures it starts from. The remaining fields
@@ -113,14 +79,6 @@ typedef struct bldc_staged_config {
 } bldc_staged_config_t;
 
 void bldc_stage_sensorless_bldc(float min_rpm, bldc_staged_config_t *out);
-
-/*
- * conf_general.c:641-645 and its two siblings (:651-655, :682-686): the way an attempt says it is
- * running is that the tachometer has moved on by a count - three, then fifty, then a hundred - and
- * the reference waits a millisecond at a time until it has, up to its own timeout. The five steps
- * those add up to are what the criterion above counts.
- */
-bool bldc_tacho_advanced(int32_t tacho_start, int32_t tacho_now, int32_t required);
 
 /*
  * mcpwm.c:2302-2307, mcpwm_read_hall_phase: the three hall pins as the reading the commutation is
