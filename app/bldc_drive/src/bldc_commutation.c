@@ -122,6 +122,11 @@ void bldc_stage_sensorless_bldc(float min_rpm, bldc_staged_config_t *out) {
     out->m_invert_direction = false;
 }
 
+bool bldc_tacho_advanced(int32_t tacho_start, int32_t tacho_now, int32_t required) {
+    /* conf_general.c:642's own comparison: the difference against the count it is waiting for. */
+    return (tacho_now - tacho_start) >= required;
+}
+
 bool bldc_sensorless_now(uint8_t sensor_mode, float rpm, float hall_sl_erpm) {
     /* mcpwm.c:2587-2593, whose speed comparison is against the absolute value of its own rpm. */
     return (sensor_mode == BLDC_SENSOR_MODE_SENSORLESS) ||

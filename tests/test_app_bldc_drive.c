@@ -864,6 +864,22 @@ static void test_bldc_stage_sensorless_bldc_matches_the_reference(void **state) 
     bldc_stage_sensorless_bldc(700.0f, NULL);
 }
 
+/*
+ * How an attempt says it is running (conf_general.c:641-686): the tachometer has moved on by three
+ * counts, then fifty, then a hundred, and a motor that has not moved that far - including one going
+ * the other way - has not advanced at all.
+ */
+static void test_bldc_tacho_advanced_matches_the_reference(void **state) {
+    (void)state;
+
+    assert_false(bldc_tacho_advanced(100, 102, 3));
+    assert_true(bldc_tacho_advanced(100, 103, 3));
+    assert_false(bldc_tacho_advanced(100, 149, 50));
+    assert_true(bldc_tacho_advanced(100, 150, 50));
+    assert_true(bldc_tacho_advanced(100, 200, 100));
+    assert_false(bldc_tacho_advanced(100, 90, 3));
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_bldc_hall_tables_match_the_reference),
@@ -884,6 +900,7 @@ int main(void) {
         cmocka_unit_test(test_bldc_spinup_attempts_match_the_reference),
         cmocka_unit_test(test_bldc_bemf_coupling_matches_the_reference),
         cmocka_unit_test(test_bldc_stage_sensorless_bldc_matches_the_reference),
+        cmocka_unit_test(test_bldc_tacho_advanced_matches_the_reference),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
