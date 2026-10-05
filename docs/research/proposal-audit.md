@@ -26,6 +26,7 @@
 | --- | --- | --- | --- | --- |
 | 一 | PineTime 主程序构造 28 个 module，只有少数几个调了 `init()`；`edge_sys_start()` 不会代调 | `product/pinetime/main.c`、`sys/runtime/src/sys.c` | **成立** | 见下 §一 |
 | 二 | ZMK Hold-Tap 的 `quick_tap` 把开机后首击误判为连击（`last_tap_time_ms` 初值 0） | `app/zmk_behavior/src/behavior.c` | **成立** | 见下 §二 |
+| 三 | Macro 的 `WAIT`（`wait_ms` / `default_wait_ms`）声明了但没实现 | `app/zmk_behavior` | **成立** | 见下 §三 |
 | 二–十二 | （待核验） | — | 待定 | — |
 
 ---
@@ -122,9 +123,49 @@ if (ht->config.quick_tap_ms > 0 &&
 
 ---
 
+## 三、Macro 的 `WAIT` 没有实现 —— **成立**
+
+声明的部分都在，提案没有编：
+
+- `app/zmk_behavior/include/zmk_behavior/behavior.h:110`：`ZMK_MACRO_ACTION_WAIT = 3,`
+- 同文件 `:117`：`uint16_t wait_ms;`（在 `zmk_macro_step_t` 里）
+- 同文件 `:123`：`uint16_t default_wait_ms;`（在 `zmk_macro_config_t` 里）
+
+执行的部分没有：`app/zmk_behavior/src/behavior.c:347-364` 的 `case ZMK_BHV_MACRO` 是一个同步循环：
+
+```c
+for (uint8_t s = 0; s < macro->step_count; s++) {
+    const zmk_macro_step_t *st = &macro->steps[s];
+    if (st->action == ZMK_MACRO_ACTION_PRESS) { … }
+    else if (st->action == ZMK_MACRO_ACTION_RELEASE) { … }
+    else if (st->action == ZMK_MACRO_ACTION_TAP) { … }
+}
+```
+
+**没有 WAIT 分支，也没有任何一处读 `st->wait_ms` 或 `macro->default_wait_ms`。** 全仓搜索
+`git grep -n "wait_ms\|ZMK_MACRO_ACTION_WAIT\|default_wait" f2f3da10 -- app/ tests/` 的结果里，
+宏相关的只有上面三个声明；剩下命中全在 `app/zmk_behavior_queue`：
+
+- `app/zmk_behavior_queue/src/behavior_queue.c:117-119`：
+  `if (item.wait_ms > 0) { … app->next_run_time_ms = current_time_ms + item.wait_ms; }`
+
+也就是说：**等待能力在同一个仓里已经有一份可用实现，而在宏这里只是一个字段**。提案的
+「这个需要和 `zmk_behavior_queue` 统一」不是风格建议，是「两套机制、一套真的、一套是壳」。
+
+补充两点：
+
+1. 因为整个循环用同一个 `timestamp_ms` 同步跑完，说它是「同步 key sequence executor」而不是
+   「timed macro engine」是准确的 —— 所有步骤在同一毫秒里发完，包括 TAP 的按下与释放。
+2. 没有任何测试碰过 `wait_ms`（`tests/` 下与 `wait_ms` 相关的断言全部属于 behavior_queue），
+   所以也没有测试把这个行为当成预期。
+
+**判定：成立**。
+
+---
+
 ## 尚未核验（后续按节补）
 
-提案的其余段落：三、Macro WAIT 未实现；四、ZMK Studio
+提案的其余段落：四、ZMK Studio
 Unlock 缺口；五、Studio RPC 吞错；六、RP2040/STM32F4 SoC 驱动是「寄存器模型」；七、RP2040
 watchdog feed 语义；八、STM32F4 SPI/I2C；九、BlackPill board 的 system_reset/low-power；十、CI
 「只 build 不 run」；十一、静态分析盲区；十二、CodeQL 覆盖；十三、值得保留的 CI 实践；十四、
