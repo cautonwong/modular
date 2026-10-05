@@ -35,13 +35,29 @@ typedef struct encoder_as5047 {
     uint32_t parity_errors;
 } encoder_as5047_t;
 
-/* MT6816 SPI Magnetic Encoder */
-typedef struct encoder_mt6816 {
-    encoder_spi_transfer_fn spi_transfer;
-    void *spi_ctx;
-    uint16_t last_angle_raw;
-    bool no_magnet;
-} encoder_mt6816_t;
+/*
+ * enc_mt6816.c:40-106's routine and the state it keeps (MT6816_state): the angle it last read, the
+ * word the sensor's two registers made, and the two counts and rates - one for the bus and one for
+ * a magnet that is not where it should be.
+ */
+typedef struct encoder_mt6816_state {
+    float last_enc_angle;
+    float spi_error_rate;
+    float no_magnet_error_rate;
+    uint32_t spi_error_cnt;
+    uint32_t no_magnet_error_cnt;
+    uint16_t spi_val;
+    float last_update_s;
+} encoder_mt6816_state_t;
+
+/*
+ * The reference reads two registers off the sensor and makes one word of them. What a port answers
+ * is those two; the parity test between them is the driver's own (driver/spi_bb.c:309-316).
+ */
+typedef struct encoder_mt6816_port {
+    void *self;
+    edge_status_t (*read_registers)(void *self, uint16_t *reg03, uint16_t *reg04);
+} encoder_mt6816_port_t;
 
 /*
  * enc_abi.c:100-124, the index pulse's own machine, and the state it keeps
@@ -173,12 +189,14 @@ edge_status_t encoder_as5047_read_angle_rad(encoder_as5047_t *self, float *angle
 edge_status_t encoder_as5047_read_diag(encoder_as5047_t *self, uint16_t *diag_val);
 bool encoder_as5047_check_parity(uint16_t val);
 
-/* MT6816 API */
-void encoder_mt6816_construct(encoder_mt6816_t *self, encoder_spi_transfer_fn spi_transfer,
-                              void *spi_ctx);
-edge_status_t encoder_mt6816_init(encoder_mt6816_t *self);
-edge_status_t encoder_mt6816_read_angle_raw(encoder_mt6816_t *self, uint16_t *raw_angle);
-edge_status_t encoder_mt6816_read_angle_rad(encoder_mt6816_t *self, float *angle_rad);
+/*
+ * The MT6816 family: enc_mt6816.c:29-38's clearing, the driver's own odd-parity test, and :40-106's
+ * routine.
+ */
+void encoder_mt6816_begin(encoder_mt6816_state_t *st);
+bool encoder_mt6816_parity_ok(uint16_t x);
+float encoder_mt6816_routine(encoder_mt6816_state_t *st, const encoder_mt6816_port_t *port,
+                             float now_s);
 
 /*
  * ABI API: enc_abi.c:38-42, whose init clears its state, :92-93's own reading, and :100-124's index
