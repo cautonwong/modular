@@ -32,6 +32,8 @@
 | 六 | RP2040/STM32F4 的 SoC 驱动是寄存器/RAM 模型，SPI/I2C 不是硬件通信 | `soc/rp2040`、`soc/stm32f4` | **成立** | 见下 §六 |
 | 七 | RP2040 watchdog 的 feed 没有重装计时器（只置 ENABLE） | `soc/rp2040/src/soc_rp2040.c` | **成立** | 见下 §七 |
 | 八 | STM32F4 的 SPI/I2C 停在模型层，I2C 地址被丢弃 | `soc/stm32f4/src/soc_stm32f4.c` | **成立** | 见下 §八 |
+| 九 | board 的 `system_reset` / `low_power` 只是计数器（host model） | `board/{blackpill,colmi_p8,nice_nano,rpi_pico}` | **成立** | 见下 §九 |
+| 十 | CI 大量产品「只 build 不 run」 | `.github/workflows/ci.yml` | **成立** | 见下 §十 |
 | 二–十二 | （待核验） | — | 待定 | — |
 
 ---
@@ -376,9 +378,56 @@ bool soc_stm32f4_i2c_write(soc_stm32f4_i2c_regs_t *i2c, uint8_t addr, const uint
 
 ---
 
+## 九、board 的 `system_reset` / `low_power` —— **成立**（而且是有意的）
+
+提案举的例子字字属实，四个板都一样：
+
+| 板 | 函数 | 位置 | 函数体 |
+| --- | --- | --- | --- |
+| blackpill | `board_blackpill_system_reset` | `board/blackpill/src/board.c:69-71` | `++g_reset_count;` |
+| blackpill | `board_blackpill_enter_low_power` | 同文件 `:58-60` | `++g_low_power_entries;` |
+| colmi_p8 | `board_colmi_p8_system_reset` | `board/colmi_p8/src/board.c:75-77` | `++g_reset_count;` |
+| nice_nano | `board_nice_nano_system_reset` | `board/nice_nano/src/board.c:66-68` | `++g_reset_count;` |
+| rpi_pico | `board_rpi_pico_enter_low_power` | `board/rpi_pico/src/board.c:44-45` | `++g_low_power_entries;` |
+
+**但有一个提案没说、而我认为应当计入判定的事实**：这些计数器是**故意暴露给测试的**。每个板都导出了
+对应的 getter（`board/blackpill/include/blackpill/board.h:44` 的 `board_blackpill_low_power_entries()`、
+`:46` 的 `board_blackpill_reset_count()`），也在 `hw_init` 里清零（`board/blackpill/src/board.c:15`、`:17`）。
+换句话说：**这是有意设计的主机模拟探针，不是忘了写硬件操作**。同类还有 `board_*_feed_watchdog()`
+（`blackpill:62-64` 也是 `++g_watchdog_feeds;`）。
+
+所以问题的重心恰好落在提案最后那句话上：**不是“实现错了”，而是“两种定位没在文档里区分”**。
+一个叫 `board_blackpill_system_reset()` 的函数返回后“什么都没重置”，只因它是个宿主探针。
+这与 §六 是同一类问题（名字与注释暗示硬件，行为是内存）；§六 的那次搜索（`docs/` 下
+`register model` / `mmio` / `host model` / `simulat` 全部无命中）同样适用于这里 —— 仓库里没有任何一处
+声明「这些板是 host simulation profile」。
+
+**判定：成立**（事实成立；其「必须在文档中明确两种定位」的要求也成立）。
+
+## 十、CI 「只 build 不 run」—— **成立**（同时也是 §一 的成因）
+
+`product-matrix` 这个 job 只有两步与产品有关：
+
+- `.github/workflows/ci.yml:199-205`：`Build all legal products` → `cmake --build build --parallel`
+  —— **构建所有合法产品**。
+- `.github/workflows/ci.yml:206-211`：`Run host products` →
+  `for product in example meter_host meter_mps2 meter_gateway_host; do … ./build/$product; done`
+  —— **只运行硬编码的四个**。
+
+于是 `pinetime`、`watch_host`、`keyboard_host`、`corne_split` 这类产品 **编得过、从不执行**。
+这正是 §一 里「PineTime 漏掉大量 init 而 CI 全绿」能够长期成立的直接原因：
+`init` 缺失是运行时后果，而运行时从未发生。
+
+同一 job 还包含了负向组合矩阵（`:213-225` 起，对 `family/board/app/infra/combo/rebind/duplicate`
+逐个断言配置应当失败）—— 说明**配置期不变量}已经被 CI 兜住了，**运行期不变量没有**。
+提案建议的 `product-runtime` job（构造 → init → start → event → poll → shutdown 跑一遍）
+是成本最低的堵法。
+
+**判定：成立**。
+---
+
 ## 尚未核验（后续按节补）
 
-提案的其余段落：九、BlackPill board 的 system_reset/low-power；十、CI
-「只 build 不 run」；十一、静态分析盲区；十二、CodeQL 覆盖；十三、值得保留的 CI 实践；十四、
+提案的其余段落：十一、静态分析盲区；十二、CodeQL 覆盖；十三、值得保留的 CI 实践；十四、
 「门禁强 ≠ 产品正确」；以及第二部分（module ID / events / 低功耗 / wake source 的架构建议 ——
 **属设计与主张，不是可核验断言**，本文只核验其中能被证伪的具体事实）与第三部分（3060 行起）。
