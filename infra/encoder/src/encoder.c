@@ -180,40 +180,117 @@ edge_status_t encoder_abi_update(encoder_abi_t *self, int32_t step_delta, float 
     return EDGE_OK;
 }
 
-/* SinCos Resolver */
-void encoder_sincos_construct(encoder_sincos_t *self, float sin_offset, float cos_offset,
-                              float sin_gain, float cos_gain) {
-    if (!self) {
+/*
+ * utils_math.c:193-215, utils_fast_atan2. The piecewise approximation the reference takes its
+ * angles with, in radians, with its own guard against the not-a-number that both branches can
+ * produce.
+ */
+static float encoder_sincos_fast_atan2(float y, float x) {
+    const float abs_y = fabsf(y) + 1e-20f; /* the reference's own kludge against 0/0 */
+    float angle;
+
+    if (x >= 0.0f) {
+        const float r = (x - abs_y) / (x + abs_y);
+        const float rsq = r * r;
+        angle = ((0.1963f * rsq) - 0.9817f) * r + (3.14159265358979323846f / 4.0f);
+    } else {
+        const float r = (x + abs_y) / (abs_y - x);
+        const float rsq = r * r;
+        angle = ((0.1963f * rsq) - 0.9817f) * r + (3.0f * 3.14159265358979323846f / 4.0f);
+    }
+
+    if (isnan(angle)) {
+        angle = 0.0f;
+    }
+
+    return (y < 0.0f) ? -angle : angle;
+}
+
+/*
+ * enc_sincos.c:44-101, enc_sincos_read_deg, in the reference's own order: the two readings scaled
+ * and offset, both filtered, the phase error taken out of the cosine, the amplitude window tested -
+ * with the timestep as the filter constant of the two error rates - and, only inside the window,
+ * the lag of the filter itself compensated before the angle is taken. A reading outside the window
+ * keeps the angle the last good one reported, which is what discarding a measurement means here.
+ */
+void encoder_sincos_begin(encoder_sincos_config_t *cfg) {
+    if (cfg == (void *)0) {
         return;
     }
-    memset(self, 0, sizeof(*self));
-    self->sin_offset = sin_offset;
-    self->cos_offset = cos_offset;
-    self->sin_gain = (sin_gain != 0.0f) ? sin_gain : 1.0f;
-    self->cos_gain = (cos_gain != 0.0f) ? cos_gain : 1.0f;
+    memset(&cfg->state, 0, sizeof(cfg->state));
 }
 
-edge_status_t encoder_sincos_init(encoder_sincos_t *self) {
-    if (!self) {
-        return EDGE_EINVAL;
+float encoder_sincos_read_deg(encoder_sincos_config_t *cfg, const encoder_sincos_port_t *port,
+                              float sin_volts, float cos_volts) {
+    if (cfg == (void *)0 || port == (void *)0) {
+        return 0.0f;
     }
-    return EDGE_OK;
-}
 
-edge_status_t encoder_sincos_update(encoder_sincos_t *self, float sin_val, float cos_val,
-                                    float *out_angle_rad) {
-    if (!self || !out_angle_rad) {
-        return EDGE_EINVAL;
+    float sin = (sin_volts - cfg->sin_offset) * cfg->sin_gain;
+    float cos = (cos_volts - cfg->cos_offset) * cfg->cos_gain;
+
+    /* UTILS_LP_FAST is value -= filter_constant * (value - sample) (utils_math.h:100). */
+    cfg->state.sin_filter -= cfg->filter_constant * (cfg->state.sin_filter - sin);
+    cfg->state.cos_filter -= cfg->filter_constant * (cfg->state.cos_filter - cos);
+    sin = cfg->state.sin_filter;
+    cos = cfg->state.cos_filter;
+
+    /* The phase error the resolver's own sine and cosine may carry. */
+    cos = (cos + sin * cfg->sin_phase) / cfg->cos_phase;
+
+    const float module = sin * sin + cos * cos;
+
+    float timestep = 1.0f;
+    if (port->now_seconds != (void *)0) {
+        const float now = port->now_seconds(port->self);
+        timestep = now - cfg->state.last_update_s;
+        if (timestep > 1.0f) {
+            timestep = 1.0f;
+        }
+        cfg->state.last_update_s = now;
     }
-    float s = (sin_val - self->sin_offset) * self->sin_gain;
-    float c = (cos_val - self->cos_offset) * self->cos_gain;
-    float ang = atan2f(s, c);
-    if (ang < 0.0f) {
-        ang += 2.0f * (float)M_PI;
+
+    /* SINCOS_MIN_AMPLITUDE and SINCOS_MAX_AMPLITUDE, squared as the reference squares them. */
+    if (module > (1.3f * 1.3f)) {
+        ++cfg->state.signal_above_max_error_cnt;
+        cfg->state.signal_above_max_error_rate -=
+            timestep * (cfg->state.signal_above_max_error_rate - 1.0f);
+    } else if (module < (0.7f * 0.7f)) {
+        ++cfg->state.signal_below_min_error_cnt;
+        cfg->state.signal_low_error_rate -= timestep * (cfg->state.signal_low_error_rate - 1.0f);
+    } else {
+        cfg->state.signal_above_max_error_rate -=
+            timestep * (cfg->state.signal_above_max_error_rate - 0.0f);
+        cfg->state.signal_low_error_rate -= timestep * (cfg->state.signal_low_error_rate - 0.0f);
+
+        float rpm = 0.0f;
+        if (port->read_rpm != (void *)0) {
+            rpm = port->read_rpm(port->self);
+        }
+        const float rpm_rad_s = rpm * (float)((2.0 * 3.14159265358979323846) / 60.0);
+        const float delay_comp = ((1.0f - cfg->filter_constant) * rpm_rad_s * timestep) /
+                                 (cfg->filter_constant * cfg->ratio);
+        /*
+         * The reference adds the delay to the angle while it is still in radians and converts the
+         * sum, which is why the compensation is not scaled by the same factor as the angle beside
+         * it (enc_sincos.c:88-90).
+         */
+        float angle = (encoder_sincos_fast_atan2(sin, cos) + delay_comp * cfg->delay_comp_sign) *
+                          (float)(180.0 / 3.14159265358979323846) +
+                      180.0f;
+
+        /* utils_norm_angle's two whiles. */
+        while (angle >= 180.0f) {
+            angle -= 360.0f;
+        }
+        while (angle < -180.0f) {
+            angle += 360.0f;
+        }
+
+        cfg->state.last_enc_angle = angle;
     }
-    self->last_angle_rad = ang;
-    *out_angle_rad = ang;
-    return EDGE_OK;
+
+    return cfg->state.last_enc_angle;
 }
 
 /* Hall */
