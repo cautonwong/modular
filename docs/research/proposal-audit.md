@@ -28,6 +28,7 @@
 | 二 | ZMK Hold-Tap 的 `quick_tap` 把开机后首击误判为连击（`last_tap_time_ms` 初值 0） | `app/zmk_behavior/src/behavior.c` | **成立** | 见下 §二 |
 | 三 | Macro 的 `WAIT`（`wait_ms` / `default_wait_ms`）声明了但没实现 | `app/zmk_behavior` | **成立** | 见下 §三 |
 | 四 | ZMK Studio 的 `UNLOCK_DEVICE` 无任何认证/物理前提，直接 `unlocked = true` | `app/zmk_studio/src/studio.c` | **成立** | 见下 §四 |
+| 五 | Studio RPC 吞掉 `keymap` 返回的错误，客户端收到 SUCCESS | `app/zmk_studio/src/studio.c` | **成立（一处措辞需更正）** | 见下 §五 |
 | 二–十二 | （待核验） | — | 待定 | — |
 
 ---
@@ -205,9 +206,44 @@ case ZMK_STUDIO_CORE_CMD_UNLOCK_DEVICE: {
 
 ---
 
+## 五、Studio RPC 吞错 —— **成立**（但提案的「完全没有检查」过宽，一处需更正）
+
+逐条对过 `app/zmk_studio/src/studio.c`，五处 keymap 调用里**四处吞、一处检查**：
+
+| 位置 | 调用 | 返回值的处理 |
+| --- | --- | --- |
+| `:121-125` | `get_layer_binding(...)` | **吞**。返回值直接丢弃，然后 `resp[2] = 0;` |
+| `:152-160` | `set_layer_binding(...)` | **有检查**。`edge_status_t rc = …; resp[2] = (rc == EDGE_OK) ? 0 : 2;` |
+| `:177-181` | `save_changes(...)` | **吞**（提案引的就是这一处） |
+| `:191-195` | `discard_changes(...)` | **吞** |
+| `:84-88` | `discard_changes(...)`（RESET_SETTINGS） | **吞** |
+
+所以「返回值**完全没有**检查」不成立（`set_layer_binding` 就是一个反例，它甚至把失败映射成了错误码 2），
+但**提案点名的两处、加上刷新设置那一处，逐字成立**：
+
+```c
+if (app->keymap.save_changes != NULL) {
+    app->keymap.save_changes(app->keymap.self);   /* 返回值丢弃 */
+}
+app->unsaved_changes = false;
+resp[2] = 0;                                      /* 永远 SUCCESS */
+```
+
+**比提案说的还差一档**：底层返回 `EDGE_EIO` 时，`unsaved_changes` 还是被清成 `false`。
+也就是说不仅客户端以为存了，**设备自己也认为没有未保存改动**，后续不会再有任何重试或告警路径
+—— `GET_UNSAVED`（`:166-167`）也会回报 0。这正是提案描述的那种最难查的不一致，评级 P1/P2 合理。
+
+**测试看不见它**：`tests/test_app_zmk_studio.c:60-70` 的 mock `save_changes` / `discard_changes`
+**永远 `return EDGE_OK`**，全文件对失败路径的注入次数为 0
+（`grep -c "EDGE_EIO\|fail"` → 0），所以这个缺陷在 CI 里永远不会现身。
+
+**判定：成立**（并附上「`set_layer_binding` 已正确检查」这一处更正）。
+
+---
+
 ## 尚未核验（后续按节补）
 
-提案的其余段落：五、Studio RPC 吞错；六、RP2040/STM32F4 SoC 驱动是「寄存器模型」；七、RP2040
+提案的其余段落：六、RP2040/STM32F4 SoC 驱动是「寄存器模型」；七、RP2040
 watchdog feed 语义；八、STM32F4 SPI/I2C；九、BlackPill board 的 system_reset/low-power；十、CI
 「只 build 不 run」；十一、静态分析盲区；十二、CodeQL 覆盖；十三、值得保留的 CI 实践；十四、
 「门禁强 ≠ 产品正确」；以及第二部分（module ID / events / 低功耗 / wake source 的架构建议 ——
