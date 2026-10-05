@@ -3,6 +3,7 @@ edge_add_soc(stm32f4
         src/soc_stm32f4.c
         src/soc_stm32f4_tim.c
         src/soc_stm32f4_adc.c
+        src/soc_stm32f4_flash.c
     DEPS
         edge_module
 )
