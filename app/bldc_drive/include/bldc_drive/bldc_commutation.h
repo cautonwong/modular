@@ -115,6 +115,14 @@ typedef struct bldc_staged_config {
 void bldc_stage_sensorless_bldc(float min_rpm, bldc_staged_config_t *out);
 
 /*
+ * conf_general.c:641-645 and its two siblings (:651-655, :682-686): the way an attempt says it is
+ * running is that the tachometer has moved on by a count - three, then fifty, then a hundred - and
+ * the reference waits a millisecond at a time until it has, up to its own timeout. The five steps
+ * those add up to are what the criterion above counts.
+ */
+bool bldc_tacho_advanced(int32_t tacho_start, int32_t tacho_now, int32_t required);
+
+/*
  * mcpwm.c:2302-2307, mcpwm_read_hall_phase: the three hall pins as the reading the commutation is
  * driven by, bit zero first. Nothing is filtered here - a reading of nought or seven is a reading,
  * and the reference assigns it as the step at the site below (mcpwm.c:1940). Its own table builder
