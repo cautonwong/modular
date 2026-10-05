@@ -36,6 +36,8 @@
 | 十 | CI 大量产品「只 build 不 run」 | `.github/workflows/ci.yml` | **成立** | 见下 §十 |
 | 十一 | clang-tidy 是手工白名单，新增代码不会自动进入审查 | `.github/workflows/ci.yml:396-416` | **成立** | 见下 §十一 |
 | 十二 | CodeQL 的构建矩阵不覆盖 pinetime/ZMK/新板运行时 | `.github/workflows/codeql.yml:36-40` | **不成立（措辞过宽）** | 见下 §十二 |
+| 十三 | Part 3：当前中断架构 = ISR → event queue（D3/D17） | `docs/adr.md:37/:51/:798/:1156` | **成立** | 见下 §十三 |
+| 十三（b）| Part 3：UART RX 每字一 event 造成事件风暴 | `infra/uart/uart.h:20-21` | **不成立（现状无此路径）** | 见下 §十三 |
 | 二–十二 | （待核验） | — | 待定 | — |
 
 ---
@@ -481,8 +483,87 @@ cmake --build build-codeql --parallel
 
 ---
 
-## 尚未核验（后续按节补）
+## 十三、Part 3（`proposal.md` 3060 行起）：一条前提成立，一个缺陷指控不成立
 
-提案的其余段落：十三、值得保留的 CI 实践；十四、「门禁强 ≠ 产品正确」；以及第二部分
-（module ID / events / 低功耗 / wake source 的架构建议 —— **属设计与主张，不是可核验断言**，
-本文只核验其中能被证伪的具体事实）与第三部分（`proposal.md` 3060 行起）。
+### 13.1 「当前的中断架构是 ISR → event queue」—— **成立**
+
+提案引的三句话逐字存在于 ADR 里，且是**可执行强制**的：
+
+- `docs/adr.md:37`：`D3 | board module 范围 | **只转发中断**，不做设备访问`
+- `docs/adr.md:51`：`D17 | 事件路由 | **board 只 push 到注入的 sink**`，并注明「board 不认识 app（守 D3）」
+- `docs/adr.md:798`：`board/ISR 只 push 到注入的 sink；sys 按 event id 路由（D17）`
+- `docs/adr.md:1156`：`ISR 只 push；runner 只 pop`
+
+而「board 不认识 app」不是口号：`.github/scripts/check_layer_dependencies.py:29` 把 board 的允许集写成
+`{"board", "soc", "pal", "edge_module"}`，`app` 不在里面；该脚本的 docstring（`:6-7`）就是把这些关系
+**做成可执行而不是散文**。所以提案说的「当前架构基本就是这么定义的」是准确的。
+
+### 13.2 「UART RX 每字一 event 造成事件风暴」—— **不成立**（作为对现有代码的断言）
+
+这一段里只有那段 `ISR() { … edge_event_queue_push(…) }` 是具体的，而它自己在开头就写了「**假设** UART
+115200 baud」。实测当前代码里根本还没有这条路：
+
+- `git ls-tree -r --name-only f2f3da10 -- pal/ | grep -i uart` → **无**；`pal/ soc/ board` 下搜
+  `uart_rx|UART_RX|rx_isr|on_rx` → **无命中**。
+- 真的 UART 路径在 `infra/`：`infra/uart/include/uart/uart.h:20-21` 只有
+  `edge_status_t uart_write(void *self, const void *buf, size_t len);` 与
+  `uart_read(void *self, void *buf, size_t len);`
+- `infra/uart/` 与 `app/dlt645/` 下搜 `queue_push|event_queue|EDGE_EVT` → **无命中**。
+
+也就是说：当前是**拉取式端口**，既不是「每字一 event」也不是任何 ISR 路径；§3 的批评在今天的代码上
+没有对象。（它是**前瞻性**的：J 阶段把 ChibiOS 引进来、真 ISR 出现之后，这条警告才变得可验证 ——
+所以我把 `uart.h:20-21` 这个现状当作后续重构的基线记在这里。）
+
+### 13.3 其余段落（§4 DMA / §5 Timer / §6 HardFault / §7 四类路径 / §10 EventQueue 作为控制面）
+
+属**设计主张**，不是可核验断言：它们描述的是「应该怎么做」，而仓库现在还没有这些 ISR 实现
+（同 13.2 的搜索）。提案里可被证伪的部分（前提、现状）已在 13.1/13.2 处理；剩下的取舍按其自己的
+Phase 1–3 推进即可，本文不当作缺陷计分。
+
+---
+
+## 严重度排序（本文最终的清单）
+
+**A 级：静默失效 + 岗哨看不见**
+
+1. **§一 PineTime 21 个 module 未 `init`（含 `required_ids` 里的 `watch_ui`）** —— 告警/设置读不回、
+   一个必需模块的初始化端口从未接上；而 CI 只构建、从不运行它（见 2）。
+2. **§十 CI 只 build 不 run** —— 产品矩阵只跑硬编码四个，这是 A1、A2 及同类问题能长期潜伏的**结构成因**。
+
+**B 级：安全与数据一致性**
+
+3. **§四 Studio `UNLOCK_DEVICE` 无任何前提** —— 锁的作用域是真的，钥匙是白送的（USB/BLE 皆可）。
+4. **§五 RPC 吞错，且失败时还清掉 `unsaved_changes`** —— 客户端与设备**双双**以为已保存。
+
+**C 级：真硬件上不可用（但有意的模型）**
+
+5. **§六 + §八 SoC 是 RAM/寄存器模型**，SPI 写后回读、I2C 直接丢弃从机地址（`soc_stm32f4.c:95/:106`）。
+6. **§七 RP2040 `wdt_feed` 不重装 `load`**，而参考同一个文件的 `wdt_start` 会重装。
+7. **§九 板级 `system_reset` / `low_power` 是计数器探针** —— 实现是有意的，**缺的是文档定位**。
+
+**D 级：局部语义 / 过程改进**
+
+8. **§二 hold-tap 开机窗口内首击误入 quick-tap** —— 长按会被吞（窗口仅开机后 `quick_tap_ms`）。
+9. **§三 macro 的 `WAIT`/`wait_ms`/`default_wait_ms` 是空壳**，而同一个仓里的 `behavior_queue` 已实现同类能力。
+10. **§十一 clang-tidy 是 18 文件手工白名单** —— 新增目录（soc/zmk/pinetime/新板）默认不被审查；
+    同 job 已有 `compile_commands.json`（`ci.yml:386`）可用。
+
+**不成立（已证伪，不计入）**
+
+- **§十二 CodeQL 构建矩阵不覆盖产品** —— 同名开关同样会构建出产品二进制（`ci.yml:199-211`）；
+  真问题已在 §十 计分。
+
+**本文额外发现（提案未提）**
+
+- `watch_ui` 已在 `required_ids` 且被订阅四个事件，但 `watch_ui_init` 从未被调用（§一）。
+- `save_changes` 失败时 `unsaved_changes` 仍被清成 `false`，连 `GET_UNSAVED` 都回报 0（§五）。
+- `board/blackpill/src/board.c:55` 的 `delay_ms * 2000` 疑似把超时算成 2 倍（**待外部数据手册核实**，未计入判定）。
+
+---
+
+## 核验方法与局限
+
+- 基准：`f2f3da10`（= `main` 的 HEAD），用 `git show f2f3da10:<path>` / `git grep … f2f3da10` 读**当时**的代码，
+  而不是拿当前工作分支（`bldc`，VESC 迁移）上不存在的文件作反证。
+- 本文只对**可核验事实**给判定；设计主张（Part 2 全部、Part 3 的 §4—§10）不参与计分，只作为方向参考。
+- 所有命令与行号都写在正文里，可重跑；凡我没能核实的（如 §七 的 `×2000` 倍数）都标为线索而非判定。
