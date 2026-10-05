@@ -1170,14 +1170,41 @@ void foc_core_update_limits(foc_core_t *self) {
     const float l_current_max_tmp = self->config.current_max_a;
 
     /*
-     * Temperature MOSFET (:2296-2321). This port has no FET sensor, which is the reference's own
-     * disabled case - a temperature override below l_temp_fet_start, where it keeps the configured
-     * values rather than deriving anything. The two acceleration terms below (:2386-2407) exist so
-     * that braking torque is still available as the FETs heat, so with no FET reading they have
-     * nothing to act on either.
+     * Temperature MOSFET (:2338-2366). The reference's own three branches: below the start it keeps
+     * what the configuration asked for, above the end it takes both limits to nought and declares
+     * the fault, and between the two it maps the temperature onto the larger of the two magnitudes
+     * - so each side is only pulled in when it is the side that is larger.
      */
-    const float lo_min_mos = l_current_min_tmp;
-    const float lo_max_mos = l_current_max_tmp;
+    float lo_min_mos = l_current_min_tmp;
+    float lo_max_mos = l_current_max_tmp;
+    if (self->fet_temp_c < (conf->l_temp_fet_start + 0.1f)) {
+        /* Keep values */
+    } else if (self->fet_temp_c > (conf->l_temp_fet_end - 0.1f)) {
+        lo_min_mos = 0.0f;
+        lo_max_mos = 0.0f;
+        /*
+         * The reference faults the FETs here (FAULT_CODE_OVER_TEMP_FET). As with the motor's own
+         * group below, this port has no fault entry of its own to raise - the aggregate's state
+         * machine is the one that has to stop - so the limits go to zero, which is what stops it,
+         * and the product that reads the sensor declares the fault.
+         */
+    } else {
+        float maxc = fabsf(l_current_max_tmp);
+        if (fabsf(l_current_min_tmp) > maxc) {
+            maxc = fabsf(l_current_min_tmp);
+        }
+
+        maxc = foc_limit_map(self->fet_temp_c, conf->l_temp_fet_start, conf->l_temp_fet_end, maxc,
+                             0.0f);
+
+        if (fabsf(l_current_min_tmp) > maxc) {
+            lo_min_mos = foc_sign(l_current_min_tmp) * maxc;
+        }
+
+        if (fabsf(l_current_max_tmp) > maxc) {
+            lo_max_mos = foc_sign(l_current_max_tmp) * maxc;
+        }
+    }
 
     /* Temperature MOTOR (:2352-2384). */
     float lo_min_mot = l_current_min_tmp;

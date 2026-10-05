@@ -402,6 +402,8 @@ static const foc_limit_params_t REFERENCE_LIMITS = {
  * a 0.9 scale - 54 A - which is what the ceiling here is too.
  */
 static const foc_limit_params_t DERIVATION_LIMITS = {
+    .l_temp_fet_start = 85.0f,
+    .l_temp_fet_end = 100.0f,
     .l_temp_motor_start = 85.0f,
     .l_temp_motor_end = 100.0f,
     .l_erpm_start = 0.8f,
@@ -473,27 +475,37 @@ static void test_foc_core_update_limits_matches_the_reference(void **state) {
         float rpm;
         float duty;
         float temp_motor;
+        float temp_fet;
         float lo_max;
         float lo_min;
     } cases[] = {
-        {0.0f, 0.0f, 25.0f, 27.0f, -54.0f},            /* nothing de-rates, start dec halves it */
-        {0.0f, 0.94f, 25.0f, 5.90788651f, -54.0f},     /* duty inside the knee */
-        {0.0f, 0.99f, 25.0f, 0.05f, -54.0f},           /* duty past the ceiling, floored */
-        {90000.0f, 0.0f, 25.0f, 27.0f, -54.0f},        /* positive ERPM inside the cut */
-        {104000.0f, 0.0f, 25.0f, 0.05f, -54.0f},       /* past l_max_erpm */
-        {-90000.0f, 0.0f, 25.0f, 27.0f, -54.0f},       /* negative ERPM inside its cut */
-        {-104000.0f, 0.0f, 25.0f, 0.05f, -54.0f},      /* past l_min_erpm */
-        {1000.0f, 0.0f, 25.0f, 37.7999992f, -54.0f},   /* the start-current decrease alone */
-        {0.0f, 0.0f, 92.0f, 27.0f, -28.7999992f},      /* motor temperature inside its knees */
-        {0.0f, 0.0f, 99.95f, 0.05f, -0.0500000007f},   /* at the end of them, floored both ways */
-        {95000.0f, 0.94f, 95.0f, 5.90788651f, -18.0f}, /* duty and temperature together */
-        {-95000.0f, -0.94f, 25.0f, 5.90788651f, -54.0f},
+        {0.0f, 0.0f, 25.0f, 25.0f, 27.0f, -54.0f}, /* nothing de-rates, start dec halves it */
+        {0.0f, 0.94f, 25.0f, 25.0f, 5.90788651f, -54.0f},     /* duty inside the knee */
+        {0.0f, 0.99f, 25.0f, 25.0f, 0.05f, -54.0f},           /* duty past the ceiling, floored */
+        {90000.0f, 0.0f, 25.0f, 25.0f, 27.0f, -54.0f},        /* positive ERPM inside the cut */
+        {104000.0f, 0.0f, 25.0f, 25.0f, 0.05f, -54.0f},       /* past l_max_erpm */
+        {-90000.0f, 0.0f, 25.0f, 25.0f, 27.0f, -54.0f},       /* negative ERPM inside its cut */
+        {-104000.0f, 0.0f, 25.0f, 25.0f, 0.05f, -54.0f},      /* past l_min_erpm */
+        {1000.0f, 0.0f, 25.0f, 25.0f, 37.7999992f, -54.0f},   /* the start-current decrease */
+        {0.0f, 0.0f, 92.0f, 25.0f, 27.0f, -28.7999992f},      /* motor temperature in its knees */
+        {0.0f, 0.0f, 99.95f, 25.0f, 0.05f, -0.0500000007f},   /* at their end, floored both ways */
+        {95000.0f, 0.94f, 95.0f, 25.0f, 5.90788651f, -18.0f}, /* duty and temperature together */
+        {-95000.0f, -0.94f, 25.0f, 25.0f, 5.90788651f, -54.0f},
+        /*
+         * And the same three for the FETs (mc_interface.c:2338-2366), which is the group this port
+         * had no sensor for: it maps the larger of the two magnitudes, so the two sides come in
+         * together, and at the end of the knees both go to nought before the floor lifts them.
+         */
+        {0.0f, 0.0f, 25.0f, 92.0f, 27.0f, -28.7999992f},
+        {0.0f, 0.0f, 25.0f, 99.95f, 0.05f, -0.0500000007f},
+        {0.0f, 0.0f, 25.0f, 99.0f, 3.5999999f, -3.5999999f},
     };
 
     for (size_t i = 0u; i < (sizeof(cases) / sizeof(cases[0])); i++) {
         foc.last_rpm = cases[i].rpm;
         foc.duty_now = cases[i].duty;
         foc.motor_temp_c = cases[i].temp_motor;
+        foc.fet_temp_c = cases[i].temp_fet;
         foc.last_v_bus = 50.0f;
         foc_core_update_limits(&foc);
         assert_float_equal(foc.lo_current_max, cases[i].lo_max, 1e-4f);
