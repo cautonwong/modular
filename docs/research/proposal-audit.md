@@ -25,6 +25,7 @@
 | # | 提案的主张 | 涉及位置 | 判定 | 关键证据 |
 | --- | --- | --- | --- | --- |
 | 一 | PineTime 主程序构造 28 个 module，只有少数几个调了 `init()`；`edge_sys_start()` 不会代调 | `product/pinetime/main.c`、`sys/runtime/src/sys.c` | **成立** | 见下 §一 |
+| 二 | ZMK Hold-Tap 的 `quick_tap` 把开机后首击误判为连击（`last_tap_time_ms` 初值 0） | `app/zmk_behavior/src/behavior.c` | **成立** | 见下 §二 |
 | 二–十二 | （待核验） | — | 待定 | — |
 
 ---
@@ -78,9 +79,52 @@
 
 ---
 
+## 二、ZMK Hold-Tap 的 `quick_tap` 首击误判 —— **成立**
+
+代码与提案引用的完全一致：`app/zmk_behavior/src/behavior.c:220-221`
+
+```c
+if (ht->config.quick_tap_ms > 0 &&
+    (timestamp_ms - ht->last_tap_time_ms) < ht->config.quick_tap_ms) {
+```
+
+而 `last_tap_time_ms` 的唯一写入点是 **释放路径里的 tap 分支**（`:259`）：
+
+```c
+} else {
+    /* Tapped */
+    ht->last_tap_time_ms = timestamp_ms;
+```
+
+构造时整个结构体被清零（`:30 *self = (__typeof__(*self)){0};`），所以开机后它的值是 0；`timestamp_ms`
+是调用方传进来的毫秒计数（`:207 self->current_time_ms = timestamp_ms;`，`poll` 再用它 tick），开机后
+很小。两者相减必然小于 `quick_tap_ms`，于是**开机后 `quick_tap_ms` 之内的第一次按下**就走进了
+「Double tap」分支（`:222-226`）并立刻 `return EDGE_OK`。
+
+**我把后果说得比提案更准一点。** 提案说「直接执行 tap behavior」，但按纯 tap 走的话普通点按最终
+也会触发 tap，所以真正的损坏在它的**副作用**上：该分支设了 `is_tapped = true` 就返回，没有设
+`ht->active`、`ht->is_held`、`ht->press_time_ms`。于是
+
+1. 这一次如果用户其实是**按住**（想触发 hold），释放时 `ht->is_tapped` 已被清掉、`ht->active` 又是
+   false，两个分支都不进，`handle_key_press` 在 `:262-270` 一路 `return EDGE_OK` —— **这一按的 hold
+   被静默吞掉**。
+2. 走 `tapping_term` 的那条路也不可能发生，因为 `ht->active` 从未置位、`press_time_ms` 从未写入。
+
+窗口只限开机后 `quick_tap_ms` 毫秒内（`timestamp_ms` 会增长，之后相减自然超过阈值），所以危害是
+「开机初期头一次按键、且是长按」这种场景 —— 恰好是上电后最容易发生的那一次。
+
+**没有测试覆盖、也没有测试把这当成预期。** `tests/test_app_zmk_behavior.c` 里 quick-tap 的用例
+（`:308-330`）第一次按用的是 `timestamp = 500`、`quick_tap_ms = 150`，`500 - 0 = 500` 不触发 ——
+它只是**恰好**没踩到开机窗口。把那个 500 换成 100，这条用例会立刻失败。
+
+**判定：成立**。修法方向认同提案：加一个「有没有前一次 tap」的标志（或有效的 sentinel 时间戳），
+而不是拿 0 当合法时间戳。
+
+---
+
 ## 尚未核验（后续按节补）
 
-提案的其余段落：二、ZMK Hold-Tap `quick_tap` 首击误判；三、Macro WAIT 未实现；四、ZMK Studio
+提案的其余段落：三、Macro WAIT 未实现；四、ZMK Studio
 Unlock 缺口；五、Studio RPC 吞错；六、RP2040/STM32F4 SoC 驱动是「寄存器模型」；七、RP2040
 watchdog feed 语义；八、STM32F4 SPI/I2C；九、BlackPill board 的 system_reset/low-power；十、CI
 「只 build 不 run」；十一、静态分析盲区；十二、CodeQL 覆盖；十三、值得保留的 CI 实践；十四、
