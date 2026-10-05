@@ -34,6 +34,8 @@
 | 八 | STM32F4 的 SPI/I2C 停在模型层，I2C 地址被丢弃 | `soc/stm32f4/src/soc_stm32f4.c` | **成立** | 见下 §八 |
 | 九 | board 的 `system_reset` / `low_power` 只是计数器（host model） | `board/{blackpill,colmi_p8,nice_nano,rpi_pico}` | **成立** | 见下 §九 |
 | 十 | CI 大量产品「只 build 不 run」 | `.github/workflows/ci.yml` | **成立** | 见下 §十 |
+| 十一 | clang-tidy 是手工白名单，新增代码不会自动进入审查 | `.github/workflows/ci.yml:396-416` | **成立** | 见下 §十一 |
+| 十二 | CodeQL 的构建矩阵不覆盖 pinetime/ZMK/新板运行时 | `.github/workflows/codeql.yml:36-40` | **不成立（措辞过宽）** | 见下 §十二 |
 | 二–十二 | （待核验） | — | 待定 | — |
 
 ---
@@ -426,8 +428,61 @@ bool soc_stm32f4_i2c_write(soc_stm32f4_i2c_regs_t *i2c, uint8_t addr, const uint
 **判定：成立**。
 ---
 
+## 十一、clang-tidy 的盲区 —— **成立**
+
+`ci.yml:396-416` 的 clang-tidy 步骤就是把文件一个一个写上去的（共 **18 个**）：
+
+```text
+edge_module/src/event.c          sys/runtime/src/sys.c        sys/example/sys_example.c
+sys/meter/sys_meter.c            app/dlt645/src/dlt645.c      app/relay/src/relay.c
+app/modbus_slave/src/modbus_slave.c  app/meter_core/src/meter_core.c
+infra/flash/src/flash.c          infra/gpio/src/gpio.c        infra/uart/src/uart.c
+board/example/src/board.c        board/mps2/src/board.c       pal/host/src/host.c
+pal/os/src/idle.c                pal/os/src/tick64.c          pal/eos/src/eos.c
+pal/cortex-m-bare/src/pal_cortex_m.c
+```
+
+与提案列的「没有」逐项对得上：**没有** `soc/rp2040`、**没有** `soc/stm32f4`、**没有** `app/zmk_*`、
+**没有** `app/ble_*`、**没有** `product/pinetime`、**没有** `board/{blackpill,nice_nano,rpi_pico,colmi_p8}`。
+而这次更新的重点（§六 的 soc、§二/三/四/五 的 zmk、§一 的 pinetime）恰好全在这个白名单之外。
+
+`cppcheck` 的覆盖面确实不一样（`ci.yml:417-440`）：它显式排除 `-i tests/guards`，再挂上整棵树的
+include 路径，而不是一份逐文件清单。两者的差别就在于：**新目录不会自动被 clang-tidy 看到**。
+
+我也认同提案的修法：既然同一 job 已经打开了 `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`（`:386`），
+就从 `compile_commands.json` 取 translation units，而不是维护白名单。
+
+**判定：成立**。
+
+## 十二、CodeQL 不覆盖产品运行时 —— **不成立**（措辞过宽；真实关切已在 §十）
+
+提案引的两行属实，`codeql.yml:36-40` 确实是：
+
+```yaml
+cmake -S . -B build-codeql -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DEDGE_MODULE_BUILD_TESTS=OFF \
+  -DEDGE_MODULE_BUILD_EXAMPLE=ON
+cmake --build build-codeql --parallel
+```
+
+但**从这两行推到「pinetime / ZMK 产品 / 新 board 运行时不在 CodeQL 的执行路径上」是错的**：
+`EDGE_MODULE_BUILD_EXAMPLE=ON` ＋ `cmake --build` 会构建默认目标，而 `product-matrix` job
+用的就是**同一组开关**（`ci.yml:199-205`，同样 `BUILD_TESTS=ON` + `BUILD_EXAMPLE=ON`），
+紧接着就能直接 `./build/$product`（`:206-211`）—— 那些可执行文件之所以存在，正是因为这种配置
+就把它们构建了出来。因此 CodeQL 的构建实际上也编了这些产品，**建议里增加的 target 不会改变
+被分析的 TU 集合**。
+
+另外要公平地说：CodeQL 是**静态**分析，它不可能发现「init 没被调用」这类运行时语义缺陷。
+提案真正想说的「PineTime 漏 init 而不被任何岗哨拦住」已经是 §十 的结论（产品**被构建但从不执行**），
+把它归给 CodeQL 矩阵会指向错误的修法。
+
+**判定：不成立**（作为对 CodeQL 构建矩阵的断言，它是过宽的；背后那个真问题在 §十 已判定为成立）。
+
+---
+
 ## 尚未核验（后续按节补）
 
-提案的其余段落：十一、静态分析盲区；十二、CodeQL 覆盖；十三、值得保留的 CI 实践；十四、
-「门禁强 ≠ 产品正确」；以及第二部分（module ID / events / 低功耗 / wake source 的架构建议 ——
-**属设计与主张，不是可核验断言**，本文只核验其中能被证伪的具体事实）与第三部分（3060 行起）。
+提案的其余段落：十三、值得保留的 CI 实践；十四、「门禁强 ≠ 产品正确」；以及第二部分
+（module ID / events / 低功耗 / wake source 的架构建议 —— **属设计与主张，不是可核验断言**，
+本文只核验其中能被证伪的具体事实）与第三部分（`proposal.md` 3060 行起）。
