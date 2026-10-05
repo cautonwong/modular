@@ -93,7 +93,28 @@ typedef enum motor_id_state {
     MOTOR_ID_STATE_HALL_RAMP,
     MOTOR_ID_STATE_HALL_SWEEP_FORWARD,
     MOTOR_ID_STATE_HALL_SWEEP_REVERSE,
-    MOTOR_ID_STATE_HALL_TABLE
+    MOTOR_ID_STATE_HALL_TABLE,
+
+    /*
+     * conf_general_detect_motor_param (:514-715), the command that finds a sensorless motor's
+     * parameters by spinning it up: the temporary configuration and the fault wait, then, per
+     * attempt, the settings that attempt drives with, the watch that waits for the duty to reach
+     * the spin-up value, the dwell that samples the halls there, three watches on the tachometer
+     * with the integrator's readings between them, the slow-down watch and the low-duty run that
+     * averages the speed.
+     */
+    MOTOR_ID_STATE_PARAM_FAULT_WAIT,
+    MOTOR_ID_STATE_PARAM_SETTLE,
+    MOTOR_ID_STATE_PARAM_ATTEMPT,
+    MOTOR_ID_STATE_PARAM_RELEASE,
+    MOTOR_ID_STATE_PARAM_RESTAGE,
+    MOTOR_ID_STATE_PARAM_SPINUP,
+    MOTOR_ID_STATE_PARAM_HALL_SAMPLES,
+    MOTOR_ID_STATE_PARAM_TACHO_3,
+    MOTOR_ID_STATE_PARAM_TACHO_50,
+    MOTOR_ID_STATE_PARAM_SLOWDOWN,
+    MOTOR_ID_STATE_PARAM_TACHO_100,
+    MOTOR_ID_STATE_PARAM_COUPLING
 } motor_id_state_t;
 
 /*
@@ -156,6 +177,16 @@ typedef struct motor_id_result {
      */
     uint8_t hall_table[8];
     bool hall_valid;
+
+    /*
+     * conf_general_detect_motor_param's own two answers (:665, :708): the cycle integrator the
+     * detection reads while the motor spins at the spin-up duty, and the coupling factor it
+     * derives from the same reading at the low duty against the speed the motor reached there.
+     * The reference subtracts the first from the second to get the drop the spinning itself costs,
+     * so both are kept rather than the difference.
+     */
+    float int_limit;
+    float bemf_coupling_k;
     bool valid;
 } motor_id_result_t;
 
@@ -260,6 +291,54 @@ typedef struct motor_id_measure_port {
      */
     edge_status_t (*enter_res_ind_gains)(void *self);
     edge_status_t (*leave_res_ind_gains)(void *self);
+
+    /*
+     * conf_general_detect_motor_param (:514-715) reaches six more things, and unlike the entry
+     * above they are the plant's own state rather than a measurement procedure's temporary
+     * configuration:
+     *
+     *   read_tacho                      mc_interface_get_tachometer_value(false), the count both
+     * the watches and the reference's own switch to a sensorless one read (:642, :652, :684)
+     *   read_reset_avg_cycle_integrator mcpwm_read_reset_avg_cycle_integrator(): the reading hands
+     *                                   back the average since the last one and clears it, which is
+     *                                   why the reference takes it three times for two readings
+     *                                   (:649, :665, :680, :696)
+     *   stage_bldc_config               the temporary configuration (:525-534) and its two
+     *                                   re-stagings (:571-573, :576-583). Six of the reference's
+     * nine assignments never change; the three that do - the minimum speed, the integrator's
+     * ceiling and whether to commute on the delay instead of integrating - are the arguments, and
+     * the product writes all nine the way the reference edits its one configuration in place.
+     *   switch_comm_mode_delay          mcpwm_switch_comm_mode(COMM_MODE_DELAY), the reference's
+     *                                   mid-watch switch (:600)
+     *   disable_timeout                 the timeout turned off for the run: the reference saves
+     *                                   timeout_get_timeout_msec/brake_current/kill_sw_mode and
+     *                                   configures 60000, nought and disabled (:543-550)
+     *   restore_timeout                 the saved triple put back, which every exit does (:634,
+     * :710)
+     */
+    uint32_t (*read_tacho)(void *self);
+    float (*read_reset_avg_cycle_integrator)(void *self);
+    edge_status_t (*stage_bldc_config)(void *self, float sl_min_erpm, float sl_cycle_int_limit,
+                                       bool delay_comm_mode);
+    edge_status_t (*switch_comm_mode_delay)(void *self);
+    edge_status_t (*disable_timeout)(void *self);
+    edge_status_t (*restore_timeout)(void *self);
+    /*
+     * mc_interface_set_configuration(mcconf_old) - the previous configuration put back on both
+     * ways out (:634, :710). The reference edits one configuration in place, so what the product
+     * restores is whatever it stashed when the procedure staged its own.
+     */
+    edge_status_t (*restore_bldc_config)(void *self);
+    /*
+     * The hall table the spin-up leaves, which is a different one from the table the detection
+     * above derives: mcpwm_reset_hall_detect_table (:624) empties the counts the six-step drive's
+     * own control loop fills, one reading each cycle, and mcpwm_get_hall_detect_result
+     * (:2257-2299) turns them into the eight entries and the count of readings that fell short.
+     * The samples are the product's own loop's, exactly as the reference takes them in its ADC
+     * interrupt rather than in this procedure.
+     */
+    edge_status_t (*reset_hall_detect)(void *self);
+    edge_status_t (*read_hall_detect_result)(void *self, uint8_t table[8], int *res);
 } motor_id_measure_port_t;
 
 typedef struct motor_id_app {
@@ -376,6 +455,27 @@ typedef struct motor_id_app {
     /* Whether the composed sequence's own current-loop gains are still in place, so that the single
      * exit point puts them back once and only when it changed them. */
     bool res_ind_gains_active;
+
+    /*
+     * The all-in-one detection's own state (conf_general.c:514-715): which of the three spin-up
+     * attempts it is on, whether the mid-watch commutation switch has happened - which is the
+     * reference's own way of deciding the motor is running and that no further attempt is tried -
+     * the count the tachometer is watched from, how many of the five steps the reference counts
+     * have been earned, the current it drives with, the duty it slows down to, the integrator's
+     * reading, and the sums the hundred-commutation run averages the speed over.
+     */
+    uint32_t param_attempt;
+    bool param_switch_done;
+    uint32_t param_tacho_start;
+    uint32_t param_ok_steps;
+    float param_current_a;
+    float param_min_rpm;
+    float param_low_duty;
+    float param_int_limit;
+    float param_avg_running;
+    float param_rpm_sum;
+    float param_rpm_iterations;
+    uint32_t param_cnt;
 } motor_id_app_t;
 
 void motor_id_construct(motor_id_app_t *app, uint32_t module_id, uint32_t priority,
@@ -466,6 +566,38 @@ void motor_id_hall_accumulate(float sin_hall[8], float cos_hall[8], int hall_ite
 int motor_id_hall_angle_table(const float sin_hall[8], const float cos_hall[8],
                               const int hall_iterations[8], uint8_t table[8], bool *result);
 edge_status_t motor_id_measure_flux_linkage(motor_id_app_t *app);
+
+/*
+ * conf_general.c:514-715, conf_general_detect_motor_param: the detection that finds a sensorless
+ * motor's parameters by spinning it up. Its arguments are the reference's three - the current to
+ * drive with, the speed the first attempt aims at, and the duty the motor is slowed to before the
+ * coupling factor is read - and its answers land in the result: the integrator's ceiling, the
+ * coupling factor and the hall table the spin-up also left, with the state reporting whether the
+ * reference's own five counted steps were all earned.
+ */
+edge_status_t motor_id_detect_motor_param(motor_id_app_t *app, float current_a, float min_rpm,
+                                          float low_duty);
+
+/*
+ * The pieces that procedure is built from, which are the reference's own arithmetic and are checked
+ * against it: the three settings an attempt runs with (conf_general.c:531-533, :566-570, :577-581),
+ * whether a watched count has advanced by what it waits for (:642, :652, :684), the coupling factor
+ * the run ends on (:705-708), and the criterion the five counted steps are judged by (:715).
+ */
+typedef struct motor_id_spinup_params {
+    float sl_min_erpm;
+    float sl_cycle_int_limit;
+    bool delay_comm_mode;
+} motor_id_spinup_params_t;
+
+void motor_id_spinup_params(uint32_t attempt, float min_rpm, motor_id_spinup_params_t *out);
+bool motor_id_tacho_advanced(uint32_t start, uint32_t now, uint32_t required);
+float motor_id_bemf_coupling_k(float avg_running, float int_limit, float v_in, float rpm);
+
+/* conf_general.c:715: the detection passes only when all five of its own steps did. */
+#define MOTOR_ID_SPINUP_OK_STEPS 5u
+
+bool motor_id_spinup_passed(uint32_t ok_steps);
 
 /*
  * The gains a detection exists to produce, which the reference computes from what it just measured:

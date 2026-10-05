@@ -64,45 +64,6 @@ int bldc_tacho_step_delta(int comm_step, int last_step) {
     return tacho_diff;
 }
 
-void bldc_spinup_attempt_params(uint32_t attempt, float min_rpm, float cycle_int_limit,
-                                bldc_spinup_attempt_t *out) {
-    if (out == (void *)0) {
-        return;
-    }
-
-    /* The parameters the command staged, which the first attempt runs with (:531-533). */
-    out->sl_min_erpm = min_rpm;
-    out->sl_cycle_int_limit = cycle_int_limit;
-    out->comm_mode = BLDC_COMM_MODE_INTEGRATE;
-
-    /* :566-570: the second attempt doubles the speed and lowers the limit to twenty. */
-    if (attempt >= 1u) {
-        out->sl_min_erpm = 2.0f * min_rpm;
-        out->sl_cycle_int_limit = 20.0f;
-    }
-
-    /* :577-581: the third doubles it again and delays the commutation mode. */
-    if (attempt >= 2u) {
-        out->sl_min_erpm = 4.0f * min_rpm;
-        out->comm_mode = BLDC_COMM_MODE_DELAY;
-    }
-}
-
-bool bldc_spinup_passed(uint32_t ok_steps) {
-    /* conf_general.c:715's own comparison. */
-    return ok_steps == BLDC_SPINUP_OK_STEPS;
-}
-
-float bldc_bemf_coupling_k(float avg_cycle_integrator_running, float int_limit, float v_in,
-                           float rpm) {
-    /* conf_general.c:705-708, its four statements in its own order. */
-    float coupling = avg_cycle_integrator_running - int_limit;
-    coupling /= v_in;
-    coupling *= rpm;
-
-    return coupling;
-}
-
 void bldc_stage_sensorless_bldc(float min_rpm, bldc_staged_config_t *out) {
     if (out == (void *)0) {
         return;
@@ -120,11 +81,6 @@ void bldc_stage_sensorless_bldc(float min_rpm, bldc_staged_config_t *out) {
     out->sl_cycle_int_limit = 50.0f;
     out->sl_min_erpm_cycle_int_limit = 1100.0f;
     out->m_invert_direction = false;
-}
-
-bool bldc_tacho_advanced(int32_t tacho_start, int32_t tacho_now, int32_t required) {
-    /* conf_general.c:642's own comparison: the difference against the count it is waiting for. */
-    return (tacho_now - tacho_start) >= required;
 }
 
 bool bldc_sensorless_now(uint8_t sensor_mode, float rpm, float hall_sl_erpm) {

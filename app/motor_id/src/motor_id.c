@@ -19,6 +19,7 @@ static void motor_id_flux_tick(motor_id_app_t *app);
 static void motor_id_sensored_tick(motor_id_app_t *app);
 static void motor_id_ind_tick(motor_id_app_t *app);
 static void motor_id_hall_tick(motor_id_app_t *app);
+static void motor_id_param_tick(motor_id_app_t *app);
 static void motor_id_chain_step(motor_id_app_t *app);
 static void motor_id_res_ind_release_gains(motor_id_app_t *app);
 
@@ -134,6 +135,21 @@ static void motor_id_tick(motor_id_app_t *app) {
     case MOTOR_ID_STATE_HALL_SWEEP_REVERSE:
     case MOTOR_ID_STATE_HALL_TABLE:
         motor_id_hall_tick(app);
+        return;
+
+    case MOTOR_ID_STATE_PARAM_FAULT_WAIT:
+    case MOTOR_ID_STATE_PARAM_SETTLE:
+    case MOTOR_ID_STATE_PARAM_ATTEMPT:
+    case MOTOR_ID_STATE_PARAM_RELEASE:
+    case MOTOR_ID_STATE_PARAM_RESTAGE:
+    case MOTOR_ID_STATE_PARAM_SPINUP:
+    case MOTOR_ID_STATE_PARAM_HALL_SAMPLES:
+    case MOTOR_ID_STATE_PARAM_TACHO_3:
+    case MOTOR_ID_STATE_PARAM_TACHO_50:
+    case MOTOR_ID_STATE_PARAM_SLOWDOWN:
+    case MOTOR_ID_STATE_PARAM_TACHO_100:
+    case MOTOR_ID_STATE_PARAM_COUPLING:
+        motor_id_param_tick(app);
         return;
 
     case MOTOR_ID_STATE_IND_CONFIG:
@@ -1676,6 +1692,412 @@ static void motor_id_hall_tick(motor_id_app_t *app) {
                                         app->result.hall_table, &passed);
         app->result.valid = passed;
         motor_id_hall_exit(app, passed);
+        return;
+    }
+
+    default:
+        return;
+    }
+}
+
+/*
+ * conf_general.c:514-715, conf_general_detect_motor_param - the command that finds a sensorless
+ * motor's parameters by spinning it up.
+ *
+ * The three settings an attempt runs with (:531-533, :566-570, :577-581): what the staging wrote,
+ * then the minimum speed doubled with the integrator's ceiling lowered to twenty - which stays
+ * through the third attempt - and then the speed doubled again with the commutation delayed. An
+ * attempt past the third is the third, which is where the reference's own loop stops.
+ */
+void motor_id_spinup_params(uint32_t attempt, float min_rpm, motor_id_spinup_params_t *out) {
+    if (out == (void *)0) {
+        return;
+    }
+
+    out->sl_min_erpm = min_rpm;
+    out->sl_cycle_int_limit = 50.0f;
+    out->delay_comm_mode = false;
+
+    if (attempt >= 1u) {
+        out->sl_min_erpm = 2.0f * min_rpm;
+        out->sl_cycle_int_limit = 20.0f;
+    }
+
+    if (attempt >= 2u) {
+        out->sl_min_erpm = 4.0f * min_rpm;
+        out->delay_comm_mode = true;
+    }
+}
+
+/*
+ * :642, :652, :684, the test each of the three watches makes: the count has moved on by what the
+ * watch waits for. The reference writes the same subtraction three times over; here it is once.
+ */
+bool motor_id_tacho_advanced(uint32_t start, uint32_t now, uint32_t required) {
+    return (uint32_t)(now - start) >= required;
+}
+
+/*
+ * :705-708: the running integrator less the ceiling, divided by the bus voltage and multiplied by
+ * the speed, in the reference's own order - so a bus voltage of nought gives the infinity that
+ * follows from the division rather than an excuse not to make it.
+ */
+float motor_id_bemf_coupling_k(float avg_running, float int_limit, float v_in, float rpm) {
+    float coupling = avg_running - int_limit;
+    coupling /= v_in;
+    coupling *= rpm;
+    return coupling;
+}
+
+bool motor_id_spinup_passed(uint32_t ok_steps) {
+    return ok_steps == MOTOR_ID_SPINUP_OK_STEPS;
+}
+
+edge_status_t motor_id_detect_motor_param(motor_id_app_t *app, float current_a, float min_rpm,
+                                          float low_duty) {
+    if (app == (void *)0 || current_a <= 0.0f || min_rpm <= 0.0f || low_duty < 0.0f) {
+        return EDGE_EINVAL;
+    }
+    if (app->state != MOTOR_ID_STATE_IDLE && app->state != MOTOR_ID_STATE_COMPLETE &&
+        app->state != MOTOR_ID_STATE_FAILED) {
+        return EDGE_EBUSY;
+    }
+
+    /*
+     * What the procedure cannot run without: the timeout it switches off and the configuration it
+     * stages are the product's, and so are the readings only the running plant can give - the
+     * tachometer, the cycle integrator whose reading hands back the average since the last one and
+     * clears itself, and the hall table the six-step drive's own control loop fills.
+     */
+    const motor_id_measure_port_t *p = &app->measure_port;
+    if (p->set_current == (void *)0 || p->set_duty == (void *)0 || p->read_duty == (void *)0 ||
+        p->read_rpm == (void *)0 || p->read_vbus == (void *)0 || p->get_fault == (void *)0 ||
+        p->release_motor == (void *)0 || p->is_running == (void *)0 ||
+        p->stage_bldc_config == (void *)0 || p->restore_bldc_config == (void *)0 ||
+        p->switch_comm_mode_delay == (void *)0 || p->disable_timeout == (void *)0 ||
+        p->restore_timeout == (void *)0 || p->read_tacho == (void *)0 ||
+        p->read_reset_avg_cycle_integrator == (void *)0 || p->reset_hall_detect == (void *)0 ||
+        p->read_hall_detect_result == (void *)0) {
+        return EDGE_ENOTSUP;
+    }
+
+    /*
+     * :523-534: the temporary configuration, written into the aggregate's own fields the way the
+     * reference edits its one configuration in place. Six of the nine assignments its staging makes
+     * never change - the motor is a BLDC one commutated sensorless on the integrated back EMF, its
+     * advance is one, its coupling three hundred, its ceiling eleven hundred and its direction not
+     * inverted - and the three the attempts vary are what the staging is given.
+     */
+    motor_id_spinup_params_t staged;
+    motor_id_spinup_params(0u, min_rpm, &staged);
+    (void)p->stage_bldc_config(p->self, staged.sl_min_erpm, staged.sl_cycle_int_limit,
+                               staged.delay_comm_mode);
+
+    app->result.int_limit = 0.0f;
+    app->result.bemf_coupling_k = 0.0f;
+    app->result.hall_valid = false;
+    app->result.valid = false;
+    memset(app->result.hall_table, 0, sizeof(app->result.hall_table));
+    app->param_current_a = current_a;
+    app->param_min_rpm = min_rpm;
+    app->param_low_duty = low_duty;
+    app->param_int_limit = 0.0f;
+    app->param_avg_running = 0.0f;
+    app->param_rpm_sum = 0.0f;
+    app->param_rpm_iterations = 0.0f;
+    app->param_attempt = 0u;
+    app->param_switch_done = false;
+    app->param_ok_steps = 0u;
+    app->param_cnt = 0u;
+    app->param_tacho_start = 0u;
+    app->ms = 0u;
+
+    app->state = MOTOR_ID_STATE_PARAM_FAULT_WAIT;
+    return EDGE_OK;
+}
+
+/*
+ * The way out - :630-641 on a run that never got going, :709-713 on one that did: the drive let go,
+ * the configuration and the timeout put back. The failure path stops short of releasing the motor,
+ * which is the reference's own asymmetry; the release on the other way out is the one its low-duty
+ * run ends with (:699-701).
+ */
+static void motor_id_param_exit(motor_id_app_t *app, bool valid) {
+    (void)app->measure_port.set_current(app->measure_port.self, 0.0f);
+    (void)app->measure_port.restore_bldc_config(app->measure_port.self);
+    (void)app->measure_port.restore_timeout(app->measure_port.self);
+    app->result.valid = valid;
+    app->state = valid ? MOTOR_ID_STATE_COMPLETE : MOTOR_ID_STATE_FAILED;
+}
+
+/* The settings of one attempt, written the way the reference re-stages on each retry. */
+static void motor_id_param_stage(motor_id_app_t *app, uint32_t attempt) {
+    motor_id_spinup_params_t staged;
+    motor_id_spinup_params(attempt, app->param_min_rpm, &staged);
+    (void)app->measure_port.stage_bldc_config(app->measure_port.self, staged.sl_min_erpm,
+                                              staged.sl_cycle_int_limit, staged.delay_comm_mode);
+}
+
+/*
+ * :624-628: the dwell the halls are sampled in - the spin-up duty held for four hundred
+ * milliseconds, the samples themselves taken by the product's own control loop, exactly as the
+ * reference takes them in the interrupt that runs it rather than in this procedure.
+ */
+static void motor_id_param_hall_samples(motor_id_app_t *app) {
+    (void)app->measure_port.reset_hall_detect(app->measure_port.self);
+    (void)app->measure_port.set_duty(app->measure_port.self, 0.5f);
+    app->ms = 0u;
+    app->state = MOTOR_ID_STATE_PARAM_HALL_SAMPLES;
+}
+
+/*
+ * One millisecond of that procedure. The reference sleeps in blocks - ten milliseconds while it
+ * waits for a fault to clear, a second after it has, a second after each re-staging, and one
+ * millisecond at a time in the watches it counts - and those blocks are what the states spend
+ * their milliseconds on.
+ */
+static void motor_id_param_tick(motor_id_app_t *app) {
+    const motor_id_measure_port_t *p = &app->measure_port;
+
+    switch (app->state) {
+    case MOTOR_ID_STATE_PARAM_FAULT_WAIT:
+        /* :537-542: the fault is tested every ten milliseconds, up to five hundred times. */
+        app->param_cnt++;
+        if (app->param_cnt < 10u) {
+            return;
+        }
+        app->param_cnt = 0u;
+        app->ms++;
+        if (p->get_fault(p->self) == 0u || app->ms >= 500u) {
+            app->ms = 0u;
+            app->state = MOTOR_ID_STATE_PARAM_SETTLE;
+        }
+        return;
+
+    case MOTOR_ID_STATE_PARAM_SETTLE:
+        /* :546-551: a second of settling, and then the timeout is switched off for the run. */
+        if (app->ms + 1u < 1000u) {
+            app->ms++;
+            return;
+        }
+        app->ms = 0u;
+        (void)p->disable_timeout(p->self);
+        app->state = MOTOR_ID_STATE_PARAM_ATTEMPT;
+        return;
+
+    case MOTOR_ID_STATE_PARAM_ATTEMPT:
+        if (app->param_attempt == 0u) {
+            /* :554-556: the first attempt drives with what the staging wrote. */
+            (void)p->set_current(p->self, app->param_current_a);
+            app->param_cnt = 0u;
+            app->param_switch_done = false;
+            app->state = MOTOR_ID_STATE_PARAM_SPINUP;
+            return;
+        }
+        /* :567-568: a later attempt lets the motor go first, and waits up to a second for it. */
+        (void)p->release_motor(p->self);
+        app->ms = 0u;
+        app->state = MOTOR_ID_STATE_PARAM_RELEASE;
+        return;
+
+    case MOTOR_ID_STATE_PARAM_RELEASE: {
+        bool running = false;
+        (void)p->is_running(p->self, &running);
+        if (running && app->ms + 1u < 1000u) {
+            app->ms++;
+            return;
+        }
+        app->ms = 0u;
+        motor_id_param_stage(app, app->param_attempt);
+        app->state = MOTOR_ID_STATE_PARAM_RESTAGE;
+        return;
+    }
+
+    case MOTOR_ID_STATE_PARAM_RESTAGE:
+        /* :574-576: a second on the new settings, and then the drive is applied again. */
+        if (app->ms + 1u < 1000u) {
+            app->ms++;
+            return;
+        }
+        app->ms = 0u;
+        (void)p->set_current(p->self, app->param_current_a);
+        app->param_cnt = 0u;
+        app->param_switch_done = false;
+        app->state = MOTOR_ID_STATE_PARAM_SPINUP;
+        return;
+
+    case MOTOR_ID_STATE_PARAM_SPINUP: {
+        /*
+         * :594-609: the reference's own while, whose condition is tested before each millisecond
+         * of waiting - so a duty that has already reached the spin-up value costs no millisecond,
+         * and the switch to the delayed commutation is made on the first millisecond past half of
+         * it.
+         */
+        float duty = 0.0f;
+        (void)p->read_duty(p->self, &duty);
+        if (duty >= 0.5f) {
+            /*
+             * :611-613: a mode that was switched means the motor is running, which is what stops
+             * the reference from trying more attempts. Without one it tries the next, and the last
+             * attempt ends the loop either way.
+             */
+            if (!app->param_switch_done && app->param_attempt + 1u < 3u) {
+                app->param_attempt++;
+                app->state = MOTOR_ID_STATE_PARAM_ATTEMPT;
+                return;
+            }
+            /* :619-621: the attempt loop is over, and the reference counts this step once. */
+            app->param_ok_steps++;
+            motor_id_param_hall_samples(app);
+            return;
+        }
+
+        app->param_cnt++;
+        if (duty >= 0.25f && !app->param_switch_done) {
+            (void)p->switch_comm_mode_delay(p->self);
+            app->param_switch_done = true;
+        }
+
+        /* :601-608: either timeout ends the whole run, whichever attempt it happened on. */
+        if ((app->param_cnt > 2000u && !app->param_switch_done) || app->param_cnt >= 5000u) {
+            motor_id_param_exit(app, false);
+            return;
+        }
+        return;
+    }
+
+    case MOTOR_ID_STATE_PARAM_HALL_SAMPLES:
+        /* :625-628: four hundred milliseconds at the spin-up duty while the halls are sampled. */
+        if (app->ms + 1u < 400u) {
+            app->ms++;
+            return;
+        }
+        app->ms = 0u;
+        /* :630: the drive is let go of before the motor's own commutations are counted. */
+        (void)p->set_current(p->self, 0.0f);
+        app->param_tacho_start = p->read_tacho(p->self);
+        app->param_cnt = 0u;
+        app->state = MOTOR_ID_STATE_PARAM_TACHO_3;
+        return;
+
+    case MOTOR_ID_STATE_PARAM_TACHO_3:
+        /*
+         * :641-646: three commutations, watched for two thousand milliseconds. A watch that runs
+         * out is not a failure - it is a step the reference does not count - and the run goes on
+         * to the next one, which is what the code after the loop does either way.
+         */
+        if (motor_id_tacho_advanced(app->param_tacho_start, p->read_tacho(p->self), 3u)) {
+            app->param_ok_steps++;
+            (void)p->read_reset_avg_cycle_integrator(p->self);
+            app->param_tacho_start = p->read_tacho(p->self);
+            app->param_cnt = 0u;
+            app->state = MOTOR_ID_STATE_PARAM_TACHO_50;
+            return;
+        }
+        if (app->param_cnt + 1u < 2000u) {
+            app->param_cnt++;
+            return;
+        }
+        (void)p->read_reset_avg_cycle_integrator(p->self);
+        app->param_tacho_start = p->read_tacho(p->self);
+        app->param_cnt = 0u;
+        app->state = MOTOR_ID_STATE_PARAM_TACHO_50;
+        return;
+
+    case MOTOR_ID_STATE_PARAM_TACHO_50:
+        /* :648-658: fifty more, watched for three thousand. */
+        if (motor_id_tacho_advanced(app->param_tacho_start, p->read_tacho(p->self), 50u)) {
+            app->param_ok_steps++;
+        } else if (app->param_cnt + 1u < 3000u) {
+            app->param_cnt++;
+            return;
+        }
+        /*
+         * :662-665: the hall table the run's own six-step detection filled, and the ceiling the
+         * integrator averaged over those fifty commutations - the reading that resets it.
+         */
+        {
+            int hall_res = 0;
+            (void)p->read_hall_detect_result(p->self, app->result.hall_table, &hall_res);
+            app->result.hall_valid = (hall_res == 0);
+            app->param_int_limit = p->read_reset_avg_cycle_integrator(p->self);
+        }
+        app->result.int_limit = app->param_int_limit;
+        app->param_cnt = 0u;
+        app->state = MOTOR_ID_STATE_PARAM_SLOWDOWN;
+        return;
+
+    case MOTOR_ID_STATE_PARAM_SLOWDOWN: {
+        /* :668-673: wait for the duty to fall to the caller's, up to five seconds. */
+        float duty = 0.0f;
+        (void)p->read_duty(p->self, &duty);
+        if (duty <= app->param_low_duty) {
+            app->param_ok_steps++;
+        } else if (app->param_cnt + 1u < 5000u) {
+            app->param_cnt++;
+            return;
+        }
+        /* :674-681: the low duty held, the integrator cleared and the count started. */
+        (void)p->set_duty(p->self, app->param_low_duty);
+        (void)p->read_reset_avg_cycle_integrator(p->self);
+        app->param_tacho_start = p->read_tacho(p->self);
+        app->param_rpm_sum = 0.0f;
+        app->param_rpm_iterations = 0.0f;
+        app->param_cnt = 0u;
+        app->state = MOTOR_ID_STATE_PARAM_TACHO_100;
+        return;
+    }
+
+    case MOTOR_ID_STATE_PARAM_TACHO_100:
+        /*
+         * :682-693: a hundred commutations at the low duty, watched for three thousand
+         * milliseconds, with the speed added up once a millisecond while it waits - the average
+         * that becomes the coupling factor's last term.
+         */
+        if (motor_id_tacho_advanced(app->param_tacho_start, p->read_tacho(p->self), 100u)) {
+            app->param_ok_steps++;
+            app->param_cnt = 0u;
+            app->state = MOTOR_ID_STATE_PARAM_COUPLING;
+            return;
+        }
+        if (app->param_cnt + 1u >= 3000u) {
+            app->param_cnt = 0u;
+            app->state = MOTOR_ID_STATE_PARAM_COUPLING;
+            return;
+        }
+        app->param_cnt++;
+        {
+            float rpm = 0.0f;
+            (void)p->read_rpm(p->self, &rpm);
+            app->param_rpm_sum += rpm;
+            app->param_rpm_iterations += 1.0f;
+        }
+        return;
+
+    case MOTOR_ID_STATE_PARAM_COUPLING: {
+        /* :696-701: the integrator at the low duty, the motor released and waited for. */
+        if (app->param_cnt == 0u) {
+            app->param_avg_running = p->read_reset_avg_cycle_integrator(p->self);
+            (void)p->release_motor(p->self);
+            app->param_cnt = 1u;
+            return;
+        }
+        bool running = false;
+        (void)p->is_running(p->self, &running);
+        if (running && app->param_cnt < 1001u) {
+            app->param_cnt++;
+            return;
+        }
+        /*
+         * :695-708: the average speed - the reference's own division, so a run that counted no
+         * millisecond at all gives the not-a-number that follows - and then the coupling factor.
+         */
+        const float rpm = app->param_rpm_sum / app->param_rpm_iterations;
+        float v_bus = 0.0f;
+        (void)p->read_vbus(p->self, &v_bus);
+        app->result.bemf_coupling_k =
+            motor_id_bemf_coupling_k(app->param_avg_running, app->result.int_limit, v_bus, rpm);
+        motor_id_param_exit(app, motor_id_spinup_passed(app->param_ok_steps));
         return;
     }
 
