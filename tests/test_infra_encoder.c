@@ -534,12 +534,146 @@ static void test_encoder_response_checks_and_wraps(void **state) {
     assert_true(deg < 180.0f);
 }
 
+/*
+ * enc_pwm.c:36-63's callback and :55-62's reading, which is what the family is held against: the
+ * angle the shorter of the width and the period makes, the shortest way round between two updates
+ * for the speed, and the interpolation that speed drives, clamped to a third of a turn.
+ */
+static void test_encoder_pwm_matches_the_reference(void **state) {
+    (void)state;
+
+    encoder_pwm_state_t st;
+    encoder_pwm_begin(&st, true, false);
+    assert_int_equal(encoder_pwm_update_count(&st), 0u);
+
+    /* A quarter of a period wide is a quarter turn, and the update is ABI's too. */
+    bool write_abi = false;
+    uint32_t abi_count = 0u;
+    encoder_pwm_update(&st, 250u, 1000u, 0.001f, 4096u, &write_abi, &abi_count);
+    assert_float_equal(st.angle, 90.0f, 1e-4f);
+    assert_int_equal(encoder_pwm_update_count(&st), 1u);
+    assert_true(write_abi);
+    assert_int_equal(abi_count, 1024u);
+    /* The first two updates only establish the speed. */
+    assert_float_equal(st.speed_per_s, 0.0f, 1e-6f);
+
+    /* A capture wider than its own period is clamped to it, which is a whole turn. */
+    encoder_pwm_update(&st, 2000u, 1000u, 0.002f, 4096u, &write_abi, &abi_count);
+    assert_float_equal(st.angle, 360.0f, 1e-4f);
+
+    /* The third establishes it: from a whole turn to half of one, over a millisecond. */
+    encoder_pwm_update(&st, 500u, 1000u, 0.003f, 4096u, &write_abi, &abi_count);
+    assert_float_equal(st.angle, 180.0f, 1e-4f);
+    assert_float_equal(st.speed_per_s, -180.0f / 0.001f, 1.0f);
+
+    /* And the reading interpolates on it: a millisecond of it is already past the clamp. */
+    assert_float_equal(encoder_pwm_read_deg(&st, 0.003f), 180.0f, 1e-3f);
+    assert_float_equal(encoder_pwm_read_deg(&st, 0.004f), 60.0f, 1e-2f);
+    /* Ten seconds later the clamp is still what holds it: half a turn less a third of one. */
+    assert_float_equal(encoder_pwm_read_deg(&st, 10.0f), 60.0f, 1e-2f);
+
+    /* Inverted, a quarter of a period is three quarters of a turn. */
+    encoder_pwm_set_inverted(&st, true);
+    encoder_pwm_update(&st, 250u, 1000u, 0.005f, 4096u, &write_abi, &abi_count);
+    assert_float_equal(st.angle, 270.0f, 1e-4f);
+
+    /* Not writing the ABI timer, and nothing to write into. */
+    encoder_pwm_begin(&st, false, false);
+    encoder_pwm_update(&st, 250u, 1000u, 1.0f, 4096u, &write_abi, &abi_count);
+    assert_false(write_abi);
+    encoder_pwm_update(&st, 250u, 1000u, 1.0f, 4096u, NULL, NULL);
+
+    /* A capture that reports no period leaves the angle where it was. */
+    const float held = st.angle;
+    encoder_pwm_update(&st, 250u, 0u, 2.0f, 4096u, NULL, NULL);
+    assert_float_equal(st.angle, held, 1e-6f);
+
+    encoder_pwm_update(NULL, 1u, 2u, 0.0f, 1u, NULL, NULL);
+    encoder_pwm_set_inverted(NULL, true);
+    encoder_pwm_begin(NULL, true, true);
+    assert_float_equal(encoder_pwm_read_deg(NULL, 0.0f), 0.0f, 1e-6f);
+    assert_int_equal(encoder_pwm_update_count(NULL), 0u);
+}
+
+typedef struct mock_amt22_plant {
+    uint16_t word;
+    bool fail;
+} mock_amt22_plant_t;
+
+static edge_status_t amt22_plant_read(void *self, uint16_t *word) {
+    mock_amt22_plant_t *p = (mock_amt22_plant_t *)self;
+    if (p->fail) {
+        return EDGE_ESTATE;
+    }
+    *word = p->word;
+    return EDGE_OK;
+}
+
+/*
+ * enc_amt22.c:79-89's checksum and :40-72's routine. The checksum seeds itself with both bits and
+ * folds the pairs in, so a word whose pairs come to nought needs those two bits clear (0x0003), and
+ * one whose pairs come to both needs them set (0xC000); 0x0000 leaves the seed against a clear pair
+ * of bits and is the failing case.
+ */
+static void test_encoder_amt22_matches_the_reference(void **state) {
+    (void)state;
+
+    assert_true(encoder_amt22_checksum_ok(0xC000u));
+    assert_true(encoder_amt22_checksum_ok(0x0003u));
+    assert_false(encoder_amt22_checksum_ok(0x0000u));
+    assert_false(encoder_amt22_checksum_ok(0x4000u));
+    /* The top of the range carries the seed's complement: the seven pairs come to both. */
+    assert_true(encoder_amt22_checksum_ok(0x3FFFu));
+
+    encoder_amt22_state_t st;
+    encoder_amt22_begin(&st);
+    assert_float_equal(st.last_enc_angle, 0.0f, 1e-6f);
+
+    mock_amt22_plant_t plant = {0};
+    encoder_amt22_port_t port = {.self = &plant, .read_word = amt22_plant_read};
+
+    /* A word whose checksum holds is the angle its low fourteen bits make. */
+    uint16_t word = (uint16_t)(1000u & 0x3FFFu);
+    uint16_t pairs = 0u;
+    for (int i = 0; i < 14; i += 2) {
+        pairs ^= (uint16_t)((word >> i) & 0x3u);
+    }
+    plant.word = (uint16_t)(word | (uint16_t)((0x3u ^ pairs) << 14));
+    assert_true(encoder_amt22_checksum_ok(plant.word));
+    assert_float_equal(encoder_amt22_routine(&st, &port, 0.001f), 1000.0f * 360.0f / 16384.0f,
+                       1e-4f);
+    assert_int_equal(st.spi_error_cnt, 0u);
+    /* The error rate falls from wherever it was towards nought, by the timestep. */
+    assert_float_equal(st.spi_error_rate, 0.0f, 1e-6f);
+
+    /* A word whose checksum does not is counted and moves the rate towards one. */
+    plant.word = 0x0000u;
+    encoder_amt22_routine(&st, &port, 0.002f);
+    assert_int_equal(st.spi_error_cnt, 1u);
+    assert_float_equal(st.spi_error_rate, 0.001f, 1e-6f);
+    /* And the angle is the last good one rather than the failed word's. */
+    assert_float_equal(st.last_enc_angle, 1000.0f * 360.0f / 16384.0f, 1e-4f);
+
+    /* A word the port could not read leaves everything as it was. */
+    plant.fail = true;
+    const float held = st.last_enc_angle;
+    assert_float_equal(encoder_amt22_routine(&st, &port, 0.003f), held, 1e-6f);
+
+    encoder_amt22_begin(NULL);
+    assert_float_equal(encoder_amt22_routine(NULL, &port, 0.0f), 0.0f, 1e-6f);
+    assert_float_equal(encoder_amt22_routine(&st, NULL, 0.0f), 0.0f, 1e-6f);
+    encoder_amt22_port_t bare = {0};
+    assert_float_equal(encoder_amt22_routine(&st, &bare, 0.0f), 0.0f, 1e-6f);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_encoder_as5047),
         cmocka_unit_test(test_encoder_mt6816),
         cmocka_unit_test(test_encoder_abi_index_machine),
+        cmocka_unit_test(test_encoder_pwm_matches_the_reference),
+        cmocka_unit_test(test_encoder_amt22_matches_the_reference),
         cmocka_unit_test(test_encoder_sincos_matches_the_reference),
         cmocka_unit_test(test_encoder_hall),
         cmocka_unit_test(test_encoder_resolver_and_hall_guards),

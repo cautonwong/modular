@@ -142,10 +142,162 @@ edge_status_t encoder_mt6816_read_angle_rad(encoder_mt6816_t *self, float *angle
 }
 
 /* ABI Quadrature is the index machine above, whose own state is cleared by encoder_abi_begin. */
+
 /*
- * enc_abi.c:38-42 - the clearing half of the reference's init, whose other half is the timer's own
- * encoder mode and its EXTI line - and :92-93's reading.
+ * enc_pwm.c:35-41's clearing and :36-63's callback. The angle is the shorter of the width and the
+ * period - a capture wider than its own period is what the reference clamps rather than trusts -
+ * over the period, turned a half turn when the input is inverted; the speed between two updates is
+ * the shortest way round between the angles (utils_math.h:257-262), and the first two updates only
+ * establish it. The ABI timer the reference writes at :61-63 is the caller's, so the count it would
+ * write is answered instead.
  */
+void encoder_pwm_begin(encoder_pwm_state_t *st, bool update_abi, bool inverted) {
+    if (st == (void *)0) {
+        return;
+    }
+    memset(st, 0, sizeof(*st));
+    st->update_abi = update_abi;
+    st->inverted = inverted;
+}
+
+void encoder_pwm_set_inverted(encoder_pwm_state_t *st, bool inverted) {
+    if (st == (void *)0) {
+        return;
+    }
+    st->inverted = inverted;
+}
+
+/* utils_math.h:257-262, the reference's own shortest way round. */
+static float encoder_pwm_angle_difference(float angle1, float angle2) {
+    float difference = angle1 - angle2;
+    while (difference < -180.0f) {
+        difference += 360.0f;
+    }
+    while (difference > 180.0f) {
+        difference -= 360.0f;
+    }
+    return difference;
+}
+
+void encoder_pwm_update(encoder_pwm_state_t *st, uint32_t width, uint32_t period, float now_s,
+                        uint32_t abi_arr, bool *write_abi, uint32_t *abi_count) {
+    if (st == (void *)0) {
+        return;
+    }
+    if (write_abi != (void *)0) {
+        *write_abi = false;
+    }
+
+    st->last_width = width;
+    st->last_period = period;
+    st->update_cnt++;
+
+    if (period == 0u) {
+        /* A capture that reports no period is a port with nothing to say; the reference divides
+         * whatever it is given. */
+        return;
+    }
+
+    const uint32_t shorter = (width < period) ? width : period;
+    const float angle_tmp = (float)shorter / (float)period * 360.0f;
+    st->angle = st->inverted ? (360.0f - angle_tmp) : angle_tmp;
+
+    if (st->update_cnt > 2u) {
+        const float dt = now_s - st->ts_last_s;
+        st->speed_per_s = encoder_pwm_angle_difference(st->angle, st->angle_last) / dt;
+    }
+
+    st->ts_last_s = now_s;
+    st->angle_last = st->angle;
+
+    if (st->update_abi) {
+        if (write_abi != (void *)0) {
+            *write_abi = true;
+        }
+        if (abi_count != (void *)0) {
+            *abi_count = (uint32_t)(st->angle / 360.0f * (float)abi_arr);
+        }
+    }
+}
+
+float encoder_pwm_read_deg(const encoder_pwm_state_t *st, float now_s) {
+    if (st == (void *)0) {
+        return 0.0f;
+    }
+
+    /* :57-62: the reading interpolates on the speed it last measured, a third of a turn either way.
+     */
+    float interpol = st->speed_per_s * (now_s - st->ts_last_s);
+    if (interpol < -120.0f) {
+        interpol = -120.0f;
+    }
+    if (interpol > 120.0f) {
+        interpol = 120.0f;
+    }
+    return st->angle + interpol;
+}
+
+uint32_t encoder_pwm_update_count(const encoder_pwm_state_t *st) {
+    return (st != (void *)0) ? st->update_cnt : 0u;
+}
+
+/*
+ * enc_amt22.c:79-89, its own checksum: two bits at a time over the low fourteen, compared against
+ * the two the message carries on top.
+ */
+bool encoder_amt22_checksum_ok(uint16_t message) {
+    uint16_t checksum = 0x3u;
+    for (int i = 0; i < 14; i += 2) {
+        checksum ^= (uint16_t)((message >> i) & 0x3u);
+    }
+    return checksum == (uint16_t)(message >> 14);
+}
+
+void encoder_amt22_begin(encoder_amt22_state_t *st) {
+    if (st == (void *)0) {
+        return;
+    }
+    memset(st, 0, sizeof(*st));
+}
+
+/*
+ * enc_amt22.c:40-72, its routine: the timestep clamped at a second, the word read and remembered,
+ * and - when it is whole - the low fourteen bits over a quarter turn of turns, with the error rate
+ * falling towards nought; a word that fails its checksum raises the error count instead, and the
+ * rate climbs towards one.
+ */
+float encoder_amt22_routine(encoder_amt22_state_t *st, const encoder_amt22_port_t *port,
+                            float now_s) {
+    if (st == (void *)0 || port == (void *)0 || port->read_word == (void *)0) {
+        return 0.0f;
+    }
+
+    float timestep = now_s - st->last_update_s;
+    if (timestep > 1.0f) {
+        timestep = 1.0f;
+    }
+    st->last_update_s = now_s;
+
+    uint16_t pos = 0u;
+    if (port->read_word(port->self, &pos) != EDGE_OK) {
+        return st->last_enc_angle;
+    }
+    st->spi_val = pos;
+
+    if (encoder_amt22_checksum_ok(pos)) {
+        pos &= 0x3FFFu;
+        st->last_enc_angle = ((float)pos * 360.0f) / 16384.0f;
+        st->spi_error_rate -= timestep * (st->spi_error_rate - 0.0f);
+    } else {
+        ++st->spi_error_cnt;
+        st->spi_error_rate -= timestep * (st->spi_error_rate - 1.0f);
+    }
+
+    return st->last_enc_angle;
+} /*
+   * enc_abi.c:38-42 - the clearing half of the reference's init, whose other half is the timer's
+   * own encoder mode and its EXTI line - and :92-93's reading.
+   */
 void encoder_abi_begin(encoder_abi_config_t *cfg) {
     if (cfg == (void *)0) {
         return;

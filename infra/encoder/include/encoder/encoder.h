@@ -126,6 +126,44 @@ typedef struct encoder_hall {
     float last_angle_rad;
 } encoder_hall_t;
 
+/*
+ * enc_pwm.c:36-63's machine, which the reference keeps in file-scope statics: the width and the
+ * period the capture callback just saw, how many updates there have been, the angle those make, the
+ * one before it and the speed between them, and the two settings it carries.
+ */
+typedef struct encoder_pwm_state {
+    uint32_t last_width;
+    uint32_t last_period;
+    uint32_t update_cnt;
+    float angle;
+    float angle_last;
+    float speed_per_s;
+    float ts_last_s;
+    bool update_abi;
+    bool inverted;
+} encoder_pwm_state_t;
+
+/*
+ * enc_amt22.c:40-72's routine and the state it keeps (enc_amt22.h's AS504x_state): the angle it
+ * last read, the word it read, and the error count and rate the checksum feeds.
+ */
+typedef struct encoder_amt22_state {
+    float last_enc_angle;
+    float spi_error_rate;
+    uint32_t spi_error_cnt;
+    uint16_t spi_val;
+    float last_update_s;
+} encoder_amt22_state_t;
+
+/*
+ * The one word the AMT22 answers, which the reference takes over its own bit-banged bus in two
+ * eight-bit transfers: what a port hands over is the sixteen bits those make.
+ */
+typedef struct encoder_amt22_port {
+    void *self;
+    edge_status_t (*read_word)(void *self, uint16_t *word);
+} encoder_amt22_port_t;
+
 /* AS5047 API */
 void encoder_as5047_construct(encoder_as5047_t *self, encoder_spi_transfer_fn spi_transfer,
                               void *spi_ctx);
@@ -160,6 +198,29 @@ float encoder_sincos_read_deg(encoder_sincos_config_t *cfg, const encoder_sincos
 void encoder_hall_construct(encoder_hall_t *self, const uint8_t *custom_tab);
 edge_status_t encoder_hall_init(encoder_hall_t *self);
 edge_status_t encoder_hall_update(encoder_hall_t *self, uint8_t hall_state, float *out_angle_rad);
+
+/*
+ * The PWM-input family: enc_pwm.c:47-63's callback, whose angle is the shorter of the width and the
+ * period over the period, turned a half turn when the input is inverted, with the speed between two
+ * updates for the interpolation the reading adds (:36-41 is the clearing its init does). The write
+ * of the ABI timer's counter (:61-63) is the caller's, so update() answers with the count to write
+ * and only when the run was told to.
+ */
+void encoder_pwm_begin(encoder_pwm_state_t *st, bool update_abi, bool inverted);
+void encoder_pwm_set_inverted(encoder_pwm_state_t *st, bool inverted);
+void encoder_pwm_update(encoder_pwm_state_t *st, uint32_t width, uint32_t period, float now_s,
+                        uint32_t abi_arr, bool *write_abi, uint32_t *abi_count);
+float encoder_pwm_read_deg(const encoder_pwm_state_t *st, float now_s);
+uint32_t encoder_pwm_update_count(const encoder_pwm_state_t *st);
+
+/*
+ * The AMT22 family: enc_amt22.c:40-72's routine and :74-77's reading, with its checksum (:79-89)
+ * exposed because that is what the reference's own static is and what its test drives.
+ */
+void encoder_amt22_begin(encoder_amt22_state_t *st);
+float encoder_amt22_routine(encoder_amt22_state_t *st, const encoder_amt22_port_t *port,
+                            float now_s);
+bool encoder_amt22_checksum_ok(uint16_t message);
 
 #ifdef __cplusplus
 }
