@@ -440,7 +440,23 @@ int main(void) {
     ops_ctx.config = motor_cfg;
 
     nunchuk_app_t nunchuk_app;
-    nunchuk_config_t nunchuk_cfg = {.deadband = 0.05f, .timeout_s = 0.2f};
+    /* datatypes.h:733-750's own fields; the mode is the appconf's own default, NONE. */
+    nunchuk_config_t nunchuk_cfg = {.ctrl_type = NUNCHUK_MODE_NONE,
+                                    .hyst = 0.1f,
+                                    .ramp_time_pos = 0.1f,
+                                    .ramp_time_neg = 0.1f,
+                                    .stick_erpm_per_s_in_cc = 1000.0f,
+                                    .throttle_exp = 0.0f,
+                                    .throttle_exp_brake = 0.0f,
+                                    .throttle_exp_mode = NUNCHUK_CURVE_EXPO,
+                                    .multi_esc = false,
+                                    .tc = false,
+                                    .tc_max_diff = 0.0f,
+                                    .use_smart_rev = false,
+                                    .smart_rev_max_duty = 0.3f,
+                                    .smart_rev_ramp_time = 0.5f,
+                                    .coast_brake_level = 0.0f,
+                                    .coast_brake_ramp_time = 0.1f};
     nunchuk_construct(&nunchuk_app, EDGE_MOD_NUNCHUK, 25u, &nunchuk_cfg, &nunchuk_port);
     if (nunchuk_init(&nunchuk_app) != EDGE_OK) {
         return 19;
