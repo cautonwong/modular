@@ -516,6 +516,13 @@ static void test_vesc_host_app_status_adapters(void **state) {
     vesc_host_make_app_status_port(&status, &glue_state);
     assert_non_null(status.get_decoded_ppm);
     assert_non_null(status.get_decoded_adc);
+    assert_non_null(status.get_decoded_chuk);
+
+    /* COMM_GET_DECODED_CHUK reads a nunchuk application, and this composition root has not handed
+     * one over here, so the port says so rather than reporting a centre nothing measured. */
+    float chuk_level = 0.0f;
+    assert_int_equal(status.get_decoded_chuk(status.self, &chuk_level), EDGE_EINVAL);
+    assert_int_equal(status.get_decoded_chuk(NULL, &chuk_level), EDGE_EINVAL);
 
     float level = 0.0f;
     float pulse = 0.0f;

@@ -1253,6 +1253,20 @@ static edge_status_t app_get_decoded_adc(void *self, float *level, float *voltag
     return EDGE_OK;
 }
 
+/*
+ * comm/commands.c:2521-2525: COMM_GET_DECODED_CHUK's own value, read off the nunchuk application
+ * the reference reads it from. A state without one has nothing to report and says so, rather than
+ * letting a centre through that nothing measured.
+ */
+static edge_status_t app_get_decoded_chuk(void *self, float *level_y) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    if (s == (void *)0 || s->nunchuk == (void *)0 || level_y == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    *level_y = nunchuk_get_decoded_y(s->nunchuk);
+    return EDGE_OK;
+}
+
 void vesc_host_make_app_status_port(vesc_app_status_port_t *out, vesc_host_glue_state_t *state) {
     if (!out || !state) {
         return;
@@ -1260,6 +1274,7 @@ void vesc_host_make_app_status_port(vesc_app_status_port_t *out, vesc_host_glue_
     *out = (vesc_app_status_port_t){
         .get_decoded_ppm = app_get_decoded_ppm,
         .get_decoded_adc = app_get_decoded_adc,
+        .get_decoded_chuk = app_get_decoded_chuk,
         .self = state,
     };
 }

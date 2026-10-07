@@ -23,6 +23,7 @@ typedef struct mock_comm_ctx {
     size_t tx_len;
     size_t tx_count;
 
+    float chuk_level;
     vesc_values_t current_values;
     float set_duty_val;
     float set_current_val;
@@ -157,6 +158,13 @@ static edge_status_t mock_get_decoded_ppm(void *self, float *level, float *pulse
     mock_comm_ctx_t *ctx = (mock_comm_ctx_t *)self;
     *level = ctx->ppm_level;
     *pulse_us = ctx->ppm_pulse_us;
+    return EDGE_OK;
+}
+
+/* comm/commands.c:2521-2525: COMM_GET_DECODED_CHUK's own single value. */
+static edge_status_t mock_get_decoded_chuk(void *self, float *level_y) {
+    mock_comm_ctx_t *ctx = (mock_comm_ctx_t *)self;
+    *level_y = ctx->chuk_level;
     return EDGE_OK;
 }
 
@@ -326,6 +334,7 @@ static void test_receive_packet_and_commands(void **state) {
     vesc_app_status_port_t app_status_port = {
         .get_decoded_ppm = mock_get_decoded_ppm,
         .get_decoded_adc = mock_get_decoded_adc,
+        .get_decoded_chuk = mock_get_decoded_chuk,
         .self = &ctx,
     };
     vesc_motor_provider_port_t motor_port = {
@@ -585,6 +594,22 @@ static void test_receive_packet_and_commands(void **state) {
     assert_int_equal(ctx.tx_buf[8], 0x68u);
     assert_int_equal(ctx.tx_buf[9], 0x2Fu);
     assert_int_equal(ctx.tx_buf[10], 0x00u);
+
+    /*
+     * COMM_GET_DECODED_CHUK: one int32 scaled by a million, which is the whole of its payload. The
+     * value is the stick's own, so half a stick is five hundred thousand.
+     */
+    ctx.tx_count = 0;
+    ctx.chuk_level = 0.5f;
+    uint8_t cmd_chuk[1] = {COMM_GET_DECODED_CHUK};
+    assert_int_equal(vesc_comm_process_command(comm, cmd_chuk, sizeof(cmd_chuk)), EDGE_OK);
+    assert_int_equal(ctx.tx_count, 1);
+    assert_int_equal(ctx.tx_buf[1], 5u); /* id + one int32 */
+    assert_int_equal(ctx.tx_buf[2], COMM_GET_DECODED_CHUK);
+    assert_int_equal(ctx.tx_buf[3], 0x00u); /* 500000 = 0x0007A120 */
+    assert_int_equal(ctx.tx_buf[4], 0x07u);
+    assert_int_equal(ctx.tx_buf[5], 0xA1u);
+    assert_int_equal(ctx.tx_buf[6], 0x20u);
 
     ctx.tx_count = 0;
     ctx.adc_level = 0.25f;

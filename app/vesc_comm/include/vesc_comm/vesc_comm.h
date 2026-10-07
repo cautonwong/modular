@@ -274,6 +274,11 @@ typedef struct vesc_app_status_port {
     edge_status_t (*get_decoded_ppm)(void *self, float *level, float *pulse_us);
     edge_status_t (*get_decoded_adc)(void *self, float *level, float *voltage, float *level2,
                                      float *voltage2);
+    /*
+     * comm/commands.c:2521-2525: COMM_GET_DECODED_CHUK's payload is one number, the stick's own
+     * decoded value - app_nunchuk_get_decoded_y, scaled by a million on the wire.
+     */
+    edge_status_t (*get_decoded_chuk)(void *self, float *level_y);
     void *self;
 } vesc_app_status_port_t;
 
