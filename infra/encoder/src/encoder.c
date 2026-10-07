@@ -758,6 +758,56 @@ void encoder_core_reset_errors(const encoder_core_t *c, const encoder_core_port_
     port->ts_reset_errors(port->self);
 }
 
+/*
+ * encoder.c:186-…, encoder_check_faults, the part of it this port owns: the verdict each family's
+ * own rates and flags stand for. The policy is only in force while the encoder is the thing the
+ * motor is commuting from - the reference's own gate, which is three conditions in its
+ * configuration - and each mode then reads what its family keeps: a bus rate past a twentieth sends
+ * the motor to the encoder bus fault, the sensor that reports a missing magnet in a rate of its own
+ * says so by name, and the AS504x carries the magnet's two flags in its diagnostics beside the
+ * connection one.
+ */
+encoder_fault_t encoder_core_check_faults(bool encoder_in_use, uint8_t sensor_port_mode,
+                                          const encoder_fault_inputs_t *in) {
+    if (!encoder_in_use || in == (void *)0) {
+        return ENCODER_FAULT_NONE;
+    }
+
+    switch (sensor_port_mode) {
+    case ENCODER_PORT_MODE_AS5047_SPI:
+        if (in->as504x_spi_error_rate > ENCODER_FAULT_ERROR_RATE_THRESHOLD) {
+            return ENCODER_FAULT_SPI;
+        }
+        if (in->as504x_has_mosi) {
+            if (!in->as504x_is_connected) {
+                return ENCODER_FAULT_SPI;
+            }
+            if (in->as504x_is_comp_high) {
+                return ENCODER_FAULT_NO_MAGNET;
+            }
+            if (in->as504x_is_comp_low) {
+                return ENCODER_FAULT_MAGNET_TOO_STRONG;
+            }
+        }
+        return ENCODER_FAULT_NONE;
+
+    case ENCODER_PORT_MODE_MT6816_SPI_HW:
+        return (in->mt6816_no_magnet_error_rate > ENCODER_FAULT_ERROR_RATE_THRESHOLD)
+                   ? ENCODER_FAULT_NO_MAGNET
+                   : ENCODER_FAULT_NONE;
+
+    case ENCODER_PORT_MODE_MT6835_SPI_HW:
+        return (in->mt6835_spi_error_rate > ENCODER_FAULT_ERROR_RATE_THRESHOLD)
+                   ? ENCODER_FAULT_SPI
+                   : ENCODER_FAULT_NONE;
+
+    default:
+        /* The modes this policy has not been read for answer none rather than guessing; the modes
+         * beside these three are the next piece of it. */
+        return ENCODER_FAULT_NONE;
+    }
+}
+
 uint16_t encoder_as5x47u_callback(encoder_as5x47u_state_t *st, const uint8_t rx[3], float now_s) {
     if (st == (void *)0 || rx == (void *)0) {
         return 0u;
