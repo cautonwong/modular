@@ -328,6 +328,13 @@ typedef struct foc_core {
     /* Domain State Machine & Aggregation Invariants */
     foc_state_t state;
     uint32_t faults;
+    /*
+     * mc_interface.c:1731-1745's own window: while this is above zero the motor ignores the
+     * commands it is sent, and the control iteration closes it. It is opened in milliseconds and
+     * counts down with the loop's clock, which is what the reference does with its own iteration
+     * count.
+     */
+    int32_t ignore_iterations;
 
     /* Target Setpoints */
     float target_id;
@@ -633,6 +640,11 @@ edge_module_t *foc_core_module(foc_core_t *self);
 
 /* Fast Real-Time ISR Path (20kHz - 40kHz) */
 edge_status_t foc_core_fast_loop(foc_core_t *self, float dt);
+/*
+ * mc_interface.c:1731-1745, mc_interface_ignore_input: ignore what the motor is told for this many
+ * milliseconds. Nothing is commanded during the window and the loop's own clock closes it.
+ */
+void foc_core_ignore_input(foc_core_t *self, int32_t time_ms);
 
 /* Domain Commands & Setpoints */
 edge_status_t foc_core_set_current(foc_core_t *self, float iq_target, float id_target);

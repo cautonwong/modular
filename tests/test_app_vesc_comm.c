@@ -614,6 +614,13 @@ static void test_receive_packet_and_commands(void **state) {
     /* COMM_FW_INFO: three version bytes and two hashes, each a string and its terminator. This port
      * has no build-generated hash, so both strings are empty - a length of six. */
     ctx.tx_count = 0;
+    /* COMM_MOTOR_ESTOP needs the operations port to open its window, and has no reply of its own.
+     */
+    ctx.tx_count = 0;
+    uint8_t cmd_estop[3] = {COMM_MOTOR_ESTOP, 0x01u, 0xF4u};
+    assert_int_equal(vesc_comm_process_command(comm, cmd_estop, sizeof(cmd_estop)), EDGE_ENOTSUP);
+    assert_int_equal(ctx.tx_count, 0);
+
     uint8_t cmd_fwinfo[1] = {COMM_FW_INFO};
     assert_int_equal(vesc_comm_process_command(comm, cmd_fwinfo, sizeof(cmd_fwinfo)), EDGE_OK);
     assert_int_equal(ctx.tx_count, 1);

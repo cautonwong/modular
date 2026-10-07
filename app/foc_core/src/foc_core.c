@@ -414,7 +414,14 @@ edge_status_t foc_core_fast_loop(foc_core_t *self, float dt) {
     }
 
     self->fast_loop_count++;
-
+    /*
+     * mc_interface.c:1731-1745: the window closes one control iteration at a time. Its parameter
+     * says milliseconds and its own loop counts iterations, which is the reference's own reading of
+     * it.
+     */
+    if (self->ignore_iterations > 0) {
+        self->ignore_iterations--;
+    }
     /*
      * The limits first, which is where the reference has it: update_override_limits runs from the
      * timer task before the control it feeds (mc_interface.c:2607), so everything below - the
@@ -1118,6 +1125,9 @@ edge_status_t foc_core_set_current(foc_core_t *self, float iq_target, float id_t
     if (self->state == FOC_STATE_FAULT || self->state == FOC_STATE_UNINITIALIZED) {
         return EDGE_EBUSY;
     }
+    if (self->ignore_iterations > 0) {
+        return EDGE_OK; /* mc_interface.c:1731-1745's window */
+    }
 
     /*
      * No clamp, deliberately. The reference does not limit here: mc_interface_set_current
@@ -1344,6 +1354,9 @@ edge_status_t foc_core_set_current_rel(foc_core_t *self, float rel) {
     if (self == (void *)0) {
         return EDGE_EINVAL;
     }
+    if (self->ignore_iterations > 0) {
+        return EDGE_OK; /* mc_interface.c:1731-1745's window */
+    }
 
     /*
      * Reference mc_interface_set_current_rel (mc_interface.c:733-749). The limit base
@@ -1380,6 +1393,9 @@ edge_status_t foc_core_set_rpm(foc_core_t *self, float rpm_target) {
     if (self->state == FOC_STATE_FAULT || self->state == FOC_STATE_UNINITIALIZED) {
         return EDGE_EBUSY;
     }
+    if (self->ignore_iterations > 0) {
+        return EDGE_OK; /* mc_interface.c:1731-1745's window */
+    }
 
     self->target_rpm = rpm_target;
     self->target_id = 0.0f;
@@ -1394,6 +1410,9 @@ edge_status_t foc_core_set_pos(foc_core_t *self, float pos_target_deg) {
     if (self->state == FOC_STATE_FAULT || self->state == FOC_STATE_UNINITIALIZED) {
         return EDGE_EBUSY;
     }
+    if (self->ignore_iterations > 0) {
+        return EDGE_OK; /* mc_interface.c:1731-1745's window */
+    }
 
     self->target_rpm = pos_target_deg; /* Store pos setpoint */
     self->target_id = 0.0f;
@@ -1407,6 +1426,9 @@ edge_status_t foc_core_set_handbrake(foc_core_t *self, float brake_current_a) {
     }
     if (self->state == FOC_STATE_FAULT || self->state == FOC_STATE_UNINITIALIZED) {
         return EDGE_EBUSY;
+    }
+    if (self->ignore_iterations > 0) {
+        return EDGE_OK; /* mc_interface.c:1731-1745's window */
     }
 
     /*
@@ -1428,6 +1450,9 @@ edge_status_t foc_core_set_brake_current(foc_core_t *self, float current_a) {
     }
     if (self->state == FOC_STATE_FAULT || self->state == FOC_STATE_UNINITIALIZED) {
         return EDGE_EBUSY;
+    }
+    if (self->ignore_iterations > 0) {
+        return EDGE_OK; /* mc_interface.c:1731-1745's window */
     }
 
     /*
@@ -1508,12 +1533,28 @@ edge_status_t foc_core_set_openloop_current(foc_core_t *self, float current_a, f
     return EDGE_OK;
 }
 
+/*
+ * mc_interface.c:1731-1745, the whole of mc_interface_ignore_input as it matters here: the window
+ * is set, and the loop below is what closes it.
+ */
+void foc_core_ignore_input(foc_core_t *self, int32_t time_ms) {
+    if (self == (void *)0) {
+        return;
+    }
+    self->ignore_iterations = time_ms;
+}
+
 edge_status_t foc_core_set_duty(foc_core_t *self, float duty_target) {
     if (self == (void *)0) {
         return EDGE_EINVAL;
     }
     if (self->state == FOC_STATE_FAULT || self->state == FOC_STATE_UNINITIALIZED) {
         return EDGE_EBUSY;
+    }
+    /* mc_interface.c:1731-1745: an open input-ignore window swallows the command, and the reference
+     * does it without telling the caller - the value is simply not applied. */
+    if (self->ignore_iterations > 0) {
+        return EDGE_OK;
     }
 
     if (duty_target > self->config.duty_max)
