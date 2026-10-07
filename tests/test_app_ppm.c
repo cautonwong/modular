@@ -251,6 +251,55 @@ static void test_ppm_deadband_curve_and_ramp(void **state) {
     assert_float_equal(ppm_get_output(&ramped), 0.5f, 1e-4f);
 }
 
+static void test_ppm_norev_group_remap(void **state) {
+    (void)state;
+    mock_ppm_rcv_t rcv;
+    memset(&rcv, 0, sizeof(rcv));
+    rcv.signal_ok = true;
+    ppm_receiver_port_t port = {
+        .self = &rcv, .read_pulse_us = mock_read_pulse, .is_signal_present = mock_signal_present};
+
+    ppm_config_t cfg = {
+        .mode = PPM_MODE_CURRENT_NOREV,
+        .pulse_min_us = 1000.0f,
+        .pulse_max_us = 2000.0f,
+        .pulse_center_us = 1500.0f,
+        .timeout_s = 0.1f,
+        .safe_start = false,
+        .throttle_exp_mode = 3, /* Linear, so the two values differ only by the re-map. */
+    };
+    ppm_app_t app;
+    ppm_construct(&app, EDGE_MOD_PPM, 20u, &cfg, &port);
+    assert_int_equal(ppm_init(&app), EDGE_OK);
+    assert_int_equal(ppm_update(&app, 0.01f), EDGE_OK); /* centre, unlocking safe start */
+
+    /* The group maps [-1, 1] onto [0, 1]: full brake decodes as -1 and commands 0, which is what
+     * the reference does with this group and not with any other. */
+    rcv.pulse_us = 1000.0f;
+    assert_int_equal(ppm_update(&app, 0.01f), EDGE_OK);
+    assert_float_equal(ppm_get_decoded_level(&app), -1.0f, 1e-4f);
+    assert_float_equal(ppm_get_output(&app), 0.0f, 1e-4f);
+
+    rcv.pulse_us = 2000.0f;
+    assert_int_equal(ppm_update(&app, 0.01f), EDGE_OK);
+    assert_float_equal(ppm_get_decoded_level(&app), 1.0f, 1e-4f);
+    assert_float_equal(ppm_get_output(&app), 1.0f, 1e-4f);
+
+    /* A mode outside the group leaves the two equal. */
+    ppm_config_t dcfg = cfg;
+    dcfg.mode = PPM_MODE_CURRENT;
+    ppm_app_t plain;
+    ppm_construct(&plain, EDGE_MOD_PPM, 20u, &dcfg, &port);
+    assert_int_equal(ppm_init(&plain), EDGE_OK);
+    assert_int_equal(ppm_update(&plain, 0.01f), EDGE_OK);
+    rcv.pulse_us = 1000.0f;
+    assert_int_equal(ppm_update(&plain, 0.01f), EDGE_OK);
+    assert_float_equal(ppm_get_decoded_level(&plain), -1.0f, 1e-4f);
+    assert_float_equal(ppm_get_output(&plain), -1.0f, 1e-4f);
+
+    assert_float_equal(ppm_get_decoded_level(NULL), 0.0f, 1e-9f);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -260,6 +309,7 @@ int main(void) {
         cmocka_unit_test(test_ppm_safe_start),
         cmocka_unit_test(test_ppm_detach_and_override),
         cmocka_unit_test(test_ppm_deadband_curve_and_ramp),
+        cmocka_unit_test(test_ppm_norev_group_remap),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

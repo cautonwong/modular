@@ -1176,7 +1176,7 @@ static edge_status_t app_get_decoded_ppm(void *self, float *level, float *pulse_
         return EDGE_EINVAL;
     }
     if (level != (void *)0) {
-        *level = ppm_get_output(s->ppm);
+        *level = ppm_get_decoded_level(s->ppm);
     }
     if (pulse_us != (void *)0) {
         *pulse_us = ppm_get_last_pulse_us(s->ppm);

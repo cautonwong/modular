@@ -147,6 +147,25 @@ edge_status_t ppm_update(ppm_app_t *app, float dt) {
         raw_out = app->override_norm;
     }
 
+    /* applications/app_ppm.c:151-159's default branch is what the straight lines above amount to,
+     * and what the decoded level reports is this value as it stands here - before the group below
+     * re-maps it. That is the distinction the reference draws between input_val and what it
+     * commands. */
+    app->decoded_norm = raw_out;
+
+    /* applications/app_ppm.c:144-149: the one group of modes whose command is the decoded value
+     * re-mapped onto [0, 1] rather than left as it is. */
+    switch (app->config.mode) {
+    case PPM_MODE_CURRENT_NOREV:
+    case PPM_MODE_DUTY_NOREV:
+    case PPM_MODE_PID_NOREV:
+    case PPM_MODE_PID_POSITION_360:
+        raw_out = (raw_out + 1.0f) / 2.0f;
+        break;
+    default:
+        break;
+    }
+
     /* applications/app_ppm.c:190-215, in the reference's own order: the deadband on the decoded
      * value, then the curve, then a ramp whose time depends on which way the value is going. */
     raw_out = ppm_deadband(raw_out, app->config.hyst, 1.0f);
@@ -268,6 +287,14 @@ static void ppm_step_towards(float *value, float goal, float step) {
             *value = goal;
         }
     }
+}
+
+/*
+ * applications/app_ppm.c:89-91: the decoded level, which is not the command for the four modes that
+ * re-map it.
+ */
+float ppm_get_decoded_level(const ppm_app_t *app) {
+    return app ? app->decoded_norm : 0.0f;
 }
 
 /*
