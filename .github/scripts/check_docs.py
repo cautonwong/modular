@@ -13,14 +13,14 @@ produce false positives. The guard fixtures under ``tests/guards/`` are excluded
 
 Usage: check_docs.py [root]
 """
-from pathlib import Path
 import re
 import sys
+from pathlib import Path
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[2]
 # tests/guards holds deliberate negative fixtures; .pi holds agent goal state,
 # which is not repository documentation and is written by tooling we do not own.
-EXCLUDED_PARTS = ("tests/guards", ".pi")
+EXCLUDED_PARTS = ("tests/guards", ".pi", "vendor")
 FENCE = re.compile(r"^```.*?^```", re.M | re.S)
 LINK = re.compile(r"\[[^\]]*\]\(\s*<?([^)\s>]+)>?[^)]*\)")
 EXTERNAL = ("http://", "https://", "mailto:", "tel:", "#")

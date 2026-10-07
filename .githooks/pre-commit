@@ -31,8 +31,8 @@ say() {
 # --------------------------------------------------------------- formatting
 # Vendored third-party sources are left out: they are not this repository's code, reformatting them
 # would churn a diff against upstream, and a gate that covered them would say less about what was
-# written here. Any path with a vendor component is skipped, wherever it lives.
-staged_c=$(git diff --cached --name-only --diff-filter=ACM -- '*.c' '*.h' | grep -v '/vendor/')
+# written here. Any path whose first component is vendor, or that has one in it, is skipped.
+staged_c=$(git diff --cached --name-only --diff-filter=ACM -- '*.c' '*.h' | grep -vE '(^|/)vendor/')
 if [ -n "$staged_c" ]; then
     if command -v clang-format >/dev/null 2>&1; then
         if ! echo "$staged_c" | xargs clang-format --dry-run --Werror 2>&1; then
