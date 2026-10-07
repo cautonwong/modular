@@ -77,8 +77,8 @@ typedef struct vesc_host_glue_state {
 
     /* The decoded-input adapters read through the apps, not through the raw glue
      * fields; the composition root points these at the constructed apps. */
-    const ppm_app_t *ppm;
-    const adc_input_app_t *adc;
+    ppm_app_t *ppm;
+    adc_input_app_t *adc;
 
     /*
      * The configuration a measurement runs in: the flux-linkage procedure replaces the
@@ -179,6 +179,11 @@ void vesc_host_make_inverter_port(foc_inverter_port_t *out, vesc_host_glue_state
 void vesc_host_make_current_port(foc_current_port_t *out, vesc_host_glue_state_t *state);
 void vesc_host_make_rotor_port(foc_rotor_port_t *out, vesc_host_glue_state_t *state);
 void vesc_host_make_ppm_port(ppm_receiver_port_t *out, vesc_host_glue_state_t *state);
+/*
+ * applications/app_ppm.c:218-440, applied: the PPM application decides and this commands the motor
+ * with that decision, because the motor interface lives here. Call it after the module has polled.
+ */
+edge_status_t vesc_host_apply_ppm(vesc_host_glue_state_t *state);
 void vesc_host_make_adc_port(adc_input_port_t *out, vesc_host_glue_state_t *state);
 void vesc_host_make_app_status_port(vesc_app_status_port_t *out, vesc_host_glue_state_t *state);
 
