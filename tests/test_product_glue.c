@@ -244,7 +244,7 @@ static void test_vesc_host_glue(void **state) {
 
     pas_port_t pas;
     vesc_host_make_pas_port(&pas, &glue_state);
-    assert_non_null(pas.read_cadence_rpm);
+    assert_non_null(pas.read_levels);
 
     balance_port_t balance;
     vesc_host_make_balance_port(&balance, &glue_state);
@@ -660,12 +660,25 @@ static void test_vesc_host_simulated_adapters(void **state) {
 
     pas_port_t pas;
     vesc_host_make_pas_port(&pas, &glue_state);
-    float cadence = 0.0f;
-    float torque = 0.0f;
-    assert_int_equal(pas.read_cadence_rpm(pas.self, &cadence), EDGE_OK);
-    assert_float_equal(cadence, 60.0f, 1e-6f);
-    assert_int_equal(pas.read_torque_nm(pas.self, &torque), EDGE_OK);
-    assert_float_equal(torque, 15.0f, 1e-6f);
+    /* The port answers what the product stored, rather than the fixed pair it used to answer. */
+    glue_state.pas_level1 = 1u;
+    glue_state.pas_level2 = 0u;
+    glue_state.pas_torque_ratio = 0.25f;
+    glue_state.now_s = 12.5f;
+    uint8_t l1 = 0u;
+    uint8_t l2 = 0u;
+    float ratio = 0.0f;
+    float seconds = 0.0f;
+    assert_int_equal(pas.read_levels(pas.self, &l1, &l2), EDGE_OK);
+    assert_int_equal(l1, 1u);
+    assert_int_equal(l2, 0u);
+    assert_int_equal(pas.read_torque_ratio(pas.self, &ratio), EDGE_OK);
+    assert_float_equal(ratio, 0.25f, 1e-6f);
+    assert_int_equal(pas.now_seconds(pas.self, &seconds), EDGE_OK);
+    assert_float_equal(seconds, 12.5f, 1e-6f);
+    assert_int_equal(pas.read_levels(NULL, &l1, &l2), EDGE_EINVAL);
+    assert_int_equal(pas.read_torque_ratio(pas.self, NULL), EDGE_EINVAL);
+    assert_int_equal(pas.now_seconds(pas.self, NULL), EDGE_EINVAL);
 
     balance_port_t balance;
     vesc_host_make_balance_port(&balance, &glue_state);
@@ -1407,7 +1420,7 @@ static void test_vesc_host_adapter_guards(void **state) {
     /* These two guard their context as well, so the output stays as the caller left it. */
     pas_port_t pas = {0};
     vesc_host_make_pas_port(&pas, NULL);
-    assert_null(pas.read_cadence_rpm);
+    assert_null(pas.read_levels);
 
     motor_id_measure_port_t measure = {0};
     vesc_host_make_motor_id_measure_port(&measure, NULL);

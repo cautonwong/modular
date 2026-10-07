@@ -447,7 +447,18 @@ int main(void) {
     }
 
     pas_app_t pas_app;
-    pas_config_t pas_cfg = {.assist_ratio = 1.0f, .max_motor_current_a = 20.0f};
+    /* datatypes.h:750-764's own fields, at the appconf's own defaults (appconf_defaults.h:180). */
+    pas_config_t pas_cfg = {.ctrl_type = PAS_MODE_NONE,
+                            .sensor_type = PAS_SENSOR_QUADRATURE,
+                            .current_scaling = 1.0f,
+                            .pedal_rpm_start = 30.0f,
+                            .pedal_rpm_end = 90.0f,
+                            .invert_pedal_direction = false,
+                            .magnets = 1u,
+                            .use_filter = false,
+                            .ramp_time_pos = 0.5f,
+                            .ramp_time_neg = 0.5f,
+                            .update_rate_hz = 50u};
     pas_construct(&pas_app, EDGE_MOD_PAS, 25u, &pas_cfg, &pas_port);
     if (pas_init(&pas_app) != EDGE_OK) {
         return 20;

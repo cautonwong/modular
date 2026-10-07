@@ -1808,18 +1808,37 @@ void vesc_host_make_nunchuk_port(nunchuk_port_t *out, vesc_host_glue_state_t *st
     };
 }
 
-/* PAS Port Adaptor */
-static edge_status_t pas_read_cadence(void *self, float *rpm) {
-    (void)self;
-    if (rpm)
-        *rpm = 60.0f;
+/*
+ * PAS Port Adaptor. applications/app_pas.c:136-138 reads the two pad levels, :243 reads the torque
+ * sensor as a ratio, and :156 reads the clock the period is measured against; all three are the
+ * product's to store. What stood here answered a fixed 60 rpm and a fixed 15 Nm whatever the pad
+ * levels were, which is a reading of nothing.
+ */
+static edge_status_t pas_read_levels(void *self, uint8_t *pas1, uint8_t *pas2) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    if (s == (void *)0 || pas1 == (void *)0 || pas2 == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    *pas1 = s->pas_level1;
+    *pas2 = s->pas_level2;
     return EDGE_OK;
 }
 
-static edge_status_t pas_read_torque(void *self, float *nm) {
-    (void)self;
-    if (nm)
-        *nm = 15.0f;
+static edge_status_t pas_read_torque_ratio(void *self, float *ratio) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    if (s == (void *)0 || ratio == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    *ratio = s->pas_torque_ratio;
+    return EDGE_OK;
+}
+
+static edge_status_t pas_now_seconds(void *self, float *seconds) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    if (s == (void *)0 || seconds == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    *seconds = s->now_s;
     return EDGE_OK;
 }
 
@@ -1829,8 +1848,9 @@ void vesc_host_make_pas_port(pas_port_t *out, vesc_host_glue_state_t *state) {
     }
     *out = (pas_port_t){
         .self = state,
-        .read_cadence_rpm = pas_read_cadence,
-        .read_torque_nm = pas_read_torque,
+        .read_levels = pas_read_levels,
+        .read_torque_ratio = pas_read_torque_ratio,
+        .now_seconds = pas_now_seconds,
     };
 }
 

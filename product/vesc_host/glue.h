@@ -79,6 +79,16 @@ typedef struct vesc_host_glue_state {
      * fields; the composition root points these at the constructed apps. */
     ppm_app_t *ppm;
     adc_input_app_t *adc;
+    /*
+     * What the PAS application reads: the two pad levels (app_pas.c:136-138), the torque sensor as
+     * a ratio (app_pas.c:243) and the clock its period is measured against (app_pas.c:156). All
+     * three are the product's to keep; the port beside them used to answer a fixed 60 rpm and a
+     * fixed 15 Nm whatever was wired to it.
+     */
+    uint8_t pas_level1;
+    uint8_t pas_level2;
+    float pas_torque_ratio;
+    float now_s;
 
     /*
      * The configuration a measurement runs in: the flux-linkage procedure replaces the
