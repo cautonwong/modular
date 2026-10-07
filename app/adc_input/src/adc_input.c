@@ -179,6 +179,18 @@ bool adc_input_has_fault(const adc_input_app_t *app) {
     return app->fault_wire_disconnected;
 }
 
+/*
+ * applications/app_adc.c:207, app_adc_range_ok, over the voltage this port last read: inside the
+ * range the configuration gives, both of its ends included - the reference's own comparison, and
+ * the flag its own getter hands out.
+ */
+bool adc_input_range_ok(const adc_input_app_t *app) {
+    if (app == (void *)0) {
+        return false;
+    }
+    return app->throttle_v >= app->config.voltage_min && app->throttle_v <= app->config.voltage_max;
+}
+
 edge_module_t *adc_input_module(adc_input_app_t *app) {
     return app ? &app->module : NULL;
 }
