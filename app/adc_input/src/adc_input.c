@@ -86,20 +86,24 @@ edge_status_t adc_input_update(adc_input_app_t *app) {
     edge_status_t st = app->port.read_throttle_v(app->port.self, &v_throttle);
     if (st != EDGE_OK) {
         app->fault_wire_disconnected = true;
+        app->range_ok = false;
         app->throttle_norm = 0.0f;
         app->brake_norm = 0.0f;
         return st;
     }
 
-    /* Out of bounds fault check */
+    /* Out of bounds fault check, and applications/app_adc.c:207's verdict on the same comparison.
+     */
     if (v_throttle < app->config.voltage_min || v_throttle > app->config.voltage_max) {
         app->fault_wire_disconnected = true;
+        app->range_ok = false;
         app->throttle_norm = 0.0f;
         app->brake_norm = 0.0f;
         return EDGE_OK;
     }
 
     app->fault_wire_disconnected = false;
+    app->range_ok = true;
     app->throttle_v = v_throttle;
 
     /* Normalize throttle */
@@ -188,7 +192,7 @@ bool adc_input_range_ok(const adc_input_app_t *app) {
     if (app == (void *)0) {
         return false;
     }
-    return app->throttle_v >= app->config.voltage_min && app->throttle_v <= app->config.voltage_max;
+    return app->range_ok;
 }
 
 edge_module_t *adc_input_module(adc_input_app_t *app) {
