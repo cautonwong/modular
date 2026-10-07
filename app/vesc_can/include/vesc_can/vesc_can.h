@@ -169,6 +169,13 @@ typedef struct vesc_can_peer_totals {
 } vesc_can_peer_totals_t;
 
 void vesc_can_get_peer_totals(const vesc_can_app_t *app, vesc_can_peer_totals_t *out);
+/*
+ * Which peers are there, by the same test the aggregate above uses for a slot that counts: its id
+ * is set and its frame is younger than VESC_CAN_PEER_TIMEOUT_MS. COMM_PING_CAN asks this question,
+ * and the reference asks it by pinging and waiting for answers; a peer that is answering is one
+ * whose frames are arriving, which is what this reads. The count is what was written, up to max.
+ */
+size_t vesc_can_collect_peer_ids(const vesc_can_app_t *app, uint8_t *ids, size_t max);
 
 /*
  * Reference comm_can.c:1470, send_can_status: the mask chooses which of the six frames go out. Bits

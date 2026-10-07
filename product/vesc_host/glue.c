@@ -939,6 +939,18 @@ static edge_status_t ops_detect_hall_foc(void *self, float current_a, uint8_t ta
  * comm/commands.c:1830-1852, COMM_GET_MCCONF_TEMP: the ten limits, the pole count and the two
  * settings beside it, read from the configuration the application is running with.
  */
+/*
+ * comm/commands.c:2560-2571, COMM_PING_CAN: the peers this product's CAN application is hearing
+ * from, which is the question the reference's own ping answers.
+ */
+static size_t ops_ping_can(void *self, uint8_t *ids, size_t max) {
+    vesc_host_ops_ctx_t *ctx = (vesc_host_ops_ctx_t *)self;
+    if (ctx == (void *)0 || ctx->can == (void *)0) {
+        return 0u;
+    }
+    return vesc_can_collect_peer_ids(ctx->can, ids, max);
+}
+
 static edge_status_t ops_get_mcconf_temp(void *self, vesc_mcconf_temp_t *out) {
     vesc_host_ops_ctx_t *ctx = (vesc_host_ops_ctx_t *)self;
     if (ctx == (void *)0 || ctx->config == (void *)0 || out == (void *)0) {
@@ -1042,6 +1054,7 @@ void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_host_ops_ctx_t *ctx
         .detect_flux_linkage = ops_detect_flux_linkage,
         .detect_r_l = ops_detect_r_l,
         .get_mcconf_temp = ops_get_mcconf_temp,
+        .ping_can = ops_ping_can,
         .detect_apply_all_foc = ops_detect_apply_all_foc,
         .detect_hall_foc = ops_detect_hall_foc,
         .detect_motor_param = ops_detect_motor_param,

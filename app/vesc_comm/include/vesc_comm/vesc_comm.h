@@ -526,6 +526,12 @@ typedef struct vesc_comm_ops_port {
      * readings into a speed.
      */
     edge_status_t (*get_mcconf_temp)(void *self, vesc_mcconf_temp_t *out);
+    /*
+     * comm/commands.c:2560-2571, COMM_PING_CAN: which controllers are there, as a list of ids. The
+     * reference pings and waits for answers; the product asks the same question of its own peer
+     * table and returns what it finds, up to max. The count is what was written.
+     */
+    size_t (*ping_can)(void *self, uint8_t *ids, size_t max);
 
     /*
      * The all-in-one detection (comm/commands.c:2328-2347, conf_general_detect_apply_all_foc_can).
