@@ -1115,9 +1115,56 @@ static void test_encoder_ma782_matches_the_reference(void **state) {
     assert_false(encoder_ma782_routine(&st, &bare_ma));
 }
 
+/*
+ * enc_ts5700n8501.c:168-206's own decode, on the frame the sensor sends: eleven bytes whose last is
+ * the exclusive or of the ten before it, a position little-endian in the three after the first over
+ * its own counts of a turn, and the eight status bytes kept as they came.
+ */
+static void test_encoder_ts5700_matches_the_reference(void **state) {
+    (void)state;
+
+    encoder_ts5700_state_t st;
+    encoder_ts5700_begin(&st);
+
+    uint8_t reply[ENCODER_TS5700_REPLY_LEN] = {0};
+    reply[1] = 0xA5u;                     /* SF */
+    reply[2] = (uint8_t)(32768u & 0xFFu); /* the position's own three bytes, little-endian */
+    reply[3] = (uint8_t)((32768u >> 8) & 0xFFu);
+    reply[4] = (uint8_t)((32768u >> 16) & 0xFFu);
+    reply[6] = 0x01u;
+    reply[9] = 0x02u;
+    uint8_t crc = 0u;
+    for (int i = 0; i < (int)ENCODER_TS5700_REPLY_LEN - 1; i++) {
+        crc = (uint8_t)(reply[i] ^ crc);
+    }
+    reply[ENCODER_TS5700_REPLY_LEN - 1] = crc;
+
+    /* A quarter of the sensor's own counts is a quarter turn. */
+    assert_float_equal(encoder_ts5700_decode(&st, reply, 0.001f), 90.0f, 1e-3f);
+    assert_int_equal(st.spi_val, 32768u);
+    assert_int_equal(st.spi_error_cnt, 0u);
+    assert_int_equal(st.raw_status[0], 0xA5u);
+    assert_int_equal(st.raw_status[1], reply[2]);
+    assert_int_equal(st.raw_status[4], reply[6]);
+    assert_int_equal(st.raw_status[7], reply[9]);
+
+    /* A frame whose exclusive or does not hold raises the count and leaves the angle where it was.
+     */
+    const float held = st.last_enc_angle;
+    reply[ENCODER_TS5700_REPLY_LEN - 1] ^= 0x01u;
+    assert_float_equal(encoder_ts5700_decode(&st, reply, 0.002f), held, 1e-6f);
+    assert_int_equal(st.spi_error_cnt, 1u);
+    assert_float_equal(st.spi_error_rate, 0.002f, 1e-6f);
+
+    encoder_ts5700_begin(NULL);
+    assert_float_equal(encoder_ts5700_decode(NULL, reply, 0.0f), 0.0f, 1e-6f);
+    assert_float_equal(encoder_ts5700_decode(&st, NULL, 0.0f), 0.0f, 1e-6f);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
+        cmocka_unit_test(test_encoder_ts5700_matches_the_reference),
         cmocka_unit_test(test_encoder_ma782_matches_the_reference),
         cmocka_unit_test(test_encoder_ad2s1205_matches_the_reference),
         cmocka_unit_test(test_encoder_as504x_matches_the_reference),

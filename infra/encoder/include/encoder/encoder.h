@@ -465,6 +465,28 @@ bool encoder_ma782_read_angle(encoder_ma782_state_t *st, const encoder_ma782_por
 bool encoder_ma782_routine(encoder_ma782_state_t *st, const encoder_ma782_port_t *port);
 float encoder_ma782_read_angle_finish(encoder_ma782_state_t *st);
 
+/*
+ * The TS5700N8501 family, whose frames arrive over a serial line rather than a register: the reply
+ * is eleven bytes whose last is the exclusive-or of the ten before it (:168-206), and the position
+ * is the three after the first, little-endian, over the sensor's own 131072 counts of a turn. Its
+ * eight status bytes are kept verbatim, and the run's own stop, running and reset flags are the
+ * thread's - which is why they are the caller's here.
+ */
+#define ENCODER_TS5700_REPLY_LEN 11u
+#define ENCODER_TS5700_COUNTS_PER_TURN 131072.0f
+
+typedef struct encoder_ts5700_state {
+    float last_enc_angle;
+    uint32_t spi_val;
+    float spi_error_rate;
+    uint32_t spi_error_cnt;
+    uint8_t raw_status[8];
+} encoder_ts5700_state_t;
+
+void encoder_ts5700_begin(encoder_ts5700_state_t *st);
+float encoder_ts5700_decode(encoder_ts5700_state_t *st,
+                            const uint8_t reply[ENCODER_TS5700_REPLY_LEN], float timestep);
+
 #ifdef __cplusplus
 }
 #endif

@@ -435,6 +435,56 @@ float encoder_ma782_read_angle_finish(encoder_ma782_state_t *st) {
     return st->last_enc_angle;
 }
 
+void encoder_ts5700_begin(encoder_ts5700_state_t *st) {
+    if (st == (void *)0) {
+        return;
+    }
+    memset(st, 0, sizeof(*st));
+}
+
+/*
+ * enc_ts5700n8501.c:168-206, the decode of one reply: eleven bytes with the last being the
+ * exclusive or of the ten before it. When that holds, the position is the three after the first -
+ * little-endian
+ * - over the sensor's own hundred and thirty-one thousand and seventy-two counts of a turn, the
+ * error rate falls, and the eight status bytes are kept as they came: the sensor's own field, the
+ * three absolute and three multiturn ones and the alarm. When it does not, the count rises and the
+ * rate climbs instead, and the angle the last good reply made is what comes back.
+ */
+float encoder_ts5700_decode(encoder_ts5700_state_t *st,
+                            const uint8_t reply[ENCODER_TS5700_REPLY_LEN], float timestep) {
+    if (st == (void *)0 || reply == (void *)0) {
+        return 0.0f;
+    }
+
+    uint8_t crc = 0u;
+    for (int i = 0; i < (int)ENCODER_TS5700_REPLY_LEN - 1; i++) {
+        crc = (uint8_t)(reply[i] ^ crc);
+    }
+
+    if (crc == reply[ENCODER_TS5700_REPLY_LEN - 1]) {
+        const uint32_t pos =
+            (uint32_t)reply[2] + ((uint32_t)reply[3] << 8) + ((uint32_t)reply[4] << 16);
+        st->spi_val = pos;
+        st->last_enc_angle = (float)pos / ENCODER_TS5700_COUNTS_PER_TURN * 360.0f;
+        st->spi_error_rate -= timestep * (st->spi_error_rate - 0.0f);
+
+        st->raw_status[0] = reply[1]; /* SF */
+        st->raw_status[1] = reply[2]; /* ABS0 */
+        st->raw_status[2] = reply[3]; /* ABS1 */
+        st->raw_status[3] = reply[4]; /* ABS2 */
+        st->raw_status[4] = reply[6]; /* ABM0 */
+        st->raw_status[5] = reply[7]; /* ABM1 */
+        st->raw_status[6] = reply[8]; /* ABM2 */
+        st->raw_status[7] = reply[9]; /* ALMC */
+    } else {
+        ++st->spi_error_cnt;
+        st->spi_error_rate -= timestep * (st->spi_error_rate - 1.0f);
+    }
+
+    return st->last_enc_angle;
+}
+
 /*
  * enc_ad2s1205.c:66-176, its routine, in the three stages the reference takes them in. A frame of
  * nothing at all is a converter that is not answering, and its error rate climbs while its peak is
