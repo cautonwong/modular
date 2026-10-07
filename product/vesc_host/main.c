@@ -497,6 +497,8 @@ int main(void) {
     if (vesc_bms_init(&bms_app) != EDGE_OK) {
         return 23;
     }
+    /* The battery's commands are answered by the battery's own module (bms.c:523). */
+    ops_ctx.bms = &bms_app;
 
     /*
      * The six-step drive, phase F. Its configuration is the motor configuration's own sensor mode,

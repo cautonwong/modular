@@ -324,6 +324,38 @@ typedef struct vesc_imu_data {
     float quat[4];
 } vesc_imu_data_t;
 
+/*
+ * comm/commands.c:2480 and bms.c:523-620, COMM_BMS_GET_VALUES' payload. The reference asks its BMS
+ * module, which keeps all of it; what this port's BMS already keeps is the six totals, and the rest
+ * are named zeros here rather than guesses - the per-cell, per-temperature and counter telemetry
+ * arrives with the BMS's own frame decoding, which is a slice of its own.
+ */
+#define VESC_BMS_MAX_CELLS 32u
+typedef struct vesc_bms_values {
+    float v_tot;
+    float v_charge;
+    float i_in;
+    float i_in_ic;
+    float ah_cnt;
+    float wh_cnt;
+    uint8_t cell_num;
+    float v_cell[VESC_BMS_MAX_CELLS];
+    uint8_t bal_state[VESC_BMS_MAX_CELLS];
+    uint8_t temp_adc_num;
+    float temps_adc[VESC_BMS_MAX_CELLS];
+    float temp_ic;
+    float temp_hum;
+    float hum;
+    float temp_max_cell;
+    float soc;
+    float soh;
+    uint8_t can_id;
+    float ah_cnt_chg_total;
+    float wh_cnt_chg_total;
+    float ah_cnt_dis_total;
+    float wh_cnt_dis_total;
+} vesc_bms_values_t;
+
 typedef struct vesc_app_status_port {
     edge_status_t (*get_decoded_ppm)(void *self, float *level, float *pulse_us);
     edge_status_t (*get_decoded_adc)(void *self, float *level, float *voltage, float *level2,
@@ -620,6 +652,11 @@ typedef struct vesc_comm_ops_port {
      */
     edge_status_t (*get_imu_data)(void *self, vesc_imu_data_t *out);
     edge_status_t (*calibrate_imu)(void *self, float yaw_deg, float cal[9]);
+    /*
+     * bms.c:523, the battery's own answers to its commands - the reference hands the whole command
+     * to its BMS module and lets it reply, and what is asked of the product is that same division.
+     */
+    edge_status_t (*get_bms_values)(void *self, vesc_bms_values_t *out);
 
     /*
      * The all-in-one detection (comm/commands.c:2328-2347, conf_general_detect_apply_all_foc_can).

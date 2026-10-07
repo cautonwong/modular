@@ -181,6 +181,8 @@ void vesc_host_make_backup_store_port(foc_storage_port_t *out, flash_emul_t *emu
 typedef struct vesc_host_ops_ctx {
     vesc_terminal_app_t *term;
     vesc_can_app_t *can;
+    /* The battery's own module, for the commands it answers itself (bms.c:523). */
+    vesc_bms_app_t *bms;
     /*
      * The flux-linkage measurement needs both the procedure and the plant: the aggregate it drives,
      * the virtual motor that answers, and the product state they both live in. The reference's
