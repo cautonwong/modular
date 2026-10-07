@@ -776,6 +776,28 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
         return send_reply(self, 1u);
     }
 
+    case COMM_PING_CAN: {
+        if (self->ops == (void *)0 || self->ops->ping_can == (void *)0) {
+            return EDGE_ENOTSUP;
+        }
+        /*
+         * comm/commands.c:2560-2571: the command byte, then every controller that answers. The
+         * reference asks by pinging; what is asked of the product is the same question about its
+         * own peers, so the reply's shape is the same either way.
+         */
+        uint8_t ids[255];
+        const size_t found = self->ops->ping_can(self->ops->self, ids, sizeof(ids));
+
+        uint8_t *resp = self->cmd_reply_buf;
+        size_t resp_len = 0;
+        resp[resp_len++] = COMM_PING_CAN;
+        for (size_t i = 0u; i < found; i++) {
+            resp[resp_len++] = ids[i];
+        }
+
+        return send_reply(self, resp_len);
+    }
+
     case COMM_GET_MCCONF_TEMP: {
         if (self->ops == (void *)0 || self->ops->get_mcconf_temp == (void *)0) {
             return EDGE_EINVAL;

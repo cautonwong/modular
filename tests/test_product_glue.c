@@ -1122,6 +1122,11 @@ static void test_vesc_host_restart_requests(void **state) {
     memset(&bare_temp, 0, sizeof(bare_temp));
     assert_int_equal(bare_ops.get_mcconf_temp(bare_ops.self, &bare_temp), EDGE_EINVAL);
     assert_int_equal(bare_ops.get_mcconf_temp(NULL, &bare_temp), EDGE_EINVAL);
+    /* COMM_PING_CAN: with no CAN application there are no peers to name, which is a count of none
+     * rather than a failure - the command's own reply then carries the command byte alone. */
+    uint8_t peer_ids[4];
+    assert_int_equal(bare_ops.ping_can(bare_ops.self, peer_ids, sizeof(peer_ids)), 0u);
+    assert_int_equal(bare_ops.ping_can(NULL, peer_ids, sizeof(peer_ids)), 0u);
 }
 
 /* The configuration store the detection tests below hand the aggregate; defined with them. */

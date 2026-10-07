@@ -599,6 +599,13 @@ static void test_receive_packet_and_commands(void **state) {
      * COMM_GET_DECODED_CHUK: one int32 scaled by a million, which is the whole of its payload. The
      * value is the stick's own, so half a stick is five hundred thousand.
      */
+    /* COMM_PING_CAN asks the operations port which peers are there, and answers with none without
+     * it. */
+    ctx.tx_count = 0;
+    uint8_t cmd_ping[1] = {COMM_PING_CAN};
+    assert_int_equal(vesc_comm_process_command(comm, cmd_ping, sizeof(cmd_ping)), EDGE_ENOTSUP);
+    assert_int_equal(ctx.tx_count, 0);
+
     /* COMM_TERMINAL_CMD_SYNC is the same handling as the command beside it, down to the same port.
      */
     ctx.tx_count = 0;

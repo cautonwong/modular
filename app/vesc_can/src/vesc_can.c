@@ -232,6 +232,22 @@ edge_status_t vesc_can_send_masked(vesc_can_app_t *app, uint8_t msgs) {
  * clock for that age; here the module's own tick advances it, which is the same window measured by
  * the cycle that would have done the reading.
  */
+/*
+ * app/vesc_can.c:243's own liveness test, asked as a list rather than as a sum.
+ */
+size_t vesc_can_collect_peer_ids(const vesc_can_app_t *app, uint8_t *ids, size_t max) {
+    if (app == (const vesc_can_app_t *)0 || ids == (uint8_t *)0 || max == 0u) {
+        return 0u;
+    }
+    size_t n = 0u;
+    for (size_t i = 0u; i < VESC_CAN_STATUS_MSGS_TO_STORE && n < max; i++) {
+        if (app->peers_1[i].id >= 0 && app->peers_1[i].age_ms < VESC_CAN_PEER_TIMEOUT_MS) {
+            ids[n++] = (uint8_t)app->peers_1[i].id;
+        }
+    }
+    return n;
+}
+
 void vesc_can_get_peer_totals(const vesc_can_app_t *app, vesc_can_peer_totals_t *out) {
     if (app == (void *)0 || out == (void *)0) {
         return;
