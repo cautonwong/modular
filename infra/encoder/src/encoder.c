@@ -564,6 +564,76 @@ static uint16_t as5x47u_errfl_message(void) {
  * message to request next, and a frame whose CRC does not hold takes the sequence to its error
  * state, which asks for the error flags rather than trusting what it has.
  */
+/*
+ * enc_tle5012.c:304-324, its own CRC-8: the seed the family uses, the byte exclusive-ored in, and
+ * eight shifts with the polynomial taken whenever the bit that leaves the top is set - all of it
+ * ending on the complement, which is what the safety word carries.
+ */
+uint8_t encoder_tle5012_crc8(const uint8_t *data, uint8_t length) {
+    if (data == (void *)0) {
+        return 0u;
+    }
+
+    uint32_t crc = TLE5012_CRC_SEED;
+    for (int i = 0; i < (int)length; i++) {
+        crc ^= data[i];
+        for (int bit = 0; bit < 8; bit++) {
+            if ((crc & 0x80u) != 0u) {
+                crc = (crc << 1) ^ TLE5012_CRC_POLYNOMIAL;
+            } else {
+                crc = crc << 1;
+            }
+        }
+    }
+
+    return (uint8_t)((~crc) & TLE5012_CRC_SEED);
+}
+
+/*
+ * enc_tle5012.c:328-380, the safety word's own reading: its three bits say what went wrong, and
+ * each of them is tested the way the reference tests it - a bit which is clear is the fault rather
+ * than one that is set, which is the opposite of what the comment above them reads. Only when all
+ * three are clear is the checksum taken, over the command word's two bytes and the two of every
+ * data word, and compared against the safety word's own low byte.
+ *
+ * The reference sizes its buffer to the reply; this one is the longest a reply of eight words can
+ * be, with the count clamped to match, which is a fixed buffer rather than a variable-length array.
+ */
+encoder_tle5012_error_t encoder_tle5012_check_safety(uint16_t command, uint16_t safety_word,
+                                                     const uint16_t *read_words, uint16_t length) {
+    if ((safety_word & TLE5012_SYSTEM_ERROR_MASK) == 0u) {
+        return ENCODER_TLE5012_SYSTEM_ERROR;
+    }
+    if ((safety_word & TLE5012_INTERFACE_ERROR_MASK) == 0u) {
+        return ENCODER_TLE5012_INTERFACE_ACCESS_ERROR;
+    }
+    if ((safety_word & TLE5012_INV_ANGLE_ERROR_MASK) == 0u) {
+        return ENCODER_TLE5012_INVALID_ANGLE_ERROR;
+    }
+
+    if (read_words == (void *)0 && length > 0u) {
+        return ENCODER_TLE5012_CRC_ERROR;
+    }
+
+    uint8_t bytes[2u + 2u * 8u];
+    const uint16_t count = (length > 8u) ? 8u : length;
+    bytes[0] = (uint8_t)(command >> 8);
+    bytes[1] = (uint8_t)command;
+    for (uint16_t i = 0u; i < count; i++) {
+        bytes[2u + 2u * i] = (uint8_t)(read_words[i] >> 8);
+        bytes[2u + 2u * i + 1u] = (uint8_t)read_words[i];
+    }
+
+    const uint8_t crc = encoder_tle5012_crc8(bytes, (uint8_t)(2u + 2u * count));
+    return (crc == (uint8_t)(safety_word & 0xFFu)) ? ENCODER_TLE5012_NO_ERROR
+                                                   : ENCODER_TLE5012_CRC_ERROR;
+}
+
+/* :221, the position over two to the fifteenth of a turn. */
+float encoder_tle5012_pos_to_deg(uint16_t pos) {
+    return (float)pos * (360.0f / 32768.0f);
+}
+
 uint16_t encoder_as5x47u_callback(encoder_as5x47u_state_t *st, const uint8_t rx[3], float now_s) {
     if (st == (void *)0 || rx == (void *)0) {
         return 0u;
