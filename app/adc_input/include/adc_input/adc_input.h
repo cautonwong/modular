@@ -52,6 +52,8 @@ typedef struct adc_input_app {
     float brake_v;       /* last measured brake input voltage */
     bool fault_wire_disconnected;
     bool safe_start_unlocked;
+    /* applications/app_adc.c:70's flag: the verdict of the last reading's own range check. */
+    bool range_ok;
 } adc_input_app_t;
 
 void adc_input_construct(adc_input_app_t *app, uint32_t module_id, uint32_t priority,

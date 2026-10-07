@@ -154,11 +154,64 @@ static void test_adc_input_edges_and_guards(void **state) {
     assert_true(adc_input_get_brake_v(&app) >= 0.0f);
 }
 
+static void test_adc_input_range_flag(void **state) {
+    (void)state;
+    adc_input_app_t app;
+    mock_adc_t adc = {
+        .v_throttle = 1.8f,
+        .v_brake = 1.8f,
+        .read_ok = true,
+    };
+    adc_input_port_t port = {
+        .self = &adc,
+        .read_throttle_v = mock_read_throttle,
+        .read_brake_v = mock_read_brake,
+        .read_button = mock_read_btn,
+    };
+    adc_input_config_t cfg = {
+        .mode = ADC_MODE_CURRENT,
+        .voltage_min = 0.2f,
+        .voltage_max = 3.2f,
+        .voltage_start = 0.8f,
+        .voltage_end = 2.8f,
+        .use_brake_input = true,
+        .brake_start = 0.8f,
+        .brake_end = 2.8f,
+        .safe_start = false,
+    };
+
+    adc_input_construct(&app, EDGE_MOD_ADC_INPUT, 20u, &cfg, &port);
+    assert_int_equal(adc_input_init(&app), EDGE_OK);
+
+    /* applications/app_adc.c:207's comparison, and both of its ends are included. */
+    assert_int_equal(adc_input_update(&app), EDGE_OK);
+    assert_true(adc_input_range_ok(&app)); /* 1.8V, inside */
+
+    adc.v_throttle = 0.2f; /* exactly voltage_min */
+    (void)adc_input_update(&app);
+    assert_true(adc_input_range_ok(&app));
+
+    adc.v_throttle = 3.2f; /* exactly voltage_max */
+    (void)adc_input_update(&app);
+    assert_true(adc_input_range_ok(&app));
+
+    adc.v_throttle = 0.19f; /* just below the lower end */
+    (void)adc_input_update(&app);
+    assert_false(adc_input_range_ok(&app));
+
+    adc.v_throttle = 3.21f; /* just above the upper end */
+    (void)adc_input_update(&app);
+    assert_false(adc_input_range_ok(&app));
+
+    assert_false(adc_input_range_ok(NULL));
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_adc_input_init_validation),
         cmocka_unit_test(test_adc_input_throttle_and_brake),
         cmocka_unit_test(test_adc_input_edges_and_guards),
+        cmocka_unit_test(test_adc_input_range_flag),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
