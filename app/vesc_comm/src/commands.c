@@ -782,6 +782,33 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
         return send_reply(self, 1u);
     }
 
+    case COMM_SET_CAN_MODE: {
+        if (self->ops == (void *)0 || self->ops->set_can_mode == (void *)0) {
+            return EDGE_ENOTSUP;
+        }
+        /*
+         * comm/commands.c:1280-1305: whether to store it, whether to answer, and the mode itself.
+         * The reference's answer to the ack is the command byte alone, with no status behind it.
+         */
+        size_t ind = 0u;
+        const bool store = data[ind++] != 0u;
+        const bool ack = data[ind++] != 0u;
+        const int mode = (len >= ind + 1u) ? (int)data[ind] : 0;
+
+        const edge_status_t st = self->ops->set_can_mode(self->ops->self, mode, store);
+        if (st != EDGE_OK) {
+            return st;
+        }
+        if (!ack) {
+            return EDGE_OK;
+        }
+
+        uint8_t *resp = self->cmd_reply_buf;
+        size_t resp_len = 0;
+        resp[resp_len++] = COMM_SET_CAN_MODE;
+        return send_reply(self, resp_len);
+    }
+
     case COMM_SHUTDOWN: {
         if (self->ops == (void *)0 || self->ops->request_shutdown == (void *)0) {
             return EDGE_ENOTSUP;
