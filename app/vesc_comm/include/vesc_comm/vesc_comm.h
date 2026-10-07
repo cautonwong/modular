@@ -532,6 +532,13 @@ typedef struct vesc_comm_ops_port {
      * table and returns what it finds, up to max. The count is what was written.
      */
     size_t (*ping_can)(void *self, uint8_t *ids, size_t max);
+    /*
+     * comm/commands.c:1266-1275, COMM_GET_BATTERY_CUT's two limits, read off the running
+     * configuration. What the sender can also do - write them back, and fan that out over CAN -
+     * needs a field-level writer for the configuration, which this port does not have yet; it is
+     * named as an open item rather than done half way.
+     */
+    edge_status_t (*get_battery_cut)(void *self, float *start, float *end);
 
     /*
      * The all-in-one detection (comm/commands.c:2328-2347, conf_general_detect_apply_all_foc_can).
