@@ -599,6 +599,12 @@ static void test_receive_packet_and_commands(void **state) {
      * COMM_GET_DECODED_CHUK: one int32 scaled by a million, which is the whole of its payload. The
      * value is the stick's own, so half a stick is five hundred thousand.
      */
+    /* COMM_GET_MCCONF_TEMP needs the operations port, which this harness does not hand over. */
+    ctx.tx_count = 0;
+    uint8_t cmd_temp[1] = {COMM_GET_MCCONF_TEMP};
+    assert_int_equal(vesc_comm_process_command(comm, cmd_temp, sizeof(cmd_temp)), EDGE_EINVAL);
+    assert_int_equal(ctx.tx_count, 0);
+
     ctx.tx_count = 0;
     ctx.chuk_level = 0.5f;
     uint8_t cmd_chuk[1] = {COMM_GET_DECODED_CHUK};

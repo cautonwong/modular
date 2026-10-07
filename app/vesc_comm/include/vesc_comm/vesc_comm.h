@@ -270,6 +270,27 @@ typedef struct edge_stream_tx_port {
  * codec asks for the same quantities: the decoded normalised level and the raw
  * input behind it.
  */
+/*
+ * comm/commands.c:1830-1852, COMM_GET_MCCONF_TEMP's payload before it is framed: the ten limits the
+ * reference sends, the pole count it sends as a byte, and the gear ratio and wheel diameter it says
+ * are needed to turn the motor's own readings into a speed.
+ */
+typedef struct vesc_mcconf_temp {
+    float l_current_min_scale;
+    float l_current_max_scale;
+    float l_min_erpm;
+    float l_max_erpm;
+    float l_min_duty;
+    float l_max_duty;
+    float l_watt_min;
+    float l_watt_max;
+    float l_in_current_min;
+    float l_in_current_max;
+    uint8_t si_motor_poles;
+    float si_gear_ratio;
+    float si_wheel_diameter;
+} vesc_mcconf_temp_t;
+
 typedef struct vesc_app_status_port {
     edge_status_t (*get_decoded_ppm)(void *self, float *level, float *pulse_us);
     edge_status_t (*get_decoded_adc)(void *self, float *level, float *voltage, float *level2,
@@ -499,6 +520,12 @@ typedef struct vesc_comm_ops_port {
      * to its end before returning is what that looks like from here.
      */
     edge_status_t (*detect_r_l)(void *self, vesc_detect_r_l_result_t *result);
+    /*
+     * comm/commands.c:1830-1852, COMM_GET_MCCONF_TEMP's payload: ten limits, the pole count the
+     * reference sends as a byte, and the two settings it says are needed to turn the motor's own
+     * readings into a speed.
+     */
+    edge_status_t (*get_mcconf_temp)(void *self, vesc_mcconf_temp_t *out);
 
     /*
      * The all-in-one detection (comm/commands.c:2328-2347, conf_general_detect_apply_all_foc_can).

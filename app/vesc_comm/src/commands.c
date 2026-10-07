@@ -773,6 +773,38 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
         return send_reply(self, 1u);
     }
 
+    case COMM_GET_MCCONF_TEMP: {
+        if (self->ops == (void *)0 || self->ops->get_mcconf_temp == (void *)0) {
+            return EDGE_EINVAL;
+        }
+        vesc_mcconf_temp_t t;
+        memset(&t, 0, sizeof(t));
+        edge_status_t st = self->ops->get_mcconf_temp(self->ops->self, &t);
+        if (st != EDGE_OK) {
+            return st;
+        }
+
+        /* comm/commands.c:1830-1852, field for field and in its order. */
+        uint8_t *resp = self->cmd_reply_buf;
+        size_t resp_len = 0;
+        resp[resp_len++] = COMM_GET_MCCONF_TEMP;
+        buffer_append_float32_auto(resp, t.l_current_min_scale, &resp_len);
+        buffer_append_float32_auto(resp, t.l_current_max_scale, &resp_len);
+        buffer_append_float32_auto(resp, t.l_min_erpm, &resp_len);
+        buffer_append_float32_auto(resp, t.l_max_erpm, &resp_len);
+        buffer_append_float32_auto(resp, t.l_min_duty, &resp_len);
+        buffer_append_float32_auto(resp, t.l_max_duty, &resp_len);
+        buffer_append_float32_auto(resp, t.l_watt_min, &resp_len);
+        buffer_append_float32_auto(resp, t.l_watt_max, &resp_len);
+        buffer_append_float32_auto(resp, t.l_in_current_min, &resp_len);
+        buffer_append_float32_auto(resp, t.l_in_current_max, &resp_len);
+        resp[resp_len++] = t.si_motor_poles;
+        buffer_append_float32_auto(resp, t.si_gear_ratio, &resp_len);
+        buffer_append_float32_auto(resp, t.si_wheel_diameter, &resp_len);
+
+        return send_reply(self, resp_len);
+    }
+
     case COMM_GET_DECODED_CHUK: {
         if (self->app_status == (void *)0 || self->app_status->get_decoded_chuk == (void *)0) {
             return EDGE_EINVAL;

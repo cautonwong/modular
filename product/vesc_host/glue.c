@@ -935,6 +935,35 @@ static edge_status_t ops_detect_hall_foc(void *self, float current_a, uint8_t ta
  * that looks like here is advancing the plant, the six-step layer and the procedure together until
  * it ends; the reference's timeout is off for the run, so nothing feeds it while this happens.
  */
+/*
+ * comm/commands.c:1830-1852, COMM_GET_MCCONF_TEMP: the ten limits, the pole count and the two
+ * settings beside it, read from the configuration the application is running with.
+ */
+static edge_status_t ops_get_mcconf_temp(void *self, vesc_mcconf_temp_t *out) {
+    vesc_host_ops_ctx_t *ctx = (vesc_host_ops_ctx_t *)self;
+    if (ctx == (void *)0 || ctx->config == (void *)0 || out == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    const mc_configuration_t *mc = motor_config_get_mc(ctx->config);
+    if (mc == (const mc_configuration_t *)0) {
+        return EDGE_EINVAL;
+    }
+    out->l_current_min_scale = mc->l_current_min_scale;
+    out->l_current_max_scale = mc->l_current_max_scale;
+    out->l_min_erpm = mc->l_min_erpm;
+    out->l_max_erpm = mc->l_max_erpm;
+    out->l_min_duty = mc->l_min_duty;
+    out->l_max_duty = mc->l_max_duty;
+    out->l_watt_min = mc->l_watt_min;
+    out->l_watt_max = mc->l_watt_max;
+    out->l_in_current_min = mc->l_in_current_min;
+    out->l_in_current_max = mc->l_in_current_max;
+    out->si_motor_poles = (uint8_t)mc->si_motor_poles;
+    out->si_gear_ratio = mc->si_gear_ratio;
+    out->si_wheel_diameter = mc->si_wheel_diameter;
+    return EDGE_OK;
+}
+
 static edge_status_t ops_detect_motor_param(void *self, float current_a, float min_rpm,
                                             float low_duty, float *int_limit,
                                             float *bemf_coupling_k, uint8_t hall_table[8],
@@ -1012,6 +1041,7 @@ void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_host_ops_ctx_t *ctx
         .detect_flux_linkage_openloop = ops_detect_flux_linkage_openloop,
         .detect_flux_linkage = ops_detect_flux_linkage,
         .detect_r_l = ops_detect_r_l,
+        .get_mcconf_temp = ops_get_mcconf_temp,
         .detect_apply_all_foc = ops_detect_apply_all_foc,
         .detect_hall_foc = ops_detect_hall_foc,
         .detect_motor_param = ops_detect_motor_param,

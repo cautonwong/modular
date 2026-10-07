@@ -1116,6 +1116,12 @@ static void test_vesc_host_restart_requests(void **state) {
     assert_int_equal(bare_ops.reboot(bare_ops.self), EDGE_EINVAL);
     assert_int_equal(bare_ops.jump_to_bootloader(bare_ops.self), EDGE_EINVAL);
     assert_int_equal(bare_ops.reboot(NULL), EDGE_EINVAL);
+    /* COMM_GET_MCCONF_TEMP: without a configuration there are no limits to report, and that is what
+     * the port says rather than a row of zeros that would read as a configured machine. */
+    vesc_mcconf_temp_t bare_temp;
+    memset(&bare_temp, 0, sizeof(bare_temp));
+    assert_int_equal(bare_ops.get_mcconf_temp(bare_ops.self, &bare_temp), EDGE_EINVAL);
+    assert_int_equal(bare_ops.get_mcconf_temp(NULL, &bare_temp), EDGE_EINVAL);
 }
 
 /* The configuration store the detection tests below hand the aggregate; defined with them. */
@@ -1230,6 +1236,18 @@ static void test_vesc_host_detect_motor_param_command(void **state) {
     vesc_comm_ops_port_t ops;
     vesc_host_make_ops_port(&ops, &ctx);
     assert_non_null(ops.detect_motor_param);
+
+    /* COMM_GET_MCCONF_TEMP reads the live configuration's own limits, so the two ends it reports
+     * are the ones that configuration carries. */
+    const mc_configuration_t *live = motor_config_get_mc(cfg);
+    vesc_mcconf_temp_t temp;
+    memset(&temp, 0, sizeof(temp));
+    assert_int_equal(ops.get_mcconf_temp(ops.self, &temp), EDGE_OK);
+    assert_float_equal(temp.l_max_duty, live->l_max_duty, 1e-6f);
+    assert_float_equal(temp.l_min_erpm, live->l_min_erpm, 1e-6f);
+    assert_int_equal(temp.si_motor_poles, (uint8_t)live->si_motor_poles);
+    assert_float_equal(temp.si_wheel_diameter, live->si_wheel_diameter, 1e-6f);
+    assert_int_equal(ops.get_mcconf_temp(ops.self, NULL), EDGE_EINVAL);
 
     /* A configuration the run will stage over, so that the restore has something to put back. */
     const mc_configuration_t *before = motor_config_get_mc(cfg);
