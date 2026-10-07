@@ -12,14 +12,25 @@
 extern "C" {
 #endif
 
+/*
+ * datatypes.h:628-641's ppm_control_type, in its own order and with its own values - the reference
+ * stores a mode by value, so the numbers are part of what is being ported and not a detail of this
+ * header. Its PID_POSITION_180 and PID_POSITION_360 are the two position modes, and PID is the one
+ * that reads a speed.
+ */
 typedef enum ppm_control_mode {
-    PPM_MODE_OFF = 0,
-    PPM_MODE_DUTY,
+    PPM_MODE_NONE = 0,
     PPM_MODE_CURRENT,
     PPM_MODE_CURRENT_NOREV,
     PPM_MODE_CURRENT_NOREV_BRAKE,
-    PPM_MODE_RPM,
-    PPM_MODE_POS
+    PPM_MODE_DUTY,
+    PPM_MODE_DUTY_NOREV,
+    PPM_MODE_PID,
+    PPM_MODE_PID_NOREV,
+    PPM_MODE_CURRENT_BRAKE_REV_HYST,
+    PPM_MODE_CURRENT_SMART_REV,
+    PPM_MODE_PID_POSITION_180,
+    PPM_MODE_PID_POSITION_360,
 } ppm_control_mode_t;
 
 typedef struct ppm_config {
@@ -63,6 +74,9 @@ typedef struct ppm_app {
     float override_norm;
     /* applications/app_ppm.c:199's own ramp state, which survives between updates. */
     float output_ramp;
+    /* applications/app_ppm.c:53, input_val: what the decoded level reports, before the group of
+     * modes below re-maps it for the command. */
+    float decoded_norm;
 } ppm_app_t;
 
 void ppm_construct(ppm_app_t *app, uint32_t module_id, uint32_t priority,
@@ -70,6 +84,11 @@ void ppm_construct(ppm_app_t *app, uint32_t module_id, uint32_t priority,
 edge_status_t ppm_init(ppm_app_t *app);
 edge_status_t ppm_update(ppm_app_t *app, float dt);
 float ppm_get_output(const ppm_app_t *app);
+/*
+ * applications/app_ppm.c:89, app_ppm_get_decoded_level: the value as decoded, in [-1, 1], which is
+ * not what get_output above reports for the four modes that re-map it onto [0, 1].
+ */
+float ppm_get_decoded_level(const ppm_app_t *app);
 /* Last accepted pulse width in microseconds (reference: servodec_get_last_pulse_len). */
 float ppm_get_last_pulse_us(const ppm_app_t *app);
 bool ppm_is_safe(const ppm_app_t *app);
