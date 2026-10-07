@@ -805,6 +805,63 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
         return send_reply(self, 1u);
     }
 
+    case COMM_BMS_GET_VALUES: {
+        if (self->ops == (void *)0 || self->ops->get_bms_values == (void *)0) {
+            return EDGE_ENOTSUP;
+        }
+        vesc_bms_values_t v;
+        memset(&v, 0, sizeof(v));
+        const edge_status_t st = self->ops->get_bms_values(self->ops->self, &v);
+        if (st != EDGE_OK) {
+            return st;
+        }
+
+        /*
+         * bms.c:531-620, field for field: the six totals, the cell count and its voltages, the
+         * balancing state, the temperatures and the humidity, the state of charge and health, the
+         * CAN identity, and the four charge and discharge counters.
+         */
+        uint8_t *resp = self->cmd_reply_buf;
+        size_t n = 0u;
+        resp[n++] = COMM_BMS_GET_VALUES;
+        buffer_append_float32(resp, v.v_tot, 1e6f, &n);
+        buffer_append_float32(resp, v.v_charge, 1e6f, &n);
+        buffer_append_float32(resp, v.i_in, 1e6f, &n);
+        buffer_append_float32(resp, v.i_in_ic, 1e6f, &n);
+        buffer_append_float32(resp, v.ah_cnt, 1e3f, &n);
+        buffer_append_float32(resp, v.wh_cnt, 1e3f, &n);
+
+        const unsigned cells = (v.cell_num < VESC_BMS_MAX_CELLS) ? v.cell_num : VESC_BMS_MAX_CELLS;
+        resp[n++] = (uint8_t)cells;
+        for (unsigned i = 0u; i < cells; i++) {
+            buffer_append_float16(resp, v.v_cell[i], 1e3f, &n);
+        }
+        for (unsigned i = 0u; i < cells; i++) {
+            resp[n++] = v.bal_state[i];
+        }
+
+        const unsigned temps =
+            (v.temp_adc_num < VESC_BMS_MAX_CELLS) ? v.temp_adc_num : VESC_BMS_MAX_CELLS;
+        resp[n++] = (uint8_t)temps;
+        for (unsigned i = 0u; i < temps; i++) {
+            buffer_append_float16(resp, v.temps_adc[i], 1e2f, &n);
+        }
+        buffer_append_float16(resp, v.temp_ic, 1e2f, &n);
+        buffer_append_float16(resp, v.temp_hum, 1e2f, &n);
+        buffer_append_float16(resp, v.hum, 1e2f, &n);
+        buffer_append_float16(resp, v.temp_max_cell, 1e2f, &n);
+        buffer_append_float16(resp, v.soc, 1e3f, &n);
+        buffer_append_float16(resp, v.soh, 1e3f, &n);
+
+        resp[n++] = v.can_id;
+        buffer_append_float32_auto(resp, v.ah_cnt_chg_total, &n);
+        buffer_append_float32_auto(resp, v.wh_cnt_chg_total, &n);
+        buffer_append_float32_auto(resp, v.ah_cnt_dis_total, &n);
+        buffer_append_float32_auto(resp, v.wh_cnt_dis_total, &n);
+
+        return send_reply(self, n);
+    }
+
     case COMM_GET_IMU_DATA: {
         if (self->ops == (void *)0 || self->ops->get_imu_data == (void *)0) {
             return EDGE_ENOTSUP;

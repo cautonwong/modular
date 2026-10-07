@@ -2128,6 +2128,26 @@ static edge_status_t mock_calibrate_imu(void *self, float yaw_deg, float cal[9])
     return EDGE_OK;
 }
 
+/* bms.c:531-620: the battery's own readings, in the shape its reply carries them. */
+static edge_status_t mock_get_bms_values(void *self, vesc_bms_values_t *out) {
+    (void)self;
+    memset(out, 0, sizeof(*out));
+    out->v_tot = 100.0f;
+    out->i_in = 5.0f;
+    out->cell_num = 3u;
+    for (unsigned i = 0u; i < 3u; i++) {
+        out->v_cell[i] = 3.5f + 0.1f * (float)i;
+        out->bal_state[i] = (uint8_t)i;
+    }
+    out->temp_adc_num = 2u;
+    out->temps_adc[0] = 25.0f;
+    out->temps_adc[1] = 26.0f;
+    out->soc = 0.8f;
+    out->soh = 0.9f;
+    out->can_id = 7u;
+    return EDGE_OK;
+}
+
 static void test_imu_commands(void **state) {
     (void)state;
     mock_comm_ctx_t ctx;
@@ -2137,8 +2157,10 @@ static void test_imu_commands(void **state) {
     vesc_app_status_port_t app_status_port = {.self = &ctx};
     vesc_motor_provider_port_t motor_port = {.self = &ctx};
     vesc_config_provider_port_t config_port = {.self = &ctx};
-    vesc_comm_ops_port_t ops_port = {
-        .self = &ctx, .get_imu_data = mock_get_imu_data, .calibrate_imu = mock_calibrate_imu};
+    vesc_comm_ops_port_t ops_port = {.self = &ctx,
+                                     .get_imu_data = mock_get_imu_data,
+                                     .calibrate_imu = mock_calibrate_imu,
+                                     .get_bms_values = mock_get_bms_values};
     vesc_identity_t identity = {.hw_name = "test", .fw_name = "test", .uuid = NULL};
 
     /* The codec is opaque, so the case keeps its storage as the others here do. */
@@ -2177,8 +2199,18 @@ static void test_imu_commands(void **state) {
     /* The answer is the command, nine packed floats and the frame around them. */
     assert_true(ctx.tx_len >= 40u);
 
-    /* A request too short for the mask, and one too short for the angle. */
-    uint8_t no_mask[1] = {COMM_GET_IMU_DATA};
+    /* The battery answers for itself: the totals, the cells and their state, the temperatures, the
+     * state of charge and health, the identity and the counters - a long reply, as the reference's
+     * is. */
+    ctx.tx_count = 0;
+    ctx.tx_len = 0u;
+    uint8_t bms[1] = {COMM_BMS_GET_VALUES};
+    assert_int_equal(vesc_comm_process_command(comm, bms, sizeof(bms)), EDGE_OK);
+    assert_int_equal(ctx.tx_count, 1);
+    assert_true(ctx.tx_len > 60u);
+
+    /* A request too short for the mask, and one too short for the angle. */ uint8_t no_mask[1] = {
+        COMM_GET_IMU_DATA};
     assert_int_equal(vesc_comm_process_command(comm, no_mask, sizeof(no_mask)), EDGE_EINVAL);
     uint8_t no_yaw[2] = {COMM_GET_IMU_CALIBRATION, 0x00u};
     assert_int_equal(vesc_comm_process_command(comm, no_yaw, sizeof(no_yaw)), EDGE_EINVAL);

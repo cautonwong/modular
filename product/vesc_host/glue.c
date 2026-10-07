@@ -1030,6 +1030,31 @@ static edge_status_t ops_set_mcconf_temp(void *self, const vesc_mcconf_temp_t *v
  * comm/commands.c:1090-1094, COMM_MOTOR_ESTOP: the window the motor layer keeps, and the letting go
  * of whatever override was in force - which in this port's motor layer is its own release.
  */
+/*
+ * bms.c:523: the battery answers for itself, and the reference hands it the whole command. What
+ * this port's BMS keeps is the six totals; the rest of the payload's fields are named zeros here -
+ * a battery that reports no cells - rather than guesses, until its frame decoding fills them, which
+ * is a slice of its own.
+ */
+static edge_status_t ops_get_bms_values(void *self, vesc_bms_values_t *out) {
+    vesc_host_ops_ctx_t *ctx = (vesc_host_ops_ctx_t *)self;
+    if (ctx == (void *)0 || ctx->bms == (void *)0 || out == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    bms_values_t v;
+    memset(&v, 0, sizeof(v));
+    vesc_bms_get_values(ctx->bms, &v);
+
+    memset(out, 0, sizeof(*out));
+    out->v_tot = v.v_tot;
+    out->v_charge = v.v_charge;
+    out->i_in = v.i_in;
+    out->i_in_ic = v.i_in_ic;
+    out->ah_cnt = v.ah_cnt;
+    out->wh_cnt = v.wh_cnt;
+    return EDGE_OK;
+}
+
 static void ops_estop(void *self, uint16_t time_ms) {
     vesc_host_ops_ctx_t *ctx = (vesc_host_ops_ctx_t *)self;
     if (ctx == (void *)0 || ctx->glue == (void *)0 || ctx->glue->foc == (void *)0) {
@@ -1239,6 +1264,7 @@ void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_host_ops_ctx_t *ctx
         .set_can_mode = ops_set_can_mode,
         .set_mcconf_temp = ops_set_mcconf_temp,
         .read_controller_count = ops_read_controller_count,
+        .get_bms_values = ops_get_bms_values,
         .estop = ops_estop,
         .detect_apply_all_foc = ops_detect_apply_all_foc,
         .detect_hall_foc = ops_detect_hall_foc,
