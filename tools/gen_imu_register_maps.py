@@ -42,6 +42,15 @@ imu_device_t mpu9150_device(imu_transport_t *transport, mpu9150_state_t *state);
 """,
     },
     {
+        "ref": "icm20948.h",
+        "out": "infra/imu/include/imu/icm20948.h",
+        "guard": "ICM20948_H",
+        "prefix": "#define ICM20948_",
+        "note": "",
+        "scaffold": """imu_device_t icm20948_device(imu_transport_t *transport);
+""",
+    },
+    {
         "ref": "lsm6ds3.h",
         "out": "infra/imu/include/imu/lsm6ds3.h",
         "guard": "LSM6DS3_H",
