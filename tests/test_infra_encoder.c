@@ -919,9 +919,122 @@ static void test_encoder_bissc_matches_the_reference(void **state) {
     assert_float_equal(encoder_bissc_frame(&bad, frame, 0.0f), 0.0f, 1e-6f);
 }
 
+typedef struct mock_ad2s1205_plant {
+    uint16_t word;
+    bool fail;
+} mock_ad2s1205_plant_t;
+
+static edge_status_t ad2s1205_plant_read(void *self, uint16_t *word) {
+    mock_ad2s1205_plant_t *p = (mock_ad2s1205_plant_t *)self;
+    if (p->fail) {
+        return EDGE_ESTATE;
+    }
+    *word = p->word;
+    return EDGE_OK;
+}
+
+/* The frame's own parity is odd, which is what makes the driver's fold read as an error when it is
+ * not: an even count is the fault, so the parity bit is what a whole frame has to be given. */
+static uint16_t ad2s1205_frame(uint16_t counts, uint16_t flags) {
+    uint16_t word = (uint16_t)(((counts & 0x0FFFu) << 4) | (flags & 0x0Fu));
+    uint16_t x = word;
+    x ^= (uint16_t)(x >> 8);
+    x ^= (uint16_t)(x >> 4);
+    x ^= (uint16_t)(x >> 2);
+    x ^= (uint16_t)(x >> 1);
+    /* The low bit is set when the count is even, which is the fault; the parity bit fixes it. */
+    if (((~x) & 1u) != 0u) {
+        word ^= 0x0001u;
+    }
+    return word;
+}
+
+/*
+ * enc_ad2s1205.c:66-176's routine: a frame of nothing at all is a converter that is not answering,
+ * a frame without the read-velocity bit is a velocity one, the second and first bits are the chip's
+ * own loss of tracking and loss of signal with a clear bit meaning the fault - and a loss of signal
+ * is what both together mean, in which case the tracking flag is dropped - and the angle is the
+ * twelve bits over a full turn, taken only when the parity held and none of the three flagged.
+ */
+static void test_encoder_ad2s1205_matches_the_reference(void **state) {
+    (void)state;
+
+    encoder_ad2s1205_state_t st;
+    encoder_ad2s1205_begin(&st);
+    mock_ad2s1205_plant_t plant = {0};
+    encoder_ad2s1205_port_t port = {.self = &plant, .read_frame = ad2s1205_plant_read};
+
+    /* A position packet of two thousand and forty-eight counts - half a turn - with nothing wrong.
+     */
+    plant.word = ad2s1205_frame(2048u, 0x0008u | 0x0006u); /* RDVEL set, both fault bits clear */
+    assert_float_equal(encoder_ad2s1205_routine(&st, &port, 0.001f), 180.0f, 1e-3f);
+    assert_int_equal(st.spi_error_cnt, 0u);
+    assert_int_equal(st.resolver_loss_of_tracking_error_cnt, 0u);
+    assert_int_equal(st.resolver_void_packet_cnt, 0u);
+
+    /* A frame of nothing is the converter not answering, and the angle holds where it was. */
+    const float held = st.last_enc_angle;
+    plant.word = 0x0000u;
+    encoder_ad2s1205_routine(&st, &port, 0.002f);
+    assert_int_equal(st.resolver_void_packet_cnt, 1u);
+    assert_float_equal(st.resolver_void_packet_error_rate, 0.001f, 1e-6f);
+    assert_float_equal(st.last_enc_angle, held, 1e-6f);
+
+    /* A frame without the read-velocity bit is a velocity one, and is counted as its own error. */
+    plant.word = ad2s1205_frame(2048u, 0x0006u); /* RDVEL clear */
+    encoder_ad2s1205_routine(&st, &port, 0.003f);
+    assert_int_equal(st.resolver_vel_packet_cnt, 1u);
+    assert_float_equal(st.resolver_vel_packet_error_rate, 0.001f, 1e-6f);
+    assert_float_equal(st.last_enc_angle, held, 1e-6f);
+
+    /* A clear tracking bit is the chip's own loss of tracking, and the angle is not taken. */
+    plant.word = ad2s1205_frame(2048u, 0x0008u | 0x0004u); /* RDVEL set, tracking bit clear */
+    encoder_ad2s1205_routine(&st, &port, 0.004f);
+    assert_int_equal(st.resolver_loss_of_tracking_error_cnt, 1u);
+    assert_float_equal(st.last_enc_angle, held, 1e-6f);
+
+    /* Both flags clear at once is a loss of signal, and the tracking flag is not counted with it.
+     */
+    const uint32_t lot_before = st.resolver_loss_of_tracking_error_cnt;
+    plant.word = ad2s1205_frame(2048u, 0x0008u); /* both fault bits clear */
+    encoder_ad2s1205_routine(&st, &port, 0.005f);
+    assert_int_equal(st.resolver_loss_of_signal_error_cnt, 1u);
+    assert_int_equal(st.resolver_loss_of_tracking_error_cnt, lot_before);
+    assert_int_equal(st.resolver_degradation_of_signal_error_cnt, 0u);
+
+    /* A frame whose parity does not hold is the bus's own error, and the angle is not taken. */
+    plant.word = (uint16_t)(ad2s1205_frame(2048u, 0x0008u | 0x0006u) ^ 0x0001u);
+    encoder_ad2s1205_routine(&st, &port, 0.006f);
+    assert_int_equal(st.spi_error_cnt, 1u);
+    assert_float_equal(st.spi_error_rate, 0.001f, 1e-6f);
+    assert_float_equal(st.last_enc_angle, held, 1e-6f);
+
+    /* And the reset clears the counts, the rates and the peaks, but not the angle. */
+    encoder_ad2s1205_reset_errors(&st);
+    assert_int_equal(st.spi_error_cnt, 0u);
+    assert_int_equal(st.resolver_void_packet_cnt, 0u);
+    assert_int_equal(st.resolver_vel_packet_cnt, 0u);
+    assert_int_equal(st.resolver_loss_of_tracking_error_cnt, 0u);
+    assert_int_equal(st.resolver_loss_of_signal_error_cnt, 0u);
+    assert_float_equal(st.spi_error_rate, 0.0f, 1e-6f);
+    assert_float_equal(st.resolver_VOIDspi_peak_error_rate, 0.0f, 1e-6f);
+    assert_float_equal(st.last_enc_angle, held, 1e-6f);
+
+    encoder_ad2s1205_begin(NULL);
+    encoder_ad2s1205_reset_errors(NULL);
+    assert_float_equal(encoder_ad2s1205_routine(NULL, &port, 0.0f), 0.0f, 1e-6f);
+    assert_float_equal(encoder_ad2s1205_routine(&st, NULL, 0.0f), 0.0f, 1e-6f);
+    encoder_ad2s1205_port_t bare = {0};
+    assert_float_equal(encoder_ad2s1205_routine(&st, &bare, 0.0f), 0.0f, 1e-6f);
+    /* A port that cannot read is a frame that cannot be judged, and the angle holds. */
+    plant.fail = true;
+    assert_float_equal(encoder_ad2s1205_routine(&st, &port, 0.007f), held, 1e-6f);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
+        cmocka_unit_test(test_encoder_ad2s1205_matches_the_reference),
         cmocka_unit_test(test_encoder_as504x_matches_the_reference),
         cmocka_unit_test(test_encoder_mt6816_matches_the_reference),
         cmocka_unit_test(test_encoder_abi_index_machine),

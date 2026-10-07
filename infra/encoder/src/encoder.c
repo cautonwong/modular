@@ -299,6 +299,182 @@ uint8_t encoder_bissc_crc6(const uint8_t table[64], uint32_t data_rx) {
  * A frame of nothing at all is the one case the reference leaves undefined, since its own shift is
  * then asked for sixty-four; it is counted as a bad word here.
  */
+/* driver/spi_bb.c:309-316's fold, whose low bit is set when the frame's bits come to one - and this
+ * converter's frame carries odd parity, so that low bit being set is what an error looks like. */
+static bool ad2s1205_parity_error(uint16_t x) {
+    x ^= (uint16_t)(x >> 8);
+    x ^= (uint16_t)(x >> 4);
+    x ^= (uint16_t)(x >> 2);
+    x ^= (uint16_t)(x >> 1);
+    return (bool)((~x) & 1u);
+}
+
+/* :36-53's initialising, which is the clearing of everything the state holds. */
+void encoder_ad2s1205_begin(encoder_ad2s1205_state_t *st) {
+    if (st == (void *)0) {
+        return;
+    }
+    memset(st, 0, sizeof(*st));
+}
+
+/* :178-196's reset: the counts, the rates and the peaks, but not the word or the angle it made. */
+void encoder_ad2s1205_reset_errors(encoder_ad2s1205_state_t *st) {
+    if (st == (void *)0) {
+        return;
+    }
+
+    st->spi_error_cnt = 0u;
+    st->spi_error_rate = 0.0f;
+    st->resolver_loss_of_tracking_error_rate = 0.0f;
+    st->resolver_degradation_of_signal_error_rate = 0.0f;
+    st->resolver_loss_of_signal_error_rate = 0.0f;
+    st->resolver_loss_of_tracking_error_cnt = 0u;
+    st->resolver_degradation_of_signal_error_cnt = 0u;
+    st->resolver_loss_of_signal_error_cnt = 0u;
+    st->resolver_void_packet_cnt = 0u;
+    st->resolver_void_packet_error_rate = 0.0f;
+    st->resolver_vel_packet_cnt = 0u;
+    st->resolver_vel_packet_error_rate = 0.0f;
+    st->resolver_LOT_peak_error_rate = 0.0f;
+    st->resolver_LOS_peak_error_rate = 0.0f;
+    st->resolver_DOS_peak_error_rate = 0.0f;
+    st->resolver_SPI_peak_error_rate = 0.0f;
+    st->resolver_VELread_peak_error_rate = 0.0f;
+    st->resolver_VOIDspi_peak_error_rate = 0.0f;
+}
+
+/*
+ * enc_ad2s1205.c:66-176, its routine, in the three stages the reference takes them in. A frame of
+ * nothing at all is a converter that is not answering, and its error rate climbs while its peak is
+ * kept; a frame that answers but carries no read-velocity bit is a velocity one, which is counted
+ * the same way. Both of those also settle the other rate back towards nought.
+ *
+ * Only a position packet is then read for what it says: the second and first bits are the loss of
+ * tracking and of signal, both of them inverted - a clear bit is the fault - and a loss of signal
+ * is what the two of them together mean, in which case the tracking flag is dropped rather than
+ * counted with it. The bus's own parity is the frame's odd one, and it is the frame that decides
+ * whether the angle is taken, together with all three of the chip's flags.
+ */
+float encoder_ad2s1205_routine(encoder_ad2s1205_state_t *st, const encoder_ad2s1205_port_t *port,
+                               float now_s) {
+    if (st == (void *)0 || port == (void *)0 || port->read_frame == (void *)0) {
+        return 0.0f;
+    }
+
+    float timestep = now_s - st->last_update_s;
+    if (timestep > 1.0f) {
+        timestep = 1.0f;
+    }
+    st->last_update_s = now_s;
+
+    uint16_t pos = 0u;
+    if (port->read_frame(port->self, &pos) != EDGE_OK) {
+        /* The reference's bus always answers, so it has no such guard; a port that cannot read is a
+         * frame it cannot judge, and the angle it had is what comes back. */
+        return st->last_enc_angle;
+    }
+
+    st->spi_val = pos;
+
+    const uint16_t rdvel = (uint16_t)(pos & 0x0008u);
+
+    if (st->spi_val == 0u) {
+        ++st->resolver_void_packet_cnt;
+        st->resolver_void_packet_error_rate -=
+            timestep * (st->resolver_void_packet_error_rate - 1.0f);
+        if (st->resolver_void_packet_error_rate > st->resolver_VOIDspi_peak_error_rate) {
+            st->resolver_VOIDspi_peak_error_rate = st->resolver_void_packet_error_rate;
+        }
+    } else {
+        st->resolver_void_packet_error_rate -=
+            timestep * (st->resolver_void_packet_error_rate - 0.0f);
+        if (rdvel == 0u) {
+            ++st->resolver_vel_packet_cnt;
+            st->resolver_vel_packet_error_rate -=
+                timestep * (st->resolver_vel_packet_error_rate - 1.0f);
+            if (st->resolver_vel_packet_error_rate > st->resolver_VELread_peak_error_rate) {
+                st->resolver_VELread_peak_error_rate = st->resolver_vel_packet_error_rate;
+            }
+        } else {
+            st->resolver_vel_packet_error_rate -=
+                timestep * (st->resolver_vel_packet_error_rate - 0.0f);
+        }
+    }
+
+    if (rdvel != 0u) {
+        bool dos = ((pos & 0x04u) == 0u);
+        bool lot = ((pos & 0x02u) == 0u);
+        const bool los = dos && lot;
+        const bool parity_error = ad2s1205_parity_error(pos);
+        bool angle_is_correct = true;
+
+        if (los) {
+            lot = false;
+            dos = false;
+        }
+
+        if (!parity_error) {
+            st->spi_error_rate -= timestep * (st->spi_error_rate - 0.0f);
+        } else {
+            angle_is_correct = false;
+            ++st->spi_error_cnt;
+            st->spi_error_rate -= timestep * (st->spi_error_rate - 1.0f);
+            if (st->spi_error_rate > st->resolver_SPI_peak_error_rate) {
+                st->resolver_SPI_peak_error_rate = st->spi_error_rate;
+            }
+        }
+
+        uint16_t counts = (uint16_t)(pos & 0xFFF0u);
+        counts = (uint16_t)(counts >> 4);
+        counts = (uint16_t)(counts & 0x0FFFu);
+
+        if (lot) {
+            angle_is_correct = false;
+            ++st->resolver_loss_of_tracking_error_cnt;
+            st->resolver_loss_of_tracking_error_rate -=
+                timestep * (st->resolver_loss_of_tracking_error_rate - 1.0f);
+            if (st->resolver_loss_of_tracking_error_rate > st->resolver_LOT_peak_error_rate) {
+                st->resolver_LOT_peak_error_rate = st->resolver_loss_of_tracking_error_rate;
+            }
+        } else {
+            st->resolver_loss_of_tracking_error_rate -=
+                timestep * (st->resolver_loss_of_tracking_error_rate - 0.0f);
+        }
+
+        if (dos) {
+            angle_is_correct = false;
+            ++st->resolver_degradation_of_signal_error_cnt;
+            st->resolver_degradation_of_signal_error_rate -=
+                timestep * (st->resolver_degradation_of_signal_error_rate - 1.0f);
+            if (st->resolver_degradation_of_signal_error_rate > st->resolver_DOS_peak_error_rate) {
+                st->resolver_DOS_peak_error_rate = st->resolver_degradation_of_signal_error_rate;
+            }
+        } else {
+            st->resolver_degradation_of_signal_error_rate -=
+                timestep * (st->resolver_degradation_of_signal_error_rate - 0.0f);
+        }
+
+        if (los) {
+            angle_is_correct = false;
+            ++st->resolver_loss_of_signal_error_cnt;
+            st->resolver_loss_of_signal_error_rate -=
+                timestep * (st->resolver_loss_of_signal_error_rate - 1.0f);
+            if (st->resolver_loss_of_signal_error_rate > st->resolver_LOS_peak_error_rate) {
+                st->resolver_LOS_peak_error_rate = st->resolver_loss_of_signal_error_rate;
+            }
+        } else {
+            st->resolver_loss_of_signal_error_rate -=
+                timestep * (st->resolver_loss_of_signal_error_rate - 0.0f);
+        }
+
+        if (angle_is_correct) {
+            st->last_enc_angle = ((float)counts * 360.0f) / 4096.0f;
+        }
+    }
+
+    return st->last_enc_angle;
+}
+
 float encoder_bissc_frame(encoder_bissc_config_t *cfg, const uint8_t frame[8], float now_s) {
     if (cfg == (void *)0 || frame == (void *)0 || cfg->enc_res == 0u || cfg->enc_res > 30u) {
         return 0.0f;

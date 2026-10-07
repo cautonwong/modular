@@ -353,6 +353,51 @@ void encoder_bissc_begin(encoder_bissc_config_t *cfg, uint32_t enc_res);
 uint8_t encoder_bissc_crc6(const uint8_t table[64], uint32_t data_rx);
 float encoder_bissc_frame(encoder_bissc_config_t *cfg, const uint8_t frame[8], float now_s);
 
+/*
+ * The AD2S1205 family, a resolver-to-digital converter. Its state (AD2S1205_state) is the word last
+ * read, the angle, and the six error rates and counts the resolver carries - the bus's, the three
+ * the chip reports (loss of tracking, degradation of signal and loss of signal), the empty packet
+ * and the velocity packet - with the six peaks its own reader remembers.
+ */
+typedef struct encoder_ad2s1205_state {
+    uint32_t spi_val;
+    float last_enc_angle;
+    float last_update_s;
+    float spi_error_rate;
+    uint32_t spi_error_cnt;
+    float resolver_loss_of_tracking_error_rate;
+    float resolver_degradation_of_signal_error_rate;
+    float resolver_loss_of_signal_error_rate;
+    uint32_t resolver_loss_of_tracking_error_cnt;
+    uint32_t resolver_degradation_of_signal_error_cnt;
+    uint32_t resolver_loss_of_signal_error_cnt;
+    float resolver_void_packet_error_rate;
+    uint32_t resolver_void_packet_cnt;
+    float resolver_vel_packet_error_rate;
+    uint32_t resolver_vel_packet_cnt;
+    float resolver_LOT_peak_error_rate;
+    float resolver_LOS_peak_error_rate;
+    float resolver_DOS_peak_error_rate;
+    float resolver_SPI_peak_error_rate;
+    float resolver_VELread_peak_error_rate;
+    float resolver_VOIDspi_peak_error_rate;
+} encoder_ad2s1205_state_t;
+
+/* One sixteen-bit frame off the converter, which is what the reference's bit-banged bus answers. */
+typedef struct encoder_ad2s1205_port {
+    void *self;
+    edge_status_t (*read_frame)(void *self, uint16_t *word);
+} encoder_ad2s1205_port_t;
+
+/*
+ * enc_ad2s1205.c:36-53's initialising, which is a clearing, :66-176's routine, and :178-196's
+ * reset, which clears every count, rate and peak it keeps.
+ */
+void encoder_ad2s1205_begin(encoder_ad2s1205_state_t *st);
+float encoder_ad2s1205_routine(encoder_ad2s1205_state_t *st, const encoder_ad2s1205_port_t *port,
+                               float now_s);
+void encoder_ad2s1205_reset_errors(encoder_ad2s1205_state_t *st);
+
 #ifdef __cplusplus
 }
 #endif
