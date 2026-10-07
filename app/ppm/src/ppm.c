@@ -61,6 +61,10 @@ void ppm_construct(ppm_app_t *app, uint32_t module_id, uint32_t priority,
         app->config.timeout_s = 0.2f;
     }
 
+    /* applications/app_ppm.c:266: that mode's flag starts set, so the first thing it does is decide
+     * whether the speed has fallen far enough to let go of the brake. */
+    app->force_brake = true;
+
     if (receiver_port) {
         app->receiver_port = *receiver_port;
     }
@@ -287,6 +291,234 @@ static void ppm_step_towards(float *value, float goal, float step) {
             *value = goal;
         }
     }
+}
+
+/* applications/app_ppm.c:37. */
+#define PPM_MIN_PULSES_WITHOUT_POWER 50
+
+static float ppm_map(float x, float in_min, float in_max, float out_min, float out_max) {
+    return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+
+/* utils_math.c's own two whiles, which is all utils_norm_angle is. */
+static float ppm_norm_angle(float angle) {
+    while (angle < 0.0f) {
+        angle += 360.0f;
+    }
+    while (angle > 360.0f) {
+        angle -= 360.0f;
+    }
+    return angle;
+}
+
+/*
+ * applications/app_ppm.c:218-440: the decision half of the loop. Each branch is the reference's
+ * own, down to the order of its tests - the one mode whose hysteresis divides a brake from a
+ * reversal, the idle counter the safe start requires to hold still twice, and the per-mode command.
+ * What the reference does with mc_interface_* calls is returned here as a value for the product to
+ * apply.
+ */
+ppm_command_t ppm_policy(ppm_app_t *app, float servo_val, const ppm_policy_in_t *in) {
+    ppm_command_t out;
+    memset(&out, 0, sizeof(out));
+    out.kind = PPM_CMD_NONE;
+    if (app == (void *)0 || in == (const ppm_policy_in_t *)0) {
+        return out;
+    }
+
+    const float direction_hyst = app->config.max_erpm_for_dir * 0.20f; /* :68 */
+    const float rpm_now = in->rpm_now;
+    const float rpm_local = in->rpm_local;
+    float current = 0.0f;
+    bool current_mode = false;
+    bool current_mode_brake = false;
+
+    switch (app->config.mode) {
+    case PPM_MODE_CURRENT_BRAKE_REV_HYST: {
+        current_mode = true;
+
+        /* Hysteresis, a fifth of the speed the configuration gives. */
+        if (app->force_brake) {
+            if (rpm_local < app->config.max_erpm_for_dir - direction_hyst) {
+                app->force_brake = false;
+                app->did_idle_once = 0;
+            }
+        } else {
+            if (rpm_local > app->config.max_erpm_for_dir + direction_hyst) {
+                app->force_brake = true;
+                app->did_idle_once = 0;
+            }
+        }
+
+        if (servo_val >= 0.0f) {
+            if (servo_val == 0.0f) {
+                /* With an idle in between, going backwards is allowed. */
+                if (app->did_idle_once == 1 && !app->force_brake) {
+                    app->did_idle_once = 2;
+                }
+            } else {
+                if (rpm_local > -app->config.max_erpm_for_dir) {
+                    app->did_idle_once = 0;
+                }
+            }
+
+            if (rpm_now >= 0.0f) {
+                current = servo_val * in->lo_current_max;
+            } else {
+                current = servo_val * fabsf(in->lo_current_min);
+            }
+        } else {
+            if (app->force_brake) {
+                current_mode_brake = true;
+            } else {
+                if (rpm_local > -app->config.max_erpm_for_dir) {
+                    /* The first time it brakes and is not too fast. */
+                    if (app->did_idle_once != 2) {
+                        app->did_idle_once = 1;
+                        current_mode_brake = true;
+                    }
+                } else {
+                    if (app->did_idle_once == 1) {
+                        current_mode_brake = true;
+                    } else {
+                        /* Going backwards is fine now, and braking would be strange. */
+                        app->did_idle_once = 2;
+                    }
+                }
+            }
+
+            if (current_mode_brake) {
+                current = fabsf(servo_val * in->lo_current_min);
+            } else {
+                current = servo_val * fabsf(in->lo_current_min);
+            }
+        }
+
+        if (fabsf(servo_val) < 0.001f) {
+            app->pulses_without_power++;
+        }
+        break;
+    }
+    case PPM_MODE_CURRENT:
+    case PPM_MODE_CURRENT_NOREV:
+        current_mode = true;
+        if ((servo_val >= 0.0f && rpm_now >= 0.0f) || (servo_val < 0.0f && rpm_now <= 0.0f)) {
+            current = servo_val * in->lo_current_max;
+        } else {
+            current = servo_val * fabsf(in->lo_current_min);
+        }
+        if (fabsf(servo_val) < 0.001f) {
+            app->pulses_without_power++;
+        }
+        break;
+
+    case PPM_MODE_CURRENT_NOREV_BRAKE:
+    case PPM_MODE_CURRENT_SMART_REV:
+        current_mode = true;
+        current_mode_brake = servo_val < 0.0f;
+        if (servo_val >= 0.0f && rpm_now > 0.0f) {
+            current = servo_val * in->lo_current_max;
+        } else {
+            current = fabsf(servo_val * in->lo_current_min);
+        }
+        if (fabsf(servo_val) < 0.001f) {
+            app->pulses_without_power++;
+        }
+        break;
+
+    case PPM_MODE_DUTY:
+    case PPM_MODE_DUTY_NOREV:
+    case PPM_MODE_PID:
+    case PPM_MODE_PID_NOREV:
+        if (fabsf(servo_val) < 0.001f) {
+            app->pulses_without_power++;
+        }
+        break;
+
+    case PPM_MODE_PID_POSITION_180:
+    case PPM_MODE_PID_POSITION_360:
+        if (fabsf(servo_val) < 0.02f) {
+            app->pulses_without_power++;
+        }
+        break;
+
+    default:
+        return out;
+    }
+
+    /* The safe start: at startup, after a timeout or a fault it waits until the input has been idle
+     * for enough pulses - and, since the count is compared with itself, twice in a row. */
+    const bool holds =
+        (app->pulses_without_power < PPM_MIN_PULSES_WITHOUT_POWER && app->config.safe_start);
+    if (holds) {
+        if (app->pulses_without_power == app->pulses_without_power_before) {
+            app->pulses_without_power = 0;
+        }
+        app->pulses_without_power_before = app->pulses_without_power;
+
+        if (app->servo_error) {
+            return out;
+        }
+        if (current_mode) {
+            current = 0.0f;
+        }
+    } else {
+        app->servo_error = false;
+    }
+
+    switch (app->config.mode) {
+    case PPM_MODE_CURRENT:
+    case PPM_MODE_CURRENT_NOREV:
+    case PPM_MODE_CURRENT_NOREV_BRAKE:
+    case PPM_MODE_CURRENT_SMART_REV:
+    case PPM_MODE_CURRENT_BRAKE_REV_HYST:
+        out.kind = PPM_CMD_CURRENT;
+        out.current = current;
+        out.current_mode_brake = current_mode_brake;
+        break;
+
+    case PPM_MODE_DUTY:
+    case PPM_MODE_DUTY_NOREV:
+        if (!holds) {
+            out.kind = PPM_CMD_DUTY;
+            out.duty = ppm_map(servo_val, -1.0f, 1.0f, -in->l_max_duty, in->l_max_duty);
+        }
+        break;
+
+    case PPM_MODE_PID:
+    case PPM_MODE_PID_NOREV:
+        if (!holds) {
+            out.kind = PPM_CMD_PID_SPEED;
+            out.pid_speed_erpm = servo_val * app->config.pid_max_erpm;
+        }
+        break;
+
+    case PPM_MODE_PID_POSITION_180:
+    case PPM_MODE_PID_POSITION_360: {
+        float angle = (app->config.mode == PPM_MODE_PID_POSITION_180) ? (servo_val * 180.0f)
+                                                                      : (servo_val * 360.0f);
+        angle = ppm_norm_angle(angle);
+        if (!holds) {
+            /* A more intelligent safe start: wait until the commanded angle is close to where the
+             * motor already is before taking over in position mode. */
+            if (!in->control_mode_is_position) {
+                if (fabsf(angle - in->pid_pos_now) < 10.0f) {
+                    out.kind = PPM_CMD_PID_POSITION;
+                    out.pid_pos_deg = angle;
+                }
+            } else {
+                out.kind = PPM_CMD_PID_POSITION;
+                out.pid_pos_deg = angle;
+            }
+        }
+        break;
+    }
+
+    default:
+        break;
+    }
+
+    return out;
 }
 
 /*

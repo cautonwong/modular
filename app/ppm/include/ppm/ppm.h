@@ -40,6 +40,10 @@ typedef struct ppm_config {
     float pulse_center_us;
     float timeout_s;
     bool safe_start;
+    /* applications/app_ppm.c:68's own hysteresis, a fifth of max_erpm_for_dir, and :360's PID
+     * ceiling. */
+    float max_erpm_for_dir;
+    float pid_max_erpm;
     /*
      * applications/app_ppm.c:190-199: the chain the reference runs the decoded value through before
      * it becomes a command - a deadband that rescales rather than zeroes, the throttle curve, and a
@@ -77,6 +81,19 @@ typedef struct ppm_app {
     /* applications/app_ppm.c:53, input_val: what the decoded level reports, before the group of
      * modes below re-maps it for the command. */
     float decoded_norm;
+    /*
+     * applications/app_ppm.c:218-440's own state: the idle counter whose safe start requires it to
+     * hold still twice, the flag and the three-state counter of the mode that decides between a
+     * brake and a reversal from the speed it measures, the error the timeout branch latches, and
+     * the duty that mode ramps toward.
+     */
+    int pulses_without_power;
+    int pulses_without_power_before;
+    bool servo_error;
+    bool force_brake;
+    int8_t did_idle_once;
+    bool was_duty_control;
+    float duty_rev;
 } ppm_app_t;
 
 void ppm_construct(ppm_app_t *app, uint32_t module_id, uint32_t priority,
@@ -92,6 +109,45 @@ float ppm_get_decoded_level(const ppm_app_t *app);
 /* Last accepted pulse width in microseconds (reference: servodec_get_last_pulse_len). */
 float ppm_get_last_pulse_us(const ppm_app_t *app);
 bool ppm_is_safe(const ppm_app_t *app);
+
+/*
+ * applications/app_ppm.c:218-440, the half of the loop that decides what should be commanded rather
+ * than what was read. The reference decides there and commands at the motor interface; this port
+ * keeps that split, so this is a value and a function that fills it in, and the product applies it.
+ */
+typedef enum ppm_command_kind {
+    PPM_CMD_NONE = 0, /* the reference's own default branch: nothing is commanded this pass */
+    PPM_CMD_CURRENT,
+    PPM_CMD_DUTY,
+    PPM_CMD_PID_SPEED,
+    PPM_CMD_PID_POSITION,
+} ppm_command_kind_t;
+
+typedef struct ppm_command {
+    ppm_command_kind_t kind;
+    float current;
+    bool current_mode_brake; /* :311: the same value is a brake when this is set */
+    float duty;
+    float pid_speed_erpm;
+    float pid_pos_deg;
+} ppm_command_t;
+
+/* What the reference reads from the motor interface while deciding: its own readings and limits. */
+typedef struct ppm_policy_in {
+    float rpm_now;
+    float rpm_local;
+    float lo_current_max;
+    float lo_current_min;
+    float l_max_duty;
+    float pid_pos_now;
+    bool control_mode_is_position;
+} ppm_policy_in_t;
+
+/*
+ * applications/app_ppm.c:218-440: fills in what to command, and moves this application's own state
+ * on. The value passed in is the one the update has already re-mapped for its group of modes.
+ */
+ppm_command_t ppm_policy(ppm_app_t *app, float servo_val, const ppm_policy_in_t *in);
 
 /*
  * applications/app_ppm.c:93-99, the detaching flag and the override that replaces the decoded value
