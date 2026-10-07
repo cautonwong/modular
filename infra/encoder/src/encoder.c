@@ -6,93 +6,212 @@
 #define M_PI 3.14159265358979323846f
 #endif
 
-/* AS5047 */
-bool encoder_as5047_check_parity(uint16_t val) {
-    uint16_t count = 0;
-    for (int i = 0; i < 16; i++) {
-        if (val & (1u << i)) {
-            count++;
+/*
+ * enc_as504x.c:66's own exchange, whose error bit is the fourteenth: one transfer, then every frame
+ * of its answer is asked whether that bit is raised.
+ */
+static uint8_t as504x_transfer_err_check(const encoder_as504x_port_t *port, uint16_t *in_buf,
+                                         const uint16_t *out_buf, int length) {
+    port->transfer16(port->self, in_buf, out_buf, length);
+    for (int i = 0; i < length; i++) {
+        if (((in_buf[i]) >> 14) & 0x01u) {
+            return 1u;
         }
     }
-    return (count % 2) == 0;
+    return 0u;
 }
 
-void encoder_as5047_construct(encoder_as5047_t *self, encoder_spi_transfer_fn spi_transfer,
-                              void *spi_ctx) {
-    if (!self) {
+/*
+ * :193-203's fetch: the diagnostic and magnitude frames are sent, the answer to the first arrives
+ * with the second's exchange and the answer to the second with a bare one after it, and both are
+ * kept only when neither raised the error bit and both pass their parity.
+ */
+static uint8_t as504x_fetch_diag(encoder_as504x_state_t *st, const encoder_as504x_port_t *port) {
+    uint16_t recf[2] = {0u, 0u};
+    const uint16_t senf[2] = {(uint16_t)(AS504X_SPI_DIAG_ADR | AS504X_SPI_READ_BIT),
+                              (uint16_t)(AS504X_SPI_MAGN_ADR | AS504X_SPI_READ_BIT)};
+    uint8_t ret = 0u;
+
+    port->transfer16(port->self, 0, &senf[0], 1);
+
+    ret |= as504x_transfer_err_check(port, &recf[0], &senf[1], 1);
+    ret |= as504x_transfer_err_check(port, &recf[1], 0, 1);
+
+    if (ret == 0u) {
+        if (encoder_as504x_parity_ok(recf[0]) && encoder_as504x_parity_ok(recf[1])) {
+            st->sensor_diag.serial_diag_flgs = recf[0];
+            st->sensor_diag.serial_magnitude = recf[1];
+        }
+    }
+    return ret;
+}
+
+/* :204-215's deserialising, field by field. */
+static void as504x_deserialize_diag(encoder_as504x_state_t *st) {
+    st->sensor_diag.AGC_value = st->sensor_diag.serial_diag_flgs;
+    st->sensor_diag.is_OCF = (st->sensor_diag.serial_diag_flgs >> AS504X_SPI_DIAG_OCF_BIT_POS) & 1u;
+    st->sensor_diag.is_COF = (st->sensor_diag.serial_diag_flgs >> AS504X_SPI_DIAG_COF_BIT_POS) & 1u;
+    st->sensor_diag.is_Comp_low =
+        (st->sensor_diag.serial_diag_flgs >> AS504X_SPI_DIAG_COMP_LOW_BIT_POS) & 1u;
+    st->sensor_diag.is_Comp_high =
+        (st->sensor_diag.serial_diag_flgs >> AS504X_SPI_DIAG_COMP_HIGH_BIT_POS) & 1u;
+    st->sensor_diag.magnitude =
+        st->sensor_diag.serial_magnitude & AS504X_SPI_EXCLUDE_PARITY_AND_ERROR_BITMASK;
+}
+
+/*
+ * :172-192's check of what the diagnostics said: both compensation flags at once is a serial that
+ * cannot be right, and a magnitude and an AGC that are both nought are a sensor that is not
+ * answering at all.
+ */
+static uint8_t as504x_verify_serial(const encoder_as504x_state_t *st) {
+    const uint16_t test_magnitude =
+        st->sensor_diag.serial_magnitude & AS504X_SPI_EXCLUDE_PARITY_AND_ERROR_BITMASK;
+    const uint8_t test_agc_value = (uint8_t)st->sensor_diag.serial_diag_flgs;
+    const uint8_t test_is_comp_low =
+        (uint8_t)((st->sensor_diag.serial_diag_flgs >> AS504X_SPI_DIAG_COMP_LOW_BIT_POS) & 1u);
+    const uint8_t test_is_comp_high =
+        (uint8_t)((st->sensor_diag.serial_diag_flgs >> AS504X_SPI_DIAG_COMP_HIGH_BIT_POS) & 1u);
+
+    if (test_is_comp_high && test_is_comp_low) {
+        return 1u;
+    }
+    if ((uint32_t)test_magnitude + (uint32_t)test_agc_value == 0u) {
+        return 1u;
+    }
+    return 0u;
+}
+
+/* :216-227's clear-errors read, whose answer is remembered whether or not it is whole. */
+static void as504x_fetch_clear_err_diag(encoder_as504x_state_t *st,
+                                        const encoder_as504x_port_t *port) {
+    uint16_t recf = 0u;
+    const uint16_t senf = (uint16_t)(AS504X_SPI_CLEAR_ERROR_ADR | AS504X_SPI_READ_BIT);
+
+    port->transfer16(port->self, 0, &senf, 1);
+    port->transfer16(port->self, &recf, 0, 1);
+
+    st->sensor_diag.serial_error_flags = recf;
+}
+
+/*
+ * :255-277's connection determiner: the counter rises on a word that was not valid and falls on one
+ * that was, the flag only goes down at the threshold and only comes back up once the counter has
+ * come all the way back - which is the reference's own hysteresis, and why a good word after a bad
+ * one does not by itself report a connection.
+ */
+static void as504x_determinate_if_connected(encoder_as504x_state_t *st, bool was_last_valid) {
+    if (!was_last_valid) {
+        st->spi_communication_error_count++;
+
+        if (st->spi_communication_error_count >= AS504X_CONNECTION_DETERMINATOR_ERROR_THRESHOLD) {
+            st->spi_communication_error_count = AS504X_CONNECTION_DETERMINATOR_ERROR_THRESHOLD;
+            st->sensor_diag.is_connected = 0u;
+        }
+    } else if (st->spi_communication_error_count != 0u) {
+        st->spi_communication_error_count--;
+    } else {
+        st->sensor_diag.is_connected = 1u;
+    }
+}
+
+/* :68-72, the initialising, which is the clearing of the state. */
+void encoder_as504x_begin(encoder_as504x_state_t *st) {
+    if (st == (void *)0) {
         return;
     }
-    memset(self, 0, sizeof(*self));
-    self->spi_transfer = spi_transfer;
-    self->spi_ctx = spi_ctx;
+    memset(st, 0, sizeof(*st));
 }
 
-edge_status_t encoder_as5047_init(encoder_as5047_t *self) {
-    if (!self || !self->spi_transfer) {
-        return EDGE_EINVAL;
-    }
-    return EDGE_OK;
+/* driver/spi_bb.c:309-316, the driver's own parity test. */
+bool encoder_as504x_parity_ok(uint16_t x) {
+    x ^= (uint16_t)(x >> 8);
+    x ^= (uint16_t)(x >> 4);
+    x ^= (uint16_t)(x >> 2);
+    x ^= (uint16_t)(x >> 1);
+    return (bool)((~x) & 1u);
 }
 
-edge_status_t encoder_as5047_read_angle_raw(encoder_as5047_t *self, uint16_t *raw_angle) {
-    if (!self || !raw_angle || !self->spi_transfer) {
-        return EDGE_EINVAL;
+/*
+ * enc_as504x.c:80-148, its routine, whose two paths are whether a MOSI line is there to ask for
+ * diagnostics over. With one, the word is read with the error check, and every hundredth time - or
+ * as soon as one raises an error - the diagnostics are cleared, fetched, checked and either
+ * believed or not. Without one, a bare read is all there is and a word of nothing but noughts or
+ * ones is counted until the connection is given up on.
+ *
+ * The angle is made at the end of either path (:140-148), out of a word that is whole and whose own
+ * error flag is not raised.
+ */
+float encoder_as504x_routine(encoder_as504x_state_t *st, const encoder_as504x_port_t *port,
+                             float now_s) {
+    if (st == (void *)0 || port == (void *)0 || port->transfer16 == (void *)0) {
+        return 0.0f;
     }
 
-    uint16_t tx_cmd = 0x3FFF | 0x4000; /* Read ANGLECOM + Parity */
-    if (!encoder_as5047_check_parity(tx_cmd)) {
-        tx_cmd |= 0x8000;
+    float timestep = now_s - st->last_update_s;
+    if (timestep > 1.0f) {
+        timestep = 1.0f;
+    }
+    st->last_update_s = now_s;
+
+    uint16_t pos = 0u;
+
+    if (port->has_mosi) {
+        port->transfer16(port->self, 0, 0, 1);
+
+        st->spi_data_err_raised = as504x_transfer_err_check(port, &pos, 0, 1);
+        st->spi_val = pos;
+
+        st->diag_fetch_now_count++;
+        if (st->diag_fetch_now_count >= AS504X_REFRESH_DIAG_AFTER_NSAMPLES ||
+            st->spi_data_err_raised) {
+            as504x_fetch_clear_err_diag(st, port);
+
+            if (!as504x_fetch_diag(st, port)) {
+                if (!as504x_verify_serial(st)) {
+                    as504x_deserialize_diag(st);
+                    as504x_determinate_if_connected(st, true);
+                } else {
+                    as504x_determinate_if_connected(st, false);
+                }
+            } else {
+                as504x_determinate_if_connected(st, false);
+            }
+            st->diag_fetch_now_count = 0u;
+        }
+    } else {
+        port->transfer16(port->self, &pos, 0, 1);
+        st->spi_val = pos;
+
+        if (0x0000u == pos || 0xFFFFu == pos) {
+            st->data_last_invalid_counter++;
+        } else {
+            st->data_last_invalid_counter = 0u;
+            as504x_determinate_if_connected(st, true);
+        }
+
+        if (st->data_last_invalid_counter >= AS504X_DATA_INVALID_THRESHOLD) {
+            as504x_determinate_if_connected(st, false);
+            st->data_last_invalid_counter = AS504X_DATA_INVALID_THRESHOLD;
+        }
     }
 
-    uint16_t rx_data = 0;
-    edge_status_t status = self->spi_transfer(self->spi_ctx, tx_cmd, &rx_data);
-    if (status != EDGE_OK) {
-        return status;
+    if (encoder_as504x_parity_ok(pos) && !st->spi_data_err_raised) {
+        pos &= 0x3FFFu;
+        st->last_enc_angle = ((float)pos * 360.0f) / 16384.0f;
+        st->spi_error_rate -= timestep * (st->spi_error_rate - 0.0f);
+    } else {
+        ++st->spi_error_cnt;
+        st->spi_error_rate -= timestep * (st->spi_error_rate - 1.0f);
     }
 
-    if (!encoder_as5047_check_parity(rx_data)) {
-        self->parity_errors++;
-        return EDGE_EIO;
-    }
-
-    if (rx_data & 0x4000) {
-        /* Error bit set */
-        return EDGE_EIO;
-    }
-
-    *raw_angle = rx_data & 0x3FFF;
-    self->last_angle_raw = *raw_angle;
-    return EDGE_OK;
+    return st->last_enc_angle;
 }
 
-edge_status_t encoder_as5047_read_angle_rad(encoder_as5047_t *self, float *angle_rad) {
-    if (!self || !angle_rad) {
-        return EDGE_EINVAL;
-    }
-    uint16_t raw = 0;
-    edge_status_t st = encoder_as5047_read_angle_raw(self, &raw);
-    if (st != EDGE_OK) {
-        return st;
-    }
-    *angle_rad = ((float)raw / (float)AS5047_CPR) * (2.0f * (float)M_PI);
-    return EDGE_OK;
-}
-
-edge_status_t encoder_as5047_read_diag(encoder_as5047_t *self, uint16_t *diag_val) {
-    if (!self || !diag_val || !self->spi_transfer) {
-        return EDGE_EINVAL;
-    }
-    uint16_t tx_cmd = 0x3FFC | 0x4000;
-    if (!encoder_as5047_check_parity(tx_cmd)) {
-        tx_cmd |= 0x8000;
-    }
-    uint16_t rx = 0;
-    edge_status_t st = self->spi_transfer(self->spi_ctx, tx_cmd, &rx);
-    if (st != EDGE_OK) {
-        return st;
-    }
-    *diag_val = rx & 0x3FFF;
-    return EDGE_OK;
+/* :150-153, the reading, which is the routine and then what it left. */
+float encoder_as504x_read_angle(encoder_as504x_state_t *st, const encoder_as504x_port_t *port,
+                                float now_s) {
+    return encoder_as504x_routine(st, port, now_s);
 }
 
 /* MT6816 is the routine below, whose own state is cleared by encoder_mt6816_begin. */

@@ -28,12 +28,65 @@ extern "C" {
 typedef edge_status_t (*encoder_spi_transfer_fn)(void *ctx, uint16_t tx_val, uint16_t *rx_val);
 
 /* AS5047 SPI Magnetic Encoder */
-typedef struct encoder_as5047 {
-    encoder_spi_transfer_fn spi_transfer;
-    void *spi_ctx;
-    uint16_t last_angle_raw;
-    uint32_t parity_errors;
-} encoder_as5047_t;
+/*
+ * enc_as504x.c:32-66's own constants: the read bit, the two diagnostic registers' addresses, the
+ * clear-errors one, the mask that drops the parity and error bits, and the three thresholds its
+ * connection check, its invalid-word counter and its diagnostic refresh use.
+ */
+#define AS504X_SPI_READ_BIT 0x4000u
+#define AS504X_SPI_EXCLUDE_PARITY_AND_ERROR_BITMASK 0x3FFFu
+#define AS504X_SPI_DIAG_ADR 0x3FFDu
+#define AS504X_SPI_MAGN_ADR 0x3FFEu
+#define AS504X_SPI_CLEAR_ERROR_ADR 0x0001u
+#define AS504X_SPI_DIAG_OCF_BIT_POS 8u
+#define AS504X_SPI_DIAG_COF_BIT_POS 9u
+#define AS504X_SPI_DIAG_COMP_LOW_BIT_POS 10u
+#define AS504X_SPI_DIAG_COMP_HIGH_BIT_POS 11u
+#define AS504X_CONNECTION_DETERMINATOR_ERROR_THRESHOLD 5u
+#define AS504X_DATA_INVALID_THRESHOLD 20000u
+#define AS504X_REFRESH_DIAG_AFTER_NSAMPLES 100u
+
+/*
+ * enc_as504x.c:47-66's diagnostics, in the reference's own field names, alongside the state that
+ * carries them (its AS504x_state): the word last read, the angle, the flags the routine raises, and
+ * the three counters.
+ */
+typedef struct encoder_as504x_diag {
+    uint16_t serial_diag_flgs;
+    uint16_t serial_magnitude;
+    uint16_t serial_error_flags;
+    uint16_t AGC_value;
+    uint16_t magnitude;
+    uint8_t is_OCF;
+    uint8_t is_COF;
+    uint8_t is_Comp_low;
+    uint8_t is_Comp_high;
+    uint8_t is_connected;
+} encoder_as504x_diag_t;
+
+typedef struct encoder_as504x_state {
+    uint32_t spi_val;
+    float last_enc_angle;
+    float last_update_s;
+    float spi_error_rate;
+    uint32_t spi_error_cnt;
+    uint8_t spi_data_err_raised;
+    uint32_t diag_fetch_now_count;
+    uint32_t data_last_invalid_counter;
+    uint32_t spi_communication_error_count;
+    encoder_as504x_diag_t sensor_diag;
+} encoder_as504x_state_t;
+
+/*
+ * The transfers the family makes, which the reference does over its own bit-banged bus with an
+ * instruction's worth of settling between them: what a port answers is one sixteen-bit exchange,
+ * including that settling, so that the routine above it is the decisions and not the wiring.
+ */
+typedef struct encoder_as504x_port {
+    void *self;
+    bool has_mosi; /* the reference's gate: a MOSI line is what diagnostics are asked over */
+    void (*transfer16)(void *self, uint16_t *in_buf, const uint16_t *out_buf, int length);
+} encoder_as504x_port_t;
 
 /*
  * enc_mt6816.c:40-106's routine and the state it keeps (MT6816_state): the angle it last read, the
@@ -200,13 +253,17 @@ typedef struct encoder_mt6835_port {
 } encoder_mt6835_port_t;
 
 /* AS5047 API */
-void encoder_as5047_construct(encoder_as5047_t *self, encoder_spi_transfer_fn spi_transfer,
-                              void *spi_ctx);
-edge_status_t encoder_as5047_init(encoder_as5047_t *self);
-edge_status_t encoder_as5047_read_angle_raw(encoder_as5047_t *self, uint16_t *raw_angle);
-edge_status_t encoder_as5047_read_angle_rad(encoder_as5047_t *self, float *angle_rad);
-edge_status_t encoder_as5047_read_diag(encoder_as5047_t *self, uint16_t *diag_val);
-bool encoder_as5047_check_parity(uint16_t val);
+/*
+ * The AS504x family: enc_as504x.c:68-72's initialising, which is a clearing, :150-153's reading -
+ * which is the routine and then what it left - and :80-148's routine, whose two paths are whether a
+ * MOSI line is there to ask for diagnostics with.
+ */
+void encoder_as504x_begin(encoder_as504x_state_t *st);
+float encoder_as504x_routine(encoder_as504x_state_t *st, const encoder_as504x_port_t *port,
+                             float now_s);
+float encoder_as504x_read_angle(encoder_as504x_state_t *st, const encoder_as504x_port_t *port,
+                                float now_s);
+bool encoder_as504x_parity_ok(uint16_t x);
 
 /*
  * The MT6816 family: enc_mt6816.c:29-38's clearing, the driver's own odd-parity test, and :40-106's
