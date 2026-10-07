@@ -533,6 +533,22 @@ static void test_vesc_host_app_status_adapters(void **state) {
     assert_float_equal(l2, adc_input_get_brake(&adc), 1e-6f);
 
     /* Without the apps wired the adapter refuses instead of inventing values. */
+    /*
+     * The other half of the PPM application: what it just decided is applied here, where the motor
+     * interface is. Its arithmetic is covered in that application's own tests; what is checked here
+     * is the boundary - a state missing any of its pieces is refused rather than obeyed, and
+     * refused before anything is dereferenced.
+     */
+    foc_core_t *saved_foc = glue_state.foc;
+    motor_config_t *saved_config = glue_state.config;
+    glue_state.foc = NULL;
+    assert_int_equal(vesc_host_apply_ppm(&glue_state), EDGE_EINVAL);
+    glue_state.foc = saved_foc;
+    glue_state.config = NULL;
+    assert_int_equal(vesc_host_apply_ppm(&glue_state), EDGE_EINVAL);
+    glue_state.config = saved_config;
+    assert_int_equal(vesc_host_apply_ppm(NULL), EDGE_EINVAL);
+
     glue_state.ppm = NULL;
     glue_state.adc = NULL;
     assert_int_equal(status.get_decoded_ppm(status.self, &level, &pulse), EDGE_EINVAL);

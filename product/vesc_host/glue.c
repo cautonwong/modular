@@ -246,7 +246,8 @@ static edge_status_t motor_set_rpm(void *self, float rpm) {
  * notes rather than approximated with a reading this port does not have.
  */
 edge_status_t vesc_host_apply_ppm(vesc_host_glue_state_t *state) {
-    if (state == (void *)0 || state->ppm == (void *)0 || state->foc == (void *)0) {
+    if (state == (void *)0 || state->ppm == (void *)0 || state->foc == (void *)0 ||
+        state->config == (void *)0) {
         return EDGE_EINVAL;
     }
 
@@ -262,11 +263,9 @@ edge_status_t vesc_host_apply_ppm(vesc_host_glue_state_t *state) {
     memset(&in, 0, sizeof(in));
     in.rpm_now = rpm;
     in.rpm_local = rpm;
-    if (mc != (const mc_configuration_t *)0) {
-        in.lo_current_max = mc->lo_current_max;
-        in.lo_current_min = mc->lo_current_min;
-        in.l_max_duty = mc->l_max_duty;
-    }
+    in.lo_current_max = mc->lo_current_max;
+    in.lo_current_min = mc->lo_current_min;
+    in.l_max_duty = mc->l_max_duty;
 
     const ppm_command_t cmd = ppm_policy(state->ppm, ppm_get_output(state->ppm), &in);
 
