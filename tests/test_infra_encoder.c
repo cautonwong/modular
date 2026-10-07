@@ -16,33 +16,84 @@
 #define M_PI 3.14159265358979323846f
 #endif
 
-static edge_status_t mock_spi_transfer(void *ctx, uint16_t tx_val, uint16_t *rx_val) {
-    (void)ctx;
-    (void)tx_val;
-    /* Return a valid angle with valid even parity */
-    uint16_t angle = 4096; /* 90 deg */
-    uint16_t count = 0;
-    for (int i = 0; i < 14; i++) {
-        if (angle & (1u << i)) {
-            count++;
+/*
+ * A plant that answers the family's frames. The reference's bus is bit-banged and its answers
+ * arrive one exchange late, which is what this mock does: it hands back the frame it was given last
+ * time.
+ */
+typedef struct mock_as504x_plant {
+    uint16_t last_pos;
+    bool fail_parity;
+    int transfers;
+} mock_as504x_plant_t;
+
+static void as504x_plant_transfer(void *self, uint16_t *in_buf, const uint16_t *out_buf,
+                                  int length) {
+    mock_as504x_plant_t *p = (mock_as504x_plant_t *)self;
+    for (int i = 0; i < length; i++) {
+        if (in_buf != NULL) {
+            in_buf[i] = p->last_pos;
         }
+        if (out_buf != NULL) {
+            p->last_pos = out_buf[i];
+        }
+        p->transfers++;
     }
-    if ((count % 2) != 0) {
-        angle |= 0x8000; /* parity bit */
-    }
-    *rx_val = angle;
-    return EDGE_OK;
 }
 
-static void test_encoder_as5047(void **state) {
-    (void)state;
-    encoder_as5047_t enc;
-    encoder_as5047_construct(&enc, mock_spi_transfer, NULL);
-    assert_int_equal(encoder_as5047_init(&enc), EDGE_OK);
+/* A word whose parity is whole, which is what the routine's own test asks of it. */
+static uint16_t as504x_word_with_parity(uint16_t value) {
+    uint16_t word = (uint16_t)(value & 0x3FFFu);
+    if (!encoder_as504x_parity_ok(word)) {
+        word |= 0x8000u;
+    }
+    return word;
+}
 
-    float angle_rad = 0.0f;
-    assert_int_equal(encoder_as5047_read_angle_rad(&enc, &angle_rad), EDGE_OK);
-    assert_true(fabsf(angle_rad - (float)M_PI / 2.0f) < 0.01f);
+/*
+ * enc_as504x.c:80-148's routine on the path without a MOSI line, which is the one whose every word
+ * is checked for parity and whose angle is the low fourteen bits over a quarter turn of turns - so
+ * four thousand and ninety-six counts is a right angle - with a word of nothing but noughts or ones
+ * counted until the connection is given up on (:133-148).
+ */
+static void test_encoder_as504x_matches_the_reference(void **state) {
+    (void)state;
+
+    encoder_as504x_state_t as;
+    encoder_as504x_begin(&as);
+    mock_as504x_plant_t as_plant = {0};
+    encoder_as504x_port_t as_port = {
+        .self = &as_plant, .has_mosi = false, .transfer16 = as504x_plant_transfer};
+
+    /* The port answers with the frame before the one it is given, so the first read is primed. */
+    const uint16_t good = as504x_word_with_parity(4096u);
+    as_plant.last_pos = good;
+    assert_float_equal(encoder_as504x_routine(&as, &as_port, 0.001f), 90.0f, 1e-3f);
+    assert_int_equal(as.spi_val, good);
+    assert_int_equal(as.spi_error_cnt, 0u);
+    assert_true(as.sensor_diag.is_connected);
+
+    /* A word whose parity does not hold raises the count and leaves the angle where it was. */
+    const float held = as.last_enc_angle;
+    as_plant.last_pos = 0x0001u; /* one bit of data, which is an odd count */
+    encoder_as504x_routine(&as, &as_port, 0.002f);
+    assert_true(as.spi_error_cnt >= 1u);
+    assert_float_equal(as.last_enc_angle, held, 1e-6f);
+
+    /* A word of nothing but noughts is counted, and enough of them lose the connection. */
+    as_plant.last_pos = 0x0000u;
+    for (uint32_t i = 0; i < AS504X_DATA_INVALID_THRESHOLD + 5u; i++) {
+        encoder_as504x_routine(&as, &as_port, 0.003f + 0.0001f * (float)i);
+    }
+    assert_int_equal(as.sensor_diag.is_connected, 0u);
+    assert_int_equal(as.data_last_invalid_counter, AS504X_DATA_INVALID_THRESHOLD);
+
+    encoder_as504x_begin(NULL);
+    assert_float_equal(encoder_as504x_routine(NULL, &as_port, 0.0f), 0.0f, 1e-6f);
+    assert_float_equal(encoder_as504x_routine(&as, NULL, 0.0f), 0.0f, 1e-6f);
+    encoder_as504x_port_t bare = {0};
+    assert_float_equal(encoder_as504x_routine(&as, &bare, 0.0f), 0.0f, 1e-6f);
+    assert_float_equal(encoder_as504x_read_angle(&as, &as_port, 0.0f), as.last_enc_angle, 1e-6f);
 }
 
 typedef struct mock_mt6816_plant {
@@ -469,13 +520,6 @@ static void test_encoder_resolver_and_hall_guards(void **state) {
 }
 
 /* A transfer that fails, for the paths where a dead bus must not read as an angle. */
-static edge_status_t failing_spi(void *ctx, uint16_t tx_val, uint16_t *rx_val) {
-    (void)ctx;
-    (void)tx_val;
-    *rx_val = 0u;
-    return EDGE_EIO;
-}
-
 /*
  * The guards and the dead-bus paths of both SPI encoders, plus the guards of the resolvers. The
  * assertion is deliberately "not OK" rather than a specific code: what matters is that a bus that
@@ -484,21 +528,16 @@ static edge_status_t failing_spi(void *ctx, uint16_t tx_val, uint16_t *rx_val) {
  */
 static void test_encoder_spi_failure_and_guards(void **state) {
     (void)state;
-    uint16_t raw = 0u;
-    float angle = 0.0f;
 
-    /* AS5047. */
-    encoder_as5047_construct(NULL, mock_spi_transfer, NULL);
-    assert_int_equal(encoder_as5047_init(NULL), EDGE_EINVAL);
-    assert_true(encoder_as5047_read_angle_raw(NULL, &raw) != EDGE_OK);
-    assert_true(encoder_as5047_read_angle_rad(NULL, &angle) != EDGE_OK);
-    encoder_as5047_t as;
-    encoder_as5047_construct(&as, NULL, NULL);
-    assert_true(encoder_as5047_init(&as) != EDGE_OK);
-    encoder_as5047_construct(&as, failing_spi, NULL);
-    assert_true(encoder_as5047_read_angle_raw(&as, &raw) != EDGE_OK);
-    assert_true(encoder_as5047_read_angle_rad(&as, &angle) != EDGE_OK);
-    assert_true(encoder_as5047_read_diag(&as, &raw) != EDGE_OK);
+    /* AS504x: no state, no port, and a word of nothing that loses the connection. */
+    encoder_as504x_begin(NULL);
+    encoder_as504x_state_t as;
+    encoder_as504x_begin(&as);
+    assert_int_equal(as.spi_error_cnt, 0u);
+    assert_false(as.sensor_diag.is_connected);
+    assert_float_equal(encoder_as504x_routine(&as, NULL, 0.0f), 0.0f, 1e-6f);
+    encoder_as504x_port_t bare_as = {0};
+    assert_float_equal(encoder_as504x_routine(&as, &bare_as, 0.0f), 0.0f, 1e-6f);
 
     /* MT6816: no configuration, no port. */
     encoder_mt6816_begin(NULL);
@@ -535,15 +574,6 @@ static void test_encoder_spi_failure_and_guards(void **state) {
 }
 
 /* A transfer whose response the test chooses, so the encoder's own checks can be driven. */
-typedef struct scripted_spi {
-    uint16_t response;
-} scripted_spi_t;
-
-static edge_status_t scripted_transfer(void *ctx, uint16_t tx_val, uint16_t *rx_val) {
-    (void)tx_val;
-    *rx_val = ((scripted_spi_t *)ctx)->response;
-    return EDGE_OK;
-}
 
 /*
  * The checks the encoder makes on what comes back, and the two wraps on the way out. A response
@@ -553,36 +583,37 @@ static edge_status_t scripted_transfer(void *ctx, uint16_t tx_val, uint16_t *rx_
  */
 static void test_encoder_response_checks_and_wraps(void **state) {
     (void)state;
-    scripted_spi_t spi;
-    uint16_t raw = 0u;
 
-    encoder_as5047_t as;
-    encoder_as5047_construct(&as, scripted_transfer, &spi);
+    /*
+     * The AS504x's checks are the routine's own. Without a MOSI line the word's parity is all there
+     * is: one bit is an odd count, so it is not an angle, and a whole word is the low fourteen bits
+     * over a quarter turn. With one, the error bit is what refuses a word, and the angle the state
+     * already had is what comes back.
+     */
+    encoder_as504x_state_t as;
+    encoder_as504x_begin(&as);
+    mock_as504x_plant_t as_plant = {0};
+    encoder_as504x_port_t as_port = {
+        .self = &as_plant, .has_mosi = false, .transfer16 = as504x_plant_transfer};
 
-    /* A response with the wrong parity is refused. */
-    spi.response = 0x0001u; /* one bit set, so the parity bit is missing */
-    assert_true(encoder_as5047_read_angle_raw(&as, &raw) != EDGE_OK);
+    as_plant.last_pos = 0x0001u;
+    encoder_as504x_routine(&as, &as_port, 0.001f);
+    assert_int_equal(as.spi_error_cnt, 1u);
+    assert_float_equal(as.last_enc_angle, 0.0f, 1e-6f);
 
-    /* A response with the error bit set is refused even with correct parity. */
-    {
-        uint16_t value = 0x4000u; /* error bit, no data */
-        uint16_t bits = 0u;
-        for (int i = 0; i < 14; i++) {
-            if (value & (1u << i)) {
-                bits++;
-            }
-        }
-        if ((bits % 2) != 0) {
-            value |= 0x8000u;
-        }
-        spi.response = value;
-    }
-    assert_true(encoder_as5047_read_angle_raw(&as, &raw) != EDGE_OK);
+    as_plant.last_pos = as504x_word_with_parity(0x1234u);
+    assert_float_equal(encoder_as504x_routine(&as, &as_port, 0.002f),
+                       (float)0x1234u * 360.0f / 16384.0f, 1e-3f);
 
-    /* A good response goes through the diagnostic read, which only ever ran on a dead bus. */
-    spi.response = 0x1234u;
-    assert_int_equal(encoder_as5047_read_diag(&as, &raw), EDGE_OK);
-    assert_int_equal(raw, 0x1234u & 0x3FFFu);
+    encoder_as504x_state_t err;
+    encoder_as504x_begin(&err);
+    mock_as504x_plant_t mosi_plant = {0};
+    encoder_as504x_port_t mosi_port = {
+        .self = &mosi_plant, .has_mosi = true, .transfer16 = as504x_plant_transfer};
+    mosi_plant.last_pos = (uint16_t)(as504x_word_with_parity(0x1234u) | 0x4000u);
+    encoder_as504x_routine(&err, &mosi_port, 0.001f);
+    assert_int_equal(err.spi_data_err_raised, 1u);
+    assert_float_equal(err.last_enc_angle, 0.0f, 1e-6f);
 
     /* The counter's own reading, over one revolution and in degrees. */
     assert_float_equal(encoder_abi_read_deg(0u, 4096u), 0.0f, 1e-6f);
@@ -891,7 +922,7 @@ static void test_encoder_bissc_matches_the_reference(void **state) {
 int main(void) {
 
     const struct CMUnitTest tests[] = {
-        cmocka_unit_test(test_encoder_as5047),
+        cmocka_unit_test(test_encoder_as504x_matches_the_reference),
         cmocka_unit_test(test_encoder_mt6816_matches_the_reference),
         cmocka_unit_test(test_encoder_abi_index_machine),
         cmocka_unit_test(test_encoder_bissc_matches_the_reference),
