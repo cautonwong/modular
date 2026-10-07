@@ -812,12 +812,89 @@ static void test_encoder_mt6835_matches_the_reference(void **state) {
     assert_float_equal(encoder_mt6835_routine(&st, &bare, 0.0f), 0.0f, 1e-6f);
 }
 
+/*
+ * enc_bissc.c:64-80's table and :124-180's frame. The table is held against the polynomial folded
+ * by hand in the test, so that the frame's own checksum is verified against something other than
+ * itself; the frame is a thirty-two bit one - a start bit, the CDS bit, twenty-two position bits,
+ * the error and warning bits and six checksum bits - laid out as the sensor sends it.
+ */
+static uint8_t ref_crc6_entry(int i) {
+    int crc = i;
+    for (int j = 0; j < 6; j++) {
+        if ((crc & 0x20) != 0) {
+            crc = (crc << 1) ^ 0x43;
+        } else {
+            crc = crc << 1;
+        }
+    }
+    return (uint8_t)crc;
+}
+
+static void test_encoder_bissc_matches_the_reference(void **state) {
+    (void)state;
+
+    encoder_bissc_config_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    encoder_bissc_begin(&cfg, 22u);
+    assert_int_equal(cfg.enc_res, 22u);
+    for (int i = 0; i < 64; i++) {
+        assert_int_equal(cfg.table_crc6n[i], ref_crc6_entry(i));
+    }
+
+    /* The frame the sensor would send for a position of a thousand, with both flags clear. */
+    const uint32_t position = 1000u;
+    const uint32_t data_rx = position << 2; /* error and warning are the two bits below it */
+    const uint8_t crc = encoder_bissc_crc6(cfg.table_crc6n, data_rx);
+    const uint32_t word = (1u << 31) | (data_rx << 6) | crc;
+
+    /*
+     * The eight bytes the decoder is given are a shift register's word: the frame's own bits sit at
+     * the bottom of it and the bit that started the read is at the top, which is what makes the
+     * trim inside the decode line the frame up with the checksum at its low end.
+     */
+    const uint64_t word64 = (1ull << 63) | (uint64_t)word;
+    uint8_t frame[8] = {0};
+    for (int i = 0; i < 8; i++) {
+        frame[i] = (uint8_t)(word64 >> (56 - 8 * i));
+    }
+
+    assert_float_equal(encoder_bissc_frame(&cfg, frame, 0.001f),
+                       1000.0f * 360.0f / (float)((1u << 22) - 1u), 1e-3f);
+    assert_int_equal(cfg.state.spi_val, position);
+    assert_int_equal(cfg.state.spi_data_error_cnt, 0u);
+
+    /* A checksum that does not match raises the count and leaves the angle where it was. */
+    const float held = cfg.state.last_enc_angle;
+    frame[7] ^= 0x01u;
+    encoder_bissc_frame(&cfg, frame, 0.002f);
+    assert_int_equal(cfg.state.spi_data_error_cnt, 1u);
+    assert_float_equal(cfg.state.spi_data_error_rate, 0.001f, 1e-6f);
+    assert_float_equal(cfg.state.last_enc_angle, held, 1e-6f);
+
+    /* A frame of nothing at all is the case the reference leaves undefined; it counts as bad. */
+    uint8_t empty[8] = {0};
+    encoder_bissc_frame(&cfg, empty, 0.003f);
+    assert_int_equal(cfg.state.spi_data_error_cnt, 2u);
+    assert_float_equal(cfg.state.last_enc_angle, held, 1e-6f);
+
+    encoder_bissc_begin(NULL, 22u);
+    assert_float_equal(encoder_bissc_frame(NULL, frame, 0.0f), 0.0f, 1e-6f);
+    assert_float_equal(encoder_bissc_frame(&cfg, NULL, 0.0f), 0.0f, 1e-6f);
+    assert_int_equal(encoder_bissc_crc6(NULL, 0u), 0u);
+    /* A resolution outside what the frame's own shifts can hold is refused rather than shifted. */
+    encoder_bissc_config_t bad;
+    memset(&bad, 0, sizeof(bad));
+    encoder_bissc_begin(&bad, 31u);
+    assert_float_equal(encoder_bissc_frame(&bad, frame, 0.0f), 0.0f, 1e-6f);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_encoder_as5047),
         cmocka_unit_test(test_encoder_mt6816_matches_the_reference),
         cmocka_unit_test(test_encoder_abi_index_machine),
+        cmocka_unit_test(test_encoder_bissc_matches_the_reference),
         cmocka_unit_test(test_encoder_mt6835_matches_the_reference),
         cmocka_unit_test(test_encoder_pwm_matches_the_reference),
         cmocka_unit_test(test_encoder_amt22_matches_the_reference),

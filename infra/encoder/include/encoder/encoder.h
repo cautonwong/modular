@@ -269,6 +269,33 @@ uint8_t encoder_mt6835_crc8(const uint8_t *data, int len);
 float encoder_mt6835_routine(encoder_mt6835_state_t *st, const encoder_mt6835_port_t *port,
                              float now_s);
 
+/*
+ * The BiSS-C family: enc_bissc.c:64-80's own CRC-6 table - the polynomial 0x43 folded six bits at a
+ * time - and :89-110's state, whose frame (:124-180) the reference decodes in the callback of its
+ * own asynchronous SPI. What the port answers is the eight bytes that came back, so the routine is
+ * that callback's arithmetic without the interrupt.
+ */
+typedef struct encoder_bissc_state {
+    float last_enc_angle;
+    float spi_data_error_rate;
+    float spi_comm_error_rate;
+    uint32_t spi_data_error_cnt;
+    uint32_t spi_comm_error_cnt;
+    uint32_t spi_val;
+    float last_update_s;
+    uint8_t decod_buf[8];
+} encoder_bissc_state_t;
+
+typedef struct encoder_bissc_config {
+    uint32_t enc_res; /* the position's own width, mcconf encoder_bissc_res */
+    uint8_t table_crc6n[64];
+    encoder_bissc_state_t state;
+} encoder_bissc_config_t;
+
+void encoder_bissc_begin(encoder_bissc_config_t *cfg, uint32_t enc_res);
+uint8_t encoder_bissc_crc6(const uint8_t table[64], uint32_t data_rx);
+float encoder_bissc_frame(encoder_bissc_config_t *cfg, const uint8_t frame[8], float now_s);
+
 #ifdef __cplusplus
 }
 #endif
