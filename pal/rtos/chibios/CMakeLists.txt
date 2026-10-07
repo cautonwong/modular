@@ -20,8 +20,12 @@ set(EDGE_CHIBIOS_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../vendor/ChibiOS_3.0.5
 file(GLOB EDGE_CHIBIOS_RT_SOURCES
     "${EDGE_CHIBIOS_ROOT}/os/rt/src/*.c"
 )
-file(GLOB EDGE_CHIBIOS_PORT_SOURCES
-    "${EDGE_CHIBIOS_ROOT}/os/rt/ports/ARMCMx/*.c"
+set(EDGE_CHIBIOS_PORT_SOURCES
+    # The port is chosen, not globbed: the ARMCMx directory holds both the ARMv6-M and the ARMv7-M one,
+    # they define the same port entry points, and only one of them can be compiled. This is a Cortex-M4,
+    # which is ARMv7-M.
+    "${EDGE_CHIBIOS_ROOT}/os/rt/ports/ARMCMx/chcore.c"
+    "${EDGE_CHIBIOS_ROOT}/os/rt/ports/ARMCMx/chcore_v7m.c"
     "${EDGE_CHIBIOS_ROOT}/os/rt/ports/ARMCMx/compilers/GCC/chcoreasm_v7m.s"
 )
 
@@ -47,7 +51,17 @@ target_include_directories(chibios_kernel PUBLIC
     # configuration headers themselves: the kernel comes from the tree, the chip's numbers from the
     # product that runs on it.
     "${EDGE_CHIBIOS_ROOT}/os/common/ports/ARMCMx/devices/STM32F4xx"
+    # The CMSIS device headers ChibiOS carries: the STM32F4's own, which the device parameters include,
+    # and the Cortex-M core's beside them.
+    "${EDGE_CHIBIOS_ROOT}/os/ext/CMSIS/ST"
+    "${EDGE_CHIBIOS_ROOT}/os/ext/CMSIS/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    # The five configuration headers are the reference's own, and are kept here rather than in include
+    # for the same reason the trees beside them are: they are not this repository's code. They are the
+    # kernel's, the HAL's and the chip's answer for this board, taken verbatim, and a path with a vendor
+    # component is what the formatting gate already leaves alone - which one such header needs, its
+    # hook bodies being inside macros a formatter cannot reach.
+    "${CMAKE_CURRENT_SOURCE_DIR}/vendor"
 )
 target_compile_definitions(chibios_kernel PUBLIC EDGE_TARGET_ARM32=1)
 if(NOT MSVC)
