@@ -47,7 +47,6 @@ static void test_ppm_deadband_and_range(void **state) {
         .pulse_min_us = 1000.0f,
         .pulse_max_us = 2000.0f,
         .pulse_center_us = 1500.0f,
-        .pulse_deadband_us = 50.0f,
         .timeout_s = 0.1f,
         .safe_start = false,
     };
@@ -55,10 +54,12 @@ static void test_ppm_deadband_and_range(void **state) {
     ppm_construct(&app, EDGE_MOD_PPM, 20u, &cfg, &port);
     assert_int_equal(ppm_init(&app), EDGE_OK);
 
-    /* Center within deadband -> output 0.0 */
+    /* applications/app_ppm.c:151-159 maps from the centre outwards with no band of its own: 1520us
+     * is 20us past the centre and so 20/500 of the way up, not zero. The port used to hold a
+     * deadband here, which the reference does not have. */
     rcv.pulse_us = 1520.0f;
     assert_int_equal(ppm_update(&app, 0.01f), EDGE_OK);
-    assert_float_equal(ppm_get_output(&app), 0.0f, 0.001f);
+    assert_float_equal(ppm_get_output(&app), 0.04f, 0.001f);
 
     /* Full throttle (2000us) -> output 1.0 */
     rcv.pulse_us = 2000.0f;
@@ -93,7 +94,6 @@ static void test_ppm_safe_start(void **state) {
         .pulse_min_us = 1000.0f,
         .pulse_max_us = 2000.0f,
         .pulse_center_us = 1500.0f,
-        .pulse_deadband_us = 50.0f,
         .timeout_s = 0.1f,
         .safe_start = true,
     };

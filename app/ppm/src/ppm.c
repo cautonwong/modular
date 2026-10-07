@@ -52,9 +52,6 @@ void ppm_construct(ppm_app_t *app, uint32_t module_id, uint32_t priority,
     if (app->config.pulse_center_us <= 0.0f) {
         app->config.pulse_center_us = 1500.0f;
     }
-    if (app->config.pulse_deadband_us < 0.0f) {
-        app->config.pulse_deadband_us = 50.0f;
-    }
     if (app->config.timeout_s <= 0.0f) {
         app->config.timeout_s = 0.2f;
     }
@@ -111,18 +108,21 @@ edge_status_t ppm_update(ppm_app_t *app, float dt) {
 
     float p = app->last_pulse_us;
     float center = app->config.pulse_center_us;
-    float deadband = app->config.pulse_deadband_us;
     float raw_out = 0.0f;
 
-    if (p > center + deadband) {
-        float span = app->config.pulse_max_us - (center + deadband);
+    /* applications/app_ppm.c:151-159: two straight lines meeting at the centre pulse, with no band
+     * of their own around it. The reference reaches this value the long way - its decoded [-1, 1]
+     * one mapped onto microseconds and mapped back - which is the round trip it looks like, so the
+     * straight line is what it amounts to. */
+    if (p > center) {
+        float span = app->config.pulse_max_us - center;
         if (span > 0.0f) {
-            raw_out = (p - (center + deadband)) / span;
+            raw_out = (p - center) / span;
         }
-    } else if (p < center - deadband) {
-        float span = (center - deadband) - app->config.pulse_min_us;
+    } else if (p < center) {
+        float span = center - app->config.pulse_min_us;
         if (span > 0.0f) {
-            raw_out = (p - (center - deadband)) / span;
+            raw_out = (p - center) / span;
         }
     } else {
         raw_out = 0.0f;

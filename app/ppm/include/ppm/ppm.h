@@ -27,7 +27,6 @@ typedef struct ppm_config {
     float pulse_min_us;
     float pulse_max_us;
     float pulse_center_us;
-    float pulse_deadband_us;
     float timeout_s;
     bool safe_start;
 } ppm_config_t;
