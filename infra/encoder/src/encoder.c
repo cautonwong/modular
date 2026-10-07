@@ -485,6 +485,66 @@ float encoder_ts5700_decode(encoder_ts5700_state_t *st,
     return st->last_enc_angle;
 }
 
+void encoder_as5x47u_begin(encoder_as5x47u_state_t *st) {
+    if (st == (void *)0) {
+        return;
+    }
+    memset(st, 0, sizeof(*st));
+    encoder_as5x47u_build_crc_table(st->table_crc8);
+}
+
+/*
+ * enc_as5x47u.c:90-115's table: every byte folded through the polynomial 0x1D - shift left, and
+ * exclusive-or the polynomial when the bit that leaves the top is set - which is what the sensor's
+ * own frames are checked with, and what the reference checks in as a table instead.
+ */
+void encoder_as5x47u_build_crc_table(uint8_t table[256]) {
+    if (table == (void *)0) {
+        return;
+    }
+
+    for (int i = 0; i < 256; i++) {
+        uint8_t crc = (uint8_t)i;
+        for (int bit = 0; bit < 8; bit++) {
+            const uint32_t shifted = (uint32_t)(crc << 1);
+            crc = (uint8_t)(((crc & 0x80u) != 0u) ? (shifted ^ 0x1Du) : shifted);
+        }
+        table[i] = crc;
+    }
+}
+
+/* :110-115, the fold itself: the byte in, the table out, from whatever seed the caller gives. */
+uint8_t encoder_as5x47u_crc8(const uint8_t table[256], const uint8_t *data, size_t len,
+                             uint8_t initial) {
+    if (table == (void *)0 || data == (void *)0) {
+        return 0u;
+    }
+
+    uint8_t cksum = initial;
+    for (size_t i = 0; i < len; i++) {
+        cksum ^= data[i];
+        cksum = table[cksum];
+    }
+    return cksum;
+}
+
+/* :356: the two bytes of a frame, seeded with the reference's own constant and complemented. */
+uint8_t encoder_as5x47u_transmit_crc(const uint8_t table[256], uint16_t tx_data) {
+    const uint8_t bytes[2] = {(uint8_t)((tx_data >> 8) & 0xFFu), (uint8_t)(tx_data & 0xFFu)};
+    return (uint8_t)(encoder_as5x47u_crc8(table, bytes, 2u, AS5X47U_SPI_TX_CRC_SEED) ^ 0xFFu);
+}
+
+/* :328-333, its reading of a position frame: the low fourteen bits over a quarter turn of turns. */
+void encoder_as5x47u_process_pos(encoder_as5x47u_state_t *st, uint16_t pos_data) {
+    if (st == (void *)0) {
+        return;
+    }
+
+    st->spi_val = pos_data;
+    const uint16_t counts = (uint16_t)(pos_data & AS5X47U_SPI_EXCLUDE_PARITY_AND_ERROR_BITMASK);
+    st->last_enc_angle = (float)(counts * 360u) / (float)(1u << 14);
+}
+
 /*
  * enc_ad2s1205.c:66-176, its routine, in the three stages the reference takes them in. A frame of
  * nothing at all is a converter that is not answering, and its error rate climbs while its peak is

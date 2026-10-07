@@ -487,6 +487,43 @@ void encoder_ts5700_begin(encoder_ts5700_state_t *st);
 float encoder_ts5700_decode(encoder_ts5700_state_t *st,
                             const uint8_t reply[ENCODER_TS5700_REPLY_LEN], float timestep);
 
+/*
+ * The AS5x47U family: a sensor whose every frame carries a CRC-8 the reference keeps a table for
+ * (enc_as5x47u.c:90-115, the polynomial 0x1D) and whose reads each have an expected value checked
+ * in at :64-68. Its reading of a position frame is the low fourteen bits over a quarter turn
+ * (:328-333).
+ */
+#define AS5X47U_SPI_READ_BIT 0x4000u
+#define AS5X47U_SPI_EXCLUDE_PARITY_AND_ERROR_BITMASK 0x3FFFu
+#define AS5X47U_SPI_ERRFL_ADR 0x0001u
+#define AS5X47U_SPI_DIAG_ADR 0x3FF5u
+#define AS5X47U_SPI_MAGN_ADR 0x3FFDu
+#define AS5X47U_SPI_AGC_ADR 0x3FF9u
+#define AS5X47U_SPI_POS_ADR 0x3FFFu
+#define AS5X47U_SPI_READ_ERRFL_CRC 0x06u
+#define AS5X47U_SPI_READ_DIAG_CRC 0x6Fu
+#define AS5X47U_SPI_READ_MAGN_CRC 0x87u
+#define AS5X47U_SPI_READ_AGC_CRC 0xF3u
+#define AS5X47U_SPI_READ_POS_CRC 0xBDu
+
+/* The seed the reference's own transmitting CRC is made with, and the complement it ends on (:356).
+ */
+#define AS5X47U_SPI_TX_CRC_SEED 0xC4u
+
+typedef struct encoder_as5x47u_state {
+    uint16_t spi_val;
+    float last_enc_angle;
+    float last_update_s;
+    uint8_t table_crc8[256];
+} encoder_as5x47u_state_t;
+
+void encoder_as5x47u_begin(encoder_as5x47u_state_t *st);
+void encoder_as5x47u_build_crc_table(uint8_t table[256]);
+uint8_t encoder_as5x47u_crc8(const uint8_t table[256], const uint8_t *data, size_t len,
+                             uint8_t initial);
+uint8_t encoder_as5x47u_transmit_crc(const uint8_t table[256], uint16_t tx_data);
+void encoder_as5x47u_process_pos(encoder_as5x47u_state_t *st, uint16_t pos_data);
+
 #ifdef __cplusplus
 }
 #endif
