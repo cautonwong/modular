@@ -805,6 +805,76 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
         return send_reply(self, 1u);
     }
 
+    case COMM_GET_IMU_DATA: {
+        if (self->ops == (void *)0 || self->ops->get_imu_data == (void *)0) {
+            return EDGE_ENOTSUP;
+        }
+        /*
+         * comm/commands.c:2470-2530: a sixteen-bit mask goes out with the answer, and only the
+         * fields it names follow - roll, pitch and yaw, then the accelerometer, the gyroscope, the
+         * magnetometer and the four quaternion terms, fifteen bits in all.
+         */
+        if (len < 2u) {
+            return EDGE_EINVAL;
+        }
+        const uint32_t mask = (uint32_t)(((uint16_t)data[0] << 8) | (uint16_t)data[1]);
+
+        vesc_imu_data_t d;
+        memset(&d, 0, sizeof(d));
+        const edge_status_t st = self->ops->get_imu_data(self->ops->self, &d);
+        if (st != EDGE_OK) {
+            return st;
+        }
+
+        uint8_t *resp = self->cmd_reply_buf;
+        size_t resp_len = 0;
+        resp[resp_len++] = COMM_GET_IMU_DATA;
+        resp[resp_len++] = (uint8_t)(mask >> 8);
+        resp[resp_len++] = (uint8_t)(mask & 0xFFu);
+
+        const float *field[15] = {&d.rpy[0],   &d.rpy[1],  &d.rpy[2],  &d.accel[0], &d.accel[1],
+                                  &d.accel[2], &d.gyro[0], &d.gyro[1], &d.gyro[2],  &d.mag[0],
+                                  &d.mag[1],   &d.mag[2],  &d.quat[0], &d.quat[1],  &d.quat[2]};
+        for (unsigned bit = 0u; bit < 15u; bit++) {
+            if ((mask & (1u << bit)) != 0u) {
+                buffer_append_float32_auto(resp, *field[bit], &resp_len);
+            }
+        }
+        return send_reply(self, resp_len);
+    }
+
+    case COMM_GET_IMU_CALIBRATION: {
+        if (self->ops == (void *)0 || self->ops->calibrate_imu == (void *)0) {
+            return EDGE_ENOTSUP;
+        }
+        /*
+         * comm/commands.c:2502-2520: the request is one angle and the answer is nine numbers, each
+         * scaled by a million. The reference runs the procedure on its blocking thread; here the
+         * product does it and the codec frames the answer.
+         */
+        if (len < 5u) {
+            return EDGE_EINVAL;
+        }
+        size_t ind = 0u;
+        const float yaw = buffer_get_float32(data + 1u, 1e3f, &ind);
+        float cal[9];
+        for (int i = 0; i < 9; i++) {
+            cal[i] = 0.0f;
+        }
+        const edge_status_t st = self->ops->calibrate_imu(self->ops->self, yaw, cal);
+        if (st != EDGE_OK) {
+            return st;
+        }
+
+        uint8_t *resp = self->cmd_reply_buf;
+        size_t resp_len = 0;
+        resp[resp_len++] = COMM_GET_IMU_CALIBRATION;
+        for (int i = 0; i < 9; i++) {
+            buffer_append_float32(resp, cal[i], 1e6f, &resp_len);
+        }
+        return send_reply(self, resp_len);
+    }
+
     case COMM_MOTOR_ESTOP: {
         if (self->ops == (void *)0 || self->ops->estop == (void *)0) {
             return EDGE_ENOTSUP;
