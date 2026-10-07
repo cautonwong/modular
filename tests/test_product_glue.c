@@ -2864,6 +2864,81 @@ static void test_vesc_host_detect_hall_foc_command(void **state) {
     assert_int_equal(ops.detect_hall_foc(ops.self, 5.0f, table, NULL), EDGE_EINVAL);
 }
 
+/*
+ * A write port that answers and keeps nothing, for the case below that must not touch the variable
+ * store its neighbours read back through.
+ */
+static edge_status_t apply_var_forget(void *self, uint16_t index, uint16_t value) {
+    (void)self;
+    (void)index;
+    (void)value;
+    return EDGE_OK;
+}
+
+/*
+ * COMM_SET_MCCONF_TEMP's product half, on a configuration of its own: the limits land where the
+ * command puts them, the _SETUP variant's two speeds are converted with the setup fields, and a
+ * request not to store is refused rather than honoured the other way round.
+ */
+static void test_vesc_host_set_mcconf_temp_command(void **state) {
+    (void)state;
+    motor_config_var_port_t var_port = {
+        .read = apply_var_read, .write = apply_var_forget, .self = NULL};
+    static alignas(MOTOR_CONFIG_STORAGE_ALIGN) unsigned char cfg_storage[MOTOR_CONFIG_STORAGE_SIZE];
+    motor_config_t *cfg = (motor_config_t *)cfg_storage;
+    motor_config_construct(cfg, EDGE_MOD_MOTOR_CONFIG, 30u, &var_port);
+    assert_int_equal(motor_config_init(cfg), EDGE_OK);
+
+    vesc_host_ops_ctx_t ctx = {.config = cfg};
+    vesc_comm_ops_port_t ops;
+    vesc_host_make_ops_port(&ops, &ctx);
+    assert_non_null(ops.set_mcconf_temp);
+
+    const mc_configuration_t *before = motor_config_get_mc(cfg);
+    assert_non_null(before);
+    const float fact = (((float)before->si_motor_poles / 2.0f) * 60.0f * before->si_gear_ratio) /
+                       (before->si_wheel_diameter * (float)M_PI);
+
+    vesc_mcconf_temp_t v;
+    memset(&v, 0, sizeof(v));
+    v.l_current_min_scale = 0.5f;
+    v.l_current_max_scale = 0.75f;
+    v.l_min_duty = 0.02f;
+    v.l_max_duty = 0.9f;
+    v.l_watt_min = 100.0f;
+    v.l_watt_max = 200.0f;
+    v.l_in_current_min = 5.0f;
+    v.l_in_current_max = 60.0f;
+    v.l_min_erpm = 10.0f;
+    v.l_max_erpm = 20.0f;
+
+    assert_int_equal(ops.set_mcconf_temp(ops.self, &v, true, false), EDGE_OK);
+    const mc_configuration_t *now = motor_config_get_mc(cfg);
+    assert_float_equal(now->l_current_min_scale, 0.5f, 1e-6f);
+    assert_float_equal(now->l_current_max_scale, 0.75f, 1e-6f);
+    assert_float_equal(now->l_min_duty, 0.02f, 1e-6f);
+    assert_float_equal(now->l_max_duty, 0.9f, 1e-6f);
+    assert_float_equal(now->l_watt_max, 200.0f, 1e-6f);
+    assert_float_equal(now->l_in_current_max, 60.0f, 1e-6f);
+    assert_float_equal(now->l_min_erpm, 10.0f, 1e-6f);
+
+    /* The _SETUP variant turns the two speeds into motor rpm with the setup fields themselves. */
+    assert_int_equal(ops.set_mcconf_temp(ops.self, &v, true, true), EDGE_OK);
+    const mc_configuration_t *setup = motor_config_get_mc(cfg);
+    assert_float_equal(setup->l_min_erpm, 10.0f * fact, 1e-3f);
+    assert_float_equal(setup->l_max_erpm, 20.0f * fact, 1e-3f);
+
+    /* Not storing is refused: this port's store has no way to apply without persisting. */
+    assert_int_equal(ops.set_mcconf_temp(ops.self, &v, false, false), EDGE_ENOTSUP);
+    assert_int_equal(ops.set_mcconf_temp(NULL, &v, true, false), EDGE_EINVAL);
+    assert_int_equal(ops.set_mcconf_temp(ops.self, NULL, true, false), EDGE_EINVAL);
+
+    /* The count the two watt limits are divided by: one, with no CAN application in this context.
+     */
+    assert_float_equal(ops.read_controller_count(ops.self), 1.0f, 1e-6f);
+    assert_float_equal(ops.read_controller_count(NULL), 1.0f, 1e-6f);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -2884,6 +2959,7 @@ int main(void) {
         cmocka_unit_test(test_vesc_host_masked_value_adapters),
         cmocka_unit_test(test_vesc_host_setup_values_count_the_peers_on_the_bus),
         cmocka_unit_test(test_vesc_host_restart_requests),
+        cmocka_unit_test(test_vesc_host_set_mcconf_temp_command),
         cmocka_unit_test(test_vesc_host_detect_hall_foc_command),
         cmocka_unit_test(test_vesc_host_detect_motor_param_command),
         cmocka_unit_test(test_vesc_host_adapter_guards),

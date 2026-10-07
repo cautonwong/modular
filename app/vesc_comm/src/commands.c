@@ -75,6 +75,29 @@ static int32_t buffer_get_int32(const uint8_t *buffer, size_t *index) {
     return res;
 }
 
+/*
+ * util/buffer.c's own reader for the packed form the append above writes: the exponent in the top
+ * byte and the significand below it, rebuilt with a single ldexpf.
+ */
+static float buffer_get_float32_auto(const uint8_t *buffer, size_t *index) {
+    /* The codec keeps the signed reader and not an unsigned one; the four bytes are the same. */
+    const uint32_t res = (uint32_t)buffer_get_int32(buffer, index);
+
+    int e = (int)((res >> 23) & 0xFFu);
+    const uint32_t sig_i = res & 0x7FFFFFu;
+    const bool neg = (res & (1u << 31)) != 0u;
+
+    float sig = 0.0f;
+    if (e != 0 || sig_i != 0u) {
+        sig = (float)sig_i / (8388608.0f * 2.0f) + 0.5f;
+        e -= 126;
+    }
+    if (neg) {
+        sig = -sig;
+    }
+    return ldexpf(sig, e);
+}
+
 static float buffer_get_float32(const uint8_t *buffer, float scale, size_t *index) {
     return (float)buffer_get_int32(buffer, index) / scale;
 }
@@ -780,6 +803,73 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
         uint8_t *resp = self->cmd_reply_buf;
         resp[0] = COMM_RESET_STATS;
         return send_reply(self, 1u);
+    }
+
+    case COMM_SET_MCCONF_TEMP:
+    case COMM_SET_MCCONF_TEMP_SETUP: {
+        if (self->ops == (void *)0 || self->ops->set_mcconf_temp == (void *)0) {
+            return EDGE_ENOTSUP;
+        }
+        /*
+         * comm/commands.c:1215-1300: four flags, then the limits as auto-scaled floats. The payload
+         * is the same for both commands - only the two speeds mean different things, and that
+         * difference is the product's, because turning them into motor rpm needs the setup fields
+         * the running configuration carries. The two watt limits are divided by how many
+         * controllers are on the bus, which is the reference's own reading of that flag.
+         */
+        size_t ind = 0u;
+        const bool store = data[ind++] != 0u;
+        const bool forward_can = data[ind++] != 0u;
+        const bool ack = data[ind++] != 0u;
+        const bool divide_by_controllers = data[ind++] != 0u;
+        (void)forward_can; /* the fan-out is the CAN layer's, and is named as an open item */
+
+        float count = 1.0f;
+        if (divide_by_controllers && self->ops->read_controller_count != (void *)0) {
+            count = self->ops->read_controller_count(self->ops->self);
+        }
+        if (count < 1.0f) {
+            count = 1.0f;
+        }
+
+        vesc_mcconf_temp_t t;
+        memset(&t, 0, sizeof(t));
+        t.l_current_min_scale = buffer_get_float32_auto(data, &ind);
+        t.l_current_max_scale = buffer_get_float32_auto(data, &ind);
+        if (t.l_current_min_scale < 0.0f) {
+            t.l_current_min_scale = 0.0f;
+        }
+        if (t.l_current_min_scale > 1.0f) {
+            t.l_current_min_scale = 1.0f;
+        }
+        if (t.l_current_max_scale < 0.0f) {
+            t.l_current_max_scale = 0.0f;
+        }
+        if (t.l_current_max_scale > 1.0f) {
+            t.l_current_max_scale = 1.0f;
+        }
+        t.l_min_erpm = buffer_get_float32_auto(data, &ind);
+        t.l_max_erpm = buffer_get_float32_auto(data, &ind);
+        t.l_min_duty = buffer_get_float32_auto(data, &ind);
+        t.l_max_duty = buffer_get_float32_auto(data, &ind);
+        t.l_watt_min = buffer_get_float32_auto(data, &ind) / count;
+        t.l_watt_max = buffer_get_float32_auto(data, &ind) / count;
+        t.l_in_current_min = buffer_get_float32_auto(data, &ind);
+        t.l_in_current_max = buffer_get_float32_auto(data, &ind);
+
+        const edge_status_t st = self->ops->set_mcconf_temp(self->ops->self, &t, store,
+                                                            cmd_id == COMM_SET_MCCONF_TEMP_SETUP);
+        if (st != EDGE_OK) {
+            return st;
+        }
+        if (!ack) {
+            return EDGE_OK;
+        }
+
+        uint8_t *resp = self->cmd_reply_buf;
+        size_t resp_len = 0;
+        resp[resp_len++] = (uint8_t)cmd_id;
+        return send_reply(self, resp_len);
     }
 
     case COMM_SET_CAN_MODE: {
