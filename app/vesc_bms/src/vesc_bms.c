@@ -103,6 +103,8 @@ edge_status_t vesc_bms_process_can_frame(vesc_bms_app_t *app, uint32_t can_id, c
     }
 
     uint8_t cmd = (uint8_t)(can_id & 0xFF);
+    /* The battery's own id, which is where a command meant for it is forwarded (bms.c:606). */
+    app->values.can_id = (uint8_t)(can_id >> 8);
     if (cmd == 0x30) {
         /* V_TOT & Current: 2 bytes V_tot (0.1V), 2 bytes I_in (0.1A) */
         uint16_t v_raw = (uint16_t)((data[0] << 8) | data[1]);

@@ -1036,6 +1036,27 @@ static edge_status_t ops_set_mcconf_temp(void *self, const vesc_mcconf_temp_t *v
  * a battery that reports no cells - rather than guesses, until its frame decoding fills them, which
  * is a slice of its own.
  */
+/*
+ * bms.c:602-608: the battery's own commands go out on the bus to it. The reference addresses the
+ * frame to the id the battery replies from, which is the id this port's BMS records from those
+ * replies - and with none recorded yet there is nowhere to send it, which is said rather than
+ * guessed at.
+ */
+static edge_status_t ops_forward_bms_command(void *self, const uint8_t *packet, size_t len) {
+    vesc_host_ops_ctx_t *ctx = (vesc_host_ops_ctx_t *)self;
+    if (ctx == (void *)0 || ctx->bms == (void *)0 || ctx->can == (void *)0 ||
+        packet == (const uint8_t *)0) {
+        return EDGE_EINVAL;
+    }
+    bms_values_t v;
+    memset(&v, 0, sizeof(v));
+    vesc_bms_get_values(ctx->bms, &v);
+    if (v.can_id == 0u) {
+        return EDGE_EINVAL;
+    }
+    return vesc_can_send_buffer(ctx->can, v.can_id, packet, len, 0);
+}
+
 static edge_status_t ops_get_bms_values(void *self, vesc_bms_values_t *out) {
     vesc_host_ops_ctx_t *ctx = (vesc_host_ops_ctx_t *)self;
     if (ctx == (void *)0 || ctx->bms == (void *)0 || out == (void *)0) {
@@ -1265,6 +1286,7 @@ void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_host_ops_ctx_t *ctx
         .set_mcconf_temp = ops_set_mcconf_temp,
         .read_controller_count = ops_read_controller_count,
         .get_bms_values = ops_get_bms_values,
+        .forward_bms_command = ops_forward_bms_command,
         .estop = ops_estop,
         .detect_apply_all_foc = ops_detect_apply_all_foc,
         .detect_hall_foc = ops_detect_hall_foc,
