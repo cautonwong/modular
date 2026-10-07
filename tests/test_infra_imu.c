@@ -7,6 +7,7 @@
 #include <cmocka.h>
 /* clang-format on */
 
+#include "imu/bmi160_wrapper.h"
 #include "imu/icm20948.h"
 #include "imu/lsm6ds3.h"
 #include "imu/lsm6dsv32x.h"
@@ -377,6 +378,45 @@ static void test_icm20948_order_and_failure_policy(void **state) {
     assert_int_equal(m.delayed_us, 11000u);
 }
 
+/*
+ * The fifth driver, which is Bosch's own behind a twenty-line wrapper. This case checks the
+ * wrapper's share: the bus it is told to use, the address that follows from it, and the two paths
+ * that do not need the chip to answer - a dead bus, and a failure worth backing off from.
+ */
+static void test_bmi160_bus_and_dead_bus(void **state) {
+    (void)state;
+    mock_imu_t m;
+    memset(&m, 0, sizeof(m));
+    imu_transport_t transport = {.interface = &mock_interface, .self = &m};
+
+    struct bmi160_dev sensor;
+    memset(&sensor, 0, sizeof(sensor));
+    imu_device_t dev = bmi160_device(&transport, BMI160_I2C_INTF, &sensor);
+
+    assert_string_equal(dev.interface->name, "BMI160");
+    assert_null(
+        dev.interface->enable_drdy_output); /* the reference wires none for this one either */
+    assert_true(dev.priv == &sensor); /* the caller's structure, not one of the driver's own */
+    assert_int_equal(dev.dev_addr, BMI160_I2C_ADDR); /* an I2C address... */
+
+    /* ...and none at all for SPI, which is how the wrapper tells the two apart. */
+    struct bmi160_dev spi_sensor;
+    memset(&spi_sensor, 0, sizeof(spi_sensor));
+    imu_device_t spi = bmi160_device(&transport, BMI160_SPI_INTF, &spi_sensor);
+    assert_int_equal(spi.dev_addr, 0u);
+
+    /* A bus that answers nothing cannot be configured, and the vendor driver is what discovers it.
+     */
+    m.fail_reads = true;
+    assert_false(imu_device_configure(&dev, IMU_FILTER_LOW, false));
+    assert_int_equal(dev.dev_addr, BMI160_I2C_ADDR);
+
+    /* Its failure policy is a back-off, since the vendor driver recovers on its own. */
+    m.delayed_us = 0u;
+    imu_device_on_read_fail(&dev);
+    assert_int_equal(m.delayed_us, 5000u);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_mpu9150_probe_and_variants),
@@ -385,6 +425,7 @@ int main(void) {
         cmocka_unit_test(test_lsm6ds3_probe_and_scales),
         cmocka_unit_test(test_lsm6dsv32x_probe_and_scales),
         cmocka_unit_test(test_icm20948_order_and_failure_policy),
+        cmocka_unit_test(test_bmi160_bus_and_dead_bus),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
