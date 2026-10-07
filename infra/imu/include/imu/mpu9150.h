@@ -3,8 +3,9 @@
 
 /*
  * The register map below is the reference's own, emitted verbatim by
- * tools/gen_imu_mpu9150_from_reference.py. This driver also works for the MPU9250, which is what
- * the reference's own note at the top of that file says.
+ * tools/gen_imu_register_maps.py.
+ * The reference's own note at the top of its file says this driver also works for the
+ * MPU9250, which is why the register map is the MPU9150's.
  */
 
 #include "imu/device.h"
@@ -28,6 +29,8 @@ typedef struct mpu9150_state {
 imu_device_t mpu9150_device(imu_transport_t *transport, mpu9150_state_t *state);
 
 #define MPU9150_H_
+
+// Magnetometer Registers
 #define MPU9150_WIA 0x00
 #define MPU9150_INFO 0x01
 #define MPU9150_ST1 0x02
@@ -48,6 +51,8 @@ imu_device_t mpu9150_device(imu_transport_t *transport, mpu9150_state_t *state);
 #define MPU9150_ASAY 0x11
 #define MPU9150_ASAZ 0x12
 //#define MPU9150_ASTC    0x13 // ??
+
+// Gyroscope/accelerometer registers
 #define MPU9150_SELF_TEST_X 0x0D
 #define MPU9150_SELF_TEST_Y 0x0E
 #define MPU9150_SELF_TEST_Z 0x0F
@@ -144,19 +149,24 @@ imu_device_t mpu9150_device(imu_transport_t *transport, mpu9150_state_t *state);
 #define MPU9150_FIFO_COUNTL 0x73
 #define MPU9150_FIFO_R_W 0x74
 #define MPU9150_WHO_AM_I 0x75
+
 #define MPU9150_ADDRESS_AD0_LOW 0x68
 #define MPU9150_ADDRESS_AD0_HIGH 0x69
 #define MPU9150_DEFAULT_ADDRESS (MPU9150_ADDRESS_AD0_LOW << 1)
+
 #define MPU9150_TC_PWR_MODE_BIT 7
 #define MPU9150_TC_OFFSET_BIT 6
 #define MPU9150_TC_OFFSET_LENGTH 6
 #define MPU9150_TC_OTP_BNK_VLD_BIT 0
+
 #define MPU9150_VDDIO_LEVEL_VLOGIC 0
 #define MPU9150_VDDIO_LEVEL_VDD 1
+
 #define MPU9150_CFG_EXT_SYNC_SET_BIT 5
 #define MPU9150_CFG_EXT_SYNC_SET_LENGTH 3
 #define MPU9150_CFG_DLPF_CFG_BIT 2
 #define MPU9150_CFG_DLPF_CFG_LENGTH 3
+
 #define MPU9150_EXT_SYNC_DISABLED 0x0
 #define MPU9150_EXT_SYNC_TEMP_OUT_L 0x1
 #define MPU9150_EXT_SYNC_GYRO_XOUT_L 0x2
@@ -165,6 +175,7 @@ imu_device_t mpu9150_device(imu_transport_t *transport, mpu9150_state_t *state);
 #define MPU9150_EXT_SYNC_ACCEL_XOUT_L 0x5
 #define MPU9150_EXT_SYNC_ACCEL_YOUT_L 0x6
 #define MPU9150_EXT_SYNC_ACCEL_ZOUT_L 0x7
+
 #define MPU9150_DLPF_BW_256 0x00
 #define MPU9150_DLPF_BW_188 0x01
 #define MPU9150_DLPF_BW_98 0x02
@@ -172,12 +183,15 @@ imu_device_t mpu9150_device(imu_transport_t *transport, mpu9150_state_t *state);
 #define MPU9150_DLPF_BW_20 0x04
 #define MPU9150_DLPF_BW_10 0x05
 #define MPU9150_DLPF_BW_5 0x06
+
 #define MPU9150_GCONFIG_FS_SEL_BIT 3
 #define MPU9150_GCONFIG_FS_SEL_LENGTH 2
+
 #define MPU9150_GYRO_FS_250 0x00
 #define MPU9150_GYRO_FS_500 0x01
 #define MPU9150_GYRO_FS_1000 0x02
 #define MPU9150_GYRO_FS_2000 0x03
+
 #define MPU9150_ACONFIG_XA_ST_BIT 7
 #define MPU9150_ACONFIG_YA_ST_BIT 6
 #define MPU9150_ACONFIG_ZA_ST_BIT 5
@@ -185,16 +199,19 @@ imu_device_t mpu9150_device(imu_transport_t *transport, mpu9150_state_t *state);
 #define MPU9150_ACONFIG_AFS_SEL_LENGTH 2
 #define MPU9150_ACONFIG_ACCEL_HPF_BIT 0
 #define MPU9150_ACONFIG_ACCEL_HPF_LENGTH 3
+
 #define MPU9150_ACCEL_FS_2 0x00
 #define MPU9150_ACCEL_FS_4 0x01
 #define MPU9150_ACCEL_FS_8 0x02
 #define MPU9150_ACCEL_FS_16 0x03
+
 #define MPU9150_DHPF_RESET 0x00
 #define MPU9150_DHPF_5 0x01
 #define MPU9150_DHPF_2P5 0x02
 #define MPU9150_DHPF_1P25 0x03
 #define MPU9150_DHPF_0P63 0x04
 #define MPU9150_DHPF_HOLD 0x07
+
 #define MPU9150_TEMP_FIFO_EN_BIT 7
 #define MPU9150_XG_FIFO_EN_BIT 6
 #define MPU9150_YG_FIFO_EN_BIT 5
@@ -203,12 +220,14 @@ imu_device_t mpu9150_device(imu_transport_t *transport, mpu9150_state_t *state);
 #define MPU9150_SLV2_FIFO_EN_BIT 2
 #define MPU9150_SLV1_FIFO_EN_BIT 1
 #define MPU9150_SLV0_FIFO_EN_BIT 0
+
 #define MPU9150_MULT_MST_EN_BIT 7
 #define MPU9150_WAIT_FOR_ES_BIT 6
 #define MPU9150_SLV_3_FIFO_EN_BIT 5
 #define MPU9150_I2C_MST_P_NSR_BIT 4
 #define MPU9150_I2C_MST_CLK_BIT 3
 #define MPU9150_I2C_MST_CLK_LENGTH 4
+
 #define MPU9150_CLOCK_DIV_348 0x0
 #define MPU9150_CLOCK_DIV_333 0x1
 #define MPU9150_CLOCK_DIV_320 0x2
@@ -225,6 +244,7 @@ imu_device_t mpu9150_device(imu_transport_t *transport, mpu9150_state_t *state);
 #define MPU9150_CLOCK_DIV_400 0xD
 #define MPU9150_CLOCK_DIV_381 0xE
 #define MPU9150_CLOCK_DIV_364 0xF
+
 #define MPU9150_I2C_SLV_RW_BIT 7
 #define MPU9150_I2C_SLV_ADDR_BIT 6
 #define MPU9150_I2C_SLV_ADDR_LENGTH 7
@@ -234,6 +254,7 @@ imu_device_t mpu9150_device(imu_transport_t *transport, mpu9150_state_t *state);
 #define MPU9150_I2C_SLV_GRP_BIT 4
 #define MPU9150_I2C_SLV_LEN_BIT 3
 #define MPU9150_I2C_SLV_LEN_LENGTH 4
+
 #define MPU9150_I2C_SLV4_RW_BIT 7
 #define MPU9150_I2C_SLV4_ADDR_BIT 6
 #define MPU9150_I2C_SLV4_ADDR_LENGTH 7
@@ -242,6 +263,7 @@ imu_device_t mpu9150_device(imu_transport_t *transport, mpu9150_state_t *state);
 #define MPU9150_I2C_SLV4_REG_DIS_BIT 5
 #define MPU9150_I2C_SLV4_MST_DLY_BIT 4
 #define MPU9150_I2C_SLV4_MST_DLY_LENGTH 5
+
 #define MPU9150_MST_PASS_THROUGH_BIT 7
 #define MPU9150_MST_I2C_SLV4_DONE_BIT 6
 #define MPU9150_MST_I2C_LOST_ARB_BIT 5
@@ -250,6 +272,7 @@ imu_device_t mpu9150_device(imu_transport_t *transport, mpu9150_state_t *state);
 #define MPU9150_MST_I2C_SLV2_NACK_BIT 2
 #define MPU9150_MST_I2C_SLV1_NACK_BIT 1
 #define MPU9150_MST_I2C_SLV0_NACK_BIT 0
+
 #define MPU9150_INTCFG_INT_LEVEL_BIT 7
 #define MPU9150_INTCFG_INT_OPEN_BIT 6
 #define MPU9150_INTCFG_LATCH_INT_EN_BIT 5
@@ -258,14 +281,19 @@ imu_device_t mpu9150_device(imu_transport_t *transport, mpu9150_state_t *state);
 #define MPU9150_INTCFG_FSYNC_INT_EN_BIT 2
 #define MPU9150_INTCFG_I2C_BYPASS_EN_BIT 1
 #define MPU9150_INTCFG_CLKOUT_EN_BIT 0
+
 #define MPU9150_INTMODE_ACTIVEHIGH 0x00
 #define MPU9150_INTMODE_ACTIVELOW 0x01
+
 #define MPU9150_INTDRV_PUSHPULL 0x00
 #define MPU9150_INTDRV_OPENDRAIN 0x01
+
 #define MPU9150_INTLATCH_50USPULSE 0x00
 #define MPU9150_INTLATCH_WAITCLEAR 0x01
+
 #define MPU9150_INTCLEAR_STATUSREAD 0x00
 #define MPU9150_INTCLEAR_ANYREAD 0x01
+
 #define MPU9150_INTERRUPT_FF_BIT 7
 #define MPU9150_INTERRUPT_MOT_BIT 6
 #define MPU9150_INTERRUPT_ZMOT_BIT 5
@@ -274,12 +302,14 @@ imu_device_t mpu9150_device(imu_transport_t *transport, mpu9150_state_t *state);
 #define MPU9150_INTERRUPT_PLL_RDY_INT_BIT 2
 #define MPU9150_INTERRUPT_DMP_INT_BIT 1
 #define MPU9150_INTERRUPT_DATA_RDY_BIT 0
+
 #define MPU9150_DMPINT_5_BIT 5
 #define MPU9150_DMPINT_4_BIT 4
 #define MPU9150_DMPINT_3_BIT 3
 #define MPU9150_DMPINT_2_BIT 2
 #define MPU9150_DMPINT_1_BIT 1
 #define MPU9150_DMPINT_0_BIT 0
+
 #define MPU9150_MOTION_MOT_XNEG_BIT 7
 #define MPU9150_MOTION_MOT_XPOS_BIT 6
 #define MPU9150_MOTION_MOT_YNEG_BIT 5
@@ -287,25 +317,30 @@ imu_device_t mpu9150_device(imu_transport_t *transport, mpu9150_state_t *state);
 #define MPU9150_MOTION_MOT_ZNEG_BIT 3
 #define MPU9150_MOTION_MOT_ZPOS_BIT 2
 #define MPU9150_MOTION_MOT_ZRMOT_BIT 0
+
 #define MPU9150_DELAYCTRL_DELAY_ES_SHADOW_BIT 7
 #define MPU9150_DELAYCTRL_I2C_SLV4_DLY_EN_BIT 4
 #define MPU9150_DELAYCTRL_I2C_SLV3_DLY_EN_BIT 3
 #define MPU9150_DELAYCTRL_I2C_SLV2_DLY_EN_BIT 2
 #define MPU9150_DELAYCTRL_I2C_SLV1_DLY_EN_BIT 1
 #define MPU9150_DELAYCTRL_I2C_SLV0_DLY_EN_BIT 0
+
 #define MPU9150_PATHRESET_GYRO_RESET_BIT 2
 #define MPU9150_PATHRESET_ACCEL_RESET_BIT 1
 #define MPU9150_PATHRESET_TEMP_RESET_BIT 0
+
 #define MPU9150_DETECT_ACCEL_ON_DELAY_BIT 5
 #define MPU9150_DETECT_ACCEL_ON_DELAY_LENGTH 2
 #define MPU9150_DETECT_FF_COUNT_BIT 3
 #define MPU9150_DETECT_FF_COUNT_LENGTH 2
 #define MPU9150_DETECT_MOT_COUNT_BIT 1
 #define MPU9150_DETECT_MOT_COUNT_LENGTH 2
+
 #define MPU9150_DETECT_DECREMENT_RESET 0x0
 #define MPU9150_DETECT_DECREMENT_1 0x1
 #define MPU9150_DETECT_DECREMENT_2 0x2
 #define MPU9150_DETECT_DECREMENT_4 0x3
+
 #define MPU9150_USERCTRL_DMP_EN_BIT 7
 #define MPU9150_USERCTRL_FIFO_EN_BIT 6
 #define MPU9150_USERCTRL_I2C_MST_EN_BIT 5
@@ -314,12 +349,14 @@ imu_device_t mpu9150_device(imu_transport_t *transport, mpu9150_state_t *state);
 #define MPU9150_USERCTRL_FIFO_RESET_BIT 2
 #define MPU9150_USERCTRL_I2C_MST_RESET_BIT 1
 #define MPU9150_USERCTRL_SIG_COND_RESET_BIT 0
+
 #define MPU9150_PWR1_DEVICE_RESET_BIT 7
 #define MPU9150_PWR1_SLEEP_BIT 6
 #define MPU9150_PWR1_CYCLE_BIT 5
 #define MPU9150_PWR1_TEMP_DIS_BIT 3
 #define MPU9150_PWR1_CLKSEL_BIT 2
 #define MPU9150_PWR1_CLKSEL_LENGTH 3
+
 #define MPU9150_CLOCK_INTERNAL 0x00
 #define MPU9150_CLOCK_PLL_XGYRO 0x01
 #define MPU9150_CLOCK_PLL_YGYRO 0x02
@@ -327,6 +364,7 @@ imu_device_t mpu9150_device(imu_transport_t *transport, mpu9150_state_t *state);
 #define MPU9150_CLOCK_PLL_EXT32K 0x04
 #define MPU9150_CLOCK_PLL_EXT19M 0x05
 #define MPU9150_CLOCK_KEEP_RESET 0x07
+
 #define MPU9150_PWR2_LP_WAKE_CTRL_BIT 7
 #define MPU9150_PWR2_LP_WAKE_CTRL_LENGTH 2
 #define MPU9150_PWR2_STBY_XA_BIT 5
@@ -335,18 +373,21 @@ imu_device_t mpu9150_device(imu_transport_t *transport, mpu9150_state_t *state);
 #define MPU9150_PWR2_STBY_XG_BIT 2
 #define MPU9150_PWR2_STBY_YG_BIT 1
 #define MPU9150_PWR2_STBY_ZG_BIT 0
+
 #define MPU9150_WAKE_FREQ_1P25 0x0
 #define MPU9150_WAKE_FREQ_2P5 0x1
 #define MPU9150_WAKE_FREQ_5 0x2
 #define MPU9150_WAKE_FREQ_10 0x3
+
 #define MPU9150_BANKSEL_PRFTCH_EN_BIT 6
 #define MPU9150_BANKSEL_CFG_USER_BANK_BIT 5
 #define MPU9150_BANKSEL_MEM_SEL_BIT 4
 #define MPU9150_BANKSEL_MEM_SEL_LENGTH 5
+
 #define MPU9150_WHO_AM_I_BIT 6
 #define MPU9150_WHO_AM_I_LENGTH 6
+
 #define MPU9150_DMP_MEMORY_BANKS 8
 #define MPU9150_DMP_MEMORY_BANK_SIZE 256
 #define MPU9150_DMP_MEMORY_CHUNK_SIZE 16
-
 #endif /* MPU9150_H */

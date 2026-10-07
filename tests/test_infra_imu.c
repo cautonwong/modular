@@ -7,6 +7,7 @@
 #include <cmocka.h>
 /* clang-format on */
 
+#include "imu/lsm6ds3.h"
 #include "imu/mpu9150.h"
 
 /*
@@ -204,11 +205,72 @@ static void test_mpu9150_stuck_sensor_and_failure(void **state) {
     m.fail_reads = false;
 }
 
+/*
+ * The other driver: twelve bytes with the gyroscope first, two sensitivities, and a variant that is
+ * recognised by its identity byte.
+ */
+static void test_lsm6ds3_probe_and_scales(void **state) {
+    (void)state;
+    mock_imu_t m;
+    memset(&m, 0, sizeof(m));
+    imu_transport_t transport = {.interface = &mock_interface, .self = &m};
+    imu_device_t dev = lsm6ds3_device(&transport);
+
+    assert_string_equal(dev.interface->name, "LSM6DS3");
+    assert_null(dev.interface->on_read_fail); /* the reference has none for this one */
+
+    /* The TR-C is the identity 0x6A; the others are accepted without a variant of their own. */
+    m.regs[LSM6DS3_ACC_GYRO_WHO_AM_I_REG] = 0x6Au;
+    dev.sample_rate_hz = 1000u;
+    assert_true(imu_device_configure(&dev, IMU_FILTER_LOW, false));
+    assert_string_equal(dev.variant, "TR-C");
+    assert_int_equal(dev.dev_addr, LSM6DS3_ACC_GYRO_ADDR_A);
+
+    m.regs[LSM6DS3_ACC_GYRO_WHO_AM_I_REG] = 0x69u;
+    assert_true(imu_device_configure(&dev, IMU_FILTER_LOW, false));
+
+    m.regs[LSM6DS3_ACC_GYRO_WHO_AM_I_REG] = 0x99u;
+    assert_false(imu_device_configure(&dev, IMU_FILTER_LOW, false));
+
+    /* Gyroscope first, at seventy millidegrees a second per bit; then the accelerometer, at
+     * four hundred and eighty-eight microgee per bit. Half of each full scale is half the range. */
+    m.regs[LSM6DS3_ACC_GYRO_WHO_AM_I_REG] = 0x6Au;
+    dev.sample_rate_hz = 1000u;
+    assert_true(imu_device_configure(&dev, IMU_FILTER_LOW, false));
+    const uint8_t out = LSM6DS3_ACC_GYRO_OUTX_L_G;
+    for (int axis = 0; axis < 3; axis++) {
+        const int16_t v = (axis == 1) ? -16384 : 16384;
+        const uint8_t o = (uint8_t)(out + 2u * (unsigned)axis);
+        m.regs[o] = (uint8_t)(v & 0xFF);
+        m.regs[o + 1u] = (uint8_t)((uint16_t)v >> 8);
+        const uint8_t a = (uint8_t)(o + 6u);
+        m.regs[a] = m.regs[o];
+        m.regs[a + 1u] = m.regs[o + 1u];
+    }
+
+    float accel[3] = {0.0f, 0.0f, 0.0f};
+    float gyro[3] = {0.0f, 0.0f, 0.0f};
+    float mag[3] = {1.0f, 1.0f, 1.0f};
+    assert_true(imu_device_read_sample(&dev, accel, gyro, mag));
+    assert_float_equal(gyro[0], 16384.0f * 0.07f, 1e-2f);
+    assert_float_equal(gyro[1], -16384.0f * 0.07f, 1e-2f);
+    assert_float_equal(accel[0], 16384.0f * 0.000488f, 1e-3f);
+    assert_float_equal(mag[0], 0.0f, 1e-9f); /* this one has no magnetometer at all */
+
+    /* The data-ready signal is a write of its own, and disabling it writes zero. */
+    const unsigned writes_before = m.writes;
+    imu_device_enable_drdy_output(&dev, true);
+    assert_true(m.writes > writes_before);
+    imu_device_enable_drdy_output(&dev, false);
+    assert_int_equal(m.regs[LSM6DS3_ACC_GYRO_INT1_CTRL], 0u);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_mpu9150_probe_and_variants),
         cmocka_unit_test(test_mpu9150_scales_and_magnetometer),
         cmocka_unit_test(test_mpu9150_stuck_sensor_and_failure),
+        cmocka_unit_test(test_lsm6ds3_probe_and_scales),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
