@@ -31,14 +31,22 @@ set(EDGE_CHIBIOS_PORT_SOURCES
 
 # Third-party sources, so deliberately outside edge_enable_quality(): warnings are off for this target
 # alone, and the port's own files are the ones the repository wrote.
+#
+# The port's context-switch assembly is a lower-case .s file, which the assembler does not preprocess -
+# and it must be preprocessed, because its floating-point save is behind a CORTEX_USE_FPU guard that the
+# build is expected to answer. ChibiOS's own rules pass it through the preprocessor; here that is said
+# per source file, since the flag belongs to this one rather than to the target.
+set_source_files_properties("${EDGE_CHIBIOS_ROOT}/os/rt/ports/ARMCMx/compilers/GCC/chcoreasm_v7m.s"
+    PROPERTIES COMPILE_OPTIONS "-x;assembler-with-cpp")
+
 add_library(chibios_kernel STATIC EXCLUDE_FROM_ALL
               ${EDGE_CHIBIOS_RT_SOURCES} ${EDGE_CHIBIOS_PORT_SOURCES})
 #
-# EXCLUDE_FROM_ALL because the kernel alone is not yet the whole of what a ChibiOS build needs: its
-# device parameters reach for board.h, and that board header is the HAL's. The kernel, its port and
-# their sources compile as far as that boundary; finishing it means bringing the HAL in with the board
-# that uses it, which is the piece after this one. Being out of the default build keeps that honest:
-# nothing here claims to build when the target it belongs to cannot.
+# EXCLUDE_FROM_ALL because the kernel is not yet the whole of what a ChibiOS firmware needs: its device
+# parameters reach for board.h, and that board header is the HAL's, so the kernel, its port and their
+# sources build as a library and stop there. Bringing the HAL in is the piece after this one; until then
+# being out of the default build keeps the claim honest, which is that this target builds and no firmware
+# does yet.
 target_include_directories(chibios_kernel PUBLIC
     "${EDGE_CHIBIOS_ROOT}/os/rt/include"
     "${EDGE_CHIBIOS_ROOT}/os/rt/ports/ARMCMx"
