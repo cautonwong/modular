@@ -255,6 +255,9 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
         return EDGE_OK;
     }
 
+    /* comm/commands.c:2540-2545: the same handling, and no reply of its own - the reference's name
+     * only says it is processed before that command's own thread returns. */
+    case COMM_TERMINAL_CMD_SYNC:
     case COMM_TERMINAL_CMD: {
         if (self->ops == (void *)0 || self->ops->terminal_cmd == (void *)0) {
             return EDGE_ENOTSUP;

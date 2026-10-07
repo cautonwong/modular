@@ -599,6 +599,13 @@ static void test_receive_packet_and_commands(void **state) {
      * COMM_GET_DECODED_CHUK: one int32 scaled by a million, which is the whole of its payload. The
      * value is the stick's own, so half a stick is five hundred thousand.
      */
+    /* COMM_TERMINAL_CMD_SYNC is the same handling as the command beside it, down to the same port.
+     */
+    ctx.tx_count = 0;
+    uint8_t cmd_sync[6] = {COMM_TERMINAL_CMD_SYNC, 'h', 'e', 'l', 'p', '\0'};
+    assert_int_equal(vesc_comm_process_command(comm, cmd_sync, sizeof(cmd_sync)), EDGE_ENOTSUP);
+    assert_int_equal(ctx.tx_count, 0);
+
     /* COMM_GET_MCCONF_TEMP needs the operations port, which this harness does not hand over. */
     ctx.tx_count = 0;
     uint8_t cmd_temp[1] = {COMM_GET_MCCONF_TEMP};
