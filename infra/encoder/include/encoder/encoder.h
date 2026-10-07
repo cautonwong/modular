@@ -510,11 +510,48 @@ float encoder_ts5700_decode(encoder_ts5700_state_t *st,
  */
 #define AS5X47U_SPI_TX_CRC_SEED 0xC4u
 
+/* The eight states the family asks its frames in (enc_as5x47u.c:71-82). */
+typedef enum encoder_as5x47u_seq {
+    ENCODER_AS5X47U_SEQ_TX_MAG_RX_POS = 0,
+    ENCODER_AS5X47U_SEQ_TX_POS_RX_MAG,
+    ENCODER_AS5X47U_SEQ_TX_AGC_RX_POS,
+    ENCODER_AS5X47U_SEQ_TX_POS_RX_AGC,
+    ENCODER_AS5X47U_SEQ_TX_DIAG_RX_POS,
+    ENCODER_AS5X47U_SEQ_TX_POS_RX_DIAG,
+    ENCODER_AS5X47U_SEQ_TX_ERRFL_RX_POS,
+    ENCODER_AS5X47U_SEQ_TX_POS_RX_ERRFL,
+    ENCODER_AS5X47U_SEQ_PREV_ERR
+} encoder_as5x47u_seq_t;
+
+/* :38-45's diagnostics, in the reference's own field names, and the two frame flags beside them. */
+typedef struct encoder_as5x47u_diag {
+    uint8_t is_error;
+    uint8_t is_crc_error;
+    uint8_t is_wdt;
+    uint8_t is_mag_half;
+    uint8_t is_broken_hall;
+    uint8_t is_COF;
+    uint8_t is_Comp_low;
+    uint8_t is_Comp_high;
+    uint8_t is_connected;
+    uint16_t serial_magnitude;
+    uint16_t magnitude;
+    uint16_t serial_AGC_value;
+    uint8_t AGC_value;
+    uint16_t serial_diag_flgs;
+    uint16_t serial_errfl;
+    uint32_t spi_communication_error_count;
+    float spi_error_rate;
+    uint32_t spi_error_cnt;
+} encoder_as5x47u_diag_t;
+
 typedef struct encoder_as5x47u_state {
     uint16_t spi_val;
     float last_enc_angle;
     float last_update_s;
     uint8_t table_crc8[256];
+    encoder_as5x47u_seq_t spi_seq;
+    encoder_as5x47u_diag_t sensor_diag;
 } encoder_as5x47u_state_t;
 
 void encoder_as5x47u_begin(encoder_as5x47u_state_t *st);
@@ -523,6 +560,12 @@ uint8_t encoder_as5x47u_crc8(const uint8_t table[256], const uint8_t *data, size
                              uint8_t initial);
 uint8_t encoder_as5x47u_transmit_crc(const uint8_t table[256], uint16_t tx_data);
 void encoder_as5x47u_process_pos(encoder_as5x47u_state_t *st, uint16_t pos_data);
+
+/*
+ * The frame the state answered with, decoded; what comes back is the message to request next, whose
+ * own two bytes and CRC the caller sends - which keeps this family's arithmetic free of the bus.
+ */
+uint16_t encoder_as5x47u_callback(encoder_as5x47u_state_t *st, const uint8_t rx[3], float now_s);
 
 #ifdef __cplusplus
 }

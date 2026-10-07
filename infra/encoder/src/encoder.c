@@ -545,6 +545,127 @@ void encoder_as5x47u_process_pos(encoder_as5x47u_state_t *st, uint16_t pos_data)
     st->last_enc_angle = (float)(counts * 360u) / (float)(1u << 14);
 }
 
+/* The two messages the sequence asks for, and the one its error state falls back on. */
+static uint16_t as5x47u_pos_message(void) {
+    return (uint16_t)(AS5X47U_SPI_POS_ADR | AS5X47U_SPI_READ_BIT);
+}
+
+static uint16_t as5x47u_errfl_message(void) {
+    return (uint16_t)(AS5X47U_SPI_ERRFL_ADR | AS5X47U_SPI_READ_BIT);
+}
+
+/*
+ * :119-245, the callback the reference runs when a frame arrives. Its CRC is taken over the two
+ * data bytes with the same seed and the same complement the transmitting one uses, and a frame that
+ * holds says two things at once: whether the sensor is raising its own error bit, and which of the
+ * eight states the sequence is on. Six of those states are a position frame that is answered by
+ * asking for another position while the reading on its way is collected; the other two take the
+ * magnitude, the AGC, the four diagnostics and the three error flags. Every answer returns the
+ * message to request next, and a frame whose CRC does not hold takes the sequence to its error
+ * state, which asks for the error flags rather than trusting what it has.
+ */
+uint16_t encoder_as5x47u_callback(encoder_as5x47u_state_t *st, const uint8_t rx[3], float now_s) {
+    if (st == (void *)0 || rx == (void *)0) {
+        return 0u;
+    }
+
+    float timestep = now_s - st->last_update_s;
+    if (timestep > 1.0f) {
+        timestep = 1.0f;
+    }
+    st->last_update_s = now_s;
+
+    const uint8_t rx_crc = rx[2];
+    const uint8_t calc_crc =
+        (uint8_t)(encoder_as5x47u_crc8(st->table_crc8, rx, 2u, AS5X47U_SPI_TX_CRC_SEED) ^ 0xFFu);
+    const uint16_t rx_data = (uint16_t)(((uint16_t)rx[0] << 8) | rx[1]);
+
+    if (calc_crc != rx_crc) {
+        ++st->sensor_diag.spi_error_cnt;
+        st->sensor_diag.spi_error_rate -= timestep * (st->sensor_diag.spi_error_rate - 1.0f);
+        st->spi_seq = ENCODER_AS5X47U_SEQ_PREV_ERR;
+        return as5x47u_errfl_message();
+    }
+
+    /* A whole frame is a frame that arrived: the connection counter steps back towards believing
+     * the sensor is there, and the flag only comes up once it has come all the way - the same
+     * hysteresis the family's predecessor has. */
+    if (st->sensor_diag.spi_communication_error_count != 0u) {
+        st->sensor_diag.spi_communication_error_count--;
+    } else {
+        st->sensor_diag.is_connected = 1u;
+    }
+
+    st->sensor_diag.is_error = (uint8_t)((rx_data & 0x8000u) != 0u);
+
+    if (st->sensor_diag.is_error) {
+        st->sensor_diag.spi_error_rate -= timestep * (st->sensor_diag.spi_error_rate - 1.0f);
+        st->spi_seq = ENCODER_AS5X47U_SEQ_PREV_ERR;
+        return as5x47u_errfl_message();
+    }
+
+    st->sensor_diag.spi_error_rate -= timestep * (st->sensor_diag.spi_error_rate - 0.0f);
+
+    switch (st->spi_seq) {
+    case ENCODER_AS5X47U_SEQ_TX_MAG_RX_POS:
+        encoder_as5x47u_process_pos(st, rx_data);
+        st->spi_seq = ENCODER_AS5X47U_SEQ_TX_POS_RX_MAG;
+        return as5x47u_pos_message();
+
+    case ENCODER_AS5X47U_SEQ_TX_POS_RX_MAG:
+        st->sensor_diag.serial_magnitude = rx_data;
+        st->sensor_diag.magnitude =
+            (uint16_t)(rx_data & AS5X47U_SPI_EXCLUDE_PARITY_AND_ERROR_BITMASK);
+        st->spi_seq = ENCODER_AS5X47U_SEQ_TX_AGC_RX_POS;
+        return (uint16_t)(AS5X47U_SPI_AGC_ADR | AS5X47U_SPI_READ_BIT);
+
+    case ENCODER_AS5X47U_SEQ_TX_AGC_RX_POS:
+        encoder_as5x47u_process_pos(st, rx_data);
+        st->spi_seq = ENCODER_AS5X47U_SEQ_TX_POS_RX_AGC;
+        return as5x47u_pos_message();
+
+    case ENCODER_AS5X47U_SEQ_TX_POS_RX_AGC:
+        st->sensor_diag.serial_AGC_value = rx_data;
+        st->sensor_diag.AGC_value = (uint8_t)rx_data;
+        st->spi_seq = ENCODER_AS5X47U_SEQ_TX_DIAG_RX_POS;
+        return (uint16_t)(AS5X47U_SPI_DIAG_ADR | AS5X47U_SPI_READ_BIT);
+
+    case ENCODER_AS5X47U_SEQ_TX_DIAG_RX_POS:
+        encoder_as5x47u_process_pos(st, rx_data);
+        st->spi_seq = ENCODER_AS5X47U_SEQ_TX_POS_RX_DIAG;
+        return as5x47u_pos_message();
+
+    case ENCODER_AS5X47U_SEQ_TX_POS_RX_DIAG:
+        st->sensor_diag.serial_diag_flgs = rx_data;
+        st->sensor_diag.is_broken_hall =
+            (uint8_t)((rx_data >> 10) & 1u); /* AS5x47U_SPI_DIAG_FUSA_ERROR_BIT_POS */
+        st->sensor_diag.is_COF = (uint8_t)((rx_data >> 2) & 1u);
+        st->sensor_diag.is_Comp_low = (uint8_t)((rx_data >> 3) & 1u);
+        st->sensor_diag.is_Comp_high = (uint8_t)((rx_data >> 4) & 1u);
+        st->spi_seq = ENCODER_AS5X47U_SEQ_TX_ERRFL_RX_POS;
+        return as5x47u_errfl_message();
+
+    case ENCODER_AS5X47U_SEQ_TX_ERRFL_RX_POS:
+        encoder_as5x47u_process_pos(st, rx_data);
+        st->spi_seq = ENCODER_AS5X47U_SEQ_TX_POS_RX_ERRFL;
+        return as5x47u_pos_message();
+
+    case ENCODER_AS5X47U_SEQ_TX_POS_RX_ERRFL:
+        st->sensor_diag.serial_errfl = rx_data;
+        st->sensor_diag.is_wdt = (uint8_t)((rx_data >> 7) & 1u); /* WDTST */
+        st->sensor_diag.is_crc_error = (uint8_t)((rx_data >> 6) & 1u);
+        st->sensor_diag.is_mag_half = (uint8_t)((rx_data >> 1) & 1u); /* MAG_HALF */
+        st->spi_seq = ENCODER_AS5X47U_SEQ_TX_MAG_RX_POS;
+        return (uint16_t)(AS5X47U_SPI_MAGN_ADR | AS5X47U_SPI_READ_BIT);
+
+    case ENCODER_AS5X47U_SEQ_PREV_ERR:
+    default:
+        /* The error state asks for the flags again and again until one of those frames holds. */
+        st->spi_seq = ENCODER_AS5X47U_SEQ_PREV_ERR;
+        return as5x47u_errfl_message();
+    }
+}
+
 /*
  * enc_ad2s1205.c:66-176, its routine, in the three stages the reference takes them in. A frame of
  * nothing at all is a converter that is not answering, and its error rate climbs while its peak is
