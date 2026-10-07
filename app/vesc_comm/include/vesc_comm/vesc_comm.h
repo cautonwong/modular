@@ -571,6 +571,13 @@ typedef struct vesc_comm_ops_port {
      * product that implements this.
      */
     void (*request_shutdown)(void *self, bool restart);
+    /*
+     * comm/commands.c:1280-1305, COMM_SET_CAN_MODE: the application configuration's CAN mode,
+     * written back and - when asked - stored, with the reply the sender gets when it asks for one.
+     * The mode's own meaning is the reference's can_mode: which of the status messages this
+     * controller sends.
+     */
+    edge_status_t (*set_can_mode)(void *self, int mode, bool store);
 
     /*
      * The all-in-one detection (comm/commands.c:2328-2347, conf_general_detect_apply_all_foc_can).

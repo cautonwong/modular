@@ -606,6 +606,13 @@ static void test_receive_packet_and_commands(void **state) {
     /* COMM_GET_BATTERY_CUT reads the running configuration's own two limits, through the same port.
      */
     ctx.tx_count = 0;
+    /* COMM_SET_CAN_MODE writes the application configuration, which this harness does not give it.
+     */
+    ctx.tx_count = 0;
+    uint8_t cmd_can[4] = {COMM_SET_CAN_MODE, 0u, 1u, 1u};
+    assert_int_equal(vesc_comm_process_command(comm, cmd_can, sizeof(cmd_can)), EDGE_ENOTSUP);
+    assert_int_equal(ctx.tx_count, 0);
+
     /* COMM_SHUTDOWN needs the operations port, and has no reply of its own. */
     ctx.tx_count = 0;
     uint8_t cmd_down[3] = {COMM_SHUTDOWN, 1u, 0u};

@@ -1300,6 +1300,16 @@ static void test_vesc_host_detect_motor_param_command(void **state) {
     assert_float_equal(temp.si_wheel_diameter, live->si_wheel_diameter, 1e-6f);
     assert_int_equal(ops.get_mcconf_temp(ops.self, NULL), EDGE_EINVAL);
 
+    /* COMM_SET_CAN_MODE writes the application configuration, which is where the reference puts it,
+     * and what it decides is which of the status messages this controller sends. */
+    assert_int_equal(ops.set_can_mode(ops.self, 2, false), EDGE_OK);
+    const app_configuration_t *app_now = motor_config_get_app(cfg);
+    assert_non_null(app_now);
+    assert_int_equal((int)app_now->can_mode, 2);
+    assert_int_equal(ops.set_can_mode(ops.self, 2, true),
+                     EDGE_OK); /* stored, since the sender asked */
+    assert_int_equal(ops.set_can_mode(NULL, 0, false), EDGE_EINVAL);
+
     /* A configuration the run will stage over, so that the restore has something to put back. */
     const mc_configuration_t *before = motor_config_get_mc(cfg);
     const mc_motor_type before_type = before->motor_type;

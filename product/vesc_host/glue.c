@@ -960,6 +960,42 @@ static size_t ops_ping_can(void *self, uint8_t *ids, size_t max) {
  * if its own bus had produced it, which is what the reference does with it as well.
  */
 /*
+ * comm/commands.c:1280-1305, COMM_SET_CAN_MODE: the mode goes into the application configuration
+ * and is applied through it, which is the same place the reference's app_set_configuration puts it.
+ * What the mode means at runtime is which status messages this controller sends, so the CAN
+ * application is told as well; whether it is stored is the sender's own flag, which the reference
+ * honours by storing.
+ */
+static edge_status_t ops_set_can_mode(void *self, int mode, bool store) {
+    vesc_host_ops_ctx_t *ctx = (vesc_host_ops_ctx_t *)self;
+    if (ctx == (void *)0 || ctx->config == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    const app_configuration_t *live = motor_config_get_app(ctx->config);
+    if (live == (const app_configuration_t *)0) {
+        return EDGE_EINVAL;
+    }
+    app_configuration_t app = *live;
+    app.can_mode = (CAN_MODE)mode;
+
+    uint8_t buf[1024];
+    size_t len = 0u;
+    const edge_status_t ser = motor_config_serialize_app(&app, buf, sizeof(buf), &len);
+    if (ser != EDGE_OK) {
+        return ser;
+    }
+    const edge_status_t st = store ? motor_config_apply_app_stream(ctx->config, buf, len)
+                                   : motor_config_apply_app_stream_nostore(ctx->config, buf, len);
+    if (st != EDGE_OK) {
+        return st;
+    }
+    if (ctx->can != (void *)0) {
+        (void)vesc_can_send_masked(ctx->can, (uint8_t)mode);
+    }
+    return EDGE_OK;
+}
+
+/*
  * comm/commands.c:1130-1148, COMM_SHUTDOWN: a restart is the same request the reboot command above
  * makes, and a shutdown has no equivalent on a host with no power to cut - so it is recorded, and
  * the product says so and stops rather than pretending something happened.
@@ -1117,6 +1153,7 @@ void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_host_ops_ctx_t *ctx
         .get_battery_cut = ops_get_battery_cut,
         .set_chuck_data = ops_set_chuck_data,
         .request_shutdown = ops_request_shutdown,
+        .set_can_mode = ops_set_can_mode,
         .detect_apply_all_foc = ops_detect_apply_all_foc,
         .detect_hall_foc = ops_detect_hall_foc,
         .detect_motor_param = ops_detect_motor_param,
