@@ -1161,9 +1161,66 @@ static void test_encoder_ts5700_matches_the_reference(void **state) {
     assert_float_equal(encoder_ts5700_decode(&st, NULL, 0.0f), 0.0f, 1e-6f);
 }
 
+/*
+ * enc_as5x47u.c:90-115's table and :356's transmitting CRC. Every entry is held against the
+ * polynomial folded by hand, and the two bytes of each of the reference's own reads are run through
+ * the table to see whether the values it checks in are what that fold gives.
+ */
+static void test_encoder_as5x47u_matches_the_reference(void **state) {
+    (void)state;
+
+    encoder_as5x47u_state_t st;
+    encoder_as5x47u_begin(&st);
+
+    for (int i = 0; i < 256; i++) {
+        uint8_t crc = (uint8_t)i;
+        for (int bit = 0; bit < 8; bit++) {
+            const uint32_t shifted = (uint32_t)(crc << 1);
+            crc = (uint8_t)(((crc & 0x80u) != 0u) ? (shifted ^ 0x1Du) : shifted);
+        }
+        assert_int_equal(st.table_crc8[i], crc);
+    }
+
+    const uint16_t messages[5] = {(uint16_t)(AS5X47U_SPI_ERRFL_ADR | AS5X47U_SPI_READ_BIT),
+                                  (uint16_t)(AS5X47U_SPI_DIAG_ADR | AS5X47U_SPI_READ_BIT),
+                                  (uint16_t)(AS5X47U_SPI_MAGN_ADR | AS5X47U_SPI_READ_BIT),
+                                  (uint16_t)(AS5X47U_SPI_AGC_ADR | AS5X47U_SPI_READ_BIT),
+                                  (uint16_t)(AS5X47U_SPI_POS_ADR | AS5X47U_SPI_READ_BIT)};
+    const uint8_t expected[5] = {AS5X47U_SPI_READ_ERRFL_CRC, AS5X47U_SPI_READ_DIAG_CRC,
+                                 AS5X47U_SPI_READ_MAGN_CRC, AS5X47U_SPI_READ_AGC_CRC,
+                                 AS5X47U_SPI_READ_POS_CRC};
+    for (int i = 0; i < 5; i++) {
+        const uint8_t bytes[2] = {(uint8_t)(messages[i] >> 8), (uint8_t)(messages[i] & 0xFFu)};
+        assert_int_equal(encoder_as5x47u_crc8(st.table_crc8, bytes, 2u, AS5X47U_SPI_TX_CRC_SEED) ^
+                             0xFFu,
+                         expected[i]);
+    }
+
+    /* The transmitting CRC takes the two bytes of a frame and the reference's own seed. */
+    assert_int_equal(
+        encoder_as5x47u_transmit_crc(st.table_crc8, messages[4]),
+        (uint8_t)(encoder_as5x47u_crc8(st.table_crc8,
+                                       (const uint8_t[]){(uint8_t)(messages[4] >> 8),
+                                                         (uint8_t)(messages[4] & 0xFFu)},
+                                       2u, AS5X47U_SPI_TX_CRC_SEED) ^
+                  0xFFu));
+
+    /* The position's own reading: the low fourteen bits over a quarter turn, error bit and all. */
+    encoder_as5x47u_process_pos(&st, (uint16_t)(4096u | 0x4000u));
+    assert_int_equal(st.spi_val, (uint16_t)(4096u | 0x4000u));
+    assert_float_equal(st.last_enc_angle, (float)(4096u * 360u) / (float)(1u << 14), 1e-3f);
+
+    encoder_as5x47u_begin(NULL);
+    encoder_as5x47u_build_crc_table(NULL);
+    assert_int_equal(encoder_as5x47u_crc8(NULL, expected, 1u, 0u), 0u);
+    assert_int_equal(encoder_as5x47u_crc8(st.table_crc8, NULL, 1u, 0u), 0u);
+    encoder_as5x47u_process_pos(NULL, 1u);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
+        cmocka_unit_test(test_encoder_as5x47u_matches_the_reference),
         cmocka_unit_test(test_encoder_ts5700_matches_the_reference),
         cmocka_unit_test(test_encoder_ma782_matches_the_reference),
         cmocka_unit_test(test_encoder_ad2s1205_matches_the_reference),
