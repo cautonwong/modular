@@ -300,6 +300,151 @@ static void test_ppm_norev_group_remap(void **state) {
     assert_float_equal(ppm_get_decoded_level(NULL), 0.0f, 1e-9f);
 }
 
+static void test_ppm_policy_modes(void **state) {
+    (void)state;
+    mock_ppm_rcv_t rcv;
+    memset(&rcv, 0, sizeof(rcv));
+    rcv.pulse_us = 1500.0f;
+    rcv.signal_ok = true;
+    ppm_receiver_port_t port = {
+        .self = &rcv, .read_pulse_us = mock_read_pulse, .is_signal_present = mock_signal_present};
+
+    ppm_config_t cfg = {
+        .mode = PPM_MODE_CURRENT,
+        .pulse_min_us = 1000.0f,
+        .pulse_max_us = 2000.0f,
+        .pulse_center_us = 1500.0f,
+        .timeout_s = 0.1f,
+        .safe_start = false,
+        .pid_max_erpm = 10000.0f,
+        .max_erpm_for_dir = 2500.0f,
+    };
+    ppm_app_t app;
+    ppm_construct(&app, EDGE_MOD_PPM, 20u, &cfg, &port);
+    assert_int_equal(ppm_init(&app), EDGE_OK);
+
+    ppm_policy_in_t in = {.rpm_now = 100.0f,
+                          .rpm_local = 100.0f,
+                          .lo_current_max = 50.0f,
+                          .lo_current_min = -30.0f,
+                          .l_max_duty = 0.95f};
+
+    /* CURRENT: accelerating onto lo_current_max, braking onto the magnitude of lo_current_min. */
+    ppm_command_t cmd = ppm_policy(&app, 0.5f, &in);
+    assert_int_equal(cmd.kind, PPM_CMD_CURRENT);
+    assert_float_equal(cmd.current, 25.0f, 1e-4f);
+    assert_false(cmd.current_mode_brake);
+
+    in.rpm_now = -100.0f;
+    cmd = ppm_policy(&app, 0.5f, &in);
+    assert_float_equal(cmd.current, 15.0f, 1e-4f);
+
+    /* SMART_REV brakes on a negative input, which is the flag the product reads as a brake. */
+    app.config.mode = PPM_MODE_CURRENT_SMART_REV;
+    cmd = ppm_policy(&app, -0.5f, &in);
+    assert_true(cmd.current_mode_brake);
+    assert_float_equal(cmd.current, 15.0f, 1e-4f);
+
+    /* DUTY: the value mapped onto the configured duty limit. */
+    app.config.mode = PPM_MODE_DUTY;
+    cmd = ppm_policy(&app, 1.0f, &in);
+    assert_int_equal(cmd.kind, PPM_CMD_DUTY);
+    assert_float_equal(cmd.duty, 0.95f, 1e-4f);
+
+    /* PID: the value times the ceiling the configuration gives. */
+    app.config.mode = PPM_MODE_PID;
+    cmd = ppm_policy(&app, 0.5f, &in);
+    assert_int_equal(cmd.kind, PPM_CMD_PID_SPEED);
+    assert_float_equal(cmd.pid_speed_erpm, 5000.0f, 1e-2f);
+
+    /* POSITION_180: half way is 90 degrees, and it is only taken over when the motor is already
+     * within ten degrees of it. */
+    app.config.mode = PPM_MODE_PID_POSITION_180;
+    in.control_mode_is_position = false;
+    in.pid_pos_now = 200.0f;
+    cmd = ppm_policy(&app, 0.5f, &in);
+    assert_int_equal(cmd.kind, PPM_CMD_NONE);
+    in.pid_pos_now = 95.0f;
+    cmd = ppm_policy(&app, 0.5f, &in);
+    assert_int_equal(cmd.kind, PPM_CMD_PID_POSITION);
+    assert_float_equal(cmd.pid_pos_deg, 90.0f, 1e-3f);
+
+    /* POSITION_360 re-maps onto [0, 1] before this is called, so half way is 180 there. With the
+     * motor already in position mode the ten-degree gate is not applied. */
+    app.config.mode = PPM_MODE_PID_POSITION_360;
+    in.control_mode_is_position = true;
+    cmd = ppm_policy(&app, 0.5f, &in);
+    assert_int_equal(cmd.kind, PPM_CMD_PID_POSITION);
+    assert_float_equal(cmd.pid_pos_deg, 180.0f, 1e-3f);
+
+    /* BRAKE_REV_HYST: the flag starts set, and a speed inside the hysteresis lets go of it. */
+    app.config.mode = PPM_MODE_CURRENT_BRAKE_REV_HYST;
+    assert_true(app.force_brake);
+    in.rpm_local = 1000.0f; /* below 2500 - 500 */
+    in.rpm_now = 100.0f;    /* and going forward, so a positive input accelerates */
+    cmd = ppm_policy(&app, 0.5f, &in);
+    assert_false(app.force_brake);
+    assert_int_equal(app.did_idle_once, 0);
+    assert_float_equal(cmd.current, 25.0f, 1e-4f);
+
+    /* Above the other edge of the hysteresis it goes back to forcing a brake, and a negative input
+     * then brakes instead of reversing. */
+    in.rpm_local = 4000.0f;
+    cmd = ppm_policy(&app, 0.5f, &in);
+    assert_true(app.force_brake);
+    cmd = ppm_policy(&app, -0.5f, &in);
+    assert_true(cmd.current_mode_brake);
+    assert_float_equal(cmd.current, 15.0f, 1e-4f);
+
+    /* NONE commands nothing at all. */
+    app.config.mode = PPM_MODE_NONE;
+    cmd = ppm_policy(&app, 0.5f, &in);
+    assert_int_equal(cmd.kind, PPM_CMD_NONE);
+
+    cmd = ppm_policy(NULL, 0.5f, &in);
+    assert_int_equal(cmd.kind, PPM_CMD_NONE);
+}
+
+static void test_ppm_policy_safe_start_holds(void **state) {
+    (void)state;
+    mock_ppm_rcv_t rcv;
+    memset(&rcv, 0, sizeof(rcv));
+    rcv.pulse_us = 1500.0f;
+    rcv.signal_ok = true;
+    ppm_receiver_port_t port = {
+        .self = &rcv, .read_pulse_us = mock_read_pulse, .is_signal_present = mock_signal_present};
+    ppm_config_t cfg = {
+        .mode = PPM_MODE_CURRENT,
+        .pulse_min_us = 1000.0f,
+        .pulse_max_us = 2000.0f,
+        .pulse_center_us = 1500.0f,
+        .timeout_s = 0.1f,
+        .safe_start = true,
+    };
+    ppm_app_t app;
+    ppm_construct(&app, EDGE_MOD_PPM, 20u, &cfg, &port);
+    assert_int_equal(ppm_init(&app), EDGE_OK);
+
+    ppm_policy_in_t in = {.rpm_now = 100.0f,
+                          .rpm_local = 100.0f,
+                          .lo_current_max = 50.0f,
+                          .lo_current_min = -30.0f,
+                          .l_max_duty = 0.95f};
+
+    /* While the safe start holds, a current mode is held at zero rather than commanded. */
+    ppm_command_t cmd = ppm_policy(&app, 0.5f, &in);
+    assert_int_equal(cmd.kind, PPM_CMD_CURRENT);
+    assert_float_equal(cmd.current, 0.0f, 1e-6f);
+
+    /* Idle pulses climb the counter, and because the count is compared with itself it has to hold
+     * still twice in a row before it is allowed through - which is why this takes 51 of them. */
+    for (int i = 0; i < 51; i++) {
+        cmd = ppm_policy(&app, 0.0f, &in);
+    }
+    cmd = ppm_policy(&app, 0.5f, &in);
+    assert_float_equal(cmd.current, 25.0f, 1e-4f);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -310,6 +455,8 @@ int main(void) {
         cmocka_unit_test(test_ppm_detach_and_override),
         cmocka_unit_test(test_ppm_deadband_curve_and_ramp),
         cmocka_unit_test(test_ppm_norev_group_remap),
+        cmocka_unit_test(test_ppm_policy_modes),
+        cmocka_unit_test(test_ppm_policy_safe_start_holds),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
