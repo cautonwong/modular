@@ -89,6 +89,13 @@ typedef struct vesc_host_glue_state {
     uint8_t pas_level2;
     float pas_torque_ratio;
     float now_s;
+    /*
+     * The nunchuk application, for COMM_GET_DECODED_CHUK: the reference reads its decoded value
+     * straight off the application (comm/commands.c:2521), and the state here is what the codec's
+     * own status port hands it through. The tag is used rather than the typedef so that this header
+     * needs no application header, as with the two above it.
+     */
+    struct nunchuk_app *nunchuk;
 
     /*
      * The configuration a measurement runs in: the flux-linkage procedure replaces the

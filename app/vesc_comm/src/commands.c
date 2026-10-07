@@ -773,6 +773,26 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
         return send_reply(self, 1u);
     }
 
+    case COMM_GET_DECODED_CHUK: {
+        if (self->app_status == (void *)0 || self->app_status->get_decoded_chuk == (void *)0) {
+            return EDGE_EINVAL;
+        }
+        float level_y = 0.0f;
+        edge_status_t st = self->app_status->get_decoded_chuk(self->app_status->self, &level_y);
+        if (st != EDGE_OK) {
+            return st;
+        }
+
+        uint8_t *resp = self->cmd_reply_buf;
+        size_t resp_len = 0;
+        resp[resp_len++] = COMM_GET_DECODED_CHUK;
+        /* Reference: the stick's own decoded value, int32 scaled by 1e6
+         * (comm/commands.c:2521-2525). */
+        buffer_append_int32(resp, (int32_t)(level_y * 1000000.0), &resp_len);
+
+        return send_reply(self, resp_len);
+    }
+
     case COMM_GET_DECODED_PPM: {
         if (self->app_status == (void *)0 || self->app_status->get_decoded_ppm == (void *)0) {
             return EDGE_EINVAL;

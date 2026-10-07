@@ -458,6 +458,8 @@ int main(void) {
                                     .coast_brake_level = 0.0f,
                                     .coast_brake_ramp_time = 0.1f};
     nunchuk_construct(&nunchuk_app, EDGE_MOD_NUNCHUK, 25u, &nunchuk_cfg, &nunchuk_port);
+    /* COMM_GET_DECODED_CHUK reads this application's decoded value, as the reference does. */
+    glue_state.nunchuk = &nunchuk_app;
     if (nunchuk_init(&nunchuk_app) != EDGE_OK) {
         return 19;
     }
