@@ -202,6 +202,45 @@ static void test_throttle_hooks_and_ramp_edges(void **state) {
     assert_int_equal(throttle_step(&bad), EDGE_EIO);
 }
 
+/*
+ * app.c:190-224's own gate, which every application's output is held behind: a count of
+ * milliseconds disables it for that long, nought clears it at once, and minus one disables it until
+ * something else does - the deadline being the caller's clock rather than the reference's virtual
+ * timer.
+ */
+static void test_throttle_output_gate_matches_the_app(void **state) {
+    (void)state;
+
+    throttle_output_gate_t gate = {0};
+    assert_false(throttle_gate_is_disabled(&gate, 0u));
+
+    /* A count disables it, and it comes back when the clock reaches the deadline. */
+    throttle_gate_disable(&gate, 200, 1000u);
+    assert_true(throttle_gate_is_disabled(&gate, 1000u));
+    assert_true(throttle_gate_is_disabled(&gate, 1199u));
+    assert_false(throttle_gate_is_disabled(&gate, 1200u));
+    assert_false(throttle_gate_is_disabled(&gate, 1201u));
+
+    /* Nought clears it at once, whatever it was. */
+    throttle_gate_disable(&gate, -1, 0u);
+    assert_true(throttle_gate_is_disabled(&gate, 0u));
+    throttle_gate_disable(&gate, 0, 0u);
+    assert_false(throttle_gate_is_disabled(&gate, 0u));
+
+    /* Minus one is the one nothing clears, not even a clock far past any deadline. */
+    throttle_gate_disable(&gate, -1, 0u);
+    assert_true(throttle_gate_is_disabled(&gate, 0xFFFFFFFFu));
+
+    /* A clock that has wrapped still reads correctly on both sides of its own deadline. */
+    throttle_gate_disable(&gate, 100, 0xFFFFFFF0u);
+    assert_true(throttle_gate_is_disabled(&gate, 0xFFFFFFF1u));
+    assert_false(throttle_gate_is_disabled(&gate, 0x00000060u));
+
+    /* Nothing to hold. */
+    throttle_gate_disable(NULL, 1, 0u);
+    assert_false(throttle_gate_is_disabled(NULL, 0u));
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -211,6 +250,7 @@ int main(void) {
         cmocka_unit_test(test_throttle_rate_limiting_ramp),
         cmocka_unit_test(test_throttle_negative_curve_and_app_guards),
         cmocka_unit_test(test_throttle_module_step),
+        cmocka_unit_test(test_throttle_output_gate_matches_the_app),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
