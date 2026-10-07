@@ -1173,6 +1173,9 @@ static void test_vesc_host_restart_requests(void **state) {
     bare.glue = NULL;
     bare_ops.request_shutdown(bare_ops.self, true); /* guarded */
     bare_ops.request_shutdown(NULL, false);
+    /* COMM_MOTOR_ESTOP: with no glue state behind it there is no motor to open a window on. */
+    bare_ops.estop(bare_ops.self, 500u);
+    bare_ops.estop(NULL, 500u);
 }
 
 /* The configuration store the detection tests below hand the aggregate; defined with them. */

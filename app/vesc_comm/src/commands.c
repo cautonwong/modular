@@ -805,6 +805,23 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
         return send_reply(self, 1u);
     }
 
+    case COMM_MOTOR_ESTOP: {
+        if (self->ops == (void *)0 || self->ops->estop == (void *)0) {
+            return EDGE_ENOTSUP;
+        }
+        /*
+         * comm/commands.c:1090-1094: a sixteen-bit window, then the letting go of whatever override
+         * was in force - the reference's two calls in the reference's own order. The length is
+         * checked before the two bytes are read, which the reference's parser does for it.
+         */
+        if (len < 2u) {
+            return EDGE_EINVAL;
+        }
+        const uint16_t ms = (uint16_t)(((uint16_t)data[0] << 8) | (uint16_t)data[1]);
+        self->ops->estop(self->ops->self, ms);
+        return EDGE_OK; /* the reference sends no reply for this one */
+    }
+
     case COMM_FW_INFO: {
         if (self->identity == (void *)0) {
             return EDGE_EINVAL;

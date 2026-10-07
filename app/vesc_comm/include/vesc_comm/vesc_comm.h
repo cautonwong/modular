@@ -592,6 +592,13 @@ typedef struct vesc_comm_ops_port {
      * tenth of a second old, which is the same test this port uses for a live peer elsewhere.
      */
     float (*read_controller_count)(void *self);
+    /*
+     * comm/commands.c:1090-1094, COMM_MOTOR_ESTOP: a sixteen-bit window during which the motor
+     * ignores what it is told, and then the letting go of any override that was in force. The
+     * reference makes both calls in that order, and the product knows what an override is in its
+     * own motor layer.
+     */
+    void (*estop)(void *self, uint16_t time_ms);
 
     /*
      * The all-in-one detection (comm/commands.c:2328-2347, conf_general_detect_apply_all_foc_can).

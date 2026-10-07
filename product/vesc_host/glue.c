@@ -1026,6 +1026,19 @@ static edge_status_t ops_set_mcconf_temp(void *self, const vesc_mcconf_temp_t *v
  * whose frames are younger than a tenth of a second, which is the test the CAN application already
  * uses.
  */
+/*
+ * comm/commands.c:1090-1094, COMM_MOTOR_ESTOP: the window the motor layer keeps, and the letting go
+ * of whatever override was in force - which in this port's motor layer is its own release.
+ */
+static void ops_estop(void *self, uint16_t time_ms) {
+    vesc_host_ops_ctx_t *ctx = (vesc_host_ops_ctx_t *)self;
+    if (ctx == (void *)0 || ctx->glue == (void *)0 || ctx->glue->foc == (void *)0) {
+        return;
+    }
+    foc_core_ignore_input(ctx->glue->foc, (int32_t)time_ms);
+    (void)foc_core_release_motor(ctx->glue->foc);
+}
+
 static float ops_read_controller_count(void *self) {
     vesc_host_ops_ctx_t *ctx = (vesc_host_ops_ctx_t *)self;
     if (ctx == (void *)0 || ctx->can == (void *)0) {
@@ -1226,6 +1239,7 @@ void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_host_ops_ctx_t *ctx
         .set_can_mode = ops_set_can_mode,
         .set_mcconf_temp = ops_set_mcconf_temp,
         .read_controller_count = ops_read_controller_count,
+        .estop = ops_estop,
         .detect_apply_all_foc = ops_detect_apply_all_foc,
         .detect_hall_foc = ops_detect_hall_foc,
         .detect_motor_param = ops_detect_motor_param,
