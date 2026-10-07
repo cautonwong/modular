@@ -740,12 +740,85 @@ static void test_encoder_amt22_matches_the_reference(void **state) {
     assert_float_equal(encoder_amt22_routine(&st, &bare, 0.0f), 0.0f, 1e-6f);
 }
 
+typedef struct mock_mt6835_plant {
+    uint8_t rx[6];
+    bool fail;
+} mock_mt6835_plant_t;
+
+static edge_status_t mt6835_plant_burst(void *self, uint8_t rx[6]) {
+    mock_mt6835_plant_t *p = (mock_mt6835_plant_t *)self;
+    if (p->fail) {
+        return EDGE_ESTATE;
+    }
+    for (int i = 0; i < 6; i++) {
+        rx[i] = p->rx[i];
+    }
+    return EDGE_OK;
+}
+
+/*
+ * enc_mt6835.c:60-75's CRC-8, whose check value over the digits one to nine is the ordinary one for
+ * this polynomial, and :89-129's routine: a twenty-one bit angle over two to the twenty-one, with
+ * the CRC over the three bytes and the sensor's own two status bits both having to hold.
+ */
+static void test_encoder_mt6835_matches_the_reference(void **state) {
+    (void)state;
+
+    const uint8_t digits[9] = {'1', '2', '3', '4', '5', '6', '7', '8', '9'};
+    assert_int_equal(encoder_mt6835_crc8(digits, 9), 0xF4u);
+    assert_int_equal(encoder_mt6835_crc8(digits, 0), 0x00u);
+
+    encoder_mt6835_state_t st;
+    encoder_mt6835_begin(&st);
+    mock_mt6835_plant_t plant = {0};
+    encoder_mt6835_port_t port = {.self = &plant, .read_burst = mt6835_plant_burst};
+
+    /* A whole burst: the twenty-one bits spread over three bytes, their CRC, and no status. */
+    const uint32_t angle_bits = 1000000u;
+    plant.rx[0] = 0xA0u; /* MT6835_BURST_CMD */
+    plant.rx[1] = 0x03u; /* MT6835_BURST_ADDR */
+    plant.rx[2] = (uint8_t)(angle_bits >> 13);
+    plant.rx[3] = (uint8_t)(angle_bits >> 5);
+    plant.rx[4] = (uint8_t)((angle_bits << 3) & 0xF8u);
+    plant.rx[5] = encoder_mt6835_crc8(&plant.rx[2], 3);
+    assert_float_equal(encoder_mt6835_routine(&st, &port, 0.001f), 1000000.0f * 360.0f / 2097152.0f,
+                       1e-3f);
+    assert_int_equal(st.spi_error_cnt, 0u);
+    assert_int_equal(st.spi_val, angle_bits);
+
+    /* A CRC that does not hold raises the bus count and leaves the angle where it was. */
+    const float held = st.last_enc_angle;
+    plant.rx[5] ^= 0x01u;
+    encoder_mt6835_routine(&st, &port, 0.002f);
+    assert_int_equal(st.spi_error_cnt, 1u);
+    assert_float_equal(st.spi_error_rate, 0.001f, 1e-6f);
+    assert_float_equal(st.last_enc_angle, held, 1e-6f);
+
+    /* So does a status that is not clear, even with the CRC right. */
+    plant.rx[4] |= 0x01u;
+    plant.rx[5] = encoder_mt6835_crc8(&plant.rx[2], 3);
+    encoder_mt6835_routine(&st, &port, 0.003f);
+    assert_int_equal(st.spi_error_cnt, 2u);
+    assert_float_equal(st.last_enc_angle, held, 1e-6f);
+
+    /* A burst the port could not read leaves everything as it was. */
+    plant.fail = true;
+    assert_float_equal(encoder_mt6835_routine(&st, &port, 0.004f), held, 1e-6f);
+
+    encoder_mt6835_begin(NULL);
+    assert_float_equal(encoder_mt6835_routine(NULL, &port, 0.0f), 0.0f, 1e-6f);
+    assert_float_equal(encoder_mt6835_routine(&st, NULL, 0.0f), 0.0f, 1e-6f);
+    encoder_mt6835_port_t bare = {0};
+    assert_float_equal(encoder_mt6835_routine(&st, &bare, 0.0f), 0.0f, 1e-6f);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_encoder_as5047),
         cmocka_unit_test(test_encoder_mt6816_matches_the_reference),
         cmocka_unit_test(test_encoder_abi_index_machine),
+        cmocka_unit_test(test_encoder_mt6835_matches_the_reference),
         cmocka_unit_test(test_encoder_pwm_matches_the_reference),
         cmocka_unit_test(test_encoder_amt22_matches_the_reference),
         cmocka_unit_test(test_encoder_sincos_matches_the_reference),
