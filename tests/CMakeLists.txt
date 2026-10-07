@@ -84,6 +84,7 @@ edge_add_host_test(test_motor_config SOURCES test_motor_config.c DEPS app_motor_
 edge_add_host_test(test_app_timeout_guard SOURCES test_app_timeout_guard.c DEPS app_timeout_guard)
 edge_add_host_test(test_app_throttle SOURCES test_app_throttle.c DEPS app_throttle)
 edge_add_host_test(test_app_dpv SOURCES test_app_dpv.c DEPS app_dpv)
+edge_add_host_test(test_app_sten SOURCES test_app_sten.c DEPS app_sten)
 edge_add_host_test(test_infra_drv83xx SOURCES test_infra_drv83xx.c DEPS infra_drv83xx)
 edge_add_host_test(test_infra_encoder SOURCES test_infra_encoder.c DEPS infra_encoder)
 edge_add_host_test(test_infra_imu SOURCES test_infra_imu.c DEPS infra_imu)
