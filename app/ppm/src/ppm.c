@@ -135,6 +135,13 @@ edge_status_t ppm_update(ppm_app_t *app, float dt) {
         raw_out = -1.0f;
     }
 
+    /* applications/app_ppm.c:135-137: a detached application substitutes the override for what it
+     * decoded, and the reference takes that value as given - the clamp above is the reading's, so
+     * the substitution is made after it rather than before. */
+    if (app->detached) {
+        raw_out = app->override_norm;
+    }
+
     if (!app->safe_start_unlocked) {
         if (fabsf(raw_out) < 0.05f) {
             app->safe_start_unlocked = true;
@@ -164,6 +171,31 @@ bool ppm_is_safe(const ppm_app_t *app) {
         return false;
     }
     return !app->signal_lost && app->safe_start_unlocked;
+}
+
+/*
+ * applications/app_ppm.c:93-99: the flag, and the value the loop substitutes for a decoded one.
+ */
+void ppm_detach(ppm_app_t *app, bool detach) {
+    if (app == (void *)0) {
+        return;
+    }
+    app->detached = detach;
+}
+
+bool ppm_is_detached(const ppm_app_t *app) {
+    return app ? app->detached : false;
+}
+
+void ppm_override(ppm_app_t *app, float val) {
+    if (app == (void *)0) {
+        return;
+    }
+    app->override_norm = val;
+}
+
+float ppm_get_override(const ppm_app_t *app) {
+    return app ? app->override_norm : 0.0f;
 }
 
 edge_module_t *ppm_module(ppm_app_t *app) {

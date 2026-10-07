@@ -47,6 +47,9 @@ typedef struct ppm_app {
     float output_norm; /* -1.0 to 1.0 */
     bool safe_start_unlocked;
     bool signal_lost;
+    /* applications/app_ppm.c:55-56 and :93-97, the detaching flag and the value it substitutes. */
+    bool detached;
+    float override_norm;
 } ppm_app_t;
 
 void ppm_construct(ppm_app_t *app, uint32_t module_id, uint32_t priority,
@@ -57,6 +60,16 @@ float ppm_get_output(const ppm_app_t *app);
 /* Last accepted pulse width in microseconds (reference: servodec_get_last_pulse_len). */
 float ppm_get_last_pulse_us(const ppm_app_t *app);
 bool ppm_is_safe(const ppm_app_t *app);
+
+/*
+ * applications/app_ppm.c:93-99, the detaching flag and the override that replaces the decoded value
+ * when it is set. The reference maps the override exactly as it maps a decoded one - it substitutes
+ * it in [-1, 1] and truncates nothing - so neither does this.
+ */
+void ppm_detach(ppm_app_t *app, bool detach);
+bool ppm_is_detached(const ppm_app_t *app);
+void ppm_override(ppm_app_t *app, float val);
+float ppm_get_override(const ppm_app_t *app);
 edge_module_t *ppm_module(ppm_app_t *app);
 
 #ifdef __cplusplus
