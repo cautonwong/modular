@@ -65,6 +65,13 @@ float adc_input_get_brake(const adc_input_app_t *app);
 float adc_input_get_throttle_v(const adc_input_app_t *app);
 float adc_input_get_brake_v(const adc_input_app_t *app);
 bool adc_input_has_fault(const adc_input_app_t *app);
+
+/*
+ * applications/app_adc.c:207, app_adc_range_ok: whether the last voltage read is inside the range
+ * the configuration gives, both ends included - the reference's own comparison, and the flag its
+ * own getter hands out.
+ */
+bool adc_input_range_ok(const adc_input_app_t *app);
 edge_module_t *adc_input_module(adc_input_app_t *app);
 
 #ifdef __cplusplus
