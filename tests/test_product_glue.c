@@ -484,7 +484,6 @@ static void test_vesc_host_app_status_adapters(void **state) {
                             .pulse_min_us = 1000.0f,
                             .pulse_max_us = 2000.0f,
                             .pulse_center_us = 1500.0f,
-                            .pulse_deadband_us = 50.0f,
                             .timeout_s = 0.2f,
                             .safe_start = false};
     ppm_app_t ppm;
