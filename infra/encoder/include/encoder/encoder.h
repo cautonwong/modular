@@ -188,7 +188,17 @@ typedef struct encoder_sincos_port {
     float (*now_seconds)(void *self);
 } encoder_sincos_port_t;
 
-/* Hall 6-step Commutation Decoder */
+/*
+ * Hall 6-step Commutation Decoder.
+ *
+ * This one is not the reference's: its hall path is the six-step layer's own, which reads the pins
+ * in mcpwm_read_hall_phase and looks them up in the table that port keeps (bldc_drive), and nothing
+ * in the reference's encoder/ directory is a hall family at all. What is here is this port's own
+ * addition, and nothing outside these declarations and their tests consumes it - which the port's
+ * own rule against dead code reads as a thing to remove rather than keep. It is left standing until
+ * that removal can be made with the three places it touches in one change: these declarations, the
+ * implementation beside the other families, and the two tests that are its only callers.
+ */
 typedef struct encoder_hall {
     uint8_t hall_tab[8];
     uint8_t last_hall_state;
