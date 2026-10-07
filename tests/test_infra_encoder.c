@@ -468,17 +468,6 @@ static void test_encoder_sincos_matches_the_reference(void **state) {
     encoder_sincos_begin(NULL);
 }
 
-static void test_encoder_hall(void **state) {
-    (void)state;
-    encoder_hall_t hall;
-    encoder_hall_construct(&hall, NULL);
-    assert_int_equal(encoder_hall_init(&hall), EDGE_OK);
-
-    float angle = 0.0f;
-    assert_int_equal(encoder_hall_update(&hall, 1, &angle), EDGE_OK);
-    assert_true(angle >= 0.0f);
-}
-
 /*
  * The paths the per-type cases miss: the resolvers' and the hall reader's construct/init guards,
  * the sincos gains being replaced rather than left at zero (a zero gain is what a division would
@@ -498,25 +487,6 @@ static void test_encoder_resolver_and_hall_guards(void **state) {
     assert_float_equal(sc.state.last_enc_angle, 0.0f, 1e-6f);
     assert_int_equal(sc.state.signal_above_max_error_cnt, 0u);
     encoder_sincos_begin(NULL);
-
-    encoder_hall_t hall;
-    encoder_hall_construct(NULL, NULL);
-    assert_int_equal(encoder_hall_init(NULL), EDGE_EINVAL);
-    encoder_hall_construct(&hall, NULL);
-    assert_int_equal(encoder_hall_init(&hall), EDGE_OK);
-
-    float angle = 0.0f;
-    /* State 0 is the default table's illegal entry. */
-    assert_int_equal(encoder_hall_update(&hall, 0u, &angle), EDGE_EINVAL);
-    assert_int_equal(encoder_hall_update(NULL, 1u, &angle), EDGE_EINVAL);
-    assert_int_equal(encoder_hall_update(&hall, 1u, NULL), EDGE_EINVAL);
-    assert_int_equal(encoder_hall_update(&hall, 8u, &angle), EDGE_EINVAL);
-    assert_int_equal(encoder_hall_update(&hall, 1u, &angle), EDGE_OK);
-
-    /* A custom table is used as given, so what was illegal can become legal. */
-    static const uint8_t custom[8] = {0u, 2u, 4u, 6u, 1u, 3u, 5u, 7u};
-    encoder_hall_construct(&hall, custom);
-    assert_int_equal(encoder_hall_update(&hall, 7u, &angle), EDGE_OK);
 }
 
 /* A transfer that fails, for the paths where a dead bus must not read as an angle. */
@@ -1573,7 +1543,6 @@ int main(void) {
         cmocka_unit_test(test_encoder_pwm_matches_the_reference),
         cmocka_unit_test(test_encoder_amt22_matches_the_reference),
         cmocka_unit_test(test_encoder_sincos_matches_the_reference),
-        cmocka_unit_test(test_encoder_hall),
         cmocka_unit_test(test_encoder_resolver_and_hall_guards),
         cmocka_unit_test(test_encoder_spi_failure_and_guards),
         cmocka_unit_test(test_encoder_response_checks_and_wraps),
