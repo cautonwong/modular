@@ -10,6 +10,16 @@ if(NOT MSVC)
     target_compile_options(bmi160_vendor PRIVATE -w)
 endif()
 
+# xioTechnologies' Fusion, vendored whole from the reference's imu/Fusion. The same treatment, for the
+# same reason. Its Examples directory is left out: it builds for other platforms and is not source this
+# project's firmware could use, which is the only part of it that is not carried.
+add_library(fusion_vendor STATIC vendor/Fusion/FusionAhrs.c vendor/Fusion/FusionBias.c
+                               vendor/Fusion/FusionCompass.c)
+target_include_directories(fusion_vendor PUBLIC vendor/Fusion)
+if(NOT MSVC)
+    target_compile_options(fusion_vendor PRIVATE -w)
+endif()
+
 edge_add_infra(imu
     SOURCES
         src/bmi160_wrapper.c
@@ -21,4 +31,4 @@ edge_add_infra(imu
     DEPS
         edge_module
 )
-target_link_libraries(infra_imu PUBLIC m bmi160_vendor)
+target_link_libraries(infra_imu PUBLIC m bmi160_vendor fusion_vendor)
