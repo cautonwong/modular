@@ -1495,9 +1495,69 @@ static void test_encoder_core_matches_the_reference(void **state) {
     assert_float_equal(encoder_core_read_deg_multiturn(&core, NULL), 0.0f, 1e-6f);
 }
 
+/*
+ * encoder.c:186-…'s own fault policy: in force only while the encoder is the thing the motor
+ * commutes from, and then per mode - the AS504x's bus rate and its two magnet flags beside its
+ * connection one, the MT6816's own missing-magnet rate, and the MT6835's bus rate - each past a
+ * twentieth, which is the reference's own threshold and its own strict comparison.
+ */
+static void test_encoder_core_faults_match_the_reference(void **state) {
+    (void)state;
+
+    encoder_fault_inputs_t in = {0};
+
+    /* Nothing in use is no fault, whatever the rates say. */
+    in.as504x_spi_error_rate = 1.0f;
+    assert_int_equal(encoder_core_check_faults(false, ENCODER_PORT_MODE_AS5047_SPI, &in),
+                     ENCODER_FAULT_NONE);
+
+    /* The AS504x: a bus rate past a twentieth is the bus's own fault. */
+    assert_int_equal(encoder_core_check_faults(true, ENCODER_PORT_MODE_AS5047_SPI, &in),
+                     ENCODER_FAULT_SPI);
+
+    /* At the threshold itself it is not: the reference's comparison is a strict one. */
+    in.as504x_spi_error_rate = ENCODER_FAULT_ERROR_RATE_THRESHOLD;
+    assert_int_equal(encoder_core_check_faults(true, ENCODER_PORT_MODE_AS5047_SPI, &in),
+                     ENCODER_FAULT_NONE);
+
+    /* With a MOSI line, a connection that has been given up on is the bus's fault too. */
+    in.as504x_has_mosi = true;
+    assert_int_equal(encoder_core_check_faults(true, ENCODER_PORT_MODE_AS5047_SPI, &in),
+                     ENCODER_FAULT_SPI);
+
+    /* And the two magnet flags are their own verdicts, the high one first. */
+    in.as504x_is_connected = true;
+    in.as504x_is_comp_high = true;
+    assert_int_equal(encoder_core_check_faults(true, ENCODER_PORT_MODE_AS5047_SPI, &in),
+                     ENCODER_FAULT_NO_MAGNET);
+    in.as504x_is_comp_high = false;
+    in.as504x_is_comp_low = true;
+    assert_int_equal(encoder_core_check_faults(true, ENCODER_PORT_MODE_AS5047_SPI, &in),
+                     ENCODER_FAULT_MAGNET_TOO_STRONG);
+
+    /* The MT6816 reports a missing magnet as a rate of its own. */
+    encoder_fault_inputs_t mt = {.mt6816_no_magnet_error_rate = 0.06f};
+    assert_int_equal(encoder_core_check_faults(true, ENCODER_PORT_MODE_MT6816_SPI_HW, &mt),
+                     ENCODER_FAULT_NO_MAGNET);
+    mt.mt6816_no_magnet_error_rate = 0.04f;
+    assert_int_equal(encoder_core_check_faults(true, ENCODER_PORT_MODE_MT6816_SPI_HW, &mt),
+                     ENCODER_FAULT_NONE);
+
+    /* The MT6835's bus rate is its bus's fault. */
+    encoder_fault_inputs_t mt5 = {.mt6835_spi_error_rate = 0.06f};
+    assert_int_equal(encoder_core_check_faults(true, ENCODER_PORT_MODE_MT6835_SPI_HW, &mt5),
+                     ENCODER_FAULT_SPI);
+
+    /* A mode this policy has not been read for answers none, and so does having no inputs. */
+    assert_int_equal(encoder_core_check_faults(true, 99u, &in), ENCODER_FAULT_NONE);
+    assert_int_equal(encoder_core_check_faults(true, ENCODER_PORT_MODE_AS5047_SPI, NULL),
+                     ENCODER_FAULT_NONE);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
+        cmocka_unit_test(test_encoder_core_faults_match_the_reference),
         cmocka_unit_test(test_encoder_core_matches_the_reference),
         cmocka_unit_test(test_encoder_tle5012_matches_the_reference),
         cmocka_unit_test(test_encoder_as5x47u_sequence_matches_the_reference),

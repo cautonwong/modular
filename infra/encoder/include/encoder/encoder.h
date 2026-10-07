@@ -664,6 +664,45 @@ void encoder_core_reset_errors(const encoder_core_t *c, const encoder_core_port_
 float encoder_core_abi_deg_to_count(float deg, float counts);
 
 /*
+ * encoder.c:186-…, encoder_check_faults: the faults the encoder's own error rates and flags stand
+ * for, gated on the encoder actually being the one the motor is commuting from. The verdicts are
+ * the reference's own; raising the fault belongs to the product, which is where its fault codes
+ * live.
+ */
+typedef enum encoder_fault {
+    ENCODER_FAULT_NONE = 0,
+    ENCODER_FAULT_SPI,
+    ENCODER_FAULT_NO_MAGNET,
+    ENCODER_FAULT_MAGNET_TOO_STRONG
+} encoder_fault_t;
+
+/* The reference's own threshold on every error rate it reads before it faults (:195 and beside) */
+#define ENCODER_FAULT_ERROR_RATE_THRESHOLD 0.05f
+
+/* sensor_port_mode (datatypes.h:206-226), the ones this policy reads by name. */
+#define ENCODER_PORT_MODE_AS5047_SPI 2u
+#define ENCODER_PORT_MODE_MT6816_SPI_HW 7u
+#define ENCODER_PORT_MODE_MT6835_SPI_HW 17u
+
+/*
+ * What the policy reads of each family: the bus rate of the ones that have one, the magnet rate of
+ * the one that reports it that way, and the three diagnostic flags the AS504x carries beside its
+ * word.
+ */
+typedef struct encoder_fault_inputs {
+    float as504x_spi_error_rate;
+    bool as504x_has_mosi;
+    bool as504x_is_connected;
+    bool as504x_is_comp_high;
+    bool as504x_is_comp_low;
+    float mt6816_no_magnet_error_rate;
+    float mt6835_spi_error_rate;
+} encoder_fault_inputs_t;
+
+encoder_fault_t encoder_core_check_faults(bool encoder_in_use, uint8_t sensor_port_mode,
+                                          const encoder_fault_inputs_t *in);
+
+/*
  * The frame the state answered with, decoded; what comes back is the message to request next, whose
  * own two bytes and CRC the caller sends - which keeps this family's arithmetic free of the bus.
  */
