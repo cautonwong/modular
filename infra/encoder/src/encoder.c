@@ -343,6 +343,98 @@ void encoder_ad2s1205_reset_errors(encoder_ad2s1205_state_t *st) {
     st->resolver_VOIDspi_peak_error_rate = 0.0f;
 }
 
+/* :52-58's setter: the flag, and the count of how many times one was raised. */
+void encoder_ma782_error(encoder_ma782_state_t *st, uint32_t flag) {
+    if (st == (void *)0) {
+        return;
+    }
+    st->error |= flag;
+    st->error_count++;
+}
+
+/* :55-58's mask, from four above the sensor's own nine bits up to the frame's top. */
+uint16_t encoder_ma782_resolution_mask(void) {
+    const uint32_t low = 4u + (MA782_MAX_RESOLUTION_BITS - MA782_RESOLUTION_BITS);
+    const uint32_t high = 15u;
+    return (uint16_t)(((1u << (high - low + 1u)) - 1u) << low);
+}
+
+void encoder_ma782_begin(encoder_ma782_state_t *st) {
+    if (st == (void *)0) {
+        return;
+    }
+    memset(st, 0, sizeof(*st));
+}
+
+/*
+ * enc_ma782.c:123-141, its own beginning of a read: the state has to be idle for it, the frame the
+ * sensor is given is noughts, the receive flag is cleared first - the reference's own corner case,
+ * where a reception its own DMA missed leaves that flag set so that the next exchange would begin
+ * with the byte left over - and then the exchange is started, whose answer the callback decodes.
+ */
+bool encoder_ma782_read_angle(encoder_ma782_state_t *st, const encoder_ma782_port_t *port) {
+    if (st == (void *)0 || port == (void *)0 || port->start_exchange == (void *)0) {
+        return false;
+    }
+    if (st->substate != ENCODER_MA782_IDLE) {
+        encoder_ma782_error(st, ENCODER_MA782_ANGLE_NOT_IDLE);
+        return false;
+    }
+
+    st->tx_data = 0u;
+    for (int i = 0; i < 4; i++) {
+        st->tx_buf[i] = 0u;
+    }
+    if (port->flush_rx != (void *)0) {
+        port->flush_rx(port->self);
+    }
+
+    st->substate = ENCODER_MA782_READ_ANGLE_REQ;
+    port->start_exchange(port->self, st->tx_buf, st->rx_buf);
+    return true;
+}
+
+/*
+ * :173-187, its routine: with the bus ready and the run started, an exchange is begun and the rate
+ * of missed ones falls towards nought - with the reference's own fixed ten-kilohertz factor.
+ * Without it the count rises, the flag says why, and the rate climbs the same way.
+ */
+bool encoder_ma782_routine(encoder_ma782_state_t *st, const encoder_ma782_port_t *port) {
+    if (st == (void *)0 || port == (void *)0 || port->spi_ready == (void *)0) {
+        return false;
+    }
+
+    if (port->spi_ready(port->self)) {
+        if (st->start > 0u) {
+            (void)encoder_ma782_read_angle(st, port);
+        }
+        st->spi_comm_error_rate -= 0.0001f * (st->spi_comm_error_rate - 0.0f);
+        return true;
+    }
+
+    ++st->spi_comm_error_cnt;
+    encoder_ma782_error(st, ENCODER_MA782_SPI_NOT_READY);
+    st->spi_comm_error_rate -= 0.0001f * (st->spi_comm_error_rate - 1.0f);
+    return false;
+}
+
+/*
+ * :146-154, the tail the callback runs: the angle is the frame's own masked bits over the whole of
+ * a sixteen-bit turn - the reference's denominator rather than the mask's - and the sub-state goes
+ * back to idle for the next one.
+ */
+float encoder_ma782_read_angle_finish(encoder_ma782_state_t *st) {
+    if (st == (void *)0) {
+        return 0.0f;
+    }
+
+    uint16_t angle = (uint16_t)st->rx_data;
+    angle = (uint16_t)(angle & encoder_ma782_resolution_mask());
+    st->last_enc_angle = (float)angle * (360.0f / 65535.0f);
+    st->substate = ENCODER_MA782_IDLE;
+    return st->last_enc_angle;
+}
+
 /*
  * enc_ad2s1205.c:66-176, its routine, in the three stages the reference takes them in. A frame of
  * nothing at all is a converter that is not answering, and its error rate climbs while its peak is

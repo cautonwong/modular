@@ -398,6 +398,73 @@ float encoder_ad2s1205_routine(encoder_ad2s1205_state_t *st, const encoder_ad2s1
                                float now_s);
 void encoder_ad2s1205_reset_errors(encoder_ad2s1205_state_t *st);
 
+/*
+ * The MA782 family, a magnetic encoder whose angle arrives in a frame the driver asks for and
+ * decodes in its callback. Its constants (:39-48), its sub-state (:344-351) and its own error flags
+ * are the reference's; so is the state (:355-371), down to the two buffers.
+ */
+#define MA782_READ_REG_CMD 0x40u
+#define MA782_WRITE_REG_CMD 0x80u
+#define MA782_REG_FW 0x0Eu
+#define MA782_FILTER_WINDOW 6u
+#define MA782_RESOLUTION_BITS 9u
+#define MA782_MAX_RESOLUTION_BITS 12u
+
+typedef enum encoder_ma782_substate {
+    ENCODER_MA782_IDLE = 0,
+    ENCODER_MA782_READ_ANGLE_REQ
+} encoder_ma782_substate_t;
+
+/* :52-58's flags, which is what the reference's error argument is one bit of. */
+enum {
+    ENCODER_MA782_CALLBACK_IN_IDLE = 1 << 0,
+    ENCODER_MA782_SPI_ERROR = 1 << 1,
+    ENCODER_MA782_READ_NOT_IDLE = 1 << 2,
+    ENCODER_MA782_SPI_NOT_READY = 1 << 3,
+    ENCODER_MA782_WRITE_NOT_IDLE = 1 << 4,
+    ENCODER_MA782_WRITE_REG_FAIL = 1 << 5,
+    ENCODER_MA782_WRITE_READOUT_FAIL = 1 << 6,
+    ENCODER_MA782_ANGLE_NOT_IDLE = 1 << 7,
+    ENCODER_MA782_UNKNOWN_STATE = 1 << 8
+};
+
+typedef struct encoder_ma782_state {
+    float last_enc_angle;
+    uint32_t spi_error_cnt;
+    float spi_error_rate;
+    uint32_t spi_comm_error_cnt;
+    float spi_comm_error_rate;
+    encoder_ma782_substate_t substate;
+    uint16_t rx_data;
+    uint16_t tx_data;
+    uint32_t start;
+    uint32_t error;
+    uint32_t error_count;
+    uint32_t spi_cnt;
+    uint8_t rx_buf[4];
+    uint8_t tx_buf[4];
+} encoder_ma782_state_t;
+
+/*
+ * The family's bus, in the three pieces the reference's own two halves use: the flush its comment
+ * describes - the read of the data register that clears a flag a missed reception left set -
+ * whether the bus is ready to take another exchange, and the exchange itself, whose answer the
+ * callback decodes.
+ */
+typedef struct encoder_ma782_port {
+    void *self;
+    void (*flush_rx)(void *self);
+    bool (*spi_ready)(void *self);
+    void (*start_exchange)(void *self, const uint8_t tx[4], uint8_t rx[4]);
+} encoder_ma782_port_t;
+
+void encoder_ma782_begin(encoder_ma782_state_t *st);
+void encoder_ma782_error(encoder_ma782_state_t *st, uint32_t flag);
+uint16_t encoder_ma782_resolution_mask(void);
+bool encoder_ma782_read_angle(encoder_ma782_state_t *st, const encoder_ma782_port_t *port);
+bool encoder_ma782_routine(encoder_ma782_state_t *st, const encoder_ma782_port_t *port);
+float encoder_ma782_read_angle_finish(encoder_ma782_state_t *st);
+
 #ifdef __cplusplus
 }
 #endif

@@ -1031,9 +1031,94 @@ static void test_encoder_ad2s1205_matches_the_reference(void **state) {
     assert_float_equal(encoder_ad2s1205_routine(&st, &port, 0.007f), held, 1e-6f);
 }
 
+typedef struct mock_ma782_plant {
+    bool ready;
+    int starts;
+    int flushes;
+    uint8_t rx[4];
+} mock_ma782_plant_t;
+
+static void ma782_plant_flush(void *self) {
+    ((mock_ma782_plant_t *)self)->flushes++;
+}
+
+static bool ma782_plant_ready(void *self) {
+    return ((mock_ma782_plant_t *)self)->ready;
+}
+
+static void ma782_plant_start(void *self, const uint8_t tx[4], uint8_t rx[4]) {
+    mock_ma782_plant_t *p = (mock_ma782_plant_t *)self;
+    (void)tx;
+    p->starts++;
+    for (int i = 0; i < 4; i++) {
+        rx[i] = p->rx[i];
+    }
+}
+
+/*
+ * enc_ma782.c:123-141's beginning of a read, :173-187's routine and :146-154's tail. The read is
+ * only begun while the state is idle, the frame the sensor is given is noughts and the receive flag
+ * is cleared first; the routine asks for one only when the bus is ready and the run has started;
+ * and the tail makes the angle out of the frame's masked bits over a whole sixteen-bit turn.
+ */
+static void test_encoder_ma782_matches_the_reference(void **state) {
+    (void)state;
+
+    encoder_ma782_state_t st;
+    encoder_ma782_begin(&st);
+    mock_ma782_plant_t plant = {.ready = true};
+    encoder_ma782_port_t port = {.self = &plant,
+                                 .flush_rx = ma782_plant_flush,
+                                 .spi_ready = ma782_plant_ready,
+                                 .start_exchange = ma782_plant_start};
+
+    /* The mask is the seven bits from the fourth up, which is what nine out of twelve leaves. */
+    assert_int_equal(encoder_ma782_resolution_mask(), 0xFF80u);
+
+    /* The run has not started, so the routine has nothing to ask for. */
+    assert_true(encoder_ma782_routine(&st, &port));
+    assert_int_equal(plant.starts, 0);
+
+    st.start = 1u;
+    assert_true(encoder_ma782_routine(&st, &port));
+    assert_int_equal(plant.starts, 1);
+    assert_int_equal(plant.flushes, 1);
+    assert_int_equal(st.substate, ENCODER_MA782_READ_ANGLE_REQ);
+    assert_int_equal(st.tx_buf[0], 0u);
+
+    /* A read asked for while one is outstanding is the reference's own error. */
+    assert_false(encoder_ma782_read_angle(&st, &port));
+    assert_int_equal(st.error & ENCODER_MA782_ANGLE_NOT_IDLE, ENCODER_MA782_ANGLE_NOT_IDLE);
+
+    /* The tail: the frame's masked bits over a sixteen-bit turn, which is the reference's own
+     * denominator rather than the mask's. */
+    st.rx_data = 0x1234u;
+    assert_float_equal(encoder_ma782_read_angle_finish(&st),
+                       (float)(0x1234u & 0xFF80u) * (360.0f / 65535.0f), 1e-3f);
+    assert_int_equal(st.substate, ENCODER_MA782_IDLE);
+
+    /* A bus that is not ready raises both the count and its own flag. */
+    plant.ready = false;
+    assert_false(encoder_ma782_routine(&st, &port));
+    assert_int_equal(st.spi_comm_error_cnt, 1u);
+    assert_int_equal(st.error & ENCODER_MA782_SPI_NOT_READY, ENCODER_MA782_SPI_NOT_READY);
+    assert_float_equal(st.spi_comm_error_rate, 0.0001f, 1e-7f);
+
+    encoder_ma782_begin(NULL);
+    encoder_ma782_error(NULL, 1u);
+    assert_float_equal(encoder_ma782_read_angle_finish(NULL), 0.0f, 1e-6f);
+    assert_false(encoder_ma782_read_angle(&st, NULL));
+    assert_false(encoder_ma782_read_angle(NULL, &port));
+    assert_false(encoder_ma782_routine(&st, NULL));
+    assert_false(encoder_ma782_routine(NULL, &port));
+    encoder_ma782_port_t bare_ma = {0};
+    assert_false(encoder_ma782_routine(&st, &bare_ma));
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
+        cmocka_unit_test(test_encoder_ma782_matches_the_reference),
         cmocka_unit_test(test_encoder_ad2s1205_matches_the_reference),
         cmocka_unit_test(test_encoder_as504x_matches_the_reference),
         cmocka_unit_test(test_encoder_mt6816_matches_the_reference),
