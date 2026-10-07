@@ -1162,6 +1162,17 @@ static void test_vesc_host_restart_requests(void **state) {
     bare_ops.set_chuck_data(bare_ops.self, NULL); /* guarded */
     bare.glue = NULL;
     bare_ops.set_chuck_data(bare_ops.self, &cd); /* and a state with no application */
+
+    /* COMM_SHUTDOWN: a restart is the reboot request the command beside it makes, and a shutdown is
+     * the one a host can only record and report. */
+    bare.glue = &chuk_glue;
+    bare_ops.request_shutdown(bare_ops.self, true);
+    assert_true(chuk_glue.reboot_requested);
+    bare_ops.request_shutdown(bare_ops.self, false);
+    assert_true(chuk_glue.shutdown_requested);
+    bare.glue = NULL;
+    bare_ops.request_shutdown(bare_ops.self, true); /* guarded */
+    bare_ops.request_shutdown(NULL, false);
 }
 
 /* The configuration store the detection tests below hand the aggregate; defined with them. */

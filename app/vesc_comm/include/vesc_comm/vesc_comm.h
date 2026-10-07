@@ -564,6 +564,13 @@ typedef struct vesc_comm_ops_port {
      * by I2C, which the application takes exactly as it takes a decoded one.
      */
     void (*set_chuck_data)(void *self, const vesc_chuck_data_t *data);
+    /*
+     * comm/commands.c:1130-1148, COMM_SHUTDOWN's second half: the sender says whether it wants a
+     * restart or a shutdown, and the product does whichever it can. The reference's restart is a
+     * watchdog reset and its shutdown is the hardware's own; what a host can do is named by the
+     * product that implements this.
+     */
+    void (*request_shutdown)(void *self, bool restart);
 
     /*
      * The all-in-one detection (comm/commands.c:2328-2347, conf_general_detect_apply_all_foc_can).

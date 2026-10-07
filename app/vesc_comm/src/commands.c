@@ -782,6 +782,35 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
         return send_reply(self, 1u);
     }
 
+    case COMM_SHUTDOWN: {
+        if (self->ops == (void *)0 || self->ops->request_shutdown == (void *)0) {
+            return EDGE_ENOTSUP;
+        }
+        /*
+         * comm/commands.c:1130-1148: a force byte, then a byte that chooses between a restart and a
+         * shutdown. A motor turning at more than a hundred rpm is not stopped unless the sender
+         * says to force it, which is the reference's own guard against cutting power while riding.
+         * The length is checked before the second byte is read, which the reference's parser does
+         * for it.
+         */
+        size_t ind = 0u;
+        const int force = (int)data[ind++];
+        float rpm = 0.0f;
+        if (self->motor != (void *)0 && self->motor->get_values != (void *)0) {
+            vesc_values_t val;
+            memset(&val, 0, sizeof(val));
+            if (self->motor->get_values(self->motor->self, VESC_VALUES_MASK_ALL, &val) == EDGE_OK) {
+                rpm = val.rpm;
+            }
+        }
+        if (fabsf(rpm) > 100.0f && force != 1) {
+            return EDGE_OK; /* the reference breaks out of its case without doing anything */
+        }
+        const int is_restart = (len >= ind + 1u) ? (int)data[ind] : 0;
+        self->ops->request_shutdown(self->ops->self, is_restart == 1);
+        return EDGE_OK;
+    }
+
     case COMM_SET_CHUCK_DATA: {
         if (self->ops == (void *)0 || self->ops->set_chuck_data == (void *)0) {
             return EDGE_ENOTSUP;

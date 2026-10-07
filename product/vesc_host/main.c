@@ -630,17 +630,22 @@ int main(void) {
          * stored first; here it ends the run, which is the simulation's own reset, and the store
          * happens below through the modules' power_off - the same path an ordinary shutdown takes.
          */
-        if (glue_state.reboot_requested || glue_state.bootloader_requested) {
+        if (glue_state.reboot_requested || glue_state.bootloader_requested ||
+            glue_state.shutdown_requested) {
             break;
         }
     }
 
-    if (glue_state.reboot_requested || glue_state.bootloader_requested) {
+    if (glue_state.reboot_requested || glue_state.bootloader_requested ||
+        glue_state.shutdown_requested) {
         if (glue_state.reboot_requested) {
             (void)edge_sys_power_off(&sys);
         }
+        /* COMM_SHUTDOWN: a host has no power to cut, so this is what it can say. */
         printf("VESC Host Simulation Ended: %s requested\n",
-               glue_state.reboot_requested ? "reboot" : "bootloader jump");
+               glue_state.reboot_requested
+                   ? "reboot"
+                   : (glue_state.bootloader_requested ? "bootloader jump" : "shutdown"));
         return 0;
     }
 
