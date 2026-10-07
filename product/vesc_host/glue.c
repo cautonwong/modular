@@ -959,6 +959,23 @@ static size_t ops_ping_can(void *self, uint8_t *ids, size_t max) {
  * comm/commands.c:2500-2518, COMM_SET_CHUCK_DATA: the frame is handed to the nunchuk application as
  * if its own bus had produced it, which is what the reference does with it as well.
  */
+/*
+ * comm/commands.c:1130-1148, COMM_SHUTDOWN: a restart is the same request the reboot command above
+ * makes, and a shutdown has no equivalent on a host with no power to cut - so it is recorded, and
+ * the product says so and stops rather than pretending something happened.
+ */
+static void ops_request_shutdown(void *self, bool restart) {
+    vesc_host_ops_ctx_t *ctx = (vesc_host_ops_ctx_t *)self;
+    if (ctx == (void *)0 || ctx->glue == (void *)0) {
+        return;
+    }
+    if (restart) {
+        ctx->glue->reboot_requested = true;
+    } else {
+        ctx->glue->shutdown_requested = true;
+    }
+}
+
 static void ops_set_chuck_data(void *self, const vesc_chuck_data_t *data) {
     vesc_host_ops_ctx_t *ctx = (vesc_host_ops_ctx_t *)self;
     if (ctx == (void *)0 || ctx->glue == (void *)0 || ctx->glue->nunchuk == (void *)0 ||
@@ -1099,6 +1116,7 @@ void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_host_ops_ctx_t *ctx
         .ping_can = ops_ping_can,
         .get_battery_cut = ops_get_battery_cut,
         .set_chuck_data = ops_set_chuck_data,
+        .request_shutdown = ops_request_shutdown,
         .detect_apply_all_foc = ops_detect_apply_all_foc,
         .detect_hall_foc = ops_detect_hall_foc,
         .detect_motor_param = ops_detect_motor_param,

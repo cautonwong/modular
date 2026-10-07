@@ -117,6 +117,12 @@ typedef struct vesc_host_glue_state {
      */
     bool reboot_requested;
     bool bootloader_requested;
+    /*
+     * comm/commands.c:1130-1148, COMM_SHUTDOWN: a restart is the reference's watchdog reset, which
+     * is what its reboot request above already is here, and a shutdown has no host equivalent - so
+     * this records that one was asked for and the product says so and stops.
+     */
+    bool shutdown_requested;
 } vesc_host_glue_state_t;
 
 void vesc_host_make_flash_sector_port(flash_sector_port_t *out, vesc_host_glue_state_t *state);
