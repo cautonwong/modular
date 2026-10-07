@@ -232,3 +232,44 @@ edge_module_t *throttle_module(throttle_t *self) {
 float throttle_get_output(const throttle_t *self) {
     return self != (void *)0 ? self->current_output : 0.0f;
 }
+
+/*
+ * app.c:190-224, app_disable_output and app_is_output_disabled. A count of milliseconds disables
+ * the output for that long, nought clears it at once, and minus one disables it until something
+ * clears it - the reference's own three readings of the one argument. What was a virtual timer
+ * there is a deadline here: the output comes back when the caller's clock reaches it, which is the
+ * callback's own one-line effect, and the comparison is written so that a clock which has wrapped
+ * still reads correctly.
+ */
+void throttle_gate_disable(throttle_output_gate_t *gate, int32_t time_ms, uint32_t now_ms) {
+    if (gate == (void *)0) {
+        return;
+    }
+
+    if (time_ms == 0) {
+        gate->disabled = false;
+        gate->timer_armed = false;
+    } else if (time_ms == -1) {
+        gate->disabled = true;
+        /* The reference resets its timer here rather than arming it, so nothing is going to clear
+         * this one either. */
+        gate->timer_armed = false;
+    } else {
+        gate->disabled = true;
+        gate->timer_armed = true;
+        gate->deadline_ms = now_ms + (uint32_t)time_ms;
+    }
+}
+
+bool throttle_gate_is_disabled(throttle_output_gate_t *gate, uint32_t now_ms) {
+    if (gate == (void *)0) {
+        return false;
+    }
+
+    if (gate->timer_armed && (int32_t)(now_ms - gate->deadline_ms) >= 0) {
+        gate->disabled = false;
+        gate->timer_armed = false;
+    }
+
+    return gate->disabled;
+}

@@ -68,6 +68,22 @@ edge_status_t throttle_step(throttle_t *self);
 edge_module_t *throttle_module(throttle_t *self);
 float throttle_get_output(const throttle_t *self);
 
+/*
+ * app.c:190-224, app_disable_output and app_is_output_disabled: the gate every application's own
+ * output is held behind. A count of milliseconds disables the output for that long, nought clears
+ * it at once, and minus one disables it until something clears it - the reference's own three
+ * readings of the one argument, with its virtual timer becoming a deadline the caller's clock is
+ * compared against.
+ */
+typedef struct throttle_output_gate {
+    bool disabled;
+    bool timer_armed;
+    uint32_t deadline_ms;
+} throttle_output_gate_t;
+
+void throttle_gate_disable(throttle_output_gate_t *gate, int32_t time_ms, uint32_t now_ms);
+bool throttle_gate_is_disabled(throttle_output_gate_t *gate, uint32_t now_ms);
+
 #ifdef __cplusplus
 }
 #endif
