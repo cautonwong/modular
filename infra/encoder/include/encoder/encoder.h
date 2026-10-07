@@ -189,23 +189,6 @@ typedef struct encoder_sincos_port {
 } encoder_sincos_port_t;
 
 /*
- * Hall 6-step Commutation Decoder.
- *
- * This one is not the reference's: its hall path is the six-step layer's own, which reads the pins
- * in mcpwm_read_hall_phase and looks them up in the table that port keeps (bldc_drive), and nothing
- * in the reference's encoder/ directory is a hall family at all. What is here is this port's own
- * addition, and nothing outside these declarations and their tests consumes it - which the port's
- * own rule against dead code reads as a thing to remove rather than keep. It is left standing until
- * that removal can be made with the three places it touches in one change: these declarations, the
- * implementation beside the other families, and the two tests that are its only callers.
- */
-typedef struct encoder_hall {
-    uint8_t hall_tab[8];
-    uint8_t last_hall_state;
-    float last_angle_rad;
-} encoder_hall_t;
-
-/*
  * enc_pwm.c:36-63's machine, which the reference keeps in file-scope statics: the width and the
  * period the capture callback just saw, how many updates there have been, the angle those make, the
  * one before it and the speed between them, and the two settings it carries.
@@ -297,11 +280,6 @@ void encoder_abi_index_pulse(encoder_abi_config_t *cfg, const encoder_abi_port_t
 void encoder_sincos_begin(encoder_sincos_config_t *cfg);
 float encoder_sincos_read_deg(encoder_sincos_config_t *cfg, const encoder_sincos_port_t *port,
                               float sin_volts, float cos_volts);
-
-/* Hall API */
-void encoder_hall_construct(encoder_hall_t *self, const uint8_t *custom_tab);
-edge_status_t encoder_hall_init(encoder_hall_t *self);
-edge_status_t encoder_hall_update(encoder_hall_t *self, uint8_t hall_state, float *out_angle_rad);
 
 /*
  * The PWM-input family: enc_pwm.c:47-63's callback, whose angle is the shorter of the width and the
