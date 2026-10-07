@@ -33,6 +33,9 @@ typedef struct adc_input_config {
     float brake_start;
     float brake_end;
     bool safe_start;
+    /* applications/app_adc.c:200-204: whether the filter's value is used rather than the reading.
+     */
+    bool use_filter;
 } adc_input_config_t;
 
 typedef struct adc_input_port {
@@ -54,6 +57,18 @@ typedef struct adc_input_app {
     bool safe_start_unlocked;
     /* applications/app_adc.c:70's flag: the verdict of the last reading's own range check. */
     bool range_ok;
+    /* applications/app_adc.c:66, the detaching mode, and the two values it substitutes. */
+    int adc_detached;
+    float throttle_override;
+    float brake_override;
+    /* applications/app_adc.c:198: the filter's own state, one value approximated over
+     * FILTER_SAMPLES. */
+    float throttle_filter;
+    float brake_filter;
+    /* applications/app_adc.c:67 and :63: the buttons, and whether the serial port's pins are a
+     * pair. */
+    bool buttons_detached;
+    bool use_rx_tx_as_buttons;
 } adc_input_app_t;
 
 void adc_input_construct(adc_input_app_t *app, uint32_t module_id, uint32_t priority,
@@ -74,6 +89,27 @@ bool adc_input_has_fault(const adc_input_app_t *app);
  * own getter hands out.
  */
 bool adc_input_range_ok(const adc_input_app_t *app);
+
+/*
+ * applications/app_adc.c:126, app_adc_detach_adc, and the two overrides it makes use of: detaching
+ * mode 1 substitutes both channels, 2 the throttle alone, 3 the brake alone, and 0 neither, and an
+ * override is truncated into [0, 3.3] volts the way the reference truncates it.
+ */
+void adc_input_detach(adc_input_app_t *app, int mode);
+int adc_input_get_detach(const adc_input_app_t *app);
+void adc_input_override_throttle(adc_input_app_t *app, float val);
+void adc_input_override_brake(adc_input_app_t *app, float val);
+
+/*
+ * applications/app_adc.c:148, app_adc_detach_buttons, and the start flag beside it: while the
+ * buttons are detached the serial port's pins are never the buttons, whatever the caller asked for.
+ * Whether the pins are actually taken is the product's, since that is a pin mode and not
+ * arithmetic.
+ */
+void adc_input_detach_buttons(adc_input_app_t *app, bool state);
+bool adc_input_buttons_detached(const adc_input_app_t *app);
+void adc_input_set_rx_tx_as_buttons(adc_input_app_t *app, bool use_rx_tx);
+bool adc_input_rx_tx_as_buttons(const adc_input_app_t *app);
 edge_module_t *adc_input_module(adc_input_app_t *app);
 
 #ifdef __cplusplus
