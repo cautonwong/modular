@@ -27,11 +27,12 @@ static bool get_raw_accel_gyro(imu_device_t *dev, int16_t *accel_gyro) {
     }
 
     for (int i = 0; i < 3; i++) {
-        accel_gyro[i] = (int16_t)(((uint16_t)rxb[2 * i] << 8) + rxb[2 * i + 1]);
+        accel_gyro[i] = (int16_t)(((uint16_t)rxb[2u * (size_t)i] << 8) + rxb[2u * (size_t)i + 1u]);
     }
     /* The angular rate, with the temperature register at index 3 skipped. */
     for (int i = 4; i < 7; i++) {
-        accel_gyro[i - 1] = (int16_t)(((uint16_t)rxb[2 * i] << 8) + rxb[2 * i + 1]);
+        accel_gyro[i - 1] =
+            (int16_t)(((uint16_t)rxb[2u * (size_t)i] << 8) + rxb[2u * (size_t)i + 1u]);
     }
 
     return true;
@@ -46,7 +47,7 @@ static bool get_raw_mag(imu_device_t *dev, int16_t *mag) {
     }
 
     for (int i = 0; i < 3; i++) {
-        mag[i] = (int16_t)(((uint16_t)rxb[2 * i + 1] << 8) + rxb[2 * i]);
+        mag[i] = (int16_t)(((uint16_t)rxb[2u * (size_t)i + 1u] << 8) + rxb[2u * (size_t)i]);
     }
 
     /* Start the measurement that the next iteration will read. */
