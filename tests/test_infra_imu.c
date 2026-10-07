@@ -7,6 +7,7 @@
 #include <cmocka.h>
 /* clang-format on */
 
+#include "imu/icm20948.h"
 #include "imu/lsm6ds3.h"
 #include "imu/lsm6dsv32x.h"
 #include "imu/mpu9150.h"
@@ -326,6 +327,56 @@ static void test_lsm6dsv32x_probe_and_scales(void **state) {
     assert_int_equal(m.regs[0x0Du], 0u);
 }
 
+/*
+ * The fourth driver, and the one whose twelve bytes come with the accelerometer first - which is
+ * the other way round from the two beside it, so the case is written to tell them apart.
+ */
+static void test_icm20948_order_and_failure_policy(void **state) {
+    (void)state;
+    mock_imu_t m;
+    memset(&m, 0, sizeof(m));
+    imu_transport_t transport = {.interface = &mock_interface, .self = &m};
+    imu_device_t dev = icm20948_device(&transport);
+
+    assert_string_equal(dev.interface->name, "ICM20948");
+    assert_null(dev.interface->enable_drdy_output); /* the reference wires none for this one */
+
+    /* This driver probes nothing: it takes the one address it knows and starts the part over. */
+    assert_true(imu_device_configure(&dev, IMU_FILTER_LOW, false));
+    assert_int_equal(dev.dev_addr, 0x68u);
+    assert_int_equal(m.regs[0x7Fu], 0u); /* left on the bank the data registers live in */
+
+    /* Six bytes of accelerometer then six of gyroscope, with the ends of both ranges to tell the
+     * order apart: a swap would put eight g where a thousand degrees a second belongs. */
+    const uint8_t out = ICM20948_ACCEL_XOUT_H;
+    const int16_t accel_vals[3] = {16384, 0, -16384};
+    const int16_t gyro_vals[3] = {-16384, 0, 16384};
+    for (int axis = 0; axis < 3; axis++) {
+        const uint8_t a = (uint8_t)(out + 2u * (unsigned)axis);
+        m.regs[a] = (uint8_t)((uint16_t)accel_vals[axis] >> 8);
+        m.regs[a + 1u] = (uint8_t)(accel_vals[axis] & 0xFF);
+        const uint8_t g = (uint8_t)(a + 6u);
+        m.regs[g] = (uint8_t)((uint16_t)gyro_vals[axis] >> 8);
+        m.regs[g + 1u] = (uint8_t)(gyro_vals[axis] & 0xFF);
+    }
+
+    float accel[3] = {0.0f, 0.0f, 0.0f};
+    float gyro[3] = {0.0f, 0.0f, 0.0f};
+    float mag[3] = {1.0f, 1.0f, 1.0f};
+    assert_true(imu_device_read_sample(&dev, accel, gyro, mag));
+    assert_float_equal(accel[0], 8.0f, 1e-4f);
+    assert_float_equal(accel[2], -8.0f, 1e-4f);
+    assert_float_equal(gyro[0], -1000.0f, 1e-3f);
+    assert_float_equal(gyro[2], 1000.0f, 1e-3f);
+    assert_float_equal(mag[0], 0.0f, 1e-9f);
+
+    /* Its failure policy starts the part over and then waits ten milliseconds, on top of the
+     * millisecond the start-over itself takes. */
+    m.delayed_us = 0u;
+    imu_device_on_read_fail(&dev);
+    assert_int_equal(m.delayed_us, 11000u);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_mpu9150_probe_and_variants),
@@ -333,6 +384,7 @@ int main(void) {
         cmocka_unit_test(test_mpu9150_stuck_sensor_and_failure),
         cmocka_unit_test(test_lsm6ds3_probe_and_scales),
         cmocka_unit_test(test_lsm6dsv32x_probe_and_scales),
+        cmocka_unit_test(test_icm20948_order_and_failure_policy),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

@@ -1,5 +1,6 @@
 edge_add_infra(imu
     SOURCES
+        src/icm20948.c
         src/imu.c
         src/lsm6ds3.c
         src/lsm6dsv32x.c
