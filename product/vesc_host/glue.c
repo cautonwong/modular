@@ -238,6 +238,55 @@ static edge_status_t motor_set_rpm(void *self, float rpm) {
     return foc_core_set_rpm(foc, motor_dir_mult(foc) * rpm);
 }
 
+/*
+ * applications/app_ppm.c:218-440, the other end of the split: the PPM application decides and this
+ * applies the decision, because the motor interface is here. The position modes are deliberately
+ * not applied - this port's motor layer has no position setpoint and no position feedback yet, and
+ * the ten-degree gate those two modes turn on would need both - and they are named in the migration
+ * notes rather than approximated with a reading this port does not have.
+ */
+edge_status_t vesc_host_apply_ppm(vesc_host_glue_state_t *state) {
+    if (state == (void *)0 || state->ppm == (void *)0 || state->foc == (void *)0) {
+        return EDGE_EINVAL;
+    }
+
+    foc_telemetry_t telem;
+    foc_core_get_telemetry(state->foc, &telem);
+
+    /* The reference reads mc_interface_get_rpm() twice - once as rpm_now and once as rpm_local - so
+     * both fields are the same value here, converted the way the values port converts it. */
+    const float rpm = telem.speed_rpm * ((float)state->foc->config.si_motor_poles / 2.0f);
+    const mc_configuration_t *mc = motor_config_get_mc(state->config);
+
+    ppm_policy_in_t in;
+    memset(&in, 0, sizeof(in));
+    in.rpm_now = rpm;
+    in.rpm_local = rpm;
+    if (mc != (const mc_configuration_t *)0) {
+        in.lo_current_max = mc->lo_current_max;
+        in.lo_current_min = mc->lo_current_min;
+        in.l_max_duty = mc->l_max_duty;
+    }
+
+    const ppm_command_t cmd = ppm_policy(state->ppm, ppm_get_output(state->ppm), &in);
+
+    switch (cmd.kind) {
+    case PPM_CMD_CURRENT:
+        if (cmd.current_mode_brake) {
+            return motor_set_current_brake(state->foc, fabsf(cmd.current));
+        }
+        return motor_set_current(state->foc, cmd.current);
+    case PPM_CMD_DUTY:
+        return motor_set_duty(state->foc, cmd.duty);
+    case PPM_CMD_PID_SPEED:
+        return motor_set_rpm(state->foc, cmd.pid_speed_erpm);
+    case PPM_CMD_NONE:
+    case PPM_CMD_PID_POSITION:
+    default:
+        return EDGE_OK;
+    }
+}
+
 static edge_status_t motor_set_pos(void *self, float pos) {
     return foc_core_set_pos((foc_core_t *)self, pos);
 }

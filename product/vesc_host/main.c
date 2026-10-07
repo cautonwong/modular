@@ -577,6 +577,14 @@ int main(void) {
          * is named: with fourteen modules polling, the error code alone does not say whose.
          */
         const edge_status_t step_rc = edge_sys_step(&sys);
+        /* applications/app_ppm.c:218-440, applied: the module has just polled, so what it decided
+         * is applied here, where the motor interface is. */
+        const edge_status_t ppm_rc = vesc_host_apply_ppm(&glue_state);
+        if (ppm_rc != EDGE_OK) {
+            printf("FAIL: the PPM application's command was refused at cycle %d (rc 0x%x)\n", i,
+                   (unsigned)ppm_rc);
+            return 1;
+        }
         if (step_rc != EDGE_OK) {
             printf("FAIL: the scheduler rejected a step at cycle %d (rc 0x%x)\n", i,
                    (unsigned)step_rc);
