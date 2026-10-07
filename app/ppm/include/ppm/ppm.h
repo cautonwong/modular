@@ -29,6 +29,18 @@ typedef struct ppm_config {
     float pulse_center_us;
     float timeout_s;
     bool safe_start;
+    /*
+     * applications/app_ppm.c:190-199: the chain the reference runs the decoded value through before
+     * it becomes a command - a deadband that rescales rather than zeroes, the throttle curve, and a
+     * ramp with a time of its own for each direction. All three default to no change, which is what
+     * this application did before they were here.
+     */
+    float hyst;
+    float throttle_exp;
+    float throttle_exp_brake;
+    int throttle_exp_mode;
+    float ramp_time_pos;
+    float ramp_time_neg;
 } ppm_config_t;
 
 typedef struct ppm_receiver_port {
@@ -49,6 +61,8 @@ typedef struct ppm_app {
     /* applications/app_ppm.c:55-56 and :93-97, the detaching flag and the value it substitutes. */
     bool detached;
     float override_norm;
+    /* applications/app_ppm.c:199's own ramp state, which survives between updates. */
+    float output_ramp;
 } ppm_app_t;
 
 void ppm_construct(ppm_app_t *app, uint32_t module_id, uint32_t priority,

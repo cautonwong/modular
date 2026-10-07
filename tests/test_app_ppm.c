@@ -182,10 +182,11 @@ static void test_ppm_detach_and_override(void **state) {
     assert_int_equal(ppm_update(&app, 0.001f), EDGE_OK);
     assert_float_equal(ppm_get_output(&app), 0.75f, 1e-6f);
 
-    /* It is taken as given: the reference clamps the reading, not the override. */
+    /* The substitution is made before the chain, and the curve the chain ends in clamps to [-1, 1]:
+     * that is where the reference bounds this value too, and not at the substitution. */
     ppm_override(&app, 5.0f);
     assert_int_equal(ppm_update(&app, 0.001f), EDGE_OK);
-    assert_float_equal(ppm_get_output(&app), 5.0f, 1e-6f);
+    assert_float_equal(ppm_get_output(&app), 1.0f, 1e-6f);
 
     /* Let go, and the wire's own reading is what the loop uses again. */
     ppm_detach(&app, false);
@@ -199,6 +200,57 @@ static void test_ppm_detach_and_override(void **state) {
     assert_float_equal(ppm_get_override(NULL), 0.0f, 1e-9f);
 }
 
+static void test_ppm_deadband_curve_and_ramp(void **state) {
+    (void)state;
+    mock_ppm_rcv_t rcv;
+    memset(&rcv, 0, sizeof(rcv));
+    rcv.signal_ok = true;
+    ppm_receiver_port_t port = {
+        .self = &rcv, .read_pulse_us = mock_read_pulse, .is_signal_present = mock_signal_present};
+
+    /* Linear curve, so what is asserted below is the deadband's own rescale: k = max/(max - tres)
+     * with a single unit at the far end, so 0.5 leaves as 0.4444 - the reference's law at :190. */
+    ppm_config_t cfg = {
+        .mode = PPM_MODE_CURRENT,
+        .pulse_min_us = 1000.0f,
+        .pulse_max_us = 2000.0f,
+        .pulse_center_us = 1500.0f,
+        .timeout_s = 0.1f,
+        .safe_start = false,
+        .hyst = 0.1f,
+        .throttle_exp_mode = 3, /* Linear */
+    };
+    ppm_app_t app;
+    ppm_construct(&app, EDGE_MOD_PPM, 20u, &cfg, &port);
+    assert_int_equal(ppm_init(&app), EDGE_OK);
+    assert_int_equal(ppm_update(&app, 0.01f), EDGE_OK); /* centre, also unlocking safe start */
+
+    /* Inside the deadband the value is zeroed rather than rescaled. */
+    rcv.pulse_us = 1525.0f; /* a twentieth of the way up */
+    assert_int_equal(ppm_update(&app, 0.01f), EDGE_OK);
+    assert_float_equal(ppm_get_output(&app), 0.0f, 1e-6f);
+
+    rcv.pulse_us = 1750.0f; /* half way up */
+    assert_int_equal(ppm_update(&app, 0.01f), EDGE_OK);
+    assert_float_equal(ppm_get_output(&app), 0.444444f, 1e-4f);
+
+    /* The ramp is a step of dt/ramp_time toward the target, and its own state carries over. */
+    ppm_app_t ramped;
+    ppm_config_t rcfg = cfg;
+    rcfg.ramp_time_pos = 1.0f;
+    rcfg.ramp_time_neg = 1.0f;
+    ppm_construct(&ramped, EDGE_MOD_PPM, 20u, &rcfg, &port);
+    assert_int_equal(ppm_init(&ramped), EDGE_OK);
+    rcv.pulse_us = 1500.0f;
+    assert_int_equal(ppm_update(&ramped, 0.01f), EDGE_OK);
+
+    rcv.pulse_us = 2000.0f; /* the far end */
+    assert_int_equal(ppm_update(&ramped, 0.25f), EDGE_OK);
+    assert_float_equal(ppm_get_output(&ramped), 0.25f, 1e-4f);
+    assert_int_equal(ppm_update(&ramped, 0.25f), EDGE_OK);
+    assert_float_equal(ppm_get_output(&ramped), 0.5f, 1e-4f);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -207,6 +259,7 @@ int main(void) {
         cmocka_unit_test(test_ppm_deadband_and_range),
         cmocka_unit_test(test_ppm_safe_start),
         cmocka_unit_test(test_ppm_detach_and_override),
+        cmocka_unit_test(test_ppm_deadband_curve_and_ramp),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

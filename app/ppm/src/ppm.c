@@ -3,6 +3,11 @@
 #include <math.h>
 #include <string.h>
 
+/* applications/app_ppm.c:190-215's three laws, defined below and used by the update. */
+static float ppm_deadband(float val, float tres, float max);
+static float ppm_curve(float val, float curve_acc, float curve_brake, int mode);
+static void ppm_step_towards(float *value, float goal, float step);
+
 static edge_status_t ppm_poll(edge_module_t *mod) {
     ppm_app_t *app = (ppm_app_t *)edge_module_data(mod);
     return ppm_update(app, 0.02f);
@@ -142,6 +147,21 @@ edge_status_t ppm_update(ppm_app_t *app, float dt) {
         raw_out = app->override_norm;
     }
 
+    /* applications/app_ppm.c:190-215, in the reference's own order: the deadband on the decoded
+     * value, then the curve, then a ramp whose time depends on which way the value is going. */
+    raw_out = ppm_deadband(raw_out, app->config.hyst, 1.0f);
+    raw_out = ppm_curve(raw_out, app->config.throttle_exp, app->config.throttle_exp_brake,
+                        app->config.throttle_exp_mode);
+    {
+        const float ramp_time = (fabsf(raw_out) > fabsf(app->output_ramp))
+                                    ? app->config.ramp_time_pos
+                                    : app->config.ramp_time_neg;
+        if (ramp_time > 0.01f) {
+            ppm_step_towards(&app->output_ramp, raw_out, dt / ramp_time);
+            raw_out = app->output_ramp;
+        }
+    }
+
     if (!app->safe_start_unlocked) {
         if (fabsf(raw_out) < 0.05f) {
             app->safe_start_unlocked = true;
@@ -171,6 +191,83 @@ bool ppm_is_safe(const ppm_app_t *app) {
         return false;
     }
     return !app->signal_lost && app->safe_start_unlocked;
+}
+
+/*
+ * applications/app_ppm.c:190-215's three laws, each the reference's own. The deadband is a rescale
+ * that meets the endpoints rather than a band that zeroes, the curve is utils_math.c:437-490's -
+ * the same one this port keeps in app/throttle, copied here because one application may not call
+ * another
+ * - and the ramp is a step of dt/ramp_time, in seconds, toward the target.
+ */
+static float ppm_deadband(float val, float tres, float max) {
+    if (fabsf(val) < tres) {
+        return 0.0f;
+    }
+    const float k = max / (max - tres);
+    if (val > 0.0f) {
+        return k * val + max * (1.0f - k);
+    }
+    return -(k * -val + max * (1.0f - k));
+}
+
+static float ppm_curve(float val, float curve_acc, float curve_brake, int mode) {
+    float v = val;
+    if (v < -1.0f) {
+        v = -1.0f;
+    }
+    if (v > 1.0f) {
+        v = 1.0f;
+    }
+
+    const float val_a = fabsf(v);
+    const float curve = (v >= 0.0f) ? curve_acc : curve_brake;
+    float ret = 0.0f;
+
+    if (mode == 0) { /* Exponential */
+        if (curve >= 0.0f) {
+            ret = 1.0f - powf(1.0f - val_a, 1.0f + curve);
+        } else {
+            ret = powf(val_a, 1.0f - curve);
+        }
+    } else if (mode == 1) { /* Natural */
+        if (fabsf(curve) < 1e-10f) {
+            ret = val_a;
+        } else if (curve >= 0.0f) {
+            ret = 1.0f - ((expf(curve * (1.0f - val_a)) - 1.0f) / (expf(curve) - 1.0f));
+        } else {
+            ret = (expf(-curve * val_a) - 1.0f) / (expf(-curve) - 1.0f);
+        }
+    } else if (mode == 2) { /* Polynomial */
+        if (curve >= 0.0f) {
+            ret = 1.0f - ((1.0f - val_a) / (1.0f + curve * val_a));
+        } else {
+            ret = val_a / (1.0f - curve * (1.0f - val_a));
+        }
+    } else { /* Linear */
+        ret = val_a;
+    }
+
+    if (v < 0.0f) {
+        ret = -ret;
+    }
+    return ret;
+}
+
+static void ppm_step_towards(float *value, float goal, float step) {
+    if (*value < goal) {
+        if ((*value + step) < goal) {
+            *value += step;
+        } else {
+            *value = goal;
+        }
+    } else if (*value > goal) {
+        if ((*value - step) > goal) {
+            *value -= step;
+        } else {
+            *value = goal;
+        }
+    }
 }
 
 /*
