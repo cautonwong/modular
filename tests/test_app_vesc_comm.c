@@ -609,6 +609,13 @@ static void test_receive_packet_and_commands(void **state) {
     /* COMM_SET_CAN_MODE writes the application configuration, which this harness does not give it.
      */
     ctx.tx_count = 0;
+    /* COMM_SET_MCCONF_TEMP writes the running configuration, which this harness does not hand over.
+     */
+    ctx.tx_count = 0;
+    uint8_t cmd_mct[10] = {COMM_SET_MCCONF_TEMP, 1u, 0u, 1u, 0u, 0u, 0u, 0u, 0u, 0u};
+    assert_int_equal(vesc_comm_process_command(comm, cmd_mct, sizeof(cmd_mct)), EDGE_ENOTSUP);
+    assert_int_equal(ctx.tx_count, 0);
+
     uint8_t cmd_can[4] = {COMM_SET_CAN_MODE, 0u, 1u, 1u};
     assert_int_equal(vesc_comm_process_command(comm, cmd_can, sizeof(cmd_can)), EDGE_ENOTSUP);
     assert_int_equal(ctx.tx_count, 0);

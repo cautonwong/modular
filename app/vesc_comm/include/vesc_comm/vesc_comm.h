@@ -578,6 +578,20 @@ typedef struct vesc_comm_ops_port {
      * controller sends.
      */
     edge_status_t (*set_can_mode)(void *self, int mode, bool store);
+    /*
+     * comm/commands.c:1215-1300, COMM_SET_MCCONF_TEMP and its _SETUP variant. The two scales come
+     * out of the payload and the rest of the limits follow; the product writes them into the
+     * running configuration, stores them when asked, and does the _SETUP variant's own conversion -
+     * its setup fields are read first because the speeds are turned into motor rpm with them.
+     */
+    edge_status_t (*set_mcconf_temp)(void *self, const vesc_mcconf_temp_t *values, bool store,
+                                     bool is_setup);
+    /*
+     * comm/commands.c:1226-1237: while more than one controller is on the bus, the two watt limits
+     * are divided by how many there are - the reference counts the peers whose frames are under a
+     * tenth of a second old, which is the same test this port uses for a live peer elsewhere.
+     */
+    float (*read_controller_count)(void *self);
 
     /*
      * The all-in-one detection (comm/commands.c:2328-2347, conf_general_detect_apply_all_foc_can).

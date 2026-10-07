@@ -966,6 +966,76 @@ static size_t ops_ping_can(void *self, uint8_t *ids, size_t max) {
  * application is told as well; whether it is stored is the sender's own flag, which the reference
  * honours by storing.
  */
+/*
+ * comm/commands.c:1215-1300, COMM_SET_MCCONF_TEMP: the limits are written into the running
+ * configuration. The _SETUP variant's two speeds arrive in the units the setup fields describe and
+ * are turned into motor rpm with those very fields - the reference's own factor - and what is
+ * stored is the converted value, so that a forwarded packet can carry it rather than the sender's
+ * units.
+ */
+static edge_status_t ops_set_mcconf_temp(void *self, const vesc_mcconf_temp_t *v, bool store,
+                                         bool is_setup) {
+    vesc_host_ops_ctx_t *ctx = (vesc_host_ops_ctx_t *)self;
+    if (ctx == (void *)0 || ctx->config == (void *)0 || v == (const vesc_mcconf_temp_t *)0) {
+        return EDGE_EINVAL;
+    }
+    const mc_configuration_t *live = motor_config_get_mc(ctx->config);
+    if (live == (const mc_configuration_t *)0) {
+        return EDGE_EINVAL;
+    }
+    mc_configuration_t mc = *live;
+
+    mc.l_current_min_scale = v->l_current_min_scale;
+    mc.l_current_max_scale = v->l_current_max_scale;
+    if (is_setup) {
+        /* comm/commands.c:1246-1249, the same factor, from the same live setup fields. */
+        const float fact = ((mc.si_motor_poles / 2.0f) * 60.0f * mc.si_gear_ratio) /
+                           (mc.si_wheel_diameter * (float)M_PI);
+        mc.l_min_erpm = v->l_min_erpm * fact;
+        mc.l_max_erpm = v->l_max_erpm * fact;
+    } else {
+        mc.l_min_erpm = v->l_min_erpm;
+        mc.l_max_erpm = v->l_max_erpm;
+    }
+    mc.l_min_duty = v->l_min_duty;
+    mc.l_max_duty = v->l_max_duty;
+    mc.l_watt_min = v->l_watt_min;
+    mc.l_watt_max = v->l_watt_max;
+    mc.l_in_current_min = v->l_in_current_min;
+    mc.l_in_current_max = v->l_in_current_max;
+
+    uint8_t buf[2048];
+    size_t len = 0u;
+    const edge_status_t ser = motor_config_serialize_mc(&mc, buf, sizeof(buf), &len);
+    if (ser != EDGE_OK) {
+        return ser;
+    }
+    if (!store) {
+        /*
+         * The reference writes the running configuration either way and only persists it when the
+         * sender asks. This port's configuration store has one stream entry point and it persists,
+         * so a request not to is refused rather than silently honoured in the other direction.
+         */
+        return EDGE_ENOTSUP;
+    }
+    return motor_config_apply_mc_stream(ctx->config, buf, len);
+}
+
+/*
+ * comm/commands.c:1226-1237: the count the two watt limits are divided by - one, plus the peers
+ * whose frames are younger than a tenth of a second, which is the test the CAN application already
+ * uses.
+ */
+static float ops_read_controller_count(void *self) {
+    vesc_host_ops_ctx_t *ctx = (vesc_host_ops_ctx_t *)self;
+    if (ctx == (void *)0 || ctx->can == (void *)0) {
+        return 1.0f;
+    }
+    uint8_t ids[VESC_CAN_STATUS_MSGS_TO_STORE];
+    const size_t n = vesc_can_collect_peer_ids(ctx->can, ids, sizeof(ids));
+    return 1.0f + (float)n;
+}
+
 static edge_status_t ops_set_can_mode(void *self, int mode, bool store) {
     vesc_host_ops_ctx_t *ctx = (vesc_host_ops_ctx_t *)self;
     if (ctx == (void *)0 || ctx->config == (void *)0) {
@@ -1154,6 +1224,8 @@ void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_host_ops_ctx_t *ctx
         .set_chuck_data = ops_set_chuck_data,
         .request_shutdown = ops_request_shutdown,
         .set_can_mode = ops_set_can_mode,
+        .set_mcconf_temp = ops_set_mcconf_temp,
+        .read_controller_count = ops_read_controller_count,
         .detect_apply_all_foc = ops_detect_apply_all_foc,
         .detect_hall_foc = ops_detect_hall_foc,
         .detect_motor_param = ops_detect_motor_param,
