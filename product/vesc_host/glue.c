@@ -951,6 +951,24 @@ static size_t ops_ping_can(void *self, uint8_t *ids, size_t max) {
     return vesc_can_collect_peer_ids(ctx->can, ids, max);
 }
 
+/*
+ * comm/commands.c:1266-1275, COMM_GET_BATTERY_CUT: the two limits the running configuration
+ * carries.
+ */
+static edge_status_t ops_get_battery_cut(void *self, float *start, float *end) {
+    vesc_host_ops_ctx_t *ctx = (vesc_host_ops_ctx_t *)self;
+    if (ctx == (void *)0 || ctx->config == (void *)0 || start == (void *)0 || end == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    const mc_configuration_t *mc = motor_config_get_mc(ctx->config);
+    if (mc == (const mc_configuration_t *)0) {
+        return EDGE_EINVAL;
+    }
+    *start = mc->l_battery_cut_start;
+    *end = mc->l_battery_cut_end;
+    return EDGE_OK;
+}
+
 static edge_status_t ops_get_mcconf_temp(void *self, vesc_mcconf_temp_t *out) {
     vesc_host_ops_ctx_t *ctx = (vesc_host_ops_ctx_t *)self;
     if (ctx == (void *)0 || ctx->config == (void *)0 || out == (void *)0) {
@@ -1055,6 +1073,7 @@ void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_host_ops_ctx_t *ctx
         .detect_r_l = ops_detect_r_l,
         .get_mcconf_temp = ops_get_mcconf_temp,
         .ping_can = ops_ping_can,
+        .get_battery_cut = ops_get_battery_cut,
         .detect_apply_all_foc = ops_detect_apply_all_foc,
         .detect_hall_foc = ops_detect_hall_foc,
         .detect_motor_param = ops_detect_motor_param,

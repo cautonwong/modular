@@ -603,6 +603,13 @@ static void test_receive_packet_and_commands(void **state) {
      * it. */
     ctx.tx_count = 0;
     uint8_t cmd_ping[1] = {COMM_PING_CAN};
+    /* COMM_GET_BATTERY_CUT reads the running configuration's own two limits, through the same port.
+     */
+    ctx.tx_count = 0;
+    uint8_t cmd_cut[1] = {COMM_GET_BATTERY_CUT};
+    assert_int_equal(vesc_comm_process_command(comm, cmd_cut, sizeof(cmd_cut)), EDGE_ENOTSUP);
+    assert_int_equal(ctx.tx_count, 0);
+
     assert_int_equal(vesc_comm_process_command(comm, cmd_ping, sizeof(cmd_ping)), EDGE_ENOTSUP);
     assert_int_equal(ctx.tx_count, 0);
 

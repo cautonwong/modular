@@ -1127,6 +1127,12 @@ static void test_vesc_host_restart_requests(void **state) {
     uint8_t peer_ids[4];
     assert_int_equal(bare_ops.ping_can(bare_ops.self, peer_ids, sizeof(peer_ids)), 0u);
     assert_int_equal(bare_ops.ping_can(NULL, peer_ids, sizeof(peer_ids)), 0u);
+    /* COMM_GET_BATTERY_CUT: with no configuration there are no limits, which is said rather than
+     * answered with two zeros that would read as a machine configured to cut off at nothing. */
+    float cut_start = -1.0f;
+    float cut_end = -1.0f;
+    assert_int_equal(bare_ops.get_battery_cut(bare_ops.self, &cut_start, &cut_end), EDGE_EINVAL);
+    assert_int_equal(bare_ops.get_battery_cut(NULL, &cut_start, &cut_end), EDGE_EINVAL);
 }
 
 /* The configuration store the detection tests below hand the aggregate; defined with them. */

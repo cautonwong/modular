@@ -776,6 +776,28 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
         return send_reply(self, 1u);
     }
 
+    case COMM_GET_BATTERY_CUT: {
+        if (self->ops == (void *)0 || self->ops->get_battery_cut == (void *)0) {
+            return EDGE_ENOTSUP;
+        }
+        float start = 0.0f;
+        float end = 0.0f;
+        const edge_status_t st = self->ops->get_battery_cut(self->ops->self, &start, &end);
+        if (st != EDGE_OK) {
+            return st;
+        }
+
+        /* comm/commands.c:1266-1275: the command byte and both limits, each scaled by a thousand.
+         */
+        uint8_t *resp = self->cmd_reply_buf;
+        size_t resp_len = 0;
+        resp[resp_len++] = COMM_GET_BATTERY_CUT;
+        buffer_append_float32(resp, start, 1e3, &resp_len);
+        buffer_append_float32(resp, end, 1e3, &resp_len);
+
+        return send_reply(self, resp_len);
+    }
+
     case COMM_PING_CAN: {
         if (self->ops == (void *)0 || self->ops->ping_can == (void *)0) {
             return EDGE_ENOTSUP;
