@@ -1777,24 +1777,23 @@ void vesc_host_make_motor_id_measure_port(motor_id_measure_port_t *out,
     };
 }
 
-/* Nunchuk Port Adaptor */
-static edge_status_t nunchuk_read(void *self, uint8_t *js_x, uint8_t *js_y, int16_t *acc_x,
-                                  int16_t *acc_y, int16_t *acc_z, bool *btn_c, bool *btn_z) {
-    (void)self;
-    if (js_x)
-        *js_x = 128;
-    if (js_y)
-        *js_y = 128;
-    if (acc_x)
-        *acc_x = 0;
-    if (acc_y)
-        *acc_y = 0;
-    if (acc_z)
-        *acc_z = 0;
-    if (btn_c)
-        *btn_c = false;
-    if (btn_z)
-        *btn_z = false;
+/*
+ * Nunchuk Port Adaptor: the clock, and nothing else - this host has no I2C controller, so the bus
+ * half of that port stays absent rather than answering frames nothing sent. The stub that stood
+ * here returned a centred stick and two released buttons whatever the hardware was doing.
+ */
+/*
+ * Nunchuk Port Adaptor. applications/app_nunchuk.c:132-206's bus transfers are the product's, and
+ * this host has no I2C controller, so that half of the port is absent rather than stubbed with
+ * frames that nothing sent. What is here is the clock the application times its own staleness
+ * against, which is the same clock the PAS port reads.
+ */
+static edge_status_t nunchuk_now_ms(void *self, uint32_t *ms) {
+    vesc_host_glue_state_t *s = (vesc_host_glue_state_t *)self;
+    if (s == (void *)0 || ms == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    *ms = (uint32_t)(s->now_s * 1000.0f);
     return EDGE_OK;
 }
 
@@ -1804,7 +1803,7 @@ void vesc_host_make_nunchuk_port(nunchuk_port_t *out, vesc_host_glue_state_t *st
     }
     *out = (nunchuk_port_t){
         .self = state,
-        .read_data = nunchuk_read,
+        .now_ms = nunchuk_now_ms,
     };
 }
 

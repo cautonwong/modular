@@ -240,7 +240,7 @@ static void test_vesc_host_glue(void **state) {
 
     nunchuk_port_t nunchuk;
     vesc_host_make_nunchuk_port(&nunchuk, &glue_state);
-    assert_non_null(nunchuk.read_data);
+    assert_non_null(nunchuk.now_ms); /* the clock, which is all this host can give it */
 
     pas_port_t pas;
     vesc_host_make_pas_port(&pas, &glue_state);
@@ -652,11 +652,16 @@ static void test_vesc_host_simulated_adapters(void **state) {
     uint8_t js_x = 0u;
     uint8_t js_y = 0u;
     bool btn_c = true;
-    assert_int_equal(nunchuk.read_data(nunchuk.self, &js_x, &js_y, NULL, NULL, NULL, &btn_c, NULL),
-                     EDGE_OK);
-    assert_int_equal(js_x, 128u);
-    assert_int_equal(js_y, 128u);
-    assert_false(btn_c);
+    /* The port answers the product's own clock, in milliseconds, and guards its context. */
+    uint32_t ms = 0u;
+    assert_int_equal(nunchuk.now_ms(nunchuk.self, &ms), EDGE_OK);
+    assert_int_equal(nunchuk.now_ms(NULL, &ms), EDGE_EINVAL);
+    assert_int_equal(nunchuk.now_ms(nunchuk.self, NULL), EDGE_EINVAL);
+    (void)js_y;
+    (void)btn_c;
+    (void)js_x;
+    (void)js_y;
+    (void)btn_c;
 
     pas_port_t pas;
     vesc_host_make_pas_port(&pas, &glue_state);
@@ -1653,9 +1658,16 @@ static void test_vesc_host_adapters_nothing_called(void **state) {
     int16_t acc_z = 0;
     bool btn_c = false;
     bool btn_z = false;
-    assert_int_equal(
-        nunchuk.read_data(nunchuk.self, &js_x, &js_y, &acc_x, &acc_y, &acc_z, &btn_c, &btn_z),
-        EDGE_OK);
+    uint32_t chuk_ms = 0u;
+    assert_int_equal(nunchuk.now_ms(nunchuk.self, &chuk_ms), EDGE_OK);
+    assert_int_equal(nunchuk.now_ms(NULL, &chuk_ms), EDGE_EINVAL);
+    (void)js_x;
+    (void)js_y;
+    (void)acc_x;
+    (void)acc_y;
+    (void)acc_z;
+    (void)btn_c;
+    (void)btn_z;
 
     balance_port_t balance;
     vesc_host_make_balance_port(&balance, &glue_state);
