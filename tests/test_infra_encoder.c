@@ -1310,9 +1310,60 @@ static void test_encoder_as5x47u_sequence_matches_the_reference(void **state) {
     assert_int_equal(encoder_as5x47u_callback(&st, NULL, 0.0f), 0u);
 }
 
+/*
+ * enc_tle5012.c:304-324's CRC-8 and :328-380's safety word. The checksum is held against the
+ * polynomial folded by hand with the family's own seed, the three bits are the reference's own
+ * inversions - a clear bit is the fault, not one that is set - and the checksum runs over the
+ * command word and every data word of the answer.
+ */
+static void test_encoder_tle5012_matches_the_reference(void **state) {
+    (void)state;
+
+    const uint8_t bytes[4] = {0x83u, 0x00u, 0x12u, 0x34u};
+    uint32_t crc = 0xFFu;
+    for (int i = 0; i < 4; i++) {
+        crc ^= bytes[i];
+        for (int bit = 0; bit < 8; bit++) {
+            const uint32_t shifted = (crc << 1);
+            crc = ((crc & 0x80u) != 0u) ? (shifted ^ 0x1Du) : shifted;
+        }
+    }
+    assert_int_equal(encoder_tle5012_crc8(bytes, 4u), (uint8_t)((~crc) & 0xFFu));
+
+    /* A whole answer: the three bits set and the checksum the family's own fold gives. */
+    const uint16_t command = 0x8300u;
+    const uint16_t words[1] = {0x1234u};
+    uint8_t frame[4] = {(uint8_t)(command >> 8), (uint8_t)command, (uint8_t)(words[0] >> 8),
+                        (uint8_t)words[0]};
+    const uint8_t sum = encoder_tle5012_crc8(frame, 4u);
+    assert_int_equal(encoder_tle5012_check_safety(command, (uint16_t)(0x7000u | sum), words, 1u),
+                     ENCODER_TLE5012_NO_ERROR);
+
+    /* Each of the three bits, cleared in turn, is its own verdict. */
+    assert_int_equal(encoder_tle5012_check_safety(command, (uint16_t)(0x3000u | sum), words, 1u),
+                     ENCODER_TLE5012_SYSTEM_ERROR);
+    assert_int_equal(encoder_tle5012_check_safety(command, (uint16_t)(0x5000u | sum), words, 1u),
+                     ENCODER_TLE5012_INTERFACE_ACCESS_ERROR);
+    assert_int_equal(encoder_tle5012_check_safety(command, (uint16_t)(0x6000u | sum), words, 1u),
+                     ENCODER_TLE5012_INVALID_ANGLE_ERROR);
+
+    /* And a checksum that does not hold is a verdict of its own. */
+    assert_int_equal(
+        encoder_tle5012_check_safety(command, (uint16_t)(0x7000u | (sum ^ 0x01u)), words, 1u),
+        ENCODER_TLE5012_CRC_ERROR);
+
+    /* The angle over two to the fifteenth of a turn. */
+    assert_float_equal(encoder_tle5012_pos_to_deg(8192u), 90.0f, 1e-3f);
+
+    assert_int_equal(encoder_tle5012_crc8(NULL, 4u), 0u);
+    assert_int_equal(encoder_tle5012_check_safety(command, 0x7000u, NULL, 1u),
+                     ENCODER_TLE5012_CRC_ERROR);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
+        cmocka_unit_test(test_encoder_tle5012_matches_the_reference),
         cmocka_unit_test(test_encoder_as5x47u_sequence_matches_the_reference),
         cmocka_unit_test(test_encoder_as5x47u_matches_the_reference),
         cmocka_unit_test(test_encoder_ts5700_matches_the_reference),

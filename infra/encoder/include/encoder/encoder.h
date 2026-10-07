@@ -562,6 +562,42 @@ uint8_t encoder_as5x47u_transmit_crc(const uint8_t table[256], uint16_t tx_data)
 void encoder_as5x47u_process_pos(encoder_as5x47u_state_t *st, uint16_t pos_data);
 
 /*
+ * The TLE5012 family, whose answers carry a safety word beside their data. Its three masks, its own
+ * CRC (the polynomial 0x1D but seeded with 0xFF rather than the family next door's 0xC4), its error
+ * verdicts (:144-151) and the count its command word's last four bits carry (:273-281) are here.
+ */
+typedef enum encoder_tle5012_error {
+    ENCODER_TLE5012_NO_ERROR = 0x00,
+    ENCODER_TLE5012_SYSTEM_ERROR = 0x01,
+    ENCODER_TLE5012_INTERFACE_ACCESS_ERROR = 0x02,
+    ENCODER_TLE5012_INVALID_ANGLE_ERROR = 0x04,
+    ENCODER_TLE5012_ANGLE_SPEED_ERROR = 0x08,
+    ENCODER_TLE5012_CRC_ERROR = 0xFF
+} encoder_tle5012_error_t;
+
+#define TLE5012_SYSTEM_ERROR_MASK 0x4000u
+#define TLE5012_INTERFACE_ERROR_MASK 0x2000u
+#define TLE5012_INV_ANGLE_ERROR_MASK 0x1000u
+#define TLE5012_CRC_POLYNOMIAL 0x1Du
+#define TLE5012_CRC_SEED 0xFFu
+#define TLE5012_COMMAND_SAFETY_WORD 0x0001u
+#define TLE5012_COMMAND_NO_SAFETY_WORD 0x0000u
+
+/* :304-324: the seed, the byte in, eight shifts, and the complement it ends on. */
+uint8_t encoder_tle5012_crc8(const uint8_t *data, uint8_t length);
+
+/*
+ * :82 and :328-380: the safety word's three masks - each of them inverted, so that a bit which is
+ * clear is the fault rather than one that is set - and then the checksum over the command word and
+ * every data word, whose mismatch is the CRC verdict.
+ */
+encoder_tle5012_error_t encoder_tle5012_check_safety(uint16_t command, uint16_t safety_word,
+                                                     const uint16_t *read_words, uint16_t length);
+
+/* :221: the position over two to the fifteenth of a turn. */
+float encoder_tle5012_pos_to_deg(uint16_t pos);
+
+/*
  * The frame the state answered with, decoded; what comes back is the message to request next, whose
  * own two bytes and CRC the caller sends - which keeps this family's arithmetic free of the bus.
  */
