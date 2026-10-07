@@ -1360,9 +1360,145 @@ static void test_encoder_tle5012_matches_the_reference(void **state) {
                      ENCODER_TLE5012_CRC_ERROR);
 }
 
+typedef struct mock_core_plant {
+    float deg;
+    int abi_sets;
+    int custom_sets;
+    float last_abi_deg;
+    float last_custom_deg;
+    bool abi_index;
+    bool pwm_ready;
+    float ts_mt;
+    int mt_resets;
+    int err_resets;
+} mock_core_plant_t;
+
+static float core_plant_read(void *self) {
+    return ((mock_core_plant_t *)self)->deg;
+}
+
+static void core_plant_set_abi(void *self, float deg) {
+    mock_core_plant_t *p = (mock_core_plant_t *)self;
+    p->abi_sets++;
+    p->last_abi_deg = deg;
+}
+
+static void core_plant_set_custom(void *self, float deg) {
+    mock_core_plant_t *p = (mock_core_plant_t *)self;
+    p->custom_sets++;
+    p->last_custom_deg = deg;
+}
+
+static bool core_plant_abi_index(void *self) {
+    return ((mock_core_plant_t *)self)->abi_index;
+}
+
+static bool core_plant_pwm_ready(void *self) {
+    return ((mock_core_plant_t *)self)->pwm_ready;
+}
+
+static float core_plant_ts_mt(void *self) {
+    return ((mock_core_plant_t *)self)->ts_mt;
+}
+
+static void core_plant_mt_reset(void *self) {
+    ((mock_core_plant_t *)self)->mt_resets++;
+}
+
+static void core_plant_err_reset(void *self) {
+    ((mock_core_plant_t *)self)->err_resets++;
+}
+
+/*
+ * encoder.c:132-181's own bookkeeping: the reading is whichever family's the caller wired, the
+ * multiturn count belongs to the one sensor that has it and is carried in ten-thousandths of a turn
+ * beside a ten-thousandth of the angle - dropped once it steps past five thousand - and an angle a
+ * caller sets is normalised before only the two types that can hold one are told. The index is
+ * found for every type but the two that have to earn it.
+ */
+static void test_encoder_core_matches_the_reference(void **state) {
+    (void)state;
+
+    mock_core_plant_t plant = {.deg = 123.0f, .abi_index = true, .pwm_ready = true, .ts_mt = 12.0f};
+    encoder_core_port_t port = {.self = &plant,
+                                .set_abi_deg = core_plant_set_abi,
+                                .set_custom_deg = core_plant_set_custom,
+                                .abi_index_found = core_plant_abi_index,
+                                .pwm_abi_ready = core_plant_pwm_ready,
+                                .ts_multiturn = core_plant_ts_mt,
+                                .ts_reset_multiturn = core_plant_mt_reset,
+                                .ts_reset_errors = core_plant_err_reset};
+    encoder_core_t core;
+
+    /* A sensor with nothing special about it: read as its family read, index always found. */
+    encoder_core_begin(&core, ENCODER_CORE_TYPE_SINCOS, core_plant_read, &plant);
+    assert_int_equal(encoder_core_is_configured(&core), ENCODER_CORE_TYPE_SINCOS);
+    assert_float_equal(encoder_core_read_deg(&core), 123.0f, 1e-6f);
+    assert_float_equal(encoder_core_read_deg_multiturn(&core, &port), 123.0f, 1e-6f);
+    assert_true(encoder_core_index_found(&core, &port));
+    encoder_core_set_deg(&core, &port, 190.0f);
+    assert_int_equal(plant.abi_sets, 0);
+    assert_int_equal(plant.custom_sets, 0);
+    assert_float_equal(core.custom_deg, 0.0f, 1e-6f);
+
+    /* The multiturn sensor: the count in ten-thousandths beside the angle's own ten-thousandth. */
+    encoder_core_begin(&core, ENCODER_CORE_TYPE_TS5700N8501, core_plant_read, &plant);
+    assert_float_equal(encoder_core_read_deg_multiturn(&core, &port),
+                       123.0f / 10000.0f + (360.0f * (12.0f + 5000.0f)) / 10000.0f, 1e-3f);
+
+    /* A count past five thousand is dropped, and the sensor is told to reset it. */
+    plant.ts_mt = 6000.0f;
+    assert_float_equal(encoder_core_read_deg_multiturn(&core, &port),
+                       123.0f / 10000.0f + (360.0f * 5000.0f) / 10000.0f, 1e-3f);
+    assert_int_equal(plant.mt_resets, 1);
+    encoder_core_reset_multiturn(&core, &port);
+    assert_int_equal(plant.mt_resets, 2);
+    encoder_core_reset_errors(&core, &port);
+    assert_int_equal(plant.err_resets, 1);
+
+    /* The incremental one: a set angle is normalised, goes to its counter, and is its own index. */
+    encoder_core_begin(&core, ENCODER_CORE_TYPE_ABI, core_plant_read, &plant);
+    assert_true(encoder_core_index_found(&core, &port));
+    encoder_core_set_deg(&core, &port, 190.0f);
+    assert_int_equal(plant.abi_sets, 1);
+    assert_float_equal(plant.last_abi_deg, -170.0f, 1e-4f);
+    assert_float_equal(encoder_core_abi_deg_to_count(90.0f, 4096.0f), 1024.0f, 1e-3f);
+    plant.abi_index = false;
+    assert_false(encoder_core_index_found(&core, &port));
+
+    /* A sensor that is none of the others keeps the angle it was given. */
+    encoder_core_begin(&core, ENCODER_CORE_TYPE_CUSTOM, core_plant_read, &plant);
+    encoder_core_set_deg(&core, &port, -190.0f);
+    assert_float_equal(core.custom_deg, 170.0f, 1e-4f);
+    assert_float_equal(plant.last_custom_deg, 170.0f, 1e-4f);
+
+    /* The PWM-ABI's index is the one that has to be earned, and it is the port's to say. */
+    encoder_core_begin(&core, ENCODER_CORE_TYPE_PWM_ABI, core_plant_read, &plant);
+    assert_true(encoder_core_index_found(&core, &port));
+    plant.pwm_ready = false;
+    assert_false(encoder_core_index_found(&core, &port));
+
+    /* No core, no port. */
+    encoder_core_begin(NULL, ENCODER_CORE_TYPE_NONE, NULL, NULL);
+    assert_float_equal(encoder_core_read_deg(NULL), 0.0f, 1e-6f);
+    assert_int_equal(encoder_core_is_configured(NULL), ENCODER_CORE_TYPE_NONE);
+    assert_false(encoder_core_index_found(NULL, &port));
+    encoder_core_set_deg(NULL, &port, 1.0f);
+    encoder_core_reset_multiturn(NULL, &port);
+    encoder_core_reset_errors(NULL, &port);
+    assert_float_equal(encoder_core_read_deg_multiturn(NULL, &port), 0.0f, 1e-6f);
+    encoder_core_begin(&core, ENCODER_CORE_TYPE_TS5700N8501, NULL, NULL);
+    assert_float_equal(encoder_core_read_deg(&core), 0.0f, 1e-6f);
+    encoder_core_set_deg(&core, NULL, 1.0f);
+    encoder_core_reset_multiturn(&core, NULL);
+    encoder_core_reset_errors(&core, NULL);
+    assert_float_equal(encoder_core_read_deg_multiturn(&core, NULL), 0.0f, 1e-6f);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
+        cmocka_unit_test(test_encoder_core_matches_the_reference),
         cmocka_unit_test(test_encoder_tle5012_matches_the_reference),
         cmocka_unit_test(test_encoder_as5x47u_sequence_matches_the_reference),
         cmocka_unit_test(test_encoder_as5x47u_matches_the_reference),

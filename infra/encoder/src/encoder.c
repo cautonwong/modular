@@ -634,6 +634,130 @@ float encoder_tle5012_pos_to_deg(uint16_t pos) {
     return (float)pos * (360.0f / 32768.0f);
 }
 
+void encoder_core_begin(encoder_core_t *c, encoder_core_type_t type, float (*read_deg)(void *self),
+                        void *read_self) {
+    if (c == (void *)0) {
+        return;
+    }
+    c->type = type;
+    c->read_deg = read_deg;
+    c->read_self = read_self;
+    c->custom_deg = 0.0f;
+}
+
+/* :68-90's own reading, which is whatever family's reader the caller wired. */
+float encoder_core_read_deg(const encoder_core_t *c) {
+    if (c == (void *)0 || c->read_deg == (void *)0) {
+        return 0.0f;
+    }
+    return c->read_deg(c->read_self);
+}
+
+/* :136-141's own arithmetic: degrees over a turn, times the counter's own counts. */
+float encoder_core_abi_deg_to_count(float deg, float counts) {
+    return deg / 360.0f * counts;
+}
+
+/*
+ * :132-141: the one sensor with a multiturn count carries it in ten-thousandths of a turn beside a
+ * ten-thousandth of the angle, and loses it when the count steps past five thousand - which also
+ * resets it. Every other type is simply read.
+ */
+float encoder_core_read_deg_multiturn(encoder_core_t *c, const encoder_core_port_t *port) {
+    if (c == (void *)0 || port == (void *)0 || port->ts_multiturn == (void *)0 ||
+        c->type != ENCODER_CORE_TYPE_TS5700N8501) {
+        return encoder_core_read_deg(c);
+    }
+
+    float ts_mt = port->ts_multiturn(port->self);
+    if (fabsf(ts_mt) > 5000.0f) {
+        ts_mt = 0.0f;
+        if (port->ts_reset_multiturn != (void *)0) {
+            port->ts_reset_multiturn(port->self);
+        }
+    }
+    ts_mt += 5000.0f;
+
+    return encoder_core_read_deg(c) / 10000.0f + (360.0f * ts_mt) / 10000.0f;
+}
+
+/*
+ * :142-151: the angle is normalised first - the reference's own two whiles - and then only the two
+ * types that can hold one are told about it: the incremental one writes its counter and calls the
+ * index found, and a sensor that is none of the others keeps it.
+ */
+void encoder_core_set_deg(encoder_core_t *c, const encoder_core_port_t *port, float deg) {
+    if (c == (void *)0) {
+        return;
+    }
+
+    while (deg >= 180.0f) {
+        deg -= 360.0f;
+    }
+    while (deg < -180.0f) {
+        deg += 360.0f;
+    }
+
+    if (c->type == ENCODER_CORE_TYPE_ABI) {
+        if (port != (void *)0 && port->set_abi_deg != (void *)0) {
+            port->set_abi_deg(port->self, deg);
+        }
+    } else if (c->type == ENCODER_CORE_TYPE_CUSTOM) {
+        c->custom_deg = deg;
+        if (port != (void *)0 && port->set_custom_deg != (void *)0) {
+            port->set_custom_deg(port->self, deg);
+        }
+    }
+}
+
+encoder_core_type_t encoder_core_is_configured(const encoder_core_t *c) {
+    return (c != (void *)0) ? c->type : ENCODER_CORE_TYPE_NONE;
+}
+
+/*
+ * :155-168: the incremental family's own flag; the PWM-ABI's, which is found once two updates have
+ * been seen - and which lets its capture go at the same moment; and every other type's, which is
+ * always found.
+ */
+bool encoder_core_index_found(encoder_core_t *c, const encoder_core_port_t *port) {
+    if (c == (void *)0) {
+        return false;
+    }
+
+    if (c->type == ENCODER_CORE_TYPE_ABI) {
+        if (port == (void *)0 || port->abi_index_found == (void *)0) {
+            return false;
+        }
+        return port->abi_index_found(port->self);
+    }
+
+    if (c->type == ENCODER_CORE_TYPE_PWM_ABI) {
+        if (port == (void *)0 || port->pwm_abi_ready == (void *)0) {
+            return false;
+        }
+        return port->pwm_abi_ready(port->self);
+    }
+
+    return true;
+}
+
+/* :169-173 and :177-181, the two resets, both of which only the multiturn sensor has. */
+void encoder_core_reset_multiturn(const encoder_core_t *c, const encoder_core_port_t *port) {
+    if (c == (void *)0 || port == (void *)0 || c->type != ENCODER_CORE_TYPE_TS5700N8501 ||
+        port->ts_reset_multiturn == (void *)0) {
+        return;
+    }
+    port->ts_reset_multiturn(port->self);
+}
+
+void encoder_core_reset_errors(const encoder_core_t *c, const encoder_core_port_t *port) {
+    if (c == (void *)0 || port == (void *)0 || c->type != ENCODER_CORE_TYPE_TS5700N8501 ||
+        port->ts_reset_errors == (void *)0) {
+        return;
+    }
+    port->ts_reset_errors(port->self);
+}
+
 uint16_t encoder_as5x47u_callback(encoder_as5x47u_state_t *st, const uint8_t rx[3], float now_s) {
     if (st == (void *)0 || rx == (void *)0) {
         return 0u;

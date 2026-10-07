@@ -598,6 +598,72 @@ encoder_tle5012_error_t encoder_tle5012_check_safety(uint16_t command, uint16_t 
 float encoder_tle5012_pos_to_deg(uint16_t pos);
 
 /*
+ * The core the families are read through: the type the composition root chose
+ * (encoder_datatype.h:30-47), and the bookkeeping the reference keeps around it - which family's
+ * reader to call, the multiturn of the one that has it, the index flag of the two that have that,
+ * and the angle a caller can set.
+ */
+typedef enum encoder_core_type {
+    ENCODER_CORE_TYPE_NONE = 0,
+    ENCODER_CORE_TYPE_AS504X,
+    ENCODER_CORE_TYPE_MT6816,
+    ENCODER_CORE_TYPE_TLE5012,
+    ENCODER_CORE_TYPE_AD2S1205_SPI,
+    ENCODER_CORE_TYPE_SINCOS,
+    ENCODER_CORE_TYPE_TS5700N8501,
+    ENCODER_CORE_TYPE_ABI,
+    ENCODER_CORE_TYPE_AS5X47U,
+    ENCODER_CORE_TYPE_BISSC,
+    ENCODER_CORE_TYPE_CUSTOM,
+    ENCODER_CORE_TYPE_PWM,
+    ENCODER_CORE_TYPE_PWM_ABI,
+    ENCODER_CORE_TYPE_MA782,
+    ENCODER_CORE_TYPE_AMT22,
+    ENCODER_CORE_TYPE_MT6835
+} encoder_core_type_t;
+
+/*
+ * What the core cannot do itself, because it is the hardware's or another family's:
+ *
+ *   set_abi_count        :141-143's two writes to the ABI timer's counter and its index flag
+ *   set_custom_deg       :145's stored position for a sensor that is not one of the others
+ *   abi_index_found      :155-158's own flag
+ *   pwm_abi_ready        :159-165: after two updates the flag is set and the capture is let go
+ *   ts_multiturn          :132-140's ABM count, and the two resets that go with it
+ */
+typedef struct encoder_core_port {
+    void *self;
+    void (*set_abi_deg)(void *self, float deg);
+    void (*set_custom_deg)(void *self, float deg);
+    bool (*abi_index_found)(void *self);
+    bool (*pwm_abi_ready)(void *self);
+    float (*ts_multiturn)(void *self);
+    void (*ts_reset_multiturn)(void *self);
+    void (*ts_reset_errors)(void *self);
+} encoder_core_port_t;
+
+typedef struct encoder_core {
+    encoder_core_type_t type;
+    /* The family's own reader, which the caller wires to whichever family it constructed. */
+    float (*read_deg)(void *self);
+    void *read_self;
+    float custom_deg;
+} encoder_core_t;
+
+/* :68-267's dispatch is the composition root's; what is here is the bookkeeping around it. */
+void encoder_core_begin(encoder_core_t *c, encoder_core_type_t type, float (*read_deg)(void *self),
+                        void *read_self);
+float encoder_core_read_deg(const encoder_core_t *c);
+float encoder_core_read_deg_multiturn(encoder_core_t *c, const encoder_core_port_t *port);
+void encoder_core_set_deg(encoder_core_t *c, const encoder_core_port_t *port, float deg);
+encoder_core_type_t encoder_core_is_configured(const encoder_core_t *c);
+bool encoder_core_index_found(encoder_core_t *c, const encoder_core_port_t *port);
+void encoder_core_reset_multiturn(const encoder_core_t *c, const encoder_core_port_t *port);
+void encoder_core_reset_errors(const encoder_core_t *c, const encoder_core_port_t *port);
+
+float encoder_core_abi_deg_to_count(float deg, float counts);
+
+/*
  * The frame the state answered with, decoded; what comes back is the message to request next, whose
  * own two bytes and CRC the caller sends - which keeps this family's arithmetic free of the bus.
  */
