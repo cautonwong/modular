@@ -805,6 +805,27 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
         return send_reply(self, 1u);
     }
 
+    case COMM_FW_INFO: {
+        if (self->identity == (void *)0) {
+            return EDGE_EINVAL;
+        }
+        /*
+         * comm/commands.c:1150-1180: the three version bytes this build carries, then two hashes,
+         * each written as at most forty-six characters and a terminator. This port has no
+         * build-generated commit hash, so both are the empty string the reference itself uses for
+         * the user's - a named absence rather than an invented hash.
+         */
+        uint8_t *resp = self->cmd_reply_buf;
+        size_t resp_len = 0;
+        resp[resp_len++] = COMM_FW_INFO;
+        resp[resp_len++] = self->identity->fw_version_major;
+        resp[resp_len++] = self->identity->fw_version_minor;
+        resp[resp_len++] = self->identity->fw_test_version;
+        resp[resp_len++] = '\0'; /* the commit hash this build does not have */
+        resp[resp_len++] = '\0'; /* and neither the user's */
+        return send_reply(self, resp_len);
+    }
+
     case COMM_SET_MCCONF_TEMP:
     case COMM_SET_MCCONF_TEMP_SETUP: {
         if (self->ops == (void *)0 || self->ops->set_mcconf_temp == (void *)0) {

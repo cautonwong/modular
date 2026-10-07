@@ -611,6 +611,17 @@ static void test_receive_packet_and_commands(void **state) {
     ctx.tx_count = 0;
     /* COMM_SET_MCCONF_TEMP writes the running configuration, which this harness does not hand over.
      */
+    /* COMM_FW_INFO: three version bytes and two hashes, each a string and its terminator. This port
+     * has no build-generated hash, so both strings are empty - a length of six. */
+    ctx.tx_count = 0;
+    uint8_t cmd_fwinfo[1] = {COMM_FW_INFO};
+    assert_int_equal(vesc_comm_process_command(comm, cmd_fwinfo, sizeof(cmd_fwinfo)), EDGE_OK);
+    assert_int_equal(ctx.tx_count, 1);
+    assert_int_equal(ctx.tx_buf[1], 6u);
+    assert_int_equal(ctx.tx_buf[2], COMM_FW_INFO);
+    assert_int_equal(ctx.tx_buf[6], 0u); /* the commit hash's terminator */
+    assert_int_equal(ctx.tx_buf[7], 0u); /* and the user's */
+
     ctx.tx_count = 0;
     uint8_t cmd_mct[10] = {COMM_SET_MCCONF_TEMP, 1u, 0u, 1u, 0u, 0u, 0u, 0u, 0u, 0u};
     assert_int_equal(vesc_comm_process_command(comm, cmd_mct, sizeof(cmd_mct)), EDGE_ENOTSUP);
