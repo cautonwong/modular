@@ -156,6 +156,49 @@ static void test_ppm_hooks_guards_and_read_failure(void **state) {
     assert_ptr_equal(ppm_module(NULL), NULL);
 }
 
+static void test_ppm_detach_and_override(void **state) {
+    (void)state;
+    mock_ppm_rcv_t rcv;
+    memset(&rcv, 0, sizeof(rcv));
+    rcv.pulse_us = 1500.0f; /* the centre the defaults use */
+    rcv.signal_ok = true;
+    ppm_receiver_port_t port = {
+        .self = &rcv, .read_pulse_us = mock_read_pulse, .is_signal_present = mock_signal_present};
+
+    ppm_app_t app;
+    ppm_construct(&app, EDGE_MOD_PPM, 20u, NULL, &port);
+    assert_int_equal(ppm_init(&app), EDGE_OK);
+
+    /* The centre pulse decodes to nothing, which also unlocks the safe start. */
+    assert_int_equal(ppm_update(&app, 0.001f), EDGE_OK);
+    assert_float_equal(ppm_get_output(&app), 0.0f, 1e-4f);
+    assert_false(ppm_is_detached(&app));
+
+    /* Detached, the override is what the loop uses - applications/app_ppm.c:135-137. */
+    ppm_override(&app, 0.75f);
+    ppm_detach(&app, true);
+    assert_true(ppm_is_detached(&app));
+    assert_float_equal(ppm_get_override(&app), 0.75f, 1e-6f);
+    assert_int_equal(ppm_update(&app, 0.001f), EDGE_OK);
+    assert_float_equal(ppm_get_output(&app), 0.75f, 1e-6f);
+
+    /* It is taken as given: the reference clamps the reading, not the override. */
+    ppm_override(&app, 5.0f);
+    assert_int_equal(ppm_update(&app, 0.001f), EDGE_OK);
+    assert_float_equal(ppm_get_output(&app), 5.0f, 1e-6f);
+
+    /* Let go, and the wire's own reading is what the loop uses again. */
+    ppm_detach(&app, false);
+    assert_int_equal(ppm_update(&app, 0.001f), EDGE_OK);
+    assert_float_equal(ppm_get_output(&app), 0.0f, 1e-4f);
+
+    /* The guards. */
+    ppm_detach(NULL, true);
+    ppm_override(NULL, 1.0f);
+    assert_false(ppm_is_detached(NULL));
+    assert_float_equal(ppm_get_override(NULL), 0.0f, 1e-9f);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -163,6 +206,7 @@ int main(void) {
         cmocka_unit_test(test_ppm_hooks_guards_and_read_failure),
         cmocka_unit_test(test_ppm_deadband_and_range),
         cmocka_unit_test(test_ppm_safe_start),
+        cmocka_unit_test(test_ppm_detach_and_override),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
