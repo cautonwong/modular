@@ -20,6 +20,34 @@ set(EDGE_CHIBIOS_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../vendor/ChibiOS_3.0.5
 file(GLOB EDGE_CHIBIOS_RT_SOURCES
     "${EDGE_CHIBIOS_ROOT}/os/rt/src/*.c"
 )
+
+# The HAL, in the shape the reference's own build asks for it (make/fw.mk): its core sources, its
+# OSAL for the RT port, and the STM32F4xx platform. The low-level drivers are the one place a glob is
+# right rather than a list: they are grouped per peripheral and version, each file is guarded by the
+# family macro it belongs to, and a file for another family compiles to nothing rather than conflicting.
+# The reference selects them through ChibiOS's make system, which is machinery this target does not
+# need to reproduce when the preprocessor already answers the same question.
+file(GLOB EDGE_CHIBIOS_HAL_SOURCES
+    "${EDGE_CHIBIOS_ROOT}/os/hal/src/*.c"
+    "${EDGE_CHIBIOS_ROOT}/os/hal/osal/rt/*.c"
+    "${EDGE_CHIBIOS_ROOT}/os/hal/ports/STM32/STM32F4xx/*.c"
+    "${EDGE_CHIBIOS_ROOT}/os/hal/ports/common/ARMCMx/*.c"
+    "${EDGE_CHIBIOS_ROOT}/os/hal/ports/STM32/LLD/*.c"
+    # The variants, listed rather than globbed and the same eight the includes name: a variant directory
+    # holds other families' files too, guarded by a family macro that is not what decides this build, so
+    # globbing them compiles the wrong family's code and fails on its registers.
+    "${EDGE_CHIBIOS_ROOT}/os/hal/ports/STM32/LLD/DACv1/*.c"
+    "${EDGE_CHIBIOS_ROOT}/os/hal/ports/STM32/LLD/GPIOv2/*.c"
+    "${EDGE_CHIBIOS_ROOT}/os/hal/ports/STM32/LLD/I2Cv1/*.c"
+    "${EDGE_CHIBIOS_ROOT}/os/hal/ports/STM32/LLD/OTGv1/*.c"
+    "${EDGE_CHIBIOS_ROOT}/os/hal/ports/STM32/LLD/RTCv2/*.c"
+    "${EDGE_CHIBIOS_ROOT}/os/hal/ports/STM32/LLD/SPIv1/*.c"
+    "${EDGE_CHIBIOS_ROOT}/os/hal/ports/STM32/LLD/TIMv1/*.c"
+    "${EDGE_CHIBIOS_ROOT}/os/hal/ports/STM32/LLD/USARTv1/*.c"
+)
+file(GLOB EDGE_CHIBIOS_CMSIS_SOURCES
+    "${EDGE_CHIBIOS_ROOT}/os/ext/CMSIS/ST/system_stm32f4xx.c"
+)
 set(EDGE_CHIBIOS_PORT_SOURCES
     # The port is chosen, not globbed: the ARMCMx directory holds both the ARMv6-M and the ARMv7-M one,
     # they define the same port entry points, and only one of them can be compiled. This is a Cortex-M4,
@@ -40,7 +68,8 @@ set_source_files_properties("${EDGE_CHIBIOS_ROOT}/os/rt/ports/ARMCMx/compilers/G
     PROPERTIES COMPILE_OPTIONS "-x;assembler-with-cpp")
 
 add_library(chibios_kernel STATIC EXCLUDE_FROM_ALL
-              ${EDGE_CHIBIOS_RT_SOURCES} ${EDGE_CHIBIOS_PORT_SOURCES})
+              ${EDGE_CHIBIOS_RT_SOURCES} ${EDGE_CHIBIOS_PORT_SOURCES}
+              ${EDGE_CHIBIOS_HAL_SOURCES} ${EDGE_CHIBIOS_CMSIS_SOURCES})
 #
 # EXCLUDE_FROM_ALL because the kernel is not yet the whole of what a ChibiOS firmware needs: its device
 # parameters reach for board.h, and that board header is the HAL's, so the kernel, its port and their
@@ -63,6 +92,28 @@ target_include_directories(chibios_kernel PUBLIC
     # and the Cortex-M core's beside them.
     "${EDGE_CHIBIOS_ROOT}/os/ext/CMSIS/ST"
     "${EDGE_CHIBIOS_ROOT}/os/ext/CMSIS/include"
+    "${EDGE_CHIBIOS_ROOT}/os/hal/include"
+    "${EDGE_CHIBIOS_ROOT}/os/hal/osal/rt"
+    "${EDGE_CHIBIOS_ROOT}/os/hal/ports/STM32/STM32F4xx"
+    # The low-level driver variants this family uses, read off ChibiOS's own platform.mk for it rather
+    # than taken wholesale: several variants share a header name, and the first one on the include path
+    # would answer for all of them.
+    "${EDGE_CHIBIOS_ROOT}/os/hal/ports/STM32/LLD"
+    "${EDGE_CHIBIOS_ROOT}/os/hal/ports/STM32/LLD/DACv1"
+    "${EDGE_CHIBIOS_ROOT}/os/hal/ports/STM32/LLD/GPIOv2"
+    "${EDGE_CHIBIOS_ROOT}/os/hal/ports/STM32/LLD/I2Cv1"
+    "${EDGE_CHIBIOS_ROOT}/os/hal/ports/STM32/LLD/OTGv1"
+    "${EDGE_CHIBIOS_ROOT}/os/hal/ports/STM32/LLD/RTCv2"
+    "${EDGE_CHIBIOS_ROOT}/os/hal/ports/STM32/LLD/SPIv1"
+    "${EDGE_CHIBIOS_ROOT}/os/hal/ports/STM32/LLD/TIMv1"
+    "${EDGE_CHIBIOS_ROOT}/os/hal/ports/STM32/LLD/USARTv1"
+    # The HAL's shared port directories: the ARM Cortex-M one holds nvic.h, which the STM32 platform
+    # includes, and the STM32 one holds the family-agnostic low-level headers beside the family's own.
+    "${EDGE_CHIBIOS_ROOT}/os/hal/ports/common"
+    "${EDGE_CHIBIOS_ROOT}/os/hal/ports/common/ARMCMx"    "${EDGE_CHIBIOS_ROOT}/os/hal/ports/STM32"
+    # The two the reference's own include line names beside the ones above (make/fw.mk:188).
+    "${EDGE_CHIBIOS_ROOT}/os/hal/lib/streams"
+    "${EDGE_CHIBIOS_ROOT}/os/various"
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
     # The five configuration headers are the reference's own, and are kept here rather than in include
     # for the same reason the trees beside them are: they are not this repository's code. They are the
