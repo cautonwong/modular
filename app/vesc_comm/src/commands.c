@@ -61,6 +61,12 @@ static void buffer_append_float32_auto(uint8_t *buffer, float number, size_t *in
     buffer_append_uint32(buffer, res, index);
 }
 
+static int16_t buffer_get_int16(const uint8_t *buffer, size_t *index) {
+    const int16_t res = (int16_t)(((uint16_t)buffer[*index] << 8) | (uint16_t)buffer[*index + 1u]);
+    *index += 2u;
+    return res;
+}
+
 static int32_t buffer_get_int32(const uint8_t *buffer, size_t *index) {
     int32_t res =
         (int32_t)(((uint32_t)buffer[*index] << 24) | ((uint32_t)buffer[*index + 1] << 16) |
@@ -774,6 +780,37 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
         uint8_t *resp = self->cmd_reply_buf;
         resp[0] = COMM_RESET_STATS;
         return send_reply(self, 1u);
+    }
+
+    case COMM_SET_CHUCK_DATA: {
+        if (self->ops == (void *)0 || self->ops->set_chuck_data == (void *)0) {
+            return EDGE_ENOTSUP;
+        }
+        /*
+         * comm/commands.c:2500-2518: four bytes, then three sixteen-bit axes, then - only when the
+         * frame is long enough - the two bytes that carry the direction state. A short frame leaves
+         * those two false rather than guessing them, which is what the reference does.
+         */
+        size_t ind = 0u;
+        vesc_chuck_data_t d;
+        memset(&d, 0, sizeof(d));
+        d.js_x = (int)data[ind++];
+        d.js_y = (int)data[ind++];
+        d.bt_c = data[ind++] != 0u;
+        d.bt_z = data[ind++] != 0u;
+        d.acc_x = (int)buffer_get_int16(data, &ind);
+        d.acc_y = (int)buffer_get_int16(data, &ind);
+        d.acc_z = (int)buffer_get_int16(data, &ind);
+        if (len >= ind + 2u) {
+            d.rev_has_state = data[ind++] != 0u;
+            d.is_rev = data[ind++] != 0u;
+        } else {
+            d.rev_has_state = false;
+            d.is_rev = false;
+        }
+
+        self->ops->set_chuck_data(self->ops->self, &d);
+        return EDGE_OK; /* the reference sends no reply for this one */
     }
 
     case COMM_GET_BATTERY_CUT: {

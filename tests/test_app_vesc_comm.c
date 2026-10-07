@@ -606,6 +606,12 @@ static void test_receive_packet_and_commands(void **state) {
     /* COMM_GET_BATTERY_CUT reads the running configuration's own two limits, through the same port.
      */
     ctx.tx_count = 0;
+    /* COMM_SET_CHUCK_DATA needs the operations port too, and has no reply of its own either way. */
+    ctx.tx_count = 0;
+    uint8_t cmd_chuck[12] = {COMM_SET_CHUCK_DATA, 128u, 200u, 1u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u};
+    assert_int_equal(vesc_comm_process_command(comm, cmd_chuck, sizeof(cmd_chuck)), EDGE_ENOTSUP);
+    assert_int_equal(ctx.tx_count, 0);
+
     uint8_t cmd_cut[1] = {COMM_GET_BATTERY_CUT};
     assert_int_equal(vesc_comm_process_command(comm, cmd_cut, sizeof(cmd_cut)), EDGE_ENOTSUP);
     assert_int_equal(ctx.tx_count, 0);

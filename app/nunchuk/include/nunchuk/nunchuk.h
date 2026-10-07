@@ -53,12 +53,15 @@ typedef struct nunchuk_config {
 } nunchuk_config_t;
 
 /* datatypes.h:1265-1275, the state the controller reports. */
+/* datatypes.h:1265-1275, the state the controller reports - and its fields are ints there, which
+ * matters for the two axes that arrive as sixteen-bit values over the wire.
+ */
 typedef struct nunchuk_data {
-    uint8_t js_x;
-    uint8_t js_y;
-    uint8_t acc_x;
-    uint8_t acc_y;
-    uint8_t acc_z;
+    int js_x;
+    int js_y;
+    int acc_x;
+    int acc_y;
+    int acc_z;
     bool bt_z;
     bool bt_c;
     bool rev_has_state;

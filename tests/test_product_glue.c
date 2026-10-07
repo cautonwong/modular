@@ -1133,6 +1133,35 @@ static void test_vesc_host_restart_requests(void **state) {
     float cut_end = -1.0f;
     assert_int_equal(bare_ops.get_battery_cut(bare_ops.self, &cut_start, &cut_end), EDGE_EINVAL);
     assert_int_equal(bare_ops.get_battery_cut(NULL, &cut_start, &cut_end), EDGE_EINVAL);
+    /* COMM_SET_CHUCK_DATA hands a frame to the nunchuk application as if its own bus had produced
+     * it, so the context needs both a glue state and an application behind it. */
+    nunchuk_app_t chuk;
+    memset(&chuk, 0, sizeof(chuk));
+    vesc_host_glue_state_t chuk_glue;
+    memset(&chuk_glue, 0, sizeof(chuk_glue));
+    chuk_glue.nunchuk = &chuk;
+    bare.glue = &chuk_glue;
+    vesc_chuck_data_t cd;
+    memset(&cd, 0, sizeof(cd));
+    cd.js_x = 100;
+    cd.js_y = 200;
+    cd.acc_x = 1024;
+    cd.acc_z = 700;
+    cd.bt_c = true;
+    cd.rev_has_state = true;
+    cd.is_rev = true;
+    bare_ops.set_chuck_data(bare_ops.self, &cd);
+    assert_int_equal(chuk.data.js_x, 100);
+    assert_int_equal(chuk.data.js_y, 200);
+    assert_int_equal(chuk.data.acc_x, 1024);
+    assert_int_equal(chuk.data.acc_z, 700);
+    assert_true(chuk.data.bt_c);
+    assert_true(chuk.data.rev_has_state);
+    assert_true(chuk.data.is_rev);
+    assert_true(nunchuk_has_update(&chuk));
+    bare_ops.set_chuck_data(bare_ops.self, NULL); /* guarded */
+    bare.glue = NULL;
+    bare_ops.set_chuck_data(bare_ops.self, &cd); /* and a state with no application */
 }
 
 /* The configuration store the detection tests below hand the aggregate; defined with them. */
