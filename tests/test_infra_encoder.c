@@ -1217,9 +1217,103 @@ static void test_encoder_as5x47u_matches_the_reference(void **state) {
     encoder_as5x47u_process_pos(NULL, 1u);
 }
 
+/* A frame of two data bytes and the CRC the family's own fold puts on it. */
+static void as5x47u_frame(uint8_t rx[3], const uint8_t table[256], uint16_t data) {
+    rx[0] = (uint8_t)(data >> 8);
+    rx[1] = (uint8_t)(data & 0xFFu);
+    rx[2] = (uint8_t)(encoder_as5x47u_crc8(table, rx, 2u, AS5X47U_SPI_TX_CRC_SEED) ^ 0xFFu);
+}
+
+/*
+ * enc_as5x47u.c:119-245's callback: a frame whose CRC holds moves the sequence one step and answers
+ * with the message to ask for next. Six of the eight states are a position frame answered by asking
+ * for another while the next reading is collected, and the other two take the magnitude, the AGC,
+ * the four diagnostics and the three error flags. A frame whose CRC does not hold, or that carries
+ * the sensor's own error bit, takes the sequence to its error state, which asks for the flags
+ * instead.
+ */
+static void test_encoder_as5x47u_sequence_matches_the_reference(void **state) {
+    (void)state;
+
+    encoder_as5x47u_state_t st;
+    encoder_as5x47u_begin(&st);
+    assert_int_equal(st.spi_seq, ENCODER_AS5X47U_SEQ_TX_MAG_RX_POS);
+
+    uint8_t rx[3];
+    const uint16_t pos_message = (uint16_t)(AS5X47U_SPI_POS_ADR | AS5X47U_SPI_READ_BIT);
+
+    /* A position frame at the start: the angle is taken and the sequence asks for another position.
+     */
+    as5x47u_frame(rx, st.table_crc8, 4096u);
+    assert_int_equal(encoder_as5x47u_callback(&st, rx, 0.001f), pos_message);
+    assert_float_equal(st.last_enc_angle, (float)(4096u * 360u) / (float)(1u << 14), 1e-3f);
+    assert_int_equal(st.spi_seq, ENCODER_AS5X47U_SEQ_TX_POS_RX_MAG);
+    assert_true(st.sensor_diag.is_connected);
+
+    /* The magnitude it asked for. */
+    as5x47u_frame(rx, st.table_crc8, 0x1234u);
+    assert_int_equal(encoder_as5x47u_callback(&st, rx, 0.002f),
+                     (uint16_t)(AS5X47U_SPI_AGC_ADR | AS5X47U_SPI_READ_BIT));
+    assert_int_equal(st.sensor_diag.serial_magnitude, 0x1234u);
+    assert_int_equal(st.sensor_diag.magnitude, 0x1234u & 0x3FFFu);
+
+    /* A position frame again, then the AGC. */
+    as5x47u_frame(rx, st.table_crc8, 2048u);
+    assert_int_equal(encoder_as5x47u_callback(&st, rx, 0.003f), pos_message);
+    as5x47u_frame(rx, st.table_crc8, 0x00ABu);
+    assert_int_equal(encoder_as5x47u_callback(&st, rx, 0.004f),
+                     (uint16_t)(AS5X47U_SPI_DIAG_ADR | AS5X47U_SPI_READ_BIT));
+    assert_int_equal(st.sensor_diag.AGC_value, 0xABu);
+
+    /* A position frame, then the diagnostics: the four bits the reference takes out of them. */
+    as5x47u_frame(rx, st.table_crc8, 1024u);
+    assert_int_equal(encoder_as5x47u_callback(&st, rx, 0.005f), pos_message);
+    as5x47u_frame(rx, st.table_crc8, (uint16_t)((1u << 10) | (1u << 2) | (1u << 3)));
+    assert_int_equal(encoder_as5x47u_callback(&st, rx, 0.006f),
+                     (uint16_t)(AS5X47U_SPI_ERRFL_ADR | AS5X47U_SPI_READ_BIT));
+    assert_int_equal(st.sensor_diag.is_broken_hall, 1u);
+    assert_int_equal(st.sensor_diag.is_COF, 1u);
+    assert_int_equal(st.sensor_diag.is_Comp_low, 1u);
+    assert_int_equal(st.sensor_diag.is_Comp_high, 0u);
+
+    /* A position frame, then the error flags: those three bits, and the cycle begins again. */
+    as5x47u_frame(rx, st.table_crc8, 512u);
+    assert_int_equal(encoder_as5x47u_callback(&st, rx, 0.007f), pos_message);
+    as5x47u_frame(rx, st.table_crc8, (uint16_t)((1u << 7) | (1u << 6) | (1u << 1)));
+    assert_int_equal(encoder_as5x47u_callback(&st, rx, 0.008f),
+                     (uint16_t)(AS5X47U_SPI_MAGN_ADR | AS5X47U_SPI_READ_BIT));
+    assert_int_equal(st.sensor_diag.is_wdt, 1u);
+    assert_int_equal(st.sensor_diag.is_crc_error, 1u);
+    assert_int_equal(st.sensor_diag.is_mag_half, 1u);
+    assert_int_equal(st.spi_seq, ENCODER_AS5X47U_SEQ_TX_MAG_RX_POS);
+
+    /* A frame whose CRC does not hold is the bus's own error: the flags are asked for instead. */
+    as5x47u_frame(rx, st.table_crc8, 4096u);
+    rx[2] ^= 0x01u;
+    assert_int_equal(encoder_as5x47u_callback(&st, rx, 0.009f),
+                     (uint16_t)(AS5X47U_SPI_ERRFL_ADR | AS5X47U_SPI_READ_BIT));
+    assert_int_equal(st.spi_seq, ENCODER_AS5X47U_SEQ_PREV_ERR);
+    assert_int_equal(st.sensor_diag.spi_error_cnt, 1u);
+    assert_float_equal(st.sensor_diag.spi_error_rate, 0.001f, 1e-6f);
+
+    /* And the sensor's own error bit, on a frame whose CRC does hold, is the same way out. */
+    as5x47u_frame(rx, st.table_crc8, (uint16_t)0x8000u);
+    assert_int_equal(encoder_as5x47u_callback(&st, rx, 0.010f),
+                     (uint16_t)(AS5X47U_SPI_ERRFL_ADR | AS5X47U_SPI_READ_BIT));
+    assert_int_equal(st.sensor_diag.is_error, 1u);
+
+    /* The error state keeps asking for the flags while its own frames answer nothing useful. */
+    assert_int_equal(encoder_as5x47u_callback(&st, rx, 0.011f),
+                     (uint16_t)(AS5X47U_SPI_ERRFL_ADR | AS5X47U_SPI_READ_BIT));
+
+    assert_int_equal(encoder_as5x47u_callback(NULL, rx, 0.0f), 0u);
+    assert_int_equal(encoder_as5x47u_callback(&st, NULL, 0.0f), 0u);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
+        cmocka_unit_test(test_encoder_as5x47u_sequence_matches_the_reference),
         cmocka_unit_test(test_encoder_as5x47u_matches_the_reference),
         cmocka_unit_test(test_encoder_ts5700_matches_the_reference),
         cmocka_unit_test(test_encoder_ma782_matches_the_reference),
