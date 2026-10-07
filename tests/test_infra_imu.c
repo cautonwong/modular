@@ -3,61 +3,212 @@
 #include <stddef.h>
 #include <setjmp.h>
 #include <stdint.h>
-#include <math.h>
-
+#include <string.h>
 #include <cmocka.h>
 /* clang-format on */
 
-#include "edge/errors.h"
-#include "imu/imu.h"
+#include "imu/mpu9150.h"
 
-#ifndef M_PI
-#define M_PI 3.14159265358979323846f
-#endif
+/*
+ * A register file and a clock, which is all the driver asks its transport for. The magnetometer has
+ * its own file because it answers at its own address over the bypass, exactly as the reference's
+ * does.
+ */
+typedef struct mock_imu {
+    uint8_t regs[128];
+    uint8_t mag_regs[128];
+    uint8_t who;
+    uint8_t last_dev_addr;
+    unsigned reads;
+    unsigned writes;
+    uint32_t delayed_us;
+    bool fail_reads;
+} mock_imu_t;
 
-static void test_imu_ahrs_static_gravity(void **state) {
-    (void)state;
-    imu_ahrs_t ahrs;
-    imu_ahrs_init(&ahrs, 2.0f, 0.005f);
-
-    /* Flat on table: accel = (0, 0, 1g), gyro = (0, 0, 0) */
-    for (int i = 0; i < 100; i++) {
-        assert_int_equal(imu_ahrs_update(&ahrs, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.01f),
-                         EDGE_OK);
+static bool mock_read_reg(imu_transport_t *t, uint8_t dev_addr, uint8_t reg, uint8_t *rx,
+                          size_t len) {
+    mock_imu_t *m = (mock_imu_t *)t->self;
+    if (m->fail_reads) {
+        return false;
     }
-
-    float roll = 0.0f, pitch = 0.0f, yaw = 0.0f;
-    imu_ahrs_get_euler(&ahrs, &roll, &pitch, &yaw);
-
-    assert_true(fabsf(roll) < 1e-2f);
-    assert_true(fabsf(pitch) < 1e-2f);
+    const uint8_t *file = (dev_addr == 0x0Cu) ? m->mag_regs : m->regs;
+    for (size_t i = 0; i < len; i++) {
+        rx[i] = file[(reg + i) & 0x7Fu];
+    }
+    m->last_dev_addr = dev_addr;
+    m->reads++;
+    if (dev_addr != 0x0Cu && reg == MPU9150_WHO_AM_I) {
+        rx[0] = m->who;
+    }
+    return true;
 }
 
-static void test_imu_ahrs_roll_convergence(void **state) {
-    (void)state;
-    imu_ahrs_t ahrs;
-    imu_ahrs_init(&ahrs, 5.0f, 0.05f);
-
-    /* Tilted 45 degrees around X axis: accel = (0, sin(45), cos(45)) = (0, 0.707, 0.707) */
-    float ax = 0.0f;
-    float ay = sinf((float)M_PI / 4.0f);
-    float az = cosf((float)M_PI / 4.0f);
-
-    for (int i = 0; i < 200; i++) {
-        assert_int_equal(imu_ahrs_update(&ahrs, 0.0f, 0.0f, 0.0f, ax, ay, az, 0.01f), EDGE_OK);
+static bool mock_write_reg(imu_transport_t *t, uint8_t dev_addr, uint8_t reg, const uint8_t *tx,
+                           size_t len) {
+    mock_imu_t *m = (mock_imu_t *)t->self;
+    uint8_t *file = (dev_addr == 0x0Cu) ? m->mag_regs : m->regs;
+    for (size_t i = 0; i < len; i++) {
+        file[(reg + i) & 0x7Fu] = tx[i];
     }
+    m->writes++;
+    return true;
+}
 
-    float roll = 0.0f, pitch = 0.0f, yaw = 0.0f;
-    imu_ahrs_get_euler(&ahrs, &roll, &pitch, &yaw);
+static void mock_recover(imu_transport_t *t) {
+    (void)t;
+}
 
-    /* Should converge close to 45 deg (pi/4 rad = 0.785 rad) */
-    assert_true(fabsf(roll - ((float)M_PI / 4.0f)) < 0.05f);
+static void mock_delay_us(imu_transport_t *t, uint32_t us) {
+    mock_imu_t *m = (mock_imu_t *)t->self;
+    m->delayed_us += us;
+}
+
+static uint16_t mock_max_rate(imu_transport_t *t) {
+    (void)t;
+    return 1000u;
+}
+
+static const imu_transport_interface_t mock_interface = {
+    .name = "mock",
+    .cpu_bound = false,
+    .max_sample_rate = mock_max_rate,
+    .read_reg = mock_read_reg,
+    .write_reg = mock_write_reg,
+    .recover = mock_recover,
+    .deinit = NULL,
+    .delay_us = mock_delay_us,
+};
+
+/* Two little-endian halves, as the accelerometer's registers are. */
+static void set_be(mock_imu_t *m, uint8_t reg, int16_t value) {
+    m->regs[reg] = (uint8_t)((uint16_t)value >> 8);
+    m->regs[reg + 1u] = (uint8_t)(value & 0xFFu);
+}
+
+/* And the magnetometer's are the other way round, which is the driver's own note. */
+static void set_le(mock_imu_t *m, uint8_t reg, int16_t value) {
+    m->mag_regs[reg] = (uint8_t)(value & 0xFFu);
+    m->mag_regs[reg + 1u] = (uint8_t)((uint16_t)value >> 8);
+}
+
+static void test_mpu9150_probe_and_variants(void **state) {
+    (void)state;
+    mock_imu_t m;
+    memset(&m, 0, sizeof(m));
+    imu_transport_t transport = {.interface = &mock_interface, .self = &m};
+    mpu9150_state_t st;
+    imu_device_t dev = mpu9150_device(&transport, &st);
+
+    assert_string_equal(dev.interface->name, "MPU9X50");
+
+    m.who = 0x68u;
+    assert_true(imu_device_configure(&dev, IMU_FILTER_LOW, false));
+    assert_string_equal(dev.variant, "9150");
+
+    m.who = 0x71u;
+    assert_true(imu_device_configure(&dev, IMU_FILTER_LOW, false));
+    assert_string_equal(dev.variant, "9250");
+
+    /* The undocumented identity is accepted and names no variant of its own - and, as the reference
+     * leaves it, one that was named before stays named. */
+    m.who = 0x69u;
+    assert_true(imu_device_configure(&dev, IMU_FILTER_LOW, false));
+    assert_string_equal(dev.variant, "9250");
+
+    /* And an identity that is none of them is refused. */
+    m.who = 0x99u;
+    assert_false(imu_device_configure(&dev, IMU_FILTER_LOW, false));
+}
+
+static void test_mpu9150_scales_and_magnetometer(void **state) {
+    (void)state;
+    mock_imu_t m;
+    memset(&m, 0, sizeof(m));
+    m.who = 0x68u;
+    imu_transport_t transport = {.interface = &mock_interface, .self = &m};
+    mpu9150_state_t st;
+    imu_device_t dev = mpu9150_device(&transport, &st);
+    assert_true(imu_device_configure(&dev, IMU_FILTER_LOW, true));
+
+    /* Full scale on the accelerometer is half the sixteen g it is configured for. */
+    set_be(&m, MPU9150_ACCEL_XOUT_H, 16384);
+    set_be(&m, MPU9150_ACCEL_XOUT_H + 2u, -16384);
+    set_be(&m, MPU9150_ACCEL_XOUT_H + 4u, 0);
+    /* The gyroscope's half of two thousand degrees a second. */
+    set_be(&m, MPU9150_ACCEL_XOUT_H + 6u, 0); /* temperature, skipped */
+    set_be(&m, MPU9150_ACCEL_XOUT_H + 8u, 16384);
+    set_be(&m, MPU9150_ACCEL_XOUT_H + 10u, 0);
+    set_be(&m, MPU9150_ACCEL_XOUT_H + 12u, -16384);
+    /* The magnetometer, in its own byte order and at its own address. */
+    set_le(&m, MPU9150_HXL, 2048);
+
+    float accel[3] = {0.0f, 0.0f, 0.0f};
+    float gyro[3] = {0.0f, 0.0f, 0.0f};
+    float mag[3] = {0.0f, 0.0f, 0.0f};
+    assert_true(imu_device_read_sample(&dev, accel, gyro, mag));
+
+    assert_float_equal(accel[0], 8.0f, 1e-4f);
+    assert_float_equal(accel[1], -8.0f, 1e-4f);
+    assert_float_equal(accel[2], 0.0f, 1e-4f);
+    assert_float_equal(gyro[0], 1000.0f, 1e-4f);
+    assert_float_equal(gyro[2], -1000.0f, 1e-4f);
+    /* The magnetometer is read on the sample *after* the first: the driver copies the last reading
+     * it has before it refreshes it, and configure leaves the counter at the decimation point so
+     * that the refresh happens on the second sample. The reference reads it the same way. */
+    assert_float_equal(mag[0], 0.0f, 1e-6f);
+    const unsigned after_first = m.reads;
+    assert_true(imu_device_read_sample(&dev, accel, gyro, mag));
+    assert_float_equal(mag[0], 600.0f, 1e-3f);
+    assert_int_equal(m.reads, after_first + 1u); /* only the accelerometer and gyroscope burst */
+
+    /* And then every tenth sample: the sensor keeps moving, so that the stuck-sensor guard has
+     * nothing to say about these. */
+    for (int i = 0; i < 8; i++) {
+        set_be(&m, MPU9150_ACCEL_XOUT_H, (int16_t)(3000 + i));
+        assert_true(imu_device_read_sample(&dev, accel, gyro, mag));
+    }
+    assert_int_equal(m.reads, after_first + 1u + 8u);
+    set_be(&m, MPU9150_ACCEL_XOUT_H, 4000);
+    assert_true(imu_device_read_sample(&dev, accel, gyro, mag));
+    assert_int_equal(m.reads, after_first + 1u + 8u + 2u);
+}
+
+static void test_mpu9150_stuck_sensor_and_failure(void **state) {
+    (void)state;
+    mock_imu_t m;
+    memset(&m, 0, sizeof(m));
+    m.who = 0x68u;
+    imu_transport_t transport = {.interface = &mock_interface, .self = &m};
+    mpu9150_state_t st;
+    imu_device_t dev = mpu9150_device(&transport, &st);
+    assert_true(imu_device_configure(&dev, IMU_FILTER_LOW, false));
+
+    set_be(&m, MPU9150_ACCEL_XOUT_H, 1234);
+    float accel[3];
+    float gyro[3];
+    float mag[3];
+    /* Five identical readings are still readings: the counter has to reach the reference's own
+     * threshold, and the sixth is the one that hits it. */
+    for (int i = 0; i < 5; i++) {
+        assert_true(imu_device_read_sample(&dev, accel, gyro, mag));
+    }
+    assert_false(imu_device_read_sample(&dev, accel, gyro, mag));
+
+    /* A moved value clears the run, and the failure policy pauses and starts the device over. */
+    const unsigned writes_before = m.writes;
+    m.fail_reads = true;
+    assert_false(imu_device_read_sample(&dev, accel, gyro, mag));
+    imu_device_on_read_fail(&dev);
+    assert_int_equal(m.delayed_us, 1000u);
+    assert_true(m.writes > writes_before);
+    m.fail_reads = false;
 }
 
 int main(void) {
     const struct CMUnitTest tests[] = {
-        cmocka_unit_test(test_imu_ahrs_static_gravity),
-        cmocka_unit_test(test_imu_ahrs_roll_convergence),
+        cmocka_unit_test(test_mpu9150_probe_and_variants),
+        cmocka_unit_test(test_mpu9150_scales_and_magnetometer),
+        cmocka_unit_test(test_mpu9150_stuck_sensor_and_failure),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
