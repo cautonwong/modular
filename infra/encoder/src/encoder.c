@@ -125,6 +125,110 @@ void encoder_mt6835_begin(encoder_mt6835_state_t *st) {
     memset(st, 0, sizeof(*st));
 }
 
+void encoder_bissc_begin(encoder_bissc_config_t *cfg, uint32_t enc_res) {
+    if (cfg == (void *)0) {
+        return;
+    }
+    memset(&cfg->state, 0, sizeof(cfg->state));
+    cfg->enc_res = enc_res;
+
+    /*
+     * :64-80, the table the frame's own checksum is taken with: every six-bit group folded through
+     * the polynomial 0x43, six times over. The reference builds it in its init, which is here.
+     */
+    for (int i = 0; i < 64; i++) {
+        int crc = i;
+        for (int j = 0; j < 6; j++) {
+            if ((crc & 0x20) != 0) {
+                crc = (crc << 1) ^ 0x43;
+            } else {
+                crc = crc << 1;
+            }
+        }
+        cfg->table_crc6n[i] = (uint8_t)crc;
+    }
+}
+
+/*
+ * :155-166: the checksum over the frame's data, six bits at a time from the top, seeded with the
+ * two bits above the first group and inverted at the end - the reference's own five folds and its
+ * complement.
+ */
+uint8_t encoder_bissc_crc6(const uint8_t table[64], uint32_t data_rx) {
+    if (table == (void *)0) {
+        return 0u;
+    }
+
+    uint8_t crc = (uint8_t)((data_rx >> 30) & 0x03u);
+    crc = table[((data_rx >> 24) & 0x3Fu) ^ crc];
+    crc = table[((data_rx >> 18) & 0x3Fu) ^ crc];
+    crc = table[((data_rx >> 12) & 0x3Fu) ^ crc];
+    crc = table[((data_rx >> 6) & 0x3Fu) ^ crc];
+    crc = table[((data_rx >> 0) & 0x3Fu) ^ crc];
+    return (uint8_t)(0x3Fu & ~crc);
+}
+
+/*
+ * enc_bissc.c:124-180, the decode the reference does in its SPI callback: the eight bytes are one
+ * word, left-aligned at the first bit that is set, the two bits that begin a frame are dropped, and
+ * what is left is trimmed so that the position, the two flags and the six checksum bits end at the
+ * bottom of it. A checksum that does not match raises the data error count and the rate; one that
+ * does moves the rate back and makes the angle from the position over the counter's own full scale
+ * - two to the resolution less one, which is the reference's denominator rather than the
+ * resolution.
+ *
+ * A frame of nothing at all is the one case the reference leaves undefined, since its own shift is
+ * then asked for sixty-four; it is counted as a bad word here.
+ */
+float encoder_bissc_frame(encoder_bissc_config_t *cfg, const uint8_t frame[8], float now_s) {
+    if (cfg == (void *)0 || frame == (void *)0 || cfg->enc_res == 0u || cfg->enc_res > 30u) {
+        return 0.0f;
+    }
+
+    memcpy(cfg->state.decod_buf, frame, 8u);
+
+    float timestep = now_s - cfg->state.last_update_s;
+    if (timestep > 1.0f) {
+        timestep = 1.0f;
+    }
+    cfg->state.last_update_s = now_s;
+
+    uint64_t rx = 0u;
+    for (int i = 0; i < 8; i++) {
+        rx |= (uint64_t)cfg->state.decod_buf[i] << (56 - 8 * i);
+    }
+
+    if (rx == 0u) {
+        ++cfg->state.spi_data_error_cnt;
+        cfg->state.spi_data_error_rate -= timestep * (cfg->state.spi_data_error_rate - 1.0f);
+        return cfg->state.last_enc_angle;
+    }
+
+    rx <<= (uint64_t)__builtin_clzll(rx);
+    rx &= 0x3FFFFFFFFFFFFFFFu;
+
+    const int nb_bit = 64 - __builtin_clzll(rx);
+    const int keep = (int)cfg->enc_res + 10;
+    if (nb_bit >= keep) {
+        rx >>= (nb_bit - keep);
+    }
+
+    const uint8_t crc_rx = (uint8_t)(rx & 0x3Fu);
+    const uint32_t data_rx = (uint32_t)((rx >> 6) & ((1u << (cfg->enc_res + 2u)) - 1u));
+    cfg->state.spi_val = (data_rx >> 2) & ((1u << cfg->enc_res) - 1u);
+
+    if (encoder_bissc_crc6(cfg->table_crc6n, data_rx) != crc_rx) {
+        ++cfg->state.spi_data_error_cnt;
+        cfg->state.spi_data_error_rate -= timestep * (cfg->state.spi_data_error_rate - 1.0f);
+    } else {
+        cfg->state.spi_data_error_rate -= timestep * (cfg->state.spi_data_error_rate - 0.0f);
+        cfg->state.last_enc_angle =
+            ((float)cfg->state.spi_val * 360.0f) / (float)((1u << cfg->enc_res) - 1u);
+    }
+
+    return cfg->state.last_enc_angle;
+}
+
 /*
  * enc_mt6835.c:89-129, its routine: the timestep clamped at a second, the six-byte burst read, and
  * then two things that must both hold - the CRC over the three bytes the angle is in against the
