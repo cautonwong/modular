@@ -291,6 +291,26 @@ typedef struct vesc_mcconf_temp {
     float si_wheel_diameter;
 } vesc_mcconf_temp_t;
 
+/*
+ * comm/commands.c:2500-2518, COMM_SET_CHUCK_DATA's payload once it has been read: the stick's two
+ * axes, the two buttons, the three accelerometer axes, and the two bytes that only a long enough
+ * frame carries - which the reference leaves false when it does not, rather than inventing them.
+ *
+ * The names and types are the nunchuk application's own data, since this is the same thing arriving
+ * by wire instead of by I2C.
+ */
+typedef struct vesc_chuck_data {
+    int js_x;
+    int js_y;
+    bool bt_c;
+    bool bt_z;
+    int acc_x;
+    int acc_y;
+    int acc_z;
+    bool rev_has_state;
+    bool is_rev;
+} vesc_chuck_data_t;
+
 typedef struct vesc_app_status_port {
     edge_status_t (*get_decoded_ppm)(void *self, float *level, float *pulse_us);
     edge_status_t (*get_decoded_adc)(void *self, float *level, float *voltage, float *level2,
@@ -539,6 +559,11 @@ typedef struct vesc_comm_ops_port {
      * named as an open item rather than done half way.
      */
     edge_status_t (*get_battery_cut)(void *self, float *start, float *end);
+    /*
+     * comm/commands.c:2500-2518, COMM_SET_CHUCK_DATA: a nunchuk frame arriving by wire rather than
+     * by I2C, which the application takes exactly as it takes a decoded one.
+     */
+    void (*set_chuck_data)(void *self, const vesc_chuck_data_t *data);
 
     /*
      * The all-in-one detection (comm/commands.c:2328-2347, conf_general_detect_apply_all_foc_can).

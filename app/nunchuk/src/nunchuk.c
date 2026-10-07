@@ -114,9 +114,9 @@ bool nunchuk_decode_frame(nunchuk_app_t *app, const uint8_t frame[6], nunchuk_da
     memset(&d, 0, sizeof(d));
     d.js_x = frame[0];
     d.js_y = frame[1];
-    d.acc_x = (uint8_t)((frame[2] << 2) | ((frame[5] >> 2) & 3u));
-    d.acc_y = (uint8_t)((frame[3] << 2) | ((frame[5] >> 4) & 3u));
-    d.acc_z = (uint8_t)((frame[4] << 2) | ((frame[5] >> 6) & 3u));
+    d.acc_x = (frame[2] << 2) | ((frame[5] >> 2) & 3u);
+    d.acc_y = (frame[3] << 2) | ((frame[5] >> 4) & 3u);
+    d.acc_z = (frame[4] << 2) | ((frame[5] >> 6) & 3u);
     /* app_nunchuk.c:255-256: both buttons are active low. */
     d.bt_z = ((frame[5] >> 0) & 1u) == 0u;
     d.bt_c = ((frame[5] >> 1) & 1u) == 0u;

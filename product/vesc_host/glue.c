@@ -955,6 +955,30 @@ static size_t ops_ping_can(void *self, uint8_t *ids, size_t max) {
  * comm/commands.c:1266-1275, COMM_GET_BATTERY_CUT: the two limits the running configuration
  * carries.
  */
+/*
+ * comm/commands.c:2500-2518, COMM_SET_CHUCK_DATA: the frame is handed to the nunchuk application as
+ * if its own bus had produced it, which is what the reference does with it as well.
+ */
+static void ops_set_chuck_data(void *self, const vesc_chuck_data_t *data) {
+    vesc_host_ops_ctx_t *ctx = (vesc_host_ops_ctx_t *)self;
+    if (ctx == (void *)0 || ctx->glue == (void *)0 || ctx->glue->nunchuk == (void *)0 ||
+        data == (const vesc_chuck_data_t *)0) {
+        return;
+    }
+    nunchuk_data_t d;
+    memset(&d, 0, sizeof(d));
+    d.js_x = data->js_x;
+    d.js_y = data->js_y;
+    d.acc_x = data->acc_x;
+    d.acc_y = data->acc_y;
+    d.acc_z = data->acc_z;
+    d.bt_c = data->bt_c;
+    d.bt_z = data->bt_z;
+    d.rev_has_state = data->rev_has_state;
+    d.is_rev = data->is_rev;
+    nunchuk_update_data(ctx->glue->nunchuk, &d);
+}
+
 static edge_status_t ops_get_battery_cut(void *self, float *start, float *end) {
     vesc_host_ops_ctx_t *ctx = (vesc_host_ops_ctx_t *)self;
     if (ctx == (void *)0 || ctx->config == (void *)0 || start == (void *)0 || end == (void *)0) {
@@ -1074,6 +1098,7 @@ void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_host_ops_ctx_t *ctx
         .get_mcconf_temp = ops_get_mcconf_temp,
         .ping_can = ops_ping_can,
         .get_battery_cut = ops_get_battery_cut,
+        .set_chuck_data = ops_set_chuck_data,
         .detect_apply_all_foc = ops_detect_apply_all_foc,
         .detect_hall_foc = ops_detect_hall_foc,
         .detect_motor_param = ops_detect_motor_param,
