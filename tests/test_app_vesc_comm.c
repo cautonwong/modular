@@ -94,7 +94,6 @@ static alignas(VESC_COMM_STORAGE_ALIGN) unsigned char test_comm_storage[VESC_COM
 /* A second block, because two live instances need two live buffers - exactly as a
  * real caller would have to provide. */
 static alignas(VESC_COMM_STORAGE_ALIGN) unsigned char test_comm_storage2[VESC_COMM_STORAGE_SIZE];
-
 static vesc_comm_t *test_comm_alloc(void) {
     memset(test_comm_storage, 0, sizeof(test_comm_storage));
     return (vesc_comm_t *)test_comm_storage;
@@ -2106,6 +2105,85 @@ static void test_detect_hall_foc_command(void **state) {
     assert_int_equal((tx.tx_buf + 2u)[9], 1u);
 }
 
+/* comm/commands.c:2470-2545: the IMU's fifteen readings and its nine calibration numbers. */
+static edge_status_t mock_get_imu_data(void *self, vesc_imu_data_t *out) {
+    (void)self;
+    for (int i = 0; i < 3; i++) {
+        out->rpy[i] = 0.1f * (float)(i + 1);
+        out->accel[i] = 1.0f + (float)i;
+        out->gyro[i] = 10.0f + (float)i;
+        out->mag[i] = 100.0f + (float)i;
+    }
+    for (int i = 0; i < 4; i++) {
+        out->quat[i] = 0.25f * (float)(i + 1);
+    }
+    return EDGE_OK;
+}
+
+static edge_status_t mock_calibrate_imu(void *self, float yaw_deg, float cal[9]) {
+    (void)self;
+    for (int i = 0; i < 9; i++) {
+        cal[i] = yaw_deg + (float)i;
+    }
+    return EDGE_OK;
+}
+
+static void test_imu_commands(void **state) {
+    (void)state;
+    mock_comm_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+
+    edge_stream_tx_port_t tx_port = {.write = mock_stream_write, .self = &ctx};
+    vesc_app_status_port_t app_status_port = {.self = &ctx};
+    vesc_motor_provider_port_t motor_port = {.self = &ctx};
+    vesc_config_provider_port_t config_port = {.self = &ctx};
+    vesc_comm_ops_port_t ops_port = {
+        .self = &ctx, .get_imu_data = mock_get_imu_data, .calibrate_imu = mock_calibrate_imu};
+    vesc_identity_t identity = {.hw_name = "test", .fw_name = "test", .uuid = NULL};
+
+    /* The codec is opaque, so the case keeps its storage as the others here do. */
+    static alignas(VESC_COMM_STORAGE_ALIGN) unsigned char imu_comm_storage[VESC_COMM_STORAGE_SIZE];
+    memset(imu_comm_storage, 0, sizeof(imu_comm_storage));
+    vesc_comm_t *comm = (vesc_comm_t *)imu_comm_storage;
+    vesc_comm_construct(comm, EDGE_MOD_VESC_COMM, 10, &tx_port, &motor_port, &app_status_port,
+                        &config_port, &ops_port, &identity);
+
+    /* A mask of one bit answers with the mask and that one reading, nothing else. */
+    ctx.tx_count = 0;
+    ctx.tx_len = 0u;
+    uint8_t one[3] = {COMM_GET_IMU_DATA, 0x00u, 0x01u};
+    assert_int_equal(vesc_comm_process_command(comm, one, sizeof(one)), EDGE_OK);
+    assert_int_equal(ctx.tx_count, 1);
+    /* One packed float follows the mask, and nothing after it: the frame is longer than the command
+     * alone, and shorter than one carrying all fifteen readings. */
+    assert_true(ctx.tx_len >= 5u);
+    assert_true(ctx.tx_len < 40u);
+
+    /* All fifteen bits is the whole thing, which is longer than any single reading. */
+    const size_t single = ctx.tx_len;
+    ctx.tx_count = 0;
+    ctx.tx_len = 0u;
+    uint8_t all[3] = {COMM_GET_IMU_DATA, 0xFFu, 0xFFu};
+    assert_int_equal(vesc_comm_process_command(comm, all, sizeof(all)), EDGE_OK);
+    assert_int_equal(ctx.tx_count, 1);
+    assert_true(ctx.tx_len > single);
+
+    /* The calibration's request is one angle and its answer is nine numbers. */
+    ctx.tx_count = 0;
+    ctx.tx_len = 0u;
+    uint8_t cal_req[5] = {COMM_GET_IMU_CALIBRATION, 0x00u, 0x00u, 0x03u, 0xE8u}; /* 1000 / 1e3 */
+    assert_int_equal(vesc_comm_process_command(comm, cal_req, sizeof(cal_req)), EDGE_OK);
+    assert_int_equal(ctx.tx_count, 1);
+    /* The answer is the command, nine packed floats and the frame around them. */
+    assert_true(ctx.tx_len >= 40u);
+
+    /* A request too short for the mask, and one too short for the angle. */
+    uint8_t no_mask[1] = {COMM_GET_IMU_DATA};
+    assert_int_equal(vesc_comm_process_command(comm, no_mask, sizeof(no_mask)), EDGE_EINVAL);
+    uint8_t no_yaw[2] = {COMM_GET_IMU_CALIBRATION, 0x00u};
+    assert_int_equal(vesc_comm_process_command(comm, no_yaw, sizeof(no_yaw)), EDGE_EINVAL);
+}
+
 int main(void) {
 
     const struct CMUnitTest tests[] = {
@@ -2113,6 +2191,7 @@ int main(void) {
         cmocka_unit_test(test_crc16_calculation),
         cmocka_unit_test(test_send_packet_framing),
         cmocka_unit_test(test_receive_packet_and_commands),
+        cmocka_unit_test(test_imu_commands),
         cmocka_unit_test(test_config_commands_framing),
         cmocka_unit_test(test_setup_values_framing),
         cmocka_unit_test(test_every_handled_command_id_is_reachable),

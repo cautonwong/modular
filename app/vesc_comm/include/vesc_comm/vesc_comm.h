@@ -311,6 +311,19 @@ typedef struct vesc_chuck_data {
     bool is_rev;
 } vesc_chuck_data_t;
 
+/*
+ * comm/commands.c:2470-2545, the two IMU commands' payloads. The first answers whichever of fifteen
+ * readings the sender asked for, in one mask; the second is the calibration procedure, whose nine
+ * numbers the reference replies with from its blocking thread.
+ */
+typedef struct vesc_imu_data {
+    float rpy[3];
+    float accel[3];
+    float gyro[3];
+    float mag[3];
+    float quat[4];
+} vesc_imu_data_t;
+
 typedef struct vesc_app_status_port {
     edge_status_t (*get_decoded_ppm)(void *self, float *level, float *pulse_us);
     edge_status_t (*get_decoded_adc)(void *self, float *level, float *voltage, float *level2,
@@ -599,6 +612,14 @@ typedef struct vesc_comm_ops_port {
      * own motor layer.
      */
     void (*estop)(void *self, uint16_t time_ms);
+    /*
+     * The IMU's own readings, whichever of the fifteen the sender's mask asks for, and its
+     * calibration. The reference queues the calibration on a blocking thread and replies from
+     * there; what is asked of the product is the same work, and the reply's shape stays with the
+     * codec either way.
+     */
+    edge_status_t (*get_imu_data)(void *self, vesc_imu_data_t *out);
+    edge_status_t (*calibrate_imu)(void *self, float yaw_deg, float cal[9]);
 
     /*
      * The all-in-one detection (comm/commands.c:2328-2347, conf_general_detect_apply_all_foc_can).
