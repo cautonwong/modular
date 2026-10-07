@@ -805,6 +805,29 @@ edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, 
         return send_reply(self, 1u);
     }
 
+    case COMM_BMS_SET_CHARGE_ALLOWED:
+    case COMM_BMS_SET_BALANCE_OVERRIDE:
+    case COMM_BMS_RESET_COUNTERS:
+    case COMM_BMS_FORCE_BALANCE:
+    case COMM_BMS_ZERO_CURRENT_OFFSET: {
+        if (self->ops == (void *)0 || self->ops->forward_bms_command == (void *)0) {
+            return EDGE_ENOTSUP;
+        }
+        /*
+         * bms.c:602-608: these are the battery's own commands, and the reference forwards the whole
+         * packet to it rather than acting on it - so what goes out is the command byte and its
+         * payload, exactly as it arrived.
+         */
+        uint8_t packet[VESC_BMS_FORWARD_MAX];
+        if (len < 1u || len > sizeof(packet)) {
+            return EDGE_EINVAL;
+        }
+        packet[0] = (uint8_t)cmd_id;
+        /* The payload behind the command byte is the length the codec reports minus that byte. */
+        memcpy(&packet[1], data, len - 1u);
+        return self->ops->forward_bms_command(self->ops->self, packet, len);
+    }
+
     case COMM_BMS_GET_VALUES: {
         if (self->ops == (void *)0 || self->ops->get_bms_values == (void *)0) {
             return EDGE_ENOTSUP;

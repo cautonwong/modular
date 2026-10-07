@@ -331,6 +331,8 @@ typedef struct vesc_imu_data {
  * arrives with the BMS's own frame decoding, which is a slice of its own.
  */
 #define VESC_BMS_MAX_CELLS 32u
+/* The largest packet the battery's own commands are forwarded in, which is one CAN frame. */
+#define VESC_BMS_FORWARD_MAX 64u
 typedef struct vesc_bms_values {
     float v_tot;
     float v_charge;
@@ -657,6 +659,12 @@ typedef struct vesc_comm_ops_port {
      * to its BMS module and lets it reply, and what is asked of the product is that same division.
      */
     edge_status_t (*get_bms_values)(void *self, vesc_bms_values_t *out);
+    /*
+     * bms.c:602-608: the five commands the battery answers for itself are forwarded to it whole -
+     * the reference hands the packet to its own CAN layer, addressed to the id the battery replies
+     * from, and lets the battery do the rest.
+     */
+    edge_status_t (*forward_bms_command)(void *self, const uint8_t *packet, size_t len);
 
     /*
      * The all-in-one detection (comm/commands.c:2328-2347, conf_general_detect_apply_all_foc_can).

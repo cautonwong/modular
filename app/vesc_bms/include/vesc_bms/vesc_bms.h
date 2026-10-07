@@ -38,6 +38,11 @@ typedef struct bms_values {
     float wh_cnt;
     float cell_voltages[BMS_MAX_CELLS];
     float temp_sensors[BMS_MAX_TEMPS];
+    /*
+     * bms.c: the id the battery answers at, taken from the frames it sends - and what a command
+     * meant for it is forwarded to.
+     */
+    uint8_t can_id;
     float temp_ic;
     float temp_hum;
     float hum;

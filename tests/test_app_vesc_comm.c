@@ -2148,6 +2148,18 @@ static edge_status_t mock_get_bms_values(void *self, vesc_bms_values_t *out) {
     return EDGE_OK;
 }
 
+/* bms.c:602-608: the battery's own commands are forwarded to it whole, command byte and all. */
+static edge_status_t mock_forward_bms_command(void *self, const uint8_t *packet, size_t len) {
+    mock_comm_ctx_t *ctx = (mock_comm_ctx_t *)self;
+    if (len > sizeof(ctx->tx_buf)) {
+        return EDGE_EINVAL;
+    }
+    memcpy(ctx->tx_buf, packet, len);
+    ctx->tx_len = len;
+    ctx->tx_count++;
+    return EDGE_OK;
+}
+
 static void test_imu_commands(void **state) {
     (void)state;
     mock_comm_ctx_t ctx;
@@ -2160,7 +2172,8 @@ static void test_imu_commands(void **state) {
     vesc_comm_ops_port_t ops_port = {.self = &ctx,
                                      .get_imu_data = mock_get_imu_data,
                                      .calibrate_imu = mock_calibrate_imu,
-                                     .get_bms_values = mock_get_bms_values};
+                                     .get_bms_values = mock_get_bms_values,
+                                     .forward_bms_command = mock_forward_bms_command};
     vesc_identity_t identity = {.hw_name = "test", .fw_name = "test", .uuid = NULL};
 
     /* The codec is opaque, so the case keeps its storage as the others here do. */
@@ -2208,6 +2221,23 @@ static void test_imu_commands(void **state) {
     assert_int_equal(vesc_comm_process_command(comm, bms, sizeof(bms)), EDGE_OK);
     assert_int_equal(ctx.tx_count, 1);
     assert_true(ctx.tx_len > 60u);
+
+    /* The five commands the battery answers for itself: each is forwarded whole, command byte
+     * first, with its payload behind it and nothing of the codec's own added. */
+    const uint8_t bms_cmds[5] = {COMM_BMS_SET_CHARGE_ALLOWED, COMM_BMS_SET_BALANCE_OVERRIDE,
+                                 COMM_BMS_RESET_COUNTERS, COMM_BMS_FORCE_BALANCE,
+                                 COMM_BMS_ZERO_CURRENT_OFFSET};
+    for (int i = 0; i < 5; i++) {
+        ctx.tx_count = 0;
+        ctx.tx_len = 0u;
+        uint8_t req[3] = {bms_cmds[i], 0xA5u, 0x5Au};
+        assert_int_equal(vesc_comm_process_command(comm, req, sizeof(req)), EDGE_OK);
+        assert_int_equal(ctx.tx_count, 1);
+        /* The packet is as long as the request was, and it starts with the command it came in as.
+         */
+        assert_int_equal(ctx.tx_len, sizeof(req));
+        assert_int_equal(ctx.tx_buf[0], bms_cmds[i]);
+    }
 
     /* A request too short for the mask, and one too short for the angle. */ uint8_t no_mask[1] = {
         COMM_GET_IMU_DATA};
