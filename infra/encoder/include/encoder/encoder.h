@@ -180,6 +180,25 @@ typedef struct encoder_amt22_port {
     edge_status_t (*read_word)(void *self, uint16_t *word);
 } encoder_amt22_port_t;
 
+/*
+ * enc_mt6835.c:47-52's burst constants and :89-129's routine, with the state it keeps
+ * (MT6835_state): the angle, the word the three bytes make, the error count and rate, and the clock
+ * the timestep is taken against.
+ */
+typedef struct encoder_mt6835_state {
+    float last_enc_angle;
+    float spi_error_rate;
+    uint32_t spi_error_cnt;
+    uint32_t spi_val;
+    float last_update_s;
+} encoder_mt6835_state_t;
+
+/* What a port answers is the six bytes the burst read brings back, command and address included. */
+typedef struct encoder_mt6835_port {
+    void *self;
+    edge_status_t (*read_burst)(void *self, uint8_t rx[6]);
+} encoder_mt6835_port_t;
+
 /* AS5047 API */
 void encoder_as5047_construct(encoder_as5047_t *self, encoder_spi_transfer_fn spi_transfer,
                               void *spi_ctx);
@@ -239,6 +258,16 @@ void encoder_amt22_begin(encoder_amt22_state_t *st);
 float encoder_amt22_routine(encoder_amt22_state_t *st, const encoder_amt22_port_t *port,
                             float now_s);
 bool encoder_amt22_checksum_ok(uint16_t message);
+
+/*
+ * The MT6835 family: enc_mt6835.c:40-45's init, which is a clearing, :60-75's own CRC-8 - the
+ * polynomial the sensor uses, most significant bit first - and :89-129's routine, whose six-byte
+ * burst answers a twenty-one bit angle and two status bits beside it that must be clear.
+ */
+void encoder_mt6835_begin(encoder_mt6835_state_t *st);
+uint8_t encoder_mt6835_crc8(const uint8_t *data, int len);
+float encoder_mt6835_routine(encoder_mt6835_state_t *st, const encoder_mt6835_port_t *port,
+                             float now_s);
 
 #ifdef __cplusplus
 }

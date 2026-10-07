@@ -96,6 +96,78 @@ edge_status_t encoder_as5047_read_diag(encoder_as5047_t *self, uint16_t *diag_va
 }
 
 /* MT6816 is the routine below, whose own state is cleared by encoder_mt6816_begin. */
+
+/*
+ * enc_mt6835.c:60-75, its own CRC-8: the polynomial 0x07, most significant bit first, seeded with
+ * nought. The sensor carries it over the three bytes the angle is in, and the routine below
+ * compares it against the byte that follows them. It is the ordinary CRC-8, whose check value for
+ * the digits one to nine is 0xF4 - which is what the test holds it to.
+ */
+uint8_t encoder_mt6835_crc8(const uint8_t *data, int len) {
+    uint8_t crc = 0x00u;
+    for (int i = 0; i < len; i++) {
+        crc ^= data[i];
+        for (int j = 0; j < 8; j++) {
+            if ((crc & 0x80u) != 0u) {
+                crc = (uint8_t)((crc << 1) ^ 0x07u);
+            } else {
+                crc = (uint8_t)(crc << 1);
+            }
+        }
+    }
+    return crc;
+}
+
+void encoder_mt6835_begin(encoder_mt6835_state_t *st) {
+    if (st == (void *)0) {
+        return;
+    }
+    memset(st, 0, sizeof(*st));
+}
+
+/*
+ * enc_mt6835.c:89-129, its routine: the timestep clamped at a second, the six-byte burst read, and
+ * then two things that must both hold - the CRC over the three bytes the angle is in against the
+ * one that follows, and the sensor's own two status bits being clear. A word that fails either
+ * raises the error count and the rate towards one and leaves the angle where it was; a whole one
+ * makes the twenty-one bits of the angle, over the sensor's own resolution of two to the
+ * twenty-one.
+ */
+float encoder_mt6835_routine(encoder_mt6835_state_t *st, const encoder_mt6835_port_t *port,
+                             float now_s) {
+    if (st == (void *)0 || port == (void *)0 || port->read_burst == (void *)0) {
+        return 0.0f;
+    }
+
+    float timestep = now_s - st->last_update_s;
+    if (timestep > 1.0f) {
+        timestep = 1.0f;
+    }
+    st->last_update_s = now_s;
+
+    uint8_t rx[6] = {0};
+    if (port->read_burst(port->self, rx) != EDGE_OK) {
+        return st->last_enc_angle;
+    }
+
+    const uint8_t status = (uint8_t)(rx[4] & 0x07u);
+    const uint8_t crc_rx = rx[5];
+    const uint8_t crc_calc = encoder_mt6835_crc8(&rx[2], 3);
+
+    const uint32_t angle_raw =
+        ((uint32_t)rx[2] << 13) | ((uint32_t)rx[3] << 5) | ((uint32_t)rx[4] >> 3);
+
+    if (crc_rx != crc_calc || status != 0u) {
+        st->spi_error_cnt++;
+        st->spi_error_rate -= timestep * (st->spi_error_rate - 1.0f);
+    } else {
+        st->spi_val = angle_raw;
+        st->last_enc_angle = ((float)angle_raw * 360.0f) / 2097152.0f; /* MT6835_ANGLE_RES, 2^21 */
+        st->spi_error_rate -= timestep * (st->spi_error_rate - 0.0f);
+    }
+
+    return st->last_enc_angle;
+}
 /* driver/spi_bb.c:309-316, the driver's own odd-parity test: the fold, then the low bit of its
  * complement. */
 bool encoder_mt6816_parity_ok(uint16_t x) {
