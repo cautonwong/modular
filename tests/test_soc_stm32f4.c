@@ -49,7 +49,7 @@ static void test_soc_stm32f4_spi(void **state) {
     assert_true(soc_stm32f4_spi_init(&spi, 0x0004u));
     assert_int_equal(spi.cr1 & 0x0040u, 0x0040u);
 
-    uint8_t tx[3] = {0xDE, 0xAD, 0xBE};
+    const uint8_t tx[3] = {0xDE, 0xAD, 0xBE};
     uint8_t rx[3] = {0};
     assert_true(soc_stm32f4_spi_transfer(&spi, tx, rx, 3u));
     assert_int_equal(rx[0], 0xDE);
@@ -65,12 +65,14 @@ static void test_soc_stm32f4_i2c(void **state) {
     assert_int_equal(i2c.cr1, 0x0001u);
     assert_int_equal(i2c.ccr, 0x0028u);
 
-    uint8_t tx[2] = {0x12, 0x34};
+    const uint8_t tx[2] = {0x12, 0x34};
     assert_true(soc_stm32f4_i2c_write(&i2c, 0x68, tx, 2u));
+    assert_int_equal(i2c.oar1, 0x68u << 1u);
     assert_int_equal(i2c.dr, 0x34);
 
     uint8_t rx[2] = {0};
     assert_true(soc_stm32f4_i2c_read(&i2c, 0x68, rx, 2u));
+    assert_int_equal(i2c.oar1, (0x68u << 1u) | 1u);
 }
 
 int main(void) {

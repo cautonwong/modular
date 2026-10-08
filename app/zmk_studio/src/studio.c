@@ -62,14 +62,20 @@ static edge_status_t handle_core_request(zmk_studio_app_t *app, const uint8_t *r
         break;
     }
     case ZMK_STUDIO_CORE_CMD_UNLOCK_DEVICE: {
-        app->unlocked = true;
-        resp[2] = 0;
-        resp[3] = 1;
+        if (app->unlock_authorized) {
+            app->unlocked = true;
+            resp[2] = 0; // Success
+            resp[3] = 1;
+        } else {
+            resp[2] = 1; // Locked / Unauthorized
+            resp[3] = 0;
+        }
         resp_len = 4;
         break;
     }
     case ZMK_STUDIO_CORE_CMD_LOCK_DEVICE: {
         app->unlocked = false;
+        app->unlock_authorized = false;
         resp[2] = 0;
         resp[3] = 0;
         resp_len = 4;
@@ -82,7 +88,12 @@ static edge_status_t handle_core_request(zmk_studio_app_t *app, const uint8_t *r
             break;
         }
         if (app->keymap.discard_changes != NULL) {
-            app->keymap.discard_changes(app->keymap.self);
+            edge_status_t rc = app->keymap.discard_changes(app->keymap.self);
+            if (rc != EDGE_OK) {
+                resp[2] = (rc == EDGE_EIO) ? 4 : 2;
+                resp_len = 3;
+                break;
+            }
         }
         app->unsaved_changes = false;
         resp[2] = 0;
@@ -118,8 +129,16 @@ static edge_status_t handle_keymap_request(zmk_studio_app_t *app, const uint8_t 
         uint32_t pos = req[3];
         uint16_t bhv = 0;
         uint32_t p1 = 0, p2 = 0;
+        edge_status_t rc = EDGE_OK;
         if (app->keymap.get_layer_binding != NULL) {
-            app->keymap.get_layer_binding(app->keymap.self, layer, pos, &bhv, &p1, &p2);
+            rc = app->keymap.get_layer_binding(app->keymap.self, layer, pos, &bhv, &p1, &p2);
+        } else {
+            rc = EDGE_ENOTSUP;
+        }
+        if (rc != EDGE_OK) {
+            resp[2] = (rc == EDGE_EINVAL || rc == EDGE_ENOENT) ? 3 : 2;
+            resp_len = 3;
+            break;
         }
         // Response: [subsys][cmd][status:0][layer][pos][bhv:2][p1:4][p2:4]
         resp[2] = 0;
@@ -175,7 +194,12 @@ static edge_status_t handle_keymap_request(zmk_studio_app_t *app, const uint8_t 
             break;
         }
         if (app->keymap.save_changes != NULL) {
-            app->keymap.save_changes(app->keymap.self);
+            edge_status_t rc = app->keymap.save_changes(app->keymap.self);
+            if (rc != EDGE_OK) {
+                resp[2] = (rc == EDGE_EIO) ? 4 : 2;
+                resp_len = 3;
+                break;
+            }
         }
         app->unsaved_changes = false;
         resp[2] = 0;
@@ -189,7 +213,12 @@ static edge_status_t handle_keymap_request(zmk_studio_app_t *app, const uint8_t 
             break;
         }
         if (app->keymap.discard_changes != NULL) {
-            app->keymap.discard_changes(app->keymap.self);
+            edge_status_t rc = app->keymap.discard_changes(app->keymap.self);
+            if (rc != EDGE_OK) {
+                resp[2] = (rc == EDGE_EIO) ? 4 : 2;
+                resp_len = 3;
+                break;
+            }
         }
         app->unsaved_changes = false;
         resp[2] = 0;
@@ -245,12 +274,12 @@ void zmk_studio_construct(zmk_studio_app_t *app, uint32_t module_id, uint8_t pri
     }
 
     const char *default_name = "ZMK Modular Keyboard";
-    size_t i = 0;
-    while (i + 1 < sizeof(app->device_name) && default_name[i] != '\0') {
-        app->device_name[i] = default_name[i];
-        i++;
+    size_t name_len = str_len(default_name);
+    if (name_len >= sizeof(app->device_name)) {
+        name_len = sizeof(app->device_name) - 1;
     }
-    app->device_name[i] = '\0';
+    copy_bytes(app->device_name, default_name, name_len);
+    app->device_name[name_len] = '\0';
 
     app->serial_number = 0x12345678u;
     app->unlocked = false;
@@ -264,9 +293,32 @@ edge_status_t zmk_studio_init(zmk_studio_app_t *app) {
         return EDGE_EINVAL;
     }
     app->unlocked = false;
+    app->unlock_authorized = false;
     app->rx_state = ZMK_STUDIO_STATE_IDLE;
     app->rx_len = 0;
     return EDGE_OK;
+}
+
+void zmk_studio_authorize_unlock(zmk_studio_app_t *app, bool authorized) {
+    if (app != NULL) {
+        app->unlock_authorized = authorized;
+    }
+}
+
+void zmk_studio_lock(zmk_studio_app_t *app) {
+    if (app != NULL) {
+        app->unlocked = false;
+        app->unlock_authorized = false;
+    }
+}
+
+void zmk_studio_handle_disconnect(zmk_studio_app_t *app) {
+    if (app != NULL) {
+        app->unlocked = false;
+        app->unlock_authorized = false;
+        app->rx_state = ZMK_STUDIO_STATE_IDLE;
+        app->rx_len = 0;
+    }
 }
 
 edge_status_t zmk_studio_process_request(zmk_studio_app_t *app, const uint8_t *payload,

@@ -92,7 +92,8 @@ bool soc_stm32f4_i2c_write(soc_stm32f4_i2c_regs_t *i2c, uint8_t addr, const uint
     if (i2c == NULL || (data == NULL && len > 0u)) {
         return false;
     }
-    (void)addr;
+    i2c->oar1 = (uint32_t)addr << 1u;
+    i2c->dr = (uint32_t)addr << 1u;
     for (size_t i = 0u; i < len; ++i) {
         i2c->dr = data[i];
     }
@@ -103,7 +104,8 @@ bool soc_stm32f4_i2c_read(soc_stm32f4_i2c_regs_t *i2c, uint8_t addr, uint8_t *da
     if (i2c == NULL || data == NULL || len == 0u) {
         return false;
     }
-    (void)addr;
+    i2c->oar1 = ((uint32_t)addr << 1u) | 1u;
+    i2c->dr = ((uint32_t)addr << 1u) | 1u;
     for (size_t i = 0u; i < len; ++i) {
         data[i] = (uint8_t)(i2c->dr & 0xFFu);
     }

@@ -39,7 +39,10 @@ static void test_soc_rp2040_watchdog(void **state) {
     assert_int_equal(wdt.load, 2000000u);
     assert_int_equal(wdt.ctrl & 0x40000000u, 0x40000000u);
 
+    /* Simulate countdown */
+    wdt.load = 500u;
     soc_rp2040_wdt_feed(&wdt);
+    assert_int_equal(wdt.load, 2000000u);
     assert_int_equal(wdt.ctrl & 0x40000000u, 0x40000000u);
 
     soc_rp2040_wdt_reboot(&wdt, 0x10000100u, 0x20040000u, 50u);
@@ -56,7 +59,7 @@ static void test_soc_rp2040_spi(void **state) {
     assert_int_equal(spi.sspcr0, 7u);
     assert_int_equal(spi.sspcr1, 0x02u);
 
-    uint8_t tx[3] = {0x01, 0x02, 0x03};
+    const uint8_t tx[3] = {0x01, 0x02, 0x03};
     uint8_t rx[3] = {0};
     assert_true(soc_rp2040_spi_transfer(&spi, tx, rx, 3u));
     assert_int_equal(rx[0], 0x01);
@@ -72,7 +75,7 @@ static void test_soc_rp2040_i2c(void **state) {
     assert_int_equal(i2c.ic_con, 0x65u);
     assert_int_equal(i2c.ic_enable, 1u);
 
-    uint8_t tx[2] = {0xAA, 0x55};
+    const uint8_t tx[2] = {0xAA, 0x55};
     assert_true(soc_rp2040_i2c_write(&i2c, 0x3C, tx, 2u));
     assert_int_equal(i2c.ic_tar, 0x3C);
 

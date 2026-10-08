@@ -305,7 +305,7 @@ static void test_behavior_hold_tap_flavors_and_retro(void **state) {
     zmk_behavior_invoke(&app, ZMK_BHV_HOLD_TAP, retro_idx, 0, false, 400);
     assert_int_equal(hid_ctx.last_pressed_kc, 0x04);
 
-    // 2. Quick-tap: second press within quick_tap_ms fires tap immediately
+    // 2. Quick-tap: first press at timestamp < quick_tap_ms must NOT be misidentified as double tap
     zmk_ht_config_t qtap_cfg = {
         .flavor = ZMK_HT_HOLD_PREFERRED,
         .tapping_term_ms = 200,
@@ -316,15 +316,19 @@ static void test_behavior_hold_tap_flavors_and_retro(void **state) {
     zmk_behavior_add_hold_tap(&app, &qtap_cfg, ZMK_BHV_KEY_PRESS, 0xE0, ZMK_BHV_KEY_PRESS, 0x05,
                               &qtap_idx);
 
-    // First tap
-    zmk_behavior_invoke(&app, ZMK_BHV_HOLD_TAP, qtap_idx, 0, true, 500);
-    zmk_behavior_invoke(&app, ZMK_BHV_HOLD_TAP, qtap_idx, 0, false, 550);
-    assert_int_equal(hid_ctx.last_pressed_kc, 0x05);
+    // Initial press at 50ms (< 150ms): should NOT fire tap immediately because has_previous_tap is
+    // false
+    zmk_behavior_invoke(&app, ZMK_BHV_HOLD_TAP, qtap_idx, 0, true, 50);
+    assert_false(app.hold_taps[qtap_idx].is_tapped);
+    zmk_behavior_invoke(&app, ZMK_BHV_HOLD_TAP, qtap_idx, 0, false, 80);
+    assert_int_equal(hid_ctx.last_pressed_kc, 0x05); // Tapped on release
 
-    // Second press at 600ms (delta 50ms < 150ms quick_tap_ms) -> immediately fires tap
-    zmk_behavior_invoke(&app, ZMK_BHV_HOLD_TAP, qtap_idx, 0, true, 600);
+    // Second press at 120ms (delta 40ms < 150ms quick_tap_ms) -> now has_previous_tap is true, so
+    // fires tap immediately
+    zmk_behavior_invoke(&app, ZMK_BHV_HOLD_TAP, qtap_idx, 0, true, 120);
+    assert_true(app.hold_taps[qtap_idx].is_tapped);
     assert_int_equal(hid_ctx.last_pressed_kc, 0x05);
-    zmk_behavior_invoke(&app, ZMK_BHV_HOLD_TAP, qtap_idx, 0, false, 650);
+    zmk_behavior_invoke(&app, ZMK_BHV_HOLD_TAP, qtap_idx, 0, false, 150);
 
     // 3. TAP_UNLESS_INTERRUPTED: holding past term does NOT hold unless interrupted
     zmk_ht_config_t tui_cfg = {
@@ -376,13 +380,15 @@ static void test_behavior_macro_and_key_toggle(void **state) {
     assert_int_equal(hid_ctx.release_calls, 1);
     assert_int_equal(hid_ctx.last_released_kc, 0x14);
 
-    // 2. Macro execution: Tap 'H', Tap 'I'
+    // 2. Macro execution with WAIT action: Tap 'H' (0x0B), WAIT 50ms, Tap 'I' (0x0C)
     zmk_macro_config_t macro_cfg = {
-        .step_count = 2,
+        .step_count = 3,
+        .default_wait_ms = 10,
         .steps =
             {
-                {.action = ZMK_MACRO_ACTION_TAP, .keycode = 0x0B, .modifiers = 0}, // 'h' (0x0B)
-                {.action = ZMK_MACRO_ACTION_TAP, .keycode = 0x0C, .modifiers = 0}, // 'i' (0x0C)
+                {.action = ZMK_MACRO_ACTION_TAP, .keycode = 0x0B, .modifiers = 0, .wait_ms = 15},
+                {.action = ZMK_MACRO_ACTION_WAIT, .keycode = 0, .modifiers = 0, .wait_ms = 50},
+                {.action = ZMK_MACRO_ACTION_TAP, .keycode = 0x0C, .modifiers = 0, .wait_ms = 15},
             },
     };
     uint8_t macro_idx = 0;
@@ -391,10 +397,12 @@ static void test_behavior_macro_and_key_toggle(void **state) {
     int prev_press = hid_ctx.press_calls;
     int prev_release = hid_ctx.release_calls;
     assert_int_equal(zmk_behavior_invoke(&app, ZMK_BHV_MACRO, macro_idx, 0, true, 200), EDGE_OK);
-    // Should have pressed & released 2 keys (4 total events)
+    // Should have pressed & released 2 keys (4 total events) and advanced time: 200 + 15 + 50 + 15
+    // = 280
     assert_int_equal(hid_ctx.press_calls, prev_press + 2);
     assert_int_equal(hid_ctx.release_calls, prev_release + 2);
     assert_int_equal(hid_ctx.last_released_kc, 0x0C);
+    assert_int_equal(app.current_time_ms, 280u);
 }
 
 int main(void) {
