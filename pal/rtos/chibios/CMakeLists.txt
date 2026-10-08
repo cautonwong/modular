@@ -140,9 +140,13 @@ add_executable(chibios_smoke_fw EXCLUDE_FROM_ALL
 )
 target_link_libraries(chibios_smoke_fw PRIVATE chibios_kernel)
 target_link_options(chibios_smoke_fw PRIVATE
-    # The reference's own linker script, which is the one its build uses: it carries the kernel's stack
-    # and heap symbols, and it knows where this board's memory is.
-    -T${CMAKE_CURRENT_SOURCE_DIR}/vendor/ld_eeprom_emu.ld
+    # This repository's own linker script, because it is the one written for the start-up beside it - the
+    # reference's script expects its own vector table and leaves this executable empty. What it does not
+    # carry are the two heap symbols the kernel's allocator uses, which are given here instead; the two
+    # stack sizes are a project's choice, and no part of either tree supplies a value.
+    -T${CMAKE_CURRENT_SOURCE_DIR}/../../../.github/arm/stm32f4.ld
+    -Wl,--defsym=__heap_base__=_end
+    -Wl,--defsym=__heap_end__=_estack
     -nostartfiles -Wl,--gc-sections
 )
 target_compile_definitions(chibios_smoke_fw PRIVATE EDGE_TARGET_ARM32=1)
@@ -150,7 +154,10 @@ target_compile_definitions(chibios_smoke_fw PRIVATE EDGE_TARGET_ARM32=1)
 # macro. The reference's answer for a board that is not a particular product is its example one
 # (hwconf/example), whose header carries both names - so what this build passes is which board header to
 # include, and not what to call it.
-target_compile_definitions(chibios_smoke_fw PRIVATE HW_HEADER="hw_example_core.h")
+target_compile_definitions(chibios_smoke_fw PRIVATE HW_HEADER="hw_example_core.h"
+    # The example board names itself only under its own hardware variant, and refuses to be the board at
+    # all otherwise - the define the reference's build passes for it.
+    HW_EXAMPLE_IS_MK1=1)
 target_include_directories(chibios_smoke_fw PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vendor/example")
 # The board file is the reference's, and its hardware header reaches for the STM32 standard peripheral
 # library that ChibiOS carries for exactly this reason. Headers first: what a link still wants after this
