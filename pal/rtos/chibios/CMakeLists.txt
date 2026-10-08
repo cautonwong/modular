@@ -126,3 +126,36 @@ target_compile_definitions(chibios_kernel PUBLIC EDGE_TARGET_ARM32=1)
 if(NOT MSVC)
     target_compile_options(chibios_kernel PRIVATE -w)
 endif()
+
+# The smallest firmware that runs on the kernel above, with the start-up and linker script this
+# repository already uses for its own ARM firmware: a main that brings the hardware and the kernel up and
+# creates one thread. Out of the default build for the same reason the kernel is - nothing depends on
+# ChibiOS yet, and this is the evidence for the claim that it starts, not a product.
+add_executable(chibios_smoke_fw EXCLUDE_FROM_ALL
+    firmware/main.c
+    # The board's own two symbols, from the reference's hwconf/board.c: boardInit and pal_default_config,
+    # which the HAL's own initialisation calls and which nothing else can supply.
+    vendor/board.c
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../.github/arm/startup.c"
+)
+target_link_libraries(chibios_smoke_fw PRIVATE chibios_kernel)
+target_link_options(chibios_smoke_fw PRIVATE
+    # The reference's own linker script, which is the one its build uses: it carries the kernel's stack
+    # and heap symbols, and it knows where this board's memory is.
+    -T${CMAKE_CURRENT_SOURCE_DIR}/vendor/ld_eeprom_emu.ld
+    -nostartfiles -Wl,--gc-sections
+)
+target_compile_definitions(chibios_smoke_fw PRIVATE EDGE_TARGET_ARM32=1)
+# The board file wants a board and a firmware name, and it reaches for the board's own header through a
+# macro. The reference's answer for a board that is not a particular product is its example one
+# (hwconf/example), whose header carries both names - so what this build passes is which board header to
+# include, and not what to call it.
+target_compile_definitions(chibios_smoke_fw PRIVATE HW_HEADER="hw_example_core.h")
+target_include_directories(chibios_smoke_fw PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vendor/example")
+# The board file is the reference's, and its hardware header reaches for the STM32 standard peripheral
+# library that ChibiOS carries for exactly this reason. Headers first: what a link still wants after this
+# will say whether the library's sources are needed too.
+target_include_directories(chibios_smoke_fw PRIVATE
+    "${EDGE_CHIBIOS_ROOT}/ext/stdperiph_stm32f4"
+    "${EDGE_CHIBIOS_ROOT}/ext/stdperiph_stm32f4/inc"
+)
