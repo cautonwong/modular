@@ -1,0 +1,12 @@
+edge_add_soc(nrf52
+    SOURCES
+        src/soc_nrf52.c
+        src/soc_nrf52_spim.c
+        src/soc_nrf52_twim.c
+        src/soc_nrf52_saadc.c
+        src/soc_nrf52_rtc.c
+        src/soc_nrf52_wdt.c
+        src/soc_nrf52_nvmc.c
+    DEPS
+        edge_module
+)

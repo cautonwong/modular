@@ -1,0 +1,1 @@
+edge_add_app(zmk_pointing_processors SOURCES src/pointing_processors.c DEPS edge_module)

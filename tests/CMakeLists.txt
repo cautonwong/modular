@@ -45,7 +45,7 @@ edge_add_contract_violation_test(test_contract_violation_board contract_violatio
 edge_add_contract_violation_test(test_contract_violation_rtos contract_violations/rtos.c)
 
 edge_add_host_test(test_event SOURCES test_event.c DEPS edge_module)
-edge_add_host_test(test_sys SOURCES test_sys.c DEPS edge_module sys_example sys_meter sys_bldc)
+edge_add_host_test(test_sys SOURCES test_sys.c DEPS edge_module sys_example sys_meter sys_watch sys_keyboard sys_bldc)
 edge_add_host_test(test_architecture SOURCES test_architecture.c DEPS edge_module)
 edge_add_host_test(test_app_dlt645 SOURCES test_app_dlt645.c DEPS app_dlt645 edge_test_contract)
 edge_add_host_test(test_app_relay SOURCES test_app_relay.c DEPS app_relay edge_test_contract)
@@ -77,6 +77,55 @@ edge_add_host_test(test_infra_flash_emul SOURCES test_infra_flash_emul.c DEPS in
 edge_add_host_test(test_flash_glue SOURCES test_flash_glue.c ../product/example/glue.c
     DEPS app_dlt645 infra_flash)
 
+# InfiniTime Watch test suites
+edge_add_host_test(test_infra_battery_adc SOURCES test_infra_battery_adc.c DEPS infra_battery_adc)
+edge_add_host_test(test_infra_cst816s SOURCES test_infra_cst816s.c DEPS infra_cst816s)
+edge_add_host_test(test_app_touch_gesture SOURCES test_app_touch_gesture.c DEPS app_touch_gesture)
+edge_add_host_test(test_app_button_handler SOURCES test_app_button_handler.c DEPS app_button_handler)
+edge_add_host_test(test_app_watch_power SOURCES test_app_watch_power.c DEPS app_watch_power)
+edge_add_host_test(test_infra_hrs3300 SOURCES test_infra_hrs3300.c DEPS infra_hrs3300)
+edge_add_host_test(test_app_heart_rate SOURCES test_app_heart_rate.c DEPS app_heart_rate)
+if(NOT WIN32)
+    target_link_libraries(test_app_heart_rate PRIVATE m)
+endif()
+edge_add_host_test(test_infra_bma421 SOURCES test_infra_bma421.c DEPS infra_bma421)
+edge_add_host_test(test_app_step_counter SOURCES test_app_step_counter.c DEPS app_step_counter)
+edge_add_host_test(test_app_watch_time SOURCES test_app_watch_time.c DEPS app_watch_time)
+edge_add_host_test(test_infra_st7789 SOURCES test_infra_st7789.c DEPS infra_st7789)
+edge_add_host_test(test_infra_flash_spi SOURCES test_infra_flash_spi.c DEPS infra_flash_spi)
+edge_add_host_test(test_infra_haptic SOURCES test_infra_haptic.c DEPS infra_haptic)
+edge_add_host_test(test_board_pinetime SOURCES test_board_pinetime.c DEPS board_pinetime soc_nrf52)
+edge_add_host_test(test_soc_nrf52_spim SOURCES test_soc_nrf52_spim.c DEPS soc_nrf52)
+edge_add_host_test(test_soc_nrf52_twim SOURCES test_soc_nrf52_twim.c DEPS soc_nrf52)
+edge_add_host_test(test_soc_nrf52_saadc SOURCES test_soc_nrf52_saadc.c DEPS soc_nrf52)
+edge_add_host_test(test_soc_nrf52_rtc SOURCES test_soc_nrf52_rtc.c DEPS soc_nrf52)
+edge_add_host_test(test_soc_nrf52_wdt SOURCES test_soc_nrf52_wdt.c DEPS soc_nrf52)
+edge_add_host_test(test_soc_nrf52_nvmc SOURCES test_soc_nrf52_nvmc.c DEPS soc_nrf52)
+edge_add_host_test(test_app_ble_services SOURCES test_app_ble_services.c DEPS app_ble_services)
+edge_add_host_test(test_infra_rle SOURCES test_infra_rle.c DEPS infra_rle)
+edge_add_host_test(test_app_alarm SOURCES test_app_alarm.c DEPS app_alarm)
+edge_add_host_test(test_app_stopwatch SOURCES test_app_stopwatch.c DEPS app_stopwatch)
+edge_add_host_test(test_app_timer SOURCES test_app_timer.c DEPS app_timer)
+edge_add_host_test(test_app_watch_settings SOURCES test_app_watch_settings.c DEPS app_watch_settings)
+edge_add_host_test(test_app_ble_weather SOURCES test_app_ble_weather.c DEPS app_ble_weather)
+edge_add_host_test(test_app_ble_music SOURCES test_app_ble_music.c DEPS app_ble_music)
+edge_add_host_test(test_app_ble_nav SOURCES test_app_ble_nav.c DEPS app_ble_nav)
+edge_add_host_test(test_app_ble_notifications SOURCES test_app_ble_notifications.c DEPS app_ble_notifications)
+edge_add_host_test(test_app_ble_motion SOURCES test_app_ble_motion.c DEPS app_ble_motion)
+edge_add_host_test(test_app_ble_fs SOURCES test_app_ble_fs.c DEPS app_ble_fs)
+edge_add_host_test(test_app_ble_dfu SOURCES test_app_ble_dfu.c DEPS app_ble_dfu)
+edge_add_host_test(test_app_watch_ui SOURCES test_app_watch_ui.c DEPS app_watch_ui)
+edge_add_host_test(test_app_metronome SOURCES test_app_metronome.c DEPS app_metronome)
+edge_add_host_test(test_app_calculator SOURCES test_app_calculator.c DEPS app_calculator)
+edge_add_host_test(test_app_dice SOURCES test_app_dice.c DEPS app_dice)
+edge_add_host_test(test_app_ble_passkey SOURCES test_app_ble_passkey.c DEPS app_ble_passkey)
+edge_add_host_test(test_app_flashlight SOURCES test_app_flashlight.c DEPS app_flashlight)
+edge_add_host_test(test_app_game_paddle SOURCES test_app_game_paddle.c DEPS app_game_paddle)
+edge_add_host_test(test_app_game_twos SOURCES test_app_game_twos.c DEPS app_game_twos)
+edge_add_host_test(test_app_paint SOURCES test_app_paint.c DEPS app_paint)
+edge_add_host_test(test_app_firmware_validator SOURCES test_app_firmware_validator.c DEPS app_firmware_validator)
+
+# BLDC Motor Control test suites
 edge_add_host_test(test_app_pulse_meter SOURCES test_app_pulse_meter.c DEPS app_pulse_meter edge_test_contract)
 edge_add_host_test(test_foc_core SOURCES test_foc_core.c DEPS app_foc_core)
 edge_add_host_test(test_app_vesc_comm SOURCES test_app_vesc_comm.c DEPS app_vesc_comm infra_vesc_buffer)
@@ -91,9 +140,7 @@ edge_add_host_test(test_infra_drv83xx SOURCES test_infra_drv83xx.c DEPS infra_dr
 edge_add_host_test(test_infra_encoder SOURCES test_infra_encoder.c DEPS infra_encoder)
 edge_add_host_test(test_infra_imu SOURCES test_infra_imu.c DEPS infra_imu)
 edge_add_host_test(test_board_vesc6 SOURCES test_board_vesc6.c DEPS board_vesc6 soc_stm32f4)
-
 edge_add_host_test(test_soc_stm32f4_tim SOURCES test_soc_stm32f4_tim.c DEPS soc_stm32f4)
-
 edge_add_host_test(test_soc_stm32f4_adc SOURCES test_soc_stm32f4_adc.c DEPS soc_stm32f4)
 edge_add_host_test(test_soc_stm32f4_flash SOURCES test_soc_stm32f4_flash.c DEPS soc_stm32f4)
 edge_add_host_test(test_pal_power SOURCES test_pal_power.c DEPS pal_host pal_os)
@@ -118,11 +165,16 @@ edge_add_host_test(test_product_glue SOURCES test_product_glue.c
     ../product/meter_host/glue.c
     ../product/meter_mps2/glue.c
     ../product/meter_gateway_host/glue.c
+    ../product/meter_rtems/glue.c
+    ../product/watch_host/glue.c
+    ../product/pinetime/glue.c
+    ../product/keyboard_host/glue.c
+    ../product/corne_split/glue.c
     ../product/water_meter_host/glue.c
     ../product/vesc_host/glue.c
     ../product/vesc6_stm32f4/glue.c
-    DEPS app_dlt645 app_meter_core app_modbus_slave app_pulse_meter app_relay app_foc_core app_vesc_comm app_motor_config app_ppm app_adc_input app_vesc_can app_motor_id app_nunchuk app_pas app_balance app_vesc_terminal app_vesc_bms app_bldc_drive app_timeout_guard infra_flash infra_gpio infra_uart infra_vesc_buffer board_vesc6)
-target_include_directories(test_product_glue PRIVATE ${EDGE_ROOT}/product ${EDGE_ROOT}/product/meter_gateway_host ${EDGE_ROOT}/product/water_meter_host ${EDGE_ROOT}/product/vesc_host)
+    DEPS app_dlt645 app_meter_core app_modbus_slave app_pulse_meter app_relay app_touch_gesture app_button_handler app_watch_power app_heart_rate app_step_counter app_watch_time app_ble_services app_alarm app_stopwatch app_timer app_watch_settings app_ble_weather app_ble_music app_ble_nav app_ble_notifications app_ble_motion app_ble_fs app_ble_dfu app_firmware_validator app_watch_ui app_metronome app_calculator app_dice app_ble_passkey app_flashlight app_game_paddle app_game_twos app_paint infra_battery_adc infra_cst816s infra_hrs3300 infra_bma421 infra_st7789 infra_flash_spi infra_haptic infra_rle infra_flash infra_gpio infra_uart board_pinetime app_zmk_matrix app_zmk_keymap app_zmk_behavior app_zmk_split infra_hid_report app_foc_core app_vesc_comm app_motor_config app_ppm app_adc_input app_vesc_can app_motor_id app_nunchuk app_pas app_balance app_vesc_terminal app_vesc_bms app_bldc_drive app_timeout_guard infra_vesc_buffer board_vesc6)
+target_include_directories(test_product_glue PRIVATE ${EDGE_ROOT}/product ${EDGE_ROOT}/product/meter_gateway_host ${EDGE_ROOT}/product/watch_host ${EDGE_ROOT}/product/pinetime ${EDGE_ROOT}/product/meter_rtems ${EDGE_ROOT}/product/keyboard_host ${EDGE_ROOT}/product/corne_split ${EDGE_ROOT}/product/water_meter_host ${EDGE_ROOT}/product/vesc_host)
 
 #
 # The HFI sample tables are generated from the reference and checked in, and the generator has had a
@@ -143,3 +195,42 @@ add_test(NAME generated_motor_config_headers_in_sync
     COMMAND python3 ${EDGE_ROOT}/tools/gen_mcconf_from_reference.py --check)
 set_tests_properties(generated_motor_config_headers_in_sync PROPERTIES
     WORKING_DIRECTORY ${EDGE_ROOT})
+
+# ZMK Keyboard test suites
+edge_add_host_test(test_infra_hid_report SOURCES test_infra_hid_report.c DEPS infra_hid_report)
+edge_add_host_test(test_infra_kscan SOURCES test_infra_kscan.c DEPS infra_kscan)
+edge_add_host_test(test_app_zmk_matrix SOURCES test_app_zmk_matrix.c DEPS app_zmk_matrix edge_test_contract)
+edge_add_host_test(test_app_zmk_keymap SOURCES test_app_zmk_keymap.c DEPS app_zmk_keymap edge_test_contract)
+edge_add_host_test(test_app_zmk_combo SOURCES test_app_zmk_combo.c DEPS app_zmk_combo edge_test_contract)
+edge_add_host_test(test_app_zmk_behavior SOURCES test_app_zmk_behavior.c DEPS app_zmk_behavior edge_test_contract)
+edge_add_host_test(test_app_zmk_endpoints SOURCES test_app_zmk_endpoints.c DEPS app_zmk_endpoints edge_test_contract)
+edge_add_host_test(test_app_zmk_split SOURCES test_app_zmk_split.c DEPS app_zmk_split edge_test_contract)
+edge_add_host_test(test_app_zmk_pointing SOURCES test_app_zmk_pointing.c DEPS app_zmk_pointing edge_test_contract)
+edge_add_host_test(test_app_zmk_rgb SOURCES test_app_zmk_rgb.c DEPS app_zmk_rgb edge_test_contract)
+edge_add_host_test(test_app_zmk_pm SOURCES test_app_zmk_pm.c DEPS app_zmk_pm edge_test_contract)
+edge_add_host_test(test_app_zmk_wpm SOURCES test_app_zmk_wpm.c DEPS app_zmk_wpm edge_test_contract)
+edge_add_host_test(test_board_keyboard_mock SOURCES test_board_keyboard_mock.c DEPS board_keyboard_mock edge_test_contract)
+edge_add_host_test(test_app_zmk_sensors SOURCES test_app_zmk_sensors.c DEPS app_zmk_sensors edge_test_contract)
+edge_add_host_test(test_app_zmk_behavior_queue SOURCES test_app_zmk_behavior_queue.c DEPS app_zmk_behavior_queue edge_test_contract)
+edge_add_host_test(test_app_zmk_settings SOURCES test_app_zmk_settings.c DEPS app_zmk_settings edge_test_contract)
+edge_add_host_test(test_app_zmk_ext_power SOURCES test_app_zmk_ext_power.c DEPS app_zmk_ext_power edge_test_contract)
+edge_add_host_test(test_app_zmk_leds SOURCES test_app_zmk_leds.c DEPS app_zmk_leds edge_test_contract)
+edge_add_host_test(test_app_zmk_pointing_processors SOURCES test_app_zmk_pointing_processors.c DEPS app_zmk_pointing_processors edge_test_contract)
+edge_add_host_test(test_app_zmk_display SOURCES test_app_zmk_display.c DEPS app_zmk_display edge_test_contract)
+edge_add_host_test(test_app_zmk_studio SOURCES test_app_zmk_studio.c DEPS app_zmk_studio edge_test_contract)
+edge_add_host_test(test_app_zmk_backlight SOURCES test_app_zmk_backlight.c DEPS app_zmk_backlight edge_test_contract)
+edge_add_host_test(test_app_zmk_battery SOURCES test_app_zmk_battery.c DEPS app_zmk_battery edge_test_contract)
+edge_add_host_test(test_app_zmk_boot SOURCES test_app_zmk_boot.c DEPS app_zmk_boot edge_test_contract)
+
+# Additional SoC and Board tests
+edge_add_host_test(test_soc_rp2040 SOURCES test_soc_rp2040.c DEPS soc_rp2040)
+edge_add_host_test(test_soc_stm32f4 SOURCES test_soc_stm32f4.c DEPS soc_stm32f4)
+edge_add_host_test(test_board_colmi_p8 SOURCES test_board_colmi_p8.c DEPS board_colmi_p8 soc_nrf52)
+edge_add_host_test(test_board_nice_nano SOURCES test_board_nice_nano.c DEPS board_nice_nano soc_nrf52)
+edge_add_host_test(test_board_rpi_pico SOURCES test_board_rpi_pico.c DEPS board_rpi_pico soc_rp2040)
+edge_add_host_test(test_board_blackpill SOURCES test_board_blackpill.c DEPS board_blackpill soc_stm32f4)
+
+# Architecture Refactor test suites (Proposal Phases 1-5)
+edge_add_host_test(test_module_desc SOURCES test_module_desc.c DEPS edge_module)
+edge_add_host_test(test_interrupt_model SOURCES test_interrupt_model.c DEPS edge_module)
+edge_add_host_test(test_pm_model SOURCES test_pm_model.c DEPS edge_module)

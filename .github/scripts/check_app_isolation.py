@@ -45,6 +45,7 @@ def collect_public_roots(root: Path) -> set:
 
 
 def check(root: Path) -> list:
+    root = root.resolve()
     app_root = root / "app"
     violations = []
     if not app_root.is_dir():

@@ -103,7 +103,7 @@ edge_add_area(app)
 
 # Legal family x board combinations (D39). An unknown family/board fails above;
 # a known-but-unlisted pair is a product composition error and fails here.
-set(EDGE_LEGAL_FAMILY_BOARD "example:example;meter:example;meter:mps2;meter:riscv_virt;bldc:example;bldc:vesc6;bldc:vesc4;bldc:vesc_unity")
+set(EDGE_LEGAL_FAMILY_BOARD "example:example;meter:example;meter:mps2;meter:riscv_virt;watch:example;watch:pinetime;watch:colmi_p8;example:keyboard_mock;keyboard:keyboard_mock;keyboard:nice_nano;keyboard:rpi_pico;keyboard:blackpill;example:colmi_p8;example:nice_nano;example:rpi_pico;example:blackpill;meter:blackpill;meter:rpi_pico;bldc:example;bldc:vesc6;bldc:vesc4;bldc:vesc_unity")
 
 function(edge_add_product name)
     cmake_parse_arguments(P "" "family;board" "apps;infra" ${ARGN})
@@ -217,6 +217,8 @@ edge_add_product(meter_host family meter board example infra flash gpio apps dlt
 edge_add_product(meter_mps2 family meter board mps2 infra flash gpio apps dlt645 relay)
 edge_add_product(meter_gateway_host family meter board example infra flash uart apps dlt645 modbus_slave meter_core)
 edge_add_product(meter_rtems family meter board example infra flash apps dlt645)
+edge_add_product(keyboard_host family example board keyboard_mock infra hid_report apps zmk_matrix zmk_keymap zmk_behavior zmk_endpoints zmk_pm zmk_wpm)
+edge_add_product(corne_split family keyboard board keyboard_mock infra hid_report apps zmk_matrix zmk_keymap zmk_behavior zmk_split zmk_endpoints zmk_pm zmk_wpm)
 if(TARGET meter_rtems)
     target_link_libraries(meter_rtems PRIVATE pal_rtos_rtems)
 endif()
@@ -227,6 +229,20 @@ endif()
 edge_add_product(vesc_host family bldc board example infra flash digital_filter vesc_buffer apps foc_core vesc_comm motor_config timeout_guard motor_id bldc_drive ppm adc_input vesc_can nunchuk pas balance vesc_terminal vesc_bms)
 edge_add_product(vesc6_stm32f4 family bldc board vesc6 apps foc_core motor_config timeout_guard)
 
+
+edge_add_product(watch_host family watch board example infra battery_adc cst816s hrs3300 bma421 st7789 flash_spi haptic apps touch_gesture button_handler watch_power heart_rate step_counter watch_time ble_services)
+if(TARGET watch_host)
+    if(NOT WIN32)
+        target_link_libraries(watch_host PRIVATE m)
+    endif()
+endif()
+edge_add_product(pinetime family watch board pinetime infra battery_adc cst816s hrs3300 bma421 st7789 flash_spi haptic rle apps touch_gesture button_handler watch_power heart_rate step_counter watch_time ble_services alarm stopwatch timer watch_settings ble_weather ble_music ble_nav ble_notifications ble_motion ble_fs ble_dfu firmware_validator watch_ui metronome calculator dice ble_passkey flashlight game_paddle game_twos paint)
+
+if(TARGET pinetime)
+    if(NOT WIN32)
+        target_link_libraries(pinetime PRIVATE m)
+    endif()
+endif()
 
 if(EDGE_MODULE_BUILD_THREADX)
     # D87: one compiled kernel serves one configuration. Claiming it here as well means
