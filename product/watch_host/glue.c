@@ -1,5 +1,7 @@
+#include "glue.h"
 #include <stddef.h>
 #include <stdint.h>
+
 static void copy_bytes(void *dst, const void *src, size_t n) {
     uint8_t *d = (uint8_t *)dst;
     const uint8_t *s = (const uint8_t *)src;
@@ -7,7 +9,6 @@ static void copy_bytes(void *dst, const void *src, size_t n) {
         d[i] = s[i];
     }
 }
-#include "glue.h"
 
 // cppcheck-suppress constParameterCallback ; signature fixed by the consumer port
 static edge_status_t glue_read_touch(void *self, touch_raw_info_t *out_info) {
@@ -35,6 +36,7 @@ void watch_host_make_touch_port(touch_input_if_t *out, watch_host_glue_state_t *
     if (out == NULL) {
         return;
     }
+    *out = (touch_input_if_t){0};
     out->self = state;
     out->read_touch = glue_read_touch;
     out->sleep = glue_touch_sleep;
@@ -65,6 +67,7 @@ void watch_host_make_display_port(watch_power_display_if_t *out, watch_host_glue
     if (out == NULL) {
         return;
     }
+    *out = (watch_power_display_if_t){0};
     out->self = state;
     out->set_brightness = glue_set_brightness;
     out->sleep = glue_display_sleep;
@@ -89,6 +92,7 @@ void watch_host_make_ppg_port(ppg_sensor_if_t *out, watch_host_glue_state_t *sta
     if (out == NULL) {
         return;
     }
+    *out = (ppg_sensor_if_t){0};
     out->self = state;
     out->read_sample = glue_read_ppg;
 }
@@ -116,6 +120,7 @@ void watch_host_make_imu_port(imu_sensor_if_t *out, watch_host_glue_state_t *sta
     if (out == NULL) {
         return;
     }
+    *out = (imu_sensor_if_t){0};
     out->self = state;
     out->read_accel = glue_read_imu;
 }
@@ -141,6 +146,7 @@ void watch_host_make_rtc_port(rtc_clock_if_t *out, watch_host_glue_state_t *stat
     if (out == NULL) {
         return;
     }
+    *out = (rtc_clock_if_t){0};
     out->self = state;
     out->get_counter = glue_get_rtc_counter;
     out->get_tick_frequency = glue_get_tick_frequency;
@@ -166,6 +172,7 @@ void watch_host_make_gatt_port(ble_gatt_server_if_t *out, watch_host_glue_state_
     if (out == NULL) {
         return;
     }
+    *out = (ble_gatt_server_if_t){0};
     out->self = state;
     out->notify = glue_gatt_notify;
 }
@@ -184,6 +191,7 @@ void watch_host_make_time_sink_port(ble_time_sink_if_t *out, watch_host_glue_sta
     if (out == NULL) {
         return;
     }
+    *out = (ble_time_sink_if_t){0};
     out->self = state;
     out->set_time = glue_set_time;
 }

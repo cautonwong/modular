@@ -217,7 +217,7 @@ edge_status_t zmk_behavior_invoke(zmk_behavior_app_t *self, uint16_t behavior_id
         zmk_ht_instance_t *ht = &self->hold_taps[param1];
         if (pressed) {
             /* Check quick tap */
-            if (ht->config.quick_tap_ms > 0 &&
+            if (ht->config.quick_tap_ms > 0 && ht->has_previous_tap &&
                 (timestamp_ms - ht->last_tap_time_ms) < ht->config.quick_tap_ms) {
                 /* Double tap -> fire tap directly */
                 zmk_behavior_invoke(self, (uint16_t)ht->tap_behavior_id, ht->tap_param1, 0, true,
@@ -247,6 +247,8 @@ edge_status_t zmk_behavior_invoke(zmk_behavior_app_t *self, uint16_t behavior_id
                         /* Retro tap: held past term but no other key pressed -> tap */
                         zmk_behavior_invoke(self, (uint16_t)ht->hold_behavior_id, ht->hold_param1,
                                             0, false, timestamp_ms);
+                        ht->last_tap_time_ms = timestamp_ms;
+                        ht->has_previous_tap = true;
                         zmk_behavior_invoke(self, (uint16_t)ht->tap_behavior_id, ht->tap_param1, 0,
                                             true, timestamp_ms);
                         return zmk_behavior_invoke(self, (uint16_t)ht->tap_behavior_id,
@@ -257,6 +259,7 @@ edge_status_t zmk_behavior_invoke(zmk_behavior_app_t *self, uint16_t behavior_id
                 } else {
                     /* Tapped */
                     ht->last_tap_time_ms = timestamp_ms;
+                    ht->has_previous_tap = true;
                     zmk_behavior_invoke(self, (uint16_t)ht->tap_behavior_id, ht->tap_param1, 0,
                                         true, timestamp_ms);
                     return zmk_behavior_invoke(self, (uint16_t)ht->tap_behavior_id, ht->tap_param1,
@@ -349,17 +352,24 @@ edge_status_t zmk_behavior_invoke(zmk_behavior_app_t *self, uint16_t behavior_id
             return EDGE_OK;
         }
         const zmk_macro_config_t *macro = &self->macros[param1];
+        uint32_t step_time = timestamp_ms;
         for (uint8_t s = 0; s < macro->step_count; s++) {
             const zmk_macro_step_t *st = &macro->steps[s];
             if (st->action == ZMK_MACRO_ACTION_PRESS) {
-                handle_key_press(self, st->keycode, st->modifiers, true, timestamp_ms);
+                handle_key_press(self, st->keycode, st->modifiers, true, step_time);
             } else if (st->action == ZMK_MACRO_ACTION_RELEASE) {
-                handle_key_press(self, st->keycode, st->modifiers, false, timestamp_ms);
+                handle_key_press(self, st->keycode, st->modifiers, false, step_time);
             } else if (st->action == ZMK_MACRO_ACTION_TAP) {
-                handle_key_press(self, st->keycode, st->modifiers, true, timestamp_ms);
-                handle_key_press(self, st->keycode, st->modifiers, false, timestamp_ms);
+                uint16_t wait_duration = (st->wait_ms > 0) ? st->wait_ms : macro->default_wait_ms;
+                handle_key_press(self, st->keycode, st->modifiers, true, step_time);
+                step_time += wait_duration;
+                handle_key_press(self, st->keycode, st->modifiers, false, step_time);
+            } else if (st->action == ZMK_MACRO_ACTION_WAIT) {
+                uint16_t wait_duration = (st->wait_ms > 0) ? st->wait_ms : macro->default_wait_ms;
+                step_time += wait_duration;
             }
         }
+        self->current_time_ms = step_time;
         return EDGE_OK;
     }
 

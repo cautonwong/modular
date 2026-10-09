@@ -737,7 +737,7 @@ void pinetime_make_ui_display_port(watch_ui_display_port_t *out, pinetime_glue_s
 }
 
 static edge_status_t glue_ui_get_status(void *self, watch_ui_status_data_t *out_status) {
-    pinetime_glue_state_t *state = (pinetime_glue_state_t *)self;
+    const pinetime_glue_state_t *state = (const pinetime_glue_state_t *)self;
     if (state == NULL || out_status == NULL) {
         return EDGE_EINVAL;
     }

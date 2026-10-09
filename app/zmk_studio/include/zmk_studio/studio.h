@@ -73,6 +73,7 @@ typedef struct zmk_studio_app {
     uint8_t rx_buf[ZMK_STUDIO_MAX_FRAME_LEN];
     size_t rx_len;
     bool unlocked;
+    bool unlock_authorized;
     bool unsaved_changes;
     char device_name[32];
     uint32_t serial_number;
@@ -83,6 +84,10 @@ void zmk_studio_construct(zmk_studio_app_t *app, uint32_t module_id, uint8_t pri
                           const zmk_studio_keymap_if_t *keymap);
 
 edge_status_t zmk_studio_init(zmk_studio_app_t *app);
+
+void zmk_studio_authorize_unlock(zmk_studio_app_t *app, bool authorized);
+void zmk_studio_lock(zmk_studio_app_t *app);
+void zmk_studio_handle_disconnect(zmk_studio_app_t *app);
 
 bool zmk_studio_framing_process_byte(zmk_studio_framing_state_t *state, uint8_t byte,
                                      uint8_t *out_data);

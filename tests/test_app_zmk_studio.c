@@ -135,20 +135,29 @@ static void test_studio_core_and_keymap_rpc(void **state) {
                      EDGE_OK);
     assert_int_not_equal(keymap_ctx.bindings[0][5], 0x99); // Still 0x42
 
-    // 3. Unlock device
+    // 3. Attempt unlock without physical authorization -> remains locked
     uint8_t req_unlock[] = {ZMK_STUDIO_SUBSYS_CORE, ZMK_STUDIO_CORE_CMD_UNLOCK_DEVICE};
+    assert_int_equal(zmk_studio_process_request(&app, req_unlock, sizeof(req_unlock)), EDGE_OK);
+    assert_false(zmk_studio_is_unlocked(&app));
+
+    // 4. Authorize unlock physically, then invoke UNLOCK_DEVICE -> succeeds
+    zmk_studio_authorize_unlock(&app, true);
     assert_int_equal(zmk_studio_process_request(&app, req_unlock, sizeof(req_unlock)), EDGE_OK);
     assert_true(zmk_studio_is_unlocked(&app));
 
-    // 4. Set keymap while unlocked -> succeeds
+    // 5. Set keymap while unlocked -> succeeds
     assert_int_equal(zmk_studio_process_request(&app, req_set_binding, sizeof(req_set_binding)),
                      EDGE_OK);
     assert_int_equal(keymap_ctx.bindings[0][5], 0x99);
 
-    // 5. Save changes
+    // 6. Save changes
     uint8_t req_save[] = {ZMK_STUDIO_SUBSYS_KEYMAP, ZMK_STUDIO_KEYMAP_CMD_SAVE_CHANGES};
     assert_int_equal(zmk_studio_process_request(&app, req_save, sizeof(req_save)), EDGE_OK);
     assert_int_equal(keymap_ctx.save_calls, 1);
+
+    // 7. Disconnect auto-locks
+    zmk_studio_handle_disconnect(&app);
+    assert_false(zmk_studio_is_unlocked(&app));
 }
 
 int main(void) {

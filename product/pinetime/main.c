@@ -140,22 +140,35 @@ int main(void) {
 
     alarm_app_t alarm_app;
     alarm_construct(&alarm_app, EDGE_MOD_ALARM, 70u, &alarm_store_port, &alarm_alert_port);
+    if (alarm_init(&alarm_app) != EDGE_OK) {
+        return 17;
+    }
 
     stopwatch_app_t stopwatch_app;
     stopwatch_construct(&stopwatch_app, EDGE_MOD_STOPWATCH, 75u, &sw_clk_port);
+    if (stopwatch_init(&stopwatch_app) != EDGE_OK) {
+        return 18;
+    }
 
     watch_timer_app_t timer_app;
-
     timer_construct(&timer_app, EDGE_MOD_WATCH_TIMER, 80u, &timer_clk_port, &timer_alert_port);
+    if (watch_timer_init(&timer_app) != EDGE_OK) {
+        return 19;
+    }
 
     watch_settings_app_t settings_app;
     watch_settings_construct(&settings_app, EDGE_MOD_WATCH_SETTINGS, 85u, &settings_store_port);
+    if (watch_settings_init(&settings_app) != EDGE_OK) {
+        return 20;
+    }
 
     ble_weather_t weather_app;
     ble_weather_construct(&weather_app, EDGE_MOD_BLE_WEATHER, 90u, &weather_time_port, NULL);
+    ble_weather_init(&weather_app, &weather_time_port, NULL);
 
     ble_music_t music_app;
     ble_music_construct(&music_app, EDGE_MOD_BLE_MUSIC, 95u, &music_trans_port, NULL);
+    ble_music_init(&music_app, &music_trans_port, NULL);
 
     ble_nav_t nav_app;
     ble_nav_construct(&nav_app, EDGE_MOD_BLE_NAV, 100u, NULL);
@@ -163,28 +176,45 @@ int main(void) {
     ble_notifications_t notif_app;
     ble_notifications_construct(&notif_app, EDGE_MOD_BLE_NOTIFICATIONS, 105u, &notif_call_port,
                                 NULL);
+    ble_notifications_init(&notif_app, &notif_call_port, NULL);
 
     ble_motion_t motion_app;
     ble_motion_construct(&motion_app, EDGE_MOD_BLE_MOTION, 110u, &motion_notify_port, NULL);
+    ble_motion_init(&motion_app, &motion_notify_port, NULL);
 
     ble_fs_t fs_app;
     ble_fs_construct(&fs_app, EDGE_MOD_BLE_FS, 115u, &fs_store_port, &fs_tx_port, NULL);
+    if (ble_fs_init(&fs_app, &fs_store_port, &fs_tx_port, NULL) != EDGE_OK) {
+        return 21;
+    }
 
     ble_dfu_t dfu_app;
     ble_dfu_construct(&dfu_app, EDGE_MOD_BLE_DFU, 120u, &dfu_flash_port, &dfu_notify_port,
                       &dfu_sys_port, NULL);
+    if (ble_dfu_init(&dfu_app, &dfu_flash_port, &dfu_notify_port, &dfu_sys_port, NULL) != EDGE_OK) {
+        return 22;
+    }
 
     firmware_validator_t val_app;
     firmware_validator_construct(&val_app, EDGE_MOD_FIRMWARE_VALIDATOR, 125u, &val_hw_port, NULL);
+    if (firmware_validator_init(&val_app, &val_hw_port, NULL) != EDGE_OK) {
+        return 23;
+    }
 
     metronome_motor_if_t metronome_motor_port;
     pinetime_make_metronome_motor_port(&metronome_motor_port, &glue);
 
     metronome_app_t metronome_app;
     metronome_construct(&metronome_app, EDGE_MOD_METRONOME, 130u, &metronome_motor_port, NULL);
+    if (metronome_init(&metronome_app, &metronome_motor_port, NULL) != EDGE_OK) {
+        return 24;
+    }
 
     calculator_app_t calculator_app;
     calculator_construct(&calculator_app, EDGE_MOD_CALCULATOR, 135u);
+    if (calculator_init(&calculator_app) != EDGE_OK) {
+        return 25;
+    }
 
     dice_entropy_if_t dice_entropy_port;
     pinetime_make_dice_entropy_port(&dice_entropy_port, &glue);
@@ -194,9 +224,15 @@ int main(void) {
 
     dice_app_t dice_app;
     dice_construct(&dice_app, EDGE_MOD_DICE, 140u, &dice_entropy_port, &dice_motor_port);
+    if (dice_init(&dice_app, &dice_entropy_port, &dice_motor_port) != EDGE_OK) {
+        return 26;
+    }
 
     ble_passkey_app_t ble_passkey_app;
     ble_passkey_construct(&ble_passkey_app, EDGE_MOD_BLE_PASSKEY, 145u);
+    if (ble_passkey_init(&ble_passkey_app) != EDGE_OK) {
+        return 27;
+    }
 
     flashlight_display_if_t flashlight_disp_port;
     pinetime_make_flashlight_display_port(&flashlight_disp_port, &glue);
@@ -207,6 +243,9 @@ int main(void) {
     flashlight_app_t flashlight_app;
     flashlight_construct(&flashlight_app, EDGE_MOD_FLASHLIGHT, 150u, &flashlight_disp_port,
                          &flashlight_sys_port);
+    if (flashlight_init(&flashlight_app) != EDGE_OK) {
+        return 28;
+    }
 
     paddle_motor_if_t paddle_motor_port;
     pinetime_make_game_paddle_motor_port(&paddle_motor_port, &glue);
@@ -217,12 +256,18 @@ int main(void) {
     game_paddle_app_t game_paddle_app;
     game_paddle_construct(&game_paddle_app, EDGE_MOD_GAME_PADDLE, 155u, &paddle_motor_port,
                           &paddle_entropy_port);
+    if (game_paddle_init(&game_paddle_app) != EDGE_OK) {
+        return 29;
+    }
 
     twos_entropy_if_t twos_entropy_port;
     pinetime_make_game_twos_entropy_port(&twos_entropy_port, &glue);
 
     game_twos_app_t game_twos_app;
     game_twos_construct(&game_twos_app, EDGE_MOD_GAME_TWOS, 160u, &twos_entropy_port);
+    if (game_twos_init(&game_twos_app) != EDGE_OK) {
+        return 30;
+    }
 
     paint_display_if_t paint_disp_port;
     pinetime_make_paint_display_port(&paint_disp_port, &glue);
@@ -232,9 +277,15 @@ int main(void) {
 
     paint_app_t paint_app;
     paint_construct(&paint_app, EDGE_MOD_PAINT, 165u, &paint_disp_port, &paint_motor_port);
+    if (paint_init(&paint_app) != EDGE_OK) {
+        return 31;
+    }
 
     watch_ui_t ui_app;
     watch_ui_construct(&ui_app, EDGE_MOD_WATCH_UI, 15u, &ui_disp_port, &ui_status_port, NULL);
+    if (watch_ui_init(&ui_app, &ui_disp_port, &ui_status_port, NULL) != EDGE_OK) {
+        return 32;
+    }
 
     /* Assemble App List */
     edge_module_t *apps[28];
@@ -280,6 +331,7 @@ int main(void) {
         .guard = NULL,
     };
     board_pinetime_init(&event_sink);
+    ble_nav_init(&nav_app, &event_sink);
 
     edge_sys_subscription_t subs[32];
     edge_sys_t sys;
@@ -321,15 +373,28 @@ int main(void) {
         }
     }
 
-    /* Clean shutdown */
+    /* Clean shutdown in reverse initialization order */
     (void)edge_sys_power_off(&sys);
-    (void)touch_gesture_deinit(&touch_app);
-    (void)button_handler_deinit(&button_app);
-    (void)watch_power_deinit(&power_app);
-    (void)heart_rate_shutdown(&hr_app);
-    (void)step_counter_shutdown(&step_app);
-    (void)watch_time_shutdown(&time_app);
+    (void)watch_ui_shutdown(&ui_app);
+    (void)paint_shutdown(&paint_app);
+    (void)game_twos_shutdown(&game_twos_app);
+    (void)game_paddle_shutdown(&game_paddle_app);
+    (void)flashlight_shutdown(&flashlight_app);
+    (void)ble_passkey_shutdown(&ble_passkey_app);
+    (void)dice_shutdown(&dice_app);
+    (void)calculator_shutdown(&calculator_app);
+    (void)metronome_shutdown(&metronome_app);
+    (void)watch_settings_shutdown(&settings_app);
+    (void)watch_timer_shutdown(&timer_app);
+    (void)stopwatch_shutdown(&stopwatch_app);
+    (void)alarm_shutdown(&alarm_app);
     (void)ble_services_shutdown(&ble_app);
+    (void)watch_time_shutdown(&time_app);
+    (void)step_counter_shutdown(&step_app);
+    (void)heart_rate_shutdown(&hr_app);
+    (void)watch_power_deinit(&power_app);
+    (void)button_handler_deinit(&button_app);
+    (void)touch_gesture_deinit(&touch_app);
     (void)edge_sys_deinit(&sys);
 
     printf("PineTime composition completed successfully!\n");

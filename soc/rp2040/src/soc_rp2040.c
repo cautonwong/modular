@@ -1,6 +1,6 @@
 #include "soc_rp2040/soc_rp2040.h"
 
-#define SIO_GPIO_MASK(pin) ((uint32_t)1u << ((pin) & 0x1Fu))
+#define SIO_GPIO_MASK(pin) ((uint32_t)1u << (((uint32_t)(pin)) & 0x1Fu))
 
 void soc_rp2040_gpio_init(soc_rp2040_sio_regs_t *sio, uint8_t pin, bool is_output) {
     if (sio == NULL || pin >= 30u) {
@@ -53,12 +53,16 @@ void soc_rp2040_wdt_start(soc_rp2040_wdt_regs_t *wdt, uint32_t delay_ms) {
     }
     /* RP2040 watchdog counts at 1MHz (1us per tick). delay_ms * 1000 * 2 for HW errata */
     wdt->load = delay_ms * 2000u;
+    wdt->scratch[7] = wdt->load;
     wdt->ctrl = 0x40000000u; /* Enable watchdog bit (bit 30) */
 }
 
 void soc_rp2040_wdt_feed(soc_rp2040_wdt_regs_t *wdt) {
     if (wdt == NULL) {
         return;
+    }
+    if (wdt->scratch[7] > 0u) {
+        wdt->load = wdt->scratch[7];
     }
     wdt->ctrl |= 0x40000000u;
 }

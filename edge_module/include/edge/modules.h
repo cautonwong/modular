@@ -109,7 +109,7 @@ enum { EDGE_MODULE_IDS(EDGE_MODULE_DEFINE) };
 #undef EDGE_MODULE_DEFINE
 
 /* High byte of a module/event segment, used by EDGE_ERR() in edge/errors.h. */
-#define EDGE_MODULE_SEGMENT(id) ((uint32_t)(id) & 0xFF00u)
+#define EDGE_MODULE_SEGMENT(id) (((uint32_t)(id)) & 0xFF00u)
 
 /* Generated, one triple per table entry: an unnamed layer has no block, so it
  * fails to compile rather than silently passing. */

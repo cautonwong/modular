@@ -118,7 +118,7 @@ edge_status_t ble_dfu_control_point_handler(ble_dfu_t *self, const uint8_t *data
         }
         uint8_t img_type = data[1];
         uint32_t app_size = 0;
-        if (img_type == 0x04 && len >= 6) {
+        if (img_type == 0x04) {
             app_size = (uint32_t)data[2] | ((uint32_t)data[3] << 8u) | ((uint32_t)data[4] << 16u) |
                        ((uint32_t)data[5] << 24u);
         } else if (len >= 14) {

@@ -95,6 +95,15 @@ edge_status_t watch_ui_init(watch_ui_t *self, const watch_ui_display_port_t *dis
     return EDGE_OK;
 }
 
+// cppcheck-suppress constParameterPointer
+edge_status_t watch_ui_shutdown(watch_ui_t *self) {
+    if (self == NULL) {
+        return EDGE_EINVAL;
+    }
+    self->screen_on = false;
+    return EDGE_OK;
+}
+
 watch_screen_id_t watch_ui_get_current_screen(const watch_ui_t *self) {
     return self != NULL ? self->current_screen : WATCH_SCREEN_WATCHFACE;
 }

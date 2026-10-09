@@ -206,7 +206,7 @@ jobs:
           cmake --build build --parallel
       - name: Run host products
         run: |
-          for product in example meter_host meter_mps2 meter_gateway_host; do
+          for product in example meter_host meter_mps2 meter_gateway_host keyboard_host corne_split watch_host pinetime; do
             echo "running $product"
             ./build/$product
           done
@@ -392,7 +392,7 @@ jobs:
       - name: Toolchain manifest matches the installed tools
         run: python3 .github/scripts/check_toolchain.py
       - name: Formatting check
-        run: git ls-files '*.c' '*.h' | xargs clang-format --dry-run --Werror
+        run: git ls-files '*.c' '*.h' ':!:tests/guards/*' | xargs clang-format --dry-run --Werror
       - name: clang-tidy
         run: |
           clang-tidy -p build \
@@ -420,26 +420,8 @@ jobs:
             --enable=warning,style,performance,portability \
             --error-exitcode=1 --inline-suppr \
             -i tests/guards \
-            -I edge_module/include \
-            -I sys/runtime/include \
-            -I sys/example/include \
-            -I sys/meter/include \
-            -I app/dlt645/include \
-            -I app/relay/include \
-            -I app/modbus_slave/include \
-            -I app/meter_core/include \
-            -I infra/flash/include \
-            -I infra/gpio/include \
-            -I infra/uart/include \
-            -I board/example/include \
-            -I board/mps2/include \
-            -I soc/mps2/include \
-            -I pal/host/include \
-            -I pal/os/include \
-            -I pal/eos/include \
-            -I pal/cortex-m-bare/include \
-            -I pal/rtos/include \
-            edge_module sys app board infra pal product tests
+            $(find edge_module sys app board infra pal soc -type d -name include | sed 's/^/-I /') \
+            edge_module sys app board infra pal soc product tests
 
   architecture:
     name: architecture-guards

@@ -114,6 +114,8 @@ edge_status_t watch_ui_init(watch_ui_t *self, const watch_ui_display_port_t *dis
                             const watch_ui_status_port_t *status_port,
                             const edge_event_sink_t *event_sink);
 
+edge_status_t watch_ui_shutdown(watch_ui_t *self);
+
 watch_screen_id_t watch_ui_get_current_screen(const watch_ui_t *self);
 void watch_ui_set_watchface_style(watch_ui_t *self, watchface_style_t style);
 watchface_style_t watch_ui_get_watchface_style(const watch_ui_t *self);
