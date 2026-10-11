@@ -32,9 +32,8 @@ def parse_descriptors(root: Path) -> dict:
         re.M,
     )
     for path in root.glob("**/*.[ch]"):
-        if "tests" in path.parts and (root / "tests") == (path.parents[len(path.parents) - 2] if len(path.parents) >= 2 else None):
+        if any(p in ("build", ".git", ".devcontainer") for p in path.parts):
             continue
-        # If testing under repo root, ignore tests/
         if (root / "tests").is_dir() and (root / "tests") in path.parents:
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
@@ -51,34 +50,36 @@ def parse_descriptors(root: Path) -> dict:
 
     # Gather descriptors
     for path in root.glob("**/*.[ch]"):
+        if any(p in ("build", ".git", ".devcontainer") for p in path.parts):
+            continue
         if (root / "tests").is_dir() and (root / "tests") in path.parents:
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
         for desc_name, body in DESC_PATTERN.findall(text):
-            id_match = re.search(r"\.id\s*=\s*([A-Za-z0-9_]+)", body)
-            if not id_match:
-                continue
-            id_token = id_match.group(1).strip()
-            # If literal or macro
-            mod_id = None
-            if id_token.startswith("0x") or id_token.isdigit():
-                mod_id = int(id_token.rstrip("uU"), 0)
-            else:
-                # Resolve macro if in file
-                m_def = re.search(rf"#define\s+{re.escape(id_token)}\s+(0[xX][0-9A-Fa-f]+|\d+)", text)
-                if m_def:
-                    mod_id = int(m_def.group(1), 0)
+                id_match = re.search(r"\.id\s*=\s*([A-Za-z0-9_]+)", body)
+                if not id_match:
+                    continue
+                id_token = id_match.group(1).strip()
+                # If literal or macro
+                mod_id = None
+                if id_token.startswith("0x") or id_token.isdigit():
+                    mod_id = int(id_token.rstrip("uU"), 0)
                 else:
-                    mod_id = id_token
+                    # Resolve macro if in file
+                    m_def = re.search(rf"#define\s+{re.escape(id_token)}\s+(0[xX][0-9A-Fa-f]+|\d+)", text)
+                    if m_def:
+                        mod_id = int(m_def.group(1), 0)
+                    else:
+                        mod_id = id_token
 
-            deps = []
-            dep_match = re.search(r"\.dependencies\s*=\s*([A-Za-z0-9_]+)", body)
-            if dep_match:
-                dep_token = dep_match.group(1).strip()
-                if dep_token != "NULL" and dep_token in dep_arrays:
-                    deps = dep_arrays[dep_token]
+                deps = []
+                dep_match = re.search(r"\.dependencies\s*=\s*([A-Za-z0-9_]+)", body)
+                if dep_match:
+                    dep_token = dep_match.group(1).strip()
+                    if dep_token != "NULL" and dep_token in dep_arrays:
+                        deps = dep_arrays[dep_token]
 
-            descriptors[desc_name] = {"id": mod_id, "deps": deps, "path": path}
+                descriptors[desc_name] = {"id": mod_id, "deps": deps, "path": path}
 
     return descriptors
 
