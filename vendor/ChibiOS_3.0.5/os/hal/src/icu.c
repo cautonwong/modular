@@ -55,7 +55,7 @@
  */
 void icuInit(void) {
 
-  icu_lld_init();
+    icu_lld_init();
 }
 
 /**
@@ -67,8 +67,8 @@ void icuInit(void) {
  */
 void icuObjectInit(ICUDriver *icup) {
 
-  icup->state  = ICU_STOP;
-  icup->config = NULL;
+    icup->state = ICU_STOP;
+    icup->config = NULL;
 }
 
 /**
@@ -81,15 +81,14 @@ void icuObjectInit(ICUDriver *icup) {
  */
 void icuStart(ICUDriver *icup, const ICUConfig *config) {
 
-  osalDbgCheck((icup != NULL) && (config != NULL));
+    osalDbgCheck((icup != NULL) && (config != NULL));
 
-  osalSysLock();
-  osalDbgAssert((icup->state == ICU_STOP) || (icup->state == ICU_READY),
-                "invalid state");
-  icup->config = config;
-  icu_lld_start(icup);
-  icup->state = ICU_READY;
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert((icup->state == ICU_STOP) || (icup->state == ICU_READY), "invalid state");
+    icup->config = config;
+    icu_lld_start(icup);
+    icup->state = ICU_READY;
+    osalSysUnlock();
 }
 
 /**
@@ -101,14 +100,13 @@ void icuStart(ICUDriver *icup, const ICUConfig *config) {
  */
 void icuStop(ICUDriver *icup) {
 
-  osalDbgCheck(icup != NULL);
+    osalDbgCheck(icup != NULL);
 
-  osalSysLock();
-  osalDbgAssert((icup->state == ICU_STOP) || (icup->state == ICU_READY),
-                "invalid state");
-  icu_lld_stop(icup);
-  icup->state = ICU_STOP;
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert((icup->state == ICU_STOP) || (icup->state == ICU_READY), "invalid state");
+    icu_lld_stop(icup);
+    icup->state = ICU_STOP;
+    osalSysUnlock();
 }
 
 /**
@@ -120,12 +118,12 @@ void icuStop(ICUDriver *icup) {
  */
 void icuStartCapture(ICUDriver *icup) {
 
-  osalDbgCheck(icup != NULL);
+    osalDbgCheck(icup != NULL);
 
-  osalSysLock();
-  osalDbgAssert(icup->state == ICU_READY, "invalid state");
-  icuStartCaptureI(icup);
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert(icup->state == ICU_READY, "invalid state");
+    icuStartCaptureI(icup);
+    osalSysUnlock();
 }
 
 /**
@@ -145,20 +143,18 @@ void icuStartCapture(ICUDriver *icup) {
  * @api
  */
 bool icuWaitCapture(ICUDriver *icup) {
-  bool result;
+    bool result;
 
-  osalDbgCheck(icup != NULL);
+    osalDbgCheck(icup != NULL);
 
-  osalSysLock();
-  osalDbgAssert((icup->state == ICU_WAITING) || (icup->state == ICU_ACTIVE),
-                "invalid state");
-  osalDbgAssert(icuAreNotificationsEnabledX(icup) == false,
-                "notifications enabled");
-  result = icu_lld_wait_capture(icup);
-  icup->state = result ? ICU_WAITING : ICU_ACTIVE;
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert((icup->state == ICU_WAITING) || (icup->state == ICU_ACTIVE), "invalid state");
+    osalDbgAssert(icuAreNotificationsEnabledX(icup) == false, "notifications enabled");
+    result = icu_lld_wait_capture(icup);
+    icup->state = result ? ICU_WAITING : ICU_ACTIVE;
+    osalSysUnlock();
 
-  return result;
+    return result;
 }
 
 /**
@@ -170,14 +166,14 @@ bool icuWaitCapture(ICUDriver *icup) {
  */
 void icuStopCapture(ICUDriver *icup) {
 
-  osalDbgCheck(icup != NULL);
+    osalDbgCheck(icup != NULL);
 
-  osalSysLock();
-  osalDbgAssert((icup->state == ICU_READY) || (icup->state == ICU_WAITING) ||
-                (icup->state == ICU_ACTIVE),
-                "invalid state");
-  icuStopCaptureI(icup);
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert((icup->state == ICU_READY) || (icup->state == ICU_WAITING) ||
+                      (icup->state == ICU_ACTIVE),
+                  "invalid state");
+    icuStopCaptureI(icup);
+    osalSysUnlock();
 }
 
 /**
@@ -191,13 +187,12 @@ void icuStopCapture(ICUDriver *icup) {
  */
 void icuEnableNotifications(ICUDriver *icup) {
 
-  osalDbgCheck(icup != NULL);
+    osalDbgCheck(icup != NULL);
 
-  osalSysLock();
-  osalDbgAssert((icup->state == ICU_WAITING) || (icup->state == ICU_ACTIVE),
-                "invalid state");
-  icuEnableNotificationsI(icup);
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert((icup->state == ICU_WAITING) || (icup->state == ICU_ACTIVE), "invalid state");
+    icuEnableNotificationsI(icup);
+    osalSysUnlock();
 }
 
 /**
@@ -211,13 +206,12 @@ void icuEnableNotifications(ICUDriver *icup) {
  */
 void icuDisableNotifications(ICUDriver *icup) {
 
-  osalDbgCheck(icup != NULL);
+    osalDbgCheck(icup != NULL);
 
-  osalSysLock();
-  osalDbgAssert((icup->state == ICU_WAITING) || (icup->state == ICU_ACTIVE),
-                "invalid state");
-  icuDisableNotificationsI(icup);
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert((icup->state == ICU_WAITING) || (icup->state == ICU_ACTIVE), "invalid state");
+    icuDisableNotificationsI(icup);
+    osalSysUnlock();
 }
 
 #endif /* HAL_USE_ICU == TRUE */

@@ -33,9 +33,9 @@
 #if OSAL_ST_MODE == OSAL_ST_MODE_FREERUNNING
 
 #if (OSAL_ST_RESOLUTION == 32)
-#define ST_ARR_INIT                         0xFFFFFFFF
+#define ST_ARR_INIT 0xFFFFFFFF
 #else
-#define ST_ARR_INIT                         0x0000FFFF
+#define ST_ARR_INIT 0x0000FFFF
 #endif
 
 #if STM32_ST_USE_TIMER == 2
@@ -43,14 +43,14 @@
 #error "TIM2 is not a 32bits timer"
 #endif
 
-#define ST_HANDLER                          STM32_TIM2_HANDLER
-#define ST_NUMBER                           STM32_TIM2_NUMBER
-#define ST_CLOCK_SRC                        STM32_TIMCLK1
-#define ST_ENABLE_CLOCK()                   rccEnableTIM2(FALSE)
+#define ST_HANDLER STM32_TIM2_HANDLER
+#define ST_NUMBER STM32_TIM2_NUMBER
+#define ST_CLOCK_SRC STM32_TIMCLK1
+#define ST_ENABLE_CLOCK() rccEnableTIM2(FALSE)
 #if defined(STM32F1XX)
-#define ST_ENABLE_STOP()                    DBGMCU->CR |= DBGMCU_CR_DBG_TIM2_STOP
+#define ST_ENABLE_STOP() DBGMCU->CR |= DBGMCU_CR_DBG_TIM2_STOP
 #else
-#define ST_ENABLE_STOP()                    DBGMCU->APB1FZ |= DBGMCU_APB1_FZ_DBG_TIM2_STOP
+#define ST_ENABLE_STOP() DBGMCU->APB1FZ |= DBGMCU_APB1_FZ_DBG_TIM2_STOP
 #endif
 
 #elif STM32_ST_USE_TIMER == 3
@@ -58,14 +58,14 @@
 #error "TIM3 is not a 32bits timer"
 #endif
 
-#define ST_HANDLER                          STM32_TIM3_HANDLER
-#define ST_NUMBER                           STM32_TIM3_NUMBER
-#define ST_CLOCK_SRC                        STM32_TIMCLK1
-#define ST_ENABLE_CLOCK()                   rccEnableTIM3(FALSE)
+#define ST_HANDLER STM32_TIM3_HANDLER
+#define ST_NUMBER STM32_TIM3_NUMBER
+#define ST_CLOCK_SRC STM32_TIMCLK1
+#define ST_ENABLE_CLOCK() rccEnableTIM3(FALSE)
 #if defined(STM32F1XX)
-#define ST_ENABLE_STOP()                    DBGMCU->CR |= DBGMCU_CR_DBG_TIM3_STOP
+#define ST_ENABLE_STOP() DBGMCU->CR |= DBGMCU_CR_DBG_TIM3_STOP
 #else
-#define ST_ENABLE_STOP()                    DBGMCU->APB1FZ |= DBGMCU_APB1_FZ_DBG_TIM3_STOP
+#define ST_ENABLE_STOP() DBGMCU->APB1FZ |= DBGMCU_APB1_FZ_DBG_TIM3_STOP
 #endif
 
 #elif STM32_ST_USE_TIMER == 4
@@ -73,14 +73,14 @@
 #error "TIM4 is not a 32bits timer"
 #endif
 
-#define ST_HANDLER                          STM32_TIM4_HANDLER
-#define ST_NUMBER                           STM32_TIM4_NUMBER
-#define ST_CLOCK_SRC                        STM32_TIMCLK1
-#define ST_ENABLE_CLOCK()                   rccEnableTIM4(FALSE)
+#define ST_HANDLER STM32_TIM4_HANDLER
+#define ST_NUMBER STM32_TIM4_NUMBER
+#define ST_CLOCK_SRC STM32_TIMCLK1
+#define ST_ENABLE_CLOCK() rccEnableTIM4(FALSE)
 #if defined(STM32F1XX)
-#define ST_ENABLE_STOP()                    DBGMCU->CR |= DBGMCU_CR_DBG_TIM4_STOP
+#define ST_ENABLE_STOP() DBGMCU->CR |= DBGMCU_CR_DBG_TIM4_STOP
 #else
-#define ST_ENABLE_STOP()                    DBGMCU->APB1FZ |= DBGMCU_APB1_FZ_DBG_TIM4_STOP
+#define ST_ENABLE_STOP() DBGMCU->APB1FZ |= DBGMCU_APB1_FZ_DBG_TIM4_STOP
 #endif
 
 #elif STM32_ST_USE_TIMER == 5
@@ -88,14 +88,14 @@
 #error "TIM5 is not a 32bits timer"
 #endif
 
-#define ST_HANDLER                          STM32_TIM5_HANDLER
-#define ST_NUMBER                           STM32_TIM5_NUMBER
-#define ST_CLOCK_SRC                        STM32_TIMCLK1
-#define ST_ENABLE_CLOCK()                   rccEnableTIM5(FALSE)
+#define ST_HANDLER STM32_TIM5_HANDLER
+#define ST_NUMBER STM32_TIM5_NUMBER
+#define ST_CLOCK_SRC STM32_TIMCLK1
+#define ST_ENABLE_CLOCK() rccEnableTIM5(FALSE)
 #if defined(STM32F1XX)
-#define ST_ENABLE_STOP()                    DBGMCU->CR |= DBGMCU_CR_DBG_TIM5_STOP
+#define ST_ENABLE_STOP() DBGMCU->CR |= DBGMCU_CR_DBG_TIM5_STOP
 #else
-#define ST_ENABLE_STOP()                    DBGMCU->APB1FZ |= DBGMCU_APB1_FZ_DBG_TIM5_STOP
+#define ST_ENABLE_STOP() DBGMCU->APB1FZ |= DBGMCU_APB1_FZ_DBG_TIM5_STOP
 #endif
 
 #else
@@ -153,13 +153,13 @@
  */
 OSAL_IRQ_HANDLER(SysTick_Handler) {
 
-  OSAL_IRQ_PROLOGUE();
+    OSAL_IRQ_PROLOGUE();
 
-  osalSysLockFromISR();
-  osalOsTimerHandlerI();
-  osalSysUnlockFromISR();
+    osalSysLockFromISR();
+    osalOsTimerHandlerI();
+    osalSysUnlockFromISR();
 
-  OSAL_IRQ_EPILOGUE();
+    OSAL_IRQ_EPILOGUE();
 }
 #endif /* OSAL_ST_MODE == OSAL_ST_MODE_PERIODIC */
 
@@ -172,20 +172,20 @@ OSAL_IRQ_HANDLER(SysTick_Handler) {
  */
 OSAL_IRQ_HANDLER(ST_HANDLER) {
 
-  OSAL_IRQ_PROLOGUE();
+    OSAL_IRQ_PROLOGUE();
 
-  /* Note, under rare circumstances an interrupt can remain latched even if
-     the timer SR register has been cleared, in those cases the interrupt
-     is simply ignored.*/
-  if ((STM32_ST_TIM->SR & TIM_SR_CC1IF) != 0U) {
-    STM32_ST_TIM->SR = 0U;
+    /* Note, under rare circumstances an interrupt can remain latched even if
+       the timer SR register has been cleared, in those cases the interrupt
+       is simply ignored.*/
+    if ((STM32_ST_TIM->SR & TIM_SR_CC1IF) != 0U) {
+        STM32_ST_TIM->SR = 0U;
 
-    osalSysLockFromISR();
-    osalOsTimerHandlerI();
-    osalSysUnlockFromISR();
-  }
+        osalSysLockFromISR();
+        osalOsTimerHandlerI();
+        osalSysUnlockFromISR();
+    }
 
-  OSAL_IRQ_EPILOGUE();
+    OSAL_IRQ_EPILOGUE();
 }
 #endif /* OSAL_ST_MODE == OSAL_ST_MODE_FREERUNNING */
 
@@ -201,39 +201,37 @@ OSAL_IRQ_HANDLER(ST_HANDLER) {
 void st_lld_init(void) {
 
 #if OSAL_ST_MODE == OSAL_ST_MODE_FREERUNNING
-  /* Free running counter mode.*/
+    /* Free running counter mode.*/
 
-  /* Enabling timer clock.*/
-  ST_ENABLE_CLOCK();
+    /* Enabling timer clock.*/
+    ST_ENABLE_CLOCK();
 
-  /* Enabling the stop mode during debug for this timer.*/
-  ST_ENABLE_STOP();
+    /* Enabling the stop mode during debug for this timer.*/
+    ST_ENABLE_STOP();
 
-  /* Initializing the counter in free running mode.*/
-  STM32_ST_TIM->PSC    = (ST_CLOCK_SRC / OSAL_ST_FREQUENCY) - 1;
-  STM32_ST_TIM->ARR    = ST_ARR_INIT;
-  STM32_ST_TIM->CCMR1  = 0;
-  STM32_ST_TIM->CCR[0] = 0;
-  STM32_ST_TIM->DIER   = 0;
-  STM32_ST_TIM->CR2    = 0;
-  STM32_ST_TIM->EGR    = TIM_EGR_UG;
-  STM32_ST_TIM->CR1    = TIM_CR1_CEN;
+    /* Initializing the counter in free running mode.*/
+    STM32_ST_TIM->PSC = (ST_CLOCK_SRC / OSAL_ST_FREQUENCY) - 1;
+    STM32_ST_TIM->ARR = ST_ARR_INIT;
+    STM32_ST_TIM->CCMR1 = 0;
+    STM32_ST_TIM->CCR[0] = 0;
+    STM32_ST_TIM->DIER = 0;
+    STM32_ST_TIM->CR2 = 0;
+    STM32_ST_TIM->EGR = TIM_EGR_UG;
+    STM32_ST_TIM->CR1 = TIM_CR1_CEN;
 
-  /* IRQ enabled.*/
-  nvicEnableVector(ST_NUMBER, STM32_ST_IRQ_PRIORITY);
+    /* IRQ enabled.*/
+    nvicEnableVector(ST_NUMBER, STM32_ST_IRQ_PRIORITY);
 #endif /* OSAL_ST_MODE == OSAL_ST_MODE_FREERUNNING */
 
 #if OSAL_ST_MODE == OSAL_ST_MODE_PERIODIC
-  /* Periodic systick mode, the Cortex-Mx internal systick timer is used
-     in this mode.*/
-  SysTick->LOAD = (STM32_HCLK / OSAL_ST_FREQUENCY) - 1;
-  SysTick->VAL = 0;
-  SysTick->CTRL = SysTick_CTRL_CLKSOURCE_Msk |
-                  SysTick_CTRL_ENABLE_Msk |
-                  SysTick_CTRL_TICKINT_Msk;
+    /* Periodic systick mode, the Cortex-Mx internal systick timer is used
+       in this mode.*/
+    SysTick->LOAD = (STM32_HCLK / OSAL_ST_FREQUENCY) - 1;
+    SysTick->VAL = 0;
+    SysTick->CTRL = SysTick_CTRL_CLKSOURCE_Msk | SysTick_CTRL_ENABLE_Msk | SysTick_CTRL_TICKINT_Msk;
 
-  /* IRQ enabled.*/
-  nvicSetSystemHandlerPriority(HANDLER_SYSTICK, STM32_ST_IRQ_PRIORITY);
+    /* IRQ enabled.*/
+    nvicSetSystemHandlerPriority(HANDLER_SYSTICK, STM32_ST_IRQ_PRIORITY);
 #endif /* OSAL_ST_MODE == OSAL_ST_MODE_PERIODIC */
 }
 

@@ -21,13 +21,16 @@
  * @param magnetometer Magnetometer measurement in any calibrated units.
  * @return Heading angle in degrees.
  */
-float FusionCompassCalculateHeading(const FusionVector3 accelerometer, const FusionVector3 magnetometer) {
+float FusionCompassCalculateHeading(const FusionVector3 accelerometer,
+                                    const FusionVector3 magnetometer) {
 
     // Compute direction of 'magnetic west' (Earth's y axis)
-    const FusionVector3 magneticWest = FusionVectorFastNormalise(FusionVectorCrossProduct(accelerometer, magnetometer));
+    const FusionVector3 magneticWest =
+        FusionVectorFastNormalise(FusionVectorCrossProduct(accelerometer, magnetometer));
 
     // Compute direction of magnetic north (Earth's x axis)
-    const FusionVector3 magneticNorth = FusionVectorFastNormalise(FusionVectorCrossProduct(magneticWest, accelerometer));
+    const FusionVector3 magneticNorth =
+        FusionVectorFastNormalise(FusionVectorCrossProduct(magneticWest, accelerometer));
 
     // Calculate angular heading relative to magnetic north
     return FusionRadiansToDegrees(atan2f(magneticWest.axis.x, magneticNorth.axis.x));

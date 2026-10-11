@@ -4,6 +4,10 @@
 #include "edge/module.h"
 #include "ports.h"
 
+#ifndef BUTTON_HANDLER_MODULE_ID
+#define BUTTON_HANDLER_MODULE_ID 0x1C00u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

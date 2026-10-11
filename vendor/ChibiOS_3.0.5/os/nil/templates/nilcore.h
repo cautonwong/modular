@@ -44,18 +44,18 @@
 /**
  * @brief   Name of the implemented architecture.
  */
-#define PORT_ARCHITECTURE_NAME          "XXX"
+#define PORT_ARCHITECTURE_NAME "XXX"
 
 /**
  * @brief   Name of the architecture variant.
  */
-#define PORT_CORE_VARIANT_NAME          "XXXX-Y"
+#define PORT_CORE_VARIANT_NAME "XXXX-Y"
 
 /**
  * @brief   Compiler name and version.
  */
 #if defined(__GNUC__) || defined(__DOXYGEN__)
-#define PORT_COMPILER_NAME              "GCC " __VERSION__
+#define PORT_COMPILER_NAME "GCC " __VERSION__
 
 #else
 #error "unsupported compiler"
@@ -64,12 +64,12 @@
 /**
  * @brief   Port-specific information string.
  */
-#define PORT_INFO                       "port description"
+#define PORT_INFO "port description"
 
 /**
  * @brief   This port supports a realtime counter.
  */
-#define PORT_SUPPORTS_RT                FALSE
+#define PORT_SUPPORTS_RT FALSE
 /** @} */
 
 /*===========================================================================*/
@@ -82,7 +82,7 @@
  *          area size.
  */
 #if !defined(PORT_INT_REQUIRED_STACK) || defined(__DOXYGEN__)
-#define PORT_INT_REQUIRED_STACK         32
+#define PORT_INT_REQUIRED_STACK 32
 #endif
 
 /**
@@ -92,7 +92,7 @@
  *          @p nilcore_timer_alt.h is included instead.
  */
 #if !defined(PORT_USE_ALT_TIMER)
-#define PORT_USE_ALT_TIMER              FALSE
+#define PORT_USE_ALT_TIMER FALSE
 #endif
 
 /*===========================================================================*/
@@ -118,8 +118,8 @@ typedef uint64_t stkalign_t;
  *          preemption-capable interrupt handler.
  */
 struct port_extctx {
-  uint32_t      reg1;
-  uint32_t      reg2;
+    uint32_t reg1;
+    uint32_t reg2;
 };
 
 /**
@@ -128,8 +128,8 @@ struct port_extctx {
  *          switch.
  */
 struct port_intctx {
-  uint32_t      reg3;
-  uint32_t      reg4;
+    uint32_t reg3;
+    uint32_t reg4;
 };
 
 #endif /* !defined(_FROM_ASM_) */
@@ -143,21 +143,21 @@ struct port_intctx {
  * @details This code usually setup the context switching frame represented
  *          by an @p port_intctx structure.
  */
-#define PORT_SETUP_CONTEXT(tp, wend, pf, arg) do {                          \
-  (void)(tp);                                                               \
-  (void)(wend);                                                             \
-  (void)(pf);                                                               \
-  (void)(arg);                                                              \
-} while (false)
+#define PORT_SETUP_CONTEXT(tp, wend, pf, arg)                                                      \
+    do {                                                                                           \
+        (void)(tp);                                                                                \
+        (void)(wend);                                                                              \
+        (void)(pf);                                                                                \
+        (void)(arg);                                                                               \
+    } while (false)
 
 /**
  * @brief   Computes the thread working area global size.
  * @note    There is no need to perform alignments in this macro.
  */
-#define PORT_WA_SIZE(n) (sizeof(struct port_intctx) +                       \
-                         sizeof(struct port_extctx) +                       \
-                         (size_t)(n) +                                      \
-                         (size_t)(PORT_INT_REQUIRED_STACK))
+#define PORT_WA_SIZE(n)                                                                            \
+    (sizeof(struct port_intctx) + sizeof(struct port_extctx) + (size_t)(n) +                       \
+     (size_t)(PORT_INT_REQUIRED_STACK))
 
 /**
  * @brief   Priority level verification macro.
@@ -207,11 +207,12 @@ struct port_intctx {
  * @param[in] ntp       the thread to be switched in
  * @param[in] otp       the thread to be switched out
  */
-#define port_switch(ntp, otp) do {                                          \
-  (void)ntp;                                                                \
-  (void)otp;                                                                \
-  /*_port_switch(ntp, otp)*/                                                \
-} while (false)
+#define port_switch(ntp, otp)                                                                      \
+    do {                                                                                           \
+        (void)ntp;                                                                                 \
+        (void)otp;                                                                                 \
+        /*_port_switch(ntp, otp)*/                                                                 \
+    } while (false)
 
 /*===========================================================================*/
 /* External declarations.                                                    */
@@ -224,9 +225,9 @@ struct port_intctx {
 #ifdef __cplusplus
 extern "C" {
 #endif
-  void _port_irq_epilogue(void);
-  void _port_switch(thread_t *ntp, thread_t *otp);
-  void _port_thread_start(void);
+void _port_irq_epilogue(void);
+void _port_switch(thread_t *ntp, thread_t *otp);
+void _port_thread_start(void);
 #ifdef __cplusplus
 }
 #endif
@@ -245,7 +246,6 @@ extern "C" {
  * @brief   Port-related initialization code.
  */
 static inline void port_init(void) {
-
 }
 
 /**
@@ -255,7 +255,7 @@ static inline void port_init(void) {
  */
 static inline syssts_t port_get_irq_status(void) {
 
-  return (syssts_t)0;
+    return (syssts_t)0;
 }
 
 /**
@@ -269,9 +269,9 @@ static inline syssts_t port_get_irq_status(void) {
  */
 static inline bool port_irq_enabled(syssts_t sts) {
 
-  (void)sts;
+    (void)sts;
 
-  return false;
+    return false;
 }
 
 /**
@@ -283,56 +283,49 @@ static inline bool port_irq_enabled(syssts_t sts) {
  */
 static inline bool port_is_isr_context(void) {
 
-  return false;
+    return false;
 }
 
 /**
  * @brief   Kernel-lock action.
  */
 static inline void port_lock(void) {
-
 }
 
 /**
  * @brief   Kernel-unlock action.
  */
 static inline void port_unlock(void) {
-
 }
 
 /**
  * @brief   Kernel-lock action from an interrupt handler.
  */
 static inline void port_lock_from_isr(void) {
-
 }
 
 /**
  * @brief   Kernel-unlock action from an interrupt handler.
  */
 static inline void port_unlock_from_isr(void) {
-
 }
 
 /**
  * @brief   Disables all the interrupt sources.
  */
 static inline void port_disable(void) {
-
 }
 
 /**
  * @brief   Disables the interrupt sources below kernel-level priority.
  */
 static inline void port_suspend(void) {
-
 }
 
 /**
  * @brief   Enables all the interrupt sources.
  */
 static inline void port_enable(void) {
-
 }
 
 /**
@@ -343,7 +336,6 @@ static inline void port_enable(void) {
  *          modes.
  */
 static inline void port_wait_for_interrupt(void) {
-
 }
 
 /**
@@ -353,7 +345,7 @@ static inline void port_wait_for_interrupt(void) {
  */
 static inline rtcnt_t port_rt_get_counter_value(void) {
 
-  return (rtcnt_t)0;
+    return (rtcnt_t)0;
 }
 
 #endif /* !defined(_FROM_ASM_) */

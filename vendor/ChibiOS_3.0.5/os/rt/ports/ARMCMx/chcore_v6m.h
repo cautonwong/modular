@@ -35,7 +35,7 @@
 /**
  * @brief   This port does not support a realtime counter.
  */
-#define PORT_SUPPORTS_RT                FALSE
+#define PORT_SUPPORTS_RT FALSE
 
 /**
  * @brief   PendSV priority level.
@@ -43,7 +43,7 @@
  *          this handler always has the highest priority that cannot preempt
  *          the kernel.
  */
-#define CORTEX_PRIORITY_PENDSV          0
+#define CORTEX_PRIORITY_PENDSV 0
 
 /*===========================================================================*/
 /* Module pre-compile time settings.                                         */
@@ -59,7 +59,7 @@
  *          reduce this value to zero when compiling with optimizations.
  */
 #if !defined(PORT_IDLE_THREAD_STACK_SIZE)
-#define PORT_IDLE_THREAD_STACK_SIZE     16
+#define PORT_IDLE_THREAD_STACK_SIZE 16
 #endif
 
 /**
@@ -72,14 +72,14 @@
  *          when compiler optimizations are enabled.
  */
 #if !defined(PORT_INT_REQUIRED_STACK)
-#define PORT_INT_REQUIRED_STACK         64
+#define PORT_INT_REQUIRED_STACK 64
 #endif
 
 /**
  * @brief   Enables the use of the WFI instruction in the idle thread loop.
  */
 #if !defined(CORTEX_ENABLE_WFI_IDLE)
-#define CORTEX_ENABLE_WFI_IDLE          FALSE
+#define CORTEX_ENABLE_WFI_IDLE FALSE
 #endif
 
 /**
@@ -88,7 +88,7 @@
  *          handler for preemption instead of the NMI handler.
  */
 #ifndef CORTEX_ALTERNATE_SWITCH
-#define CORTEX_ALTERNATE_SWITCH         FALSE
+#define CORTEX_ALTERNATE_SWITCH FALSE
 #endif
 
 /*===========================================================================*/
@@ -99,8 +99,7 @@
  * @name    Architecture and Compiler
  * @{
  */
-#if ((CORTEX_MODEL == 0) && !defined(__CORE_CM0PLUS_H_DEPENDANT)) ||        \
-    defined(__DOXYGEN__)
+#if ((CORTEX_MODEL == 0) && !defined(__CORE_CM0PLUS_H_DEPENDANT)) || defined(__DOXYGEN__)
 /**
  * @brief   Macro defining the specific ARM architecture.
  */
@@ -109,26 +108,26 @@
 /**
  * @brief   Name of the implemented architecture.
  */
-#define PORT_ARCHITECTURE_NAME          "ARMv6-M"
+#define PORT_ARCHITECTURE_NAME "ARMv6-M"
 
 /**
  * @brief   Name of the architecture variant.
  */
-#define PORT_CORE_VARIANT_NAME          "Cortex-M0"
+#define PORT_CORE_VARIANT_NAME "Cortex-M0"
 
 #elif (CORTEX_MODEL == 0) && defined(__CORE_CM0PLUS_H_DEPENDANT)
 #define PORT_ARCHITECTURE_ARM_v6M
-#define PORT_ARCHITECTURE_NAME          "ARMv6-M"
-#define PORT_CORE_VARIANT_NAME          "Cortex-M0+"
+#define PORT_ARCHITECTURE_NAME "ARMv6-M"
+#define PORT_CORE_VARIANT_NAME "Cortex-M0+"
 #endif
 
 /**
  * @brief   Port-specific information string.
  */
 #if (CORTEX_ALTERNATE_SWITCH == FALSE) || defined(__DOXYGEN__)
-#define PORT_INFO                       "Preemption through NMI"
+#define PORT_INFO "Preemption through NMI"
 #else
-#define PORT_INFO                       "Preemption through PendSV"
+#define PORT_INFO "Preemption through PendSV"
 #endif
 /** @} */
 
@@ -136,9 +135,9 @@
  * @brief   Maximum usable priority for normal ISRs.
  */
 #if (CORTEX_ALTERNATE_SWITCH == TRUE) || defined(__DOXYGEN__)
-#define CORTEX_MAX_KERNEL_PRIORITY      1
+#define CORTEX_MAX_KERNEL_PRIORITY 1
 #else
-#define CORTEX_MAX_KERNEL_PRIORITY      0
+#define CORTEX_MAX_KERNEL_PRIORITY 0
 #endif
 
 /*===========================================================================*/
@@ -147,30 +146,30 @@
 
 #if !defined(_FROM_ASM_)
 
- /* The documentation of the following declarations is in chconf.h in order
-    to not have duplicated structure names into the documentation.*/
+/* The documentation of the following declarations is in chconf.h in order
+   to not have duplicated structure names into the documentation.*/
 #if !defined(__DOXYGEN__)
 struct port_extctx {
-  regarm_t      r0;
-  regarm_t      r1;
-  regarm_t      r2;
-  regarm_t      r3;
-  regarm_t      r12;
-  regarm_t      lr_thd;
-  regarm_t      pc;
-  regarm_t      xpsr;
+    regarm_t r0;
+    regarm_t r1;
+    regarm_t r2;
+    regarm_t r3;
+    regarm_t r12;
+    regarm_t lr_thd;
+    regarm_t pc;
+    regarm_t xpsr;
 };
 
 struct port_intctx {
-  regarm_t      r8;
-  regarm_t      r9;
-  regarm_t      r10;
-  regarm_t      r11;
-  regarm_t      r4;
-  regarm_t      r5;
-  regarm_t      r6;
-  regarm_t      r7;
-  regarm_t      lr;
+    regarm_t r8;
+    regarm_t r9;
+    regarm_t r10;
+    regarm_t r11;
+    regarm_t r4;
+    regarm_t r5;
+    regarm_t r6;
+    regarm_t r7;
+    regarm_t lr;
 };
 #endif /* !defined(__DOXYGEN__) */
 
@@ -183,22 +182,22 @@ struct port_intctx {
  * @details This code usually setup the context switching frame represented
  *          by an @p port_intctx structure.
  */
-#define PORT_SETUP_CONTEXT(tp, workspace, wsize, pf, arg) {                 \
-  (tp)->p_ctx.r13 = (struct port_intctx *)((uint8_t *)(workspace) +         \
-                                           (wsize) -                        \
-                                           sizeof(struct port_intctx));     \
-  (tp)->p_ctx.r13->r4 = (regarm_t)(pf);                                     \
-  (tp)->p_ctx.r13->r5 = (regarm_t)(arg);                                    \
-  (tp)->p_ctx.r13->lr = (regarm_t)_port_thread_start;                       \
-}
+#define PORT_SETUP_CONTEXT(tp, workspace, wsize, pf, arg)                                          \
+    {                                                                                              \
+        (tp)->p_ctx.r13 =                                                                          \
+            (struct port_intctx *)((uint8_t *)(workspace) + (wsize) - sizeof(struct port_intctx)); \
+        (tp)->p_ctx.r13->r4 = (regarm_t)(pf);                                                      \
+        (tp)->p_ctx.r13->r5 = (regarm_t)(arg);                                                     \
+        (tp)->p_ctx.r13->lr = (regarm_t)_port_thread_start;                                        \
+    }
 
 /**
  * @brief   Computes the thread working area global size.
  * @note    There is no need to perform alignments in this macro.
  */
-#define PORT_WA_SIZE(n) (sizeof(struct port_intctx) +                       \
-                         sizeof(struct port_extctx) +                       \
-                         ((size_t)(n)) + ((size_t)(PORT_INT_REQUIRED_STACK)))
+#define PORT_WA_SIZE(n)                                                                            \
+    (sizeof(struct port_intctx) + sizeof(struct port_extctx) + ((size_t)(n)) +                     \
+     ((size_t)(PORT_INT_REQUIRED_STACK)))
 
 /**
  * @brief   IRQ prologue code.
@@ -206,14 +205,11 @@ struct port_intctx {
  *          enabled to invoke system APIs.
  */
 #if defined(__GNUC__) || defined(__DOXYGEN__)
-#define PORT_IRQ_PROLOGUE()                                                 \
-  regarm_t _saved_lr = (regarm_t)__builtin_return_address(0)
+#define PORT_IRQ_PROLOGUE() regarm_t _saved_lr = (regarm_t)__builtin_return_address(0)
 #elif defined(__ICCARM__)
-#define PORT_IRQ_PROLOGUE()                                                 \
-  regarm_t _saved_lr = (regarm_t)__get_LR()
+#define PORT_IRQ_PROLOGUE() regarm_t _saved_lr = (regarm_t)__get_LR()
 #elif defined(__CC_ARM)
-#define PORT_IRQ_PROLOGUE()                                                 \
-  regarm_t _saved_lr = (regarm_t)__return_address()
+#define PORT_IRQ_PROLOGUE() regarm_t _saved_lr = (regarm_t)__return_address()
 #endif
 
 /**
@@ -250,13 +246,14 @@ struct port_intctx {
 #if (CH_DBG_ENABLE_STACK_CHECK == FALSE) || defined(__DOXYGEN__)
 #define port_switch(ntp, otp) _port_switch(ntp, otp)
 #else
-#define port_switch(ntp, otp) {                                             \
-  struct port_intctx *r13 = (struct port_intctx *)__get_PSP();              \
-  if ((stkalign_t *)(r13 - 1) < (otp)->p_stklimit) {                        \
-    chSysHalt("stack overflow");                                            \
-  }                                                                         \
-  _port_switch(ntp, otp);                                                   \
-}
+#define port_switch(ntp, otp)                                                                      \
+    {                                                                                              \
+        struct port_intctx *r13 = (struct port_intctx *)__get_PSP();                               \
+        if ((stkalign_t *)(r13 - 1) < (otp)->p_stklimit) {                                         \
+            chSysHalt("stack overflow");                                                           \
+        }                                                                                          \
+        _port_switch(ntp, otp);                                                                    \
+    }
 #endif
 
 /*===========================================================================*/
@@ -266,11 +263,11 @@ struct port_intctx {
 #ifdef __cplusplus
 extern "C" {
 #endif
-  void _port_irq_epilogue(regarm_t lr);
-  void _port_switch(thread_t *ntp, thread_t *otp);
-  void _port_thread_start(void);
-  void _port_switch_from_isr(void);
-  void _port_exit_from_isr(void);
+void _port_irq_epilogue(regarm_t lr);
+void _port_switch(thread_t *ntp, thread_t *otp);
+void _port_thread_start(void);
+void _port_switch_from_isr(void);
+void _port_exit_from_isr(void);
 #ifdef __cplusplus
 }
 #endif
@@ -284,7 +281,7 @@ extern "C" {
  */
 static inline void port_init(void) {
 
-  NVIC_SetPriority(PendSV_IRQn, CORTEX_PRIORITY_PENDSV);
+    NVIC_SetPriority(PendSV_IRQn, CORTEX_PRIORITY_PENDSV);
 }
 
 /**
@@ -294,7 +291,7 @@ static inline void port_init(void) {
  */
 static inline syssts_t port_get_irq_status(void) {
 
-  return (syssts_t)__get_PRIMASK();
+    return (syssts_t)__get_PRIMASK();
 }
 
 /**
@@ -308,7 +305,7 @@ static inline syssts_t port_get_irq_status(void) {
  */
 static inline bool port_irq_enabled(syssts_t sts) {
 
-  return (sts & (syssts_t)1) == (syssts_t)0;
+    return (sts & (syssts_t)1) == (syssts_t)0;
 }
 
 /**
@@ -320,7 +317,7 @@ static inline bool port_irq_enabled(syssts_t sts) {
  */
 static inline bool port_is_isr_context(void) {
 
-  return (bool)((__get_IPSR() & 0x1FFU) != 0U);
+    return (bool)((__get_IPSR() & 0x1FFU) != 0U);
 }
 
 /**
@@ -329,7 +326,7 @@ static inline bool port_is_isr_context(void) {
  */
 static inline void port_lock(void) {
 
-  __disable_irq();
+    __disable_irq();
 }
 
 /**
@@ -338,7 +335,7 @@ static inline void port_lock(void) {
  */
 static inline void port_unlock(void) {
 
-  __enable_irq();
+    __enable_irq();
 }
 
 /**
@@ -348,7 +345,7 @@ static inline void port_unlock(void) {
  */
 static inline void port_lock_from_isr(void) {
 
-  port_lock();
+    port_lock();
 }
 
 /**
@@ -358,7 +355,7 @@ static inline void port_lock_from_isr(void) {
  */
 static inline void port_unlock_from_isr(void) {
 
-  port_unlock();
+    port_unlock();
 }
 
 /**
@@ -366,7 +363,7 @@ static inline void port_unlock_from_isr(void) {
  */
 static inline void port_disable(void) {
 
-  __disable_irq();
+    __disable_irq();
 }
 
 /**
@@ -374,7 +371,7 @@ static inline void port_disable(void) {
  */
 static inline void port_suspend(void) {
 
-  __disable_irq();
+    __disable_irq();
 }
 
 /**
@@ -382,7 +379,7 @@ static inline void port_suspend(void) {
  */
 static inline void port_enable(void) {
 
-  __enable_irq();
+    __enable_irq();
 }
 
 /**
@@ -396,7 +393,7 @@ static inline void port_enable(void) {
 static inline void port_wait_for_interrupt(void) {
 
 #if CORTEX_ENABLE_WFI_IDLE == TRUE
-  __WFI();
+    __WFI();
 #endif
 }
 

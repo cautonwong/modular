@@ -31,10 +31,10 @@
 /* Driver constants.                                                         */
 /*===========================================================================*/
 
-#define MMC_CMD0_RETRY              10U
-#define MMC_CMD1_RETRY              100U
-#define MMC_ACMD41_RETRY            100U
-#define MMC_WAIT_DATA               10000U
+#define MMC_CMD0_RETRY 10U
+#define MMC_CMD1_RETRY 100U
+#define MMC_ACMD41_RETRY 100U
+#define MMC_WAIT_DATA 10000U
 
 /*===========================================================================*/
 /* Driver pre-compile time settings.                                         */
@@ -53,7 +53,7 @@
  *          use a DMA channel and heavily loads the CPU.
  */
 #if !defined(MMC_NICE_WAITING) || defined(__DOXYGEN__)
-#define MMC_NICE_WAITING            TRUE
+#define MMC_NICE_WAITING TRUE
 #endif
 /** @} */
 
@@ -73,25 +73,24 @@
  * @brief   MMC/SD over SPI driver configuration structure.
  */
 typedef struct {
-  /**
-   * @brief SPI driver associated to this MMC driver.
-   */
-  SPIDriver             *spip;
-  /**
-   * @brief SPI low speed configuration used during initialization.
-   */
-  const SPIConfig       *lscfg;
-  /**
-   * @brief SPI high speed configuration used during transfers.
-   */
-  const SPIConfig       *hscfg;
+    /**
+     * @brief SPI driver associated to this MMC driver.
+     */
+    SPIDriver *spip;
+    /**
+     * @brief SPI low speed configuration used during initialization.
+     */
+    const SPIConfig *lscfg;
+    /**
+     * @brief SPI high speed configuration used during transfers.
+     */
+    const SPIConfig *hscfg;
 } MMCConfig;
 
 /**
  * @brief   @p MMCDriver specific methods.
  */
-#define _mmc_driver_methods                                                 \
-  _mmcsd_block_device_methods
+#define _mmc_driver_methods _mmcsd_block_device_methods
 
 /**
  * @extends MMCSDBlockDeviceVMT
@@ -99,7 +98,7 @@ typedef struct {
  * @brief   @p MMCDriver virtual methods table.
  */
 struct MMCDriverVMT {
-  _mmc_driver_methods
+    _mmc_driver_methods
 };
 
 /**
@@ -108,19 +107,19 @@ struct MMCDriverVMT {
  * @brief   Structure representing a MMC/SD over SPI driver.
  */
 typedef struct {
-  /**
-   * @brief Virtual Methods Table.
-   */
-  const struct MMCDriverVMT *vmt;
-  _mmcsd_block_device_data
-  /**
-   * @brief Current configuration data.
-   */
-  const MMCConfig       *config;
-  /***
-   * @brief Addresses use blocks instead of bytes.
-   */
-  bool                  block_addresses;
+    /**
+     * @brief Virtual Methods Table.
+     */
+    const struct MMCDriverVMT *vmt;
+    _mmcsd_block_device_data
+        /**
+         * @brief Current configuration data.
+         */
+        const MMCConfig *config;
+    /***
+     * @brief Addresses use blocks instead of bytes.
+     */
+    bool block_addresses;
 } MMCDriver;
 
 /*===========================================================================*/
@@ -167,23 +166,23 @@ typedef struct {
 #ifdef __cplusplus
 extern "C" {
 #endif
-  void mmcInit(void);
-  void mmcObjectInit(MMCDriver *mmcp);
-  void mmcStart(MMCDriver *mmcp, const MMCConfig *config);
-  void mmcStop(MMCDriver *mmcp);
-  bool mmcConnect(MMCDriver *mmcp);
-  bool mmcDisconnect(MMCDriver *mmcp);
-  bool mmcStartSequentialRead(MMCDriver *mmcp, uint32_t startblk);
-  bool mmcSequentialRead(MMCDriver *mmcp, uint8_t *buffer);
-  bool mmcStopSequentialRead(MMCDriver *mmcp);
-  bool mmcStartSequentialWrite(MMCDriver *mmcp, uint32_t startblk);
-  bool mmcSequentialWrite(MMCDriver *mmcp, const uint8_t *buffer);
-  bool mmcStopSequentialWrite(MMCDriver *mmcp);
-  bool mmcSync(MMCDriver *mmcp);
-  bool mmcGetInfo(MMCDriver *mmcp, BlockDeviceInfo *bdip);
-  bool mmcErase(MMCDriver *mmcp, uint32_t startblk, uint32_t endblk);
-  bool mmc_lld_is_card_inserted(MMCDriver *mmcp);
-  bool mmc_lld_is_write_protected(MMCDriver *mmcp);
+void mmcInit(void);
+void mmcObjectInit(MMCDriver *mmcp);
+void mmcStart(MMCDriver *mmcp, const MMCConfig *config);
+void mmcStop(MMCDriver *mmcp);
+bool mmcConnect(MMCDriver *mmcp);
+bool mmcDisconnect(MMCDriver *mmcp);
+bool mmcStartSequentialRead(MMCDriver *mmcp, uint32_t startblk);
+bool mmcSequentialRead(MMCDriver *mmcp, uint8_t *buffer);
+bool mmcStopSequentialRead(MMCDriver *mmcp);
+bool mmcStartSequentialWrite(MMCDriver *mmcp, uint32_t startblk);
+bool mmcSequentialWrite(MMCDriver *mmcp, const uint8_t *buffer);
+bool mmcStopSequentialWrite(MMCDriver *mmcp);
+bool mmcSync(MMCDriver *mmcp);
+bool mmcGetInfo(MMCDriver *mmcp, BlockDeviceInfo *bdip);
+bool mmcErase(MMCDriver *mmcp, uint32_t startblk, uint32_t endblk);
+bool mmc_lld_is_card_inserted(MMCDriver *mmcp);
+bool mmc_lld_is_write_protected(MMCDriver *mmcp);
 #ifdef __cplusplus
 }
 #endif

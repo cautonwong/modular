@@ -9,6 +9,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef ALARM_MODULE_ID
+#define ALARM_MODULE_ID 0x1E00u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

@@ -35,14 +35,15 @@
  * @name    EXT channel modes
  * @{
  */
-#define EXT_CH_MODE_EDGES_MASK      3U  /**< @brief Mask of edges field.    */
-#define EXT_CH_MODE_DISABLED        0U  /**< @brief Channel disabled.       */
-#define EXT_CH_MODE_RISING_EDGE     1U  /**< @brief Rising edge callback.   */
-#define EXT_CH_MODE_FALLING_EDGE    2U  /**< @brief Falling edge callback.  */
-#define EXT_CH_MODE_BOTH_EDGES      3U  /**< @brief Both edges callback.    */
+#define EXT_CH_MODE_EDGES_MASK 3U   /**< @brief Mask of edges field.    */
+#define EXT_CH_MODE_DISABLED 0U     /**< @brief Channel disabled.       */
+#define EXT_CH_MODE_RISING_EDGE 1U  /**< @brief Rising edge callback.   */
+#define EXT_CH_MODE_FALLING_EDGE 2U /**< @brief Falling edge callback.  */
+#define EXT_CH_MODE_BOTH_EDGES 3U   /**< @brief Both edges callback.    */
 
-#define EXT_CH_MODE_AUTOSTART       4U  /**< @brief Channel started
-                                             automatically on driver start. */
+#define EXT_CH_MODE_AUTOSTART                                                                      \
+    4U /**< @brief Channel started                                                                 \
+            automatically on driver start. */
 /** @} */
 
 /*===========================================================================*/
@@ -61,9 +62,9 @@
  * @brief   Driver state machine possible states.
  */
 typedef enum {
-  EXT_UNINIT = 0,                   /**< Not initialized.                   */
-  EXT_STOP = 1,                     /**< Stopped.                           */
-  EXT_ACTIVE = 2                    /**< Active.                            */
+    EXT_UNINIT = 0, /**< Not initialized.                   */
+    EXT_STOP = 1,   /**< Stopped.                           */
+    EXT_ACTIVE = 2  /**< Active.                            */
 } extstate_t;
 
 /**
@@ -115,11 +116,12 @@ typedef struct EXTDriver EXTDriver;
  *
  * @api
  */
-#define extSetChannelMode(extp, channel, extcp) {                           \
-  osalSysLock();                                                            \
-  extSetChannelModeI(extp, channel, extcp);                                 \
-  osalSysUnlock();                                                          \
-}
+#define extSetChannelMode(extp, channel, extcp)                                                    \
+    {                                                                                              \
+        osalSysLock();                                                                             \
+        extSetChannelModeI(extp, channel, extcp);                                                  \
+        osalSysUnlock();                                                                           \
+    }
 
 /** @} */
 
@@ -130,15 +132,13 @@ typedef struct EXTDriver EXTDriver;
 #ifdef __cplusplus
 extern "C" {
 #endif
-  void extInit(void);
-  void extObjectInit(EXTDriver *extp);
-  void extStart(EXTDriver *extp, const EXTConfig *config);
-  void extStop(EXTDriver *extp);
-  void extChannelEnable(EXTDriver *extp, expchannel_t channel);
-  void extChannelDisable(EXTDriver *extp, expchannel_t channel);
-  void extSetChannelModeI(EXTDriver *extp,
-                          expchannel_t channel,
-                          const EXTChannelConfig *extcp);
+void extInit(void);
+void extObjectInit(EXTDriver *extp);
+void extStart(EXTDriver *extp, const EXTConfig *config);
+void extStop(EXTDriver *extp);
+void extChannelEnable(EXTDriver *extp, expchannel_t channel);
+void extChannelDisable(EXTDriver *extp, expchannel_t channel);
+void extSetChannelModeI(EXTDriver *extp, expchannel_t channel, const EXTChannelConfig *extcp);
 #ifdef __cplusplus
 }
 #endif

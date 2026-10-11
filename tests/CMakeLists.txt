@@ -231,6 +231,6 @@ edge_add_host_test(test_board_rpi_pico SOURCES test_board_rpi_pico.c DEPS board_
 edge_add_host_test(test_board_blackpill SOURCES test_board_blackpill.c DEPS board_blackpill soc_stm32f4)
 
 # Architecture Refactor test suites (Proposal Phases 1-5)
-edge_add_host_test(test_module_desc SOURCES test_module_desc.c DEPS edge_module)
-edge_add_host_test(test_interrupt_model SOURCES test_interrupt_model.c DEPS edge_module)
+edge_add_host_test(test_module_desc SOURCES test_module_desc.c DEPS edge_module sys_runtime)
+edge_add_host_test(test_interrupt_model SOURCES test_interrupt_model.c DEPS edge_module infra_uart)
 edge_add_host_test(test_pm_model SOURCES test_pm_model.c DEPS edge_module)

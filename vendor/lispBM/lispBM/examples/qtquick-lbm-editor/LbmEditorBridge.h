@@ -19,45 +19,47 @@
 #define LBMEDITORBRIDGE_H_
 
 #include <QObject>
-#include <QString>
-#include <QQuickItem>
 #include <QQmlEngine>
+#include <QQuickItem>
+#include <QString>
 
 #include "QLispBM.h"
 
 // Exposed to QML as the context property "bridge".
 // Owns the LispBM runtime and mediates between QML and it.
 class LbmEditorBridge : public QObject {
-  Q_OBJECT
-  Q_PROPERTY(QString outputText READ outputText NOTIFY outputTextChanged)
+    Q_OBJECT
+    Q_PROPERTY(QString outputText READ outputText NOTIFY outputTextChanged)
 
-public:
-  explicit LbmEditorBridge(QObject *parent = nullptr);
+  public:
+    explicit LbmEditorBridge(QObject *parent = nullptr);
 
-  QString outputText() const { return m_outputText; }
+    QString outputText() const {
+        return m_outputText;
+    }
 
-  // Call this once the QML lbmArea item is available (after engine loads).
-  // Triggers init + start of the LBM runtime.
-  void setRootItem(QQuickItem *lbmArea, QQmlEngine *engine);
+    // Call this once the QML lbmArea item is available (after engine loads).
+    // Triggers init + start of the LBM runtime.
+    void setRootItem(QQuickItem *lbmArea, QQmlEngine *engine);
 
-  Q_INVOKABLE void evaluate(const QString &code);
-  Q_INVOKABLE void clearOutput();
+    Q_INVOKABLE void evaluate(const QString &code);
+    Q_INVOKABLE void clearOutput();
 
-signals:
-  void outputTextChanged();        // full text (for property reads)
-  void outputAppended(const QString &text);  // new chunk to append
-  void outputCleared();            // text area should be cleared
+  signals:
+    void outputTextChanged();                 // full text (for property reads)
+    void outputAppended(const QString &text); // new chunk to append
+    void outputCleared();                     // text area should be cleared
 
-private slots:
-  void onOutput(const QString &text);
-  void onEvalFinished(int cid, const QString &result);
-  void onEvalFailed(int cid, const QString &error);
+  private slots:
+    void onOutput(const QString &text);
+    void onEvalFinished(int cid, const QString &result);
+    void onEvalFailed(int cid, const QString &error);
 
-private:
-  void appendOutput(const QString &text);
+  private:
+    void appendOutput(const QString &text);
 
-  QLispBM *m_lbm;
-  QString  m_outputText;
+    QLispBM *m_lbm;
+    QString m_outputText;
 };
 
 #endif

@@ -25,7 +25,7 @@ extern "C" {
 #endif
 
 #define STR2(X) #X
-#define STR(X)  STR2(X)
+#define STR(X) STR2(X)
 
 /** LBM major version */
 #define LBM_MAJOR_VERSION 0u
@@ -34,7 +34,8 @@ extern "C" {
 /** LBM patch revision */
 #define LBM_PATCH_VERSION 0u
 
-#define LBM_VERSION_STRING STR(LBM_MAJOR_VERSION) "." STR(LBM_MINOR_VERSION) "." STR(LBM_PATCH_VERSION)
+#define LBM_VERSION_STRING                                                                         \
+    STR(LBM_MAJOR_VERSION) "." STR(LBM_MINOR_VERSION) "." STR(LBM_PATCH_VERSION)
 
 /*! \page changelog Changelog
 
@@ -83,7 +84,8 @@ Jul 2 2026: Version 0.37.0
 Feb 8 2026: Version 0.36.0
   - Bugfix in lbm_defrag_mem that could cause unnecessary runs of compaction.
   - Bugfix in reader related to reading of ByteArrays and Arrays.
-  - Bugfix in GC related to Arrays (could cause issues with call-cc and usage of high level "lisp" arrays).
+  - Bugfix in GC related to Arrays (could cause issues with call-cc and usage of high level "lisp"
+arrays).
   - Bugfix in set-assoc so that it will not try to modify constant values.
   - Big refactor and "tightening up" of the reader code.
   - Code size optimization for code that is not performance critical.
@@ -117,7 +119,8 @@ Oct 27 2025: Version 0.34.0
   - Bugfix in lbm_image when it comes to recreation of the next_symbol_id upon image load.
   - Bugfix in math_extensions that can be triggered using constant floats.
   - Bugfix in Linux REPL so that results from -s and -e arguments are shown.
-  - Macros now support arbitrary number of arguments using rest-args. (compile with LBM_USE_MACRO_REST_ARGS).
+  - Macros now support arbitrary number of arguments using rest-args. (compile with
+LBM_USE_MACRO_REST_ARGS).
 
 Aug 8 2025: VERSION 0.33.0
   - Fix behavior of apply (laxsjo).
@@ -212,7 +215,8 @@ NOV 28 2023: Version 0.21.0
   - Improved error messages.
 
 NOV 1 2023: Version 0.20.0
-  - Added lbm_set_error_suspect function to enable extension authors to point out in more detail what is wrong.
+  - Added lbm_set_error_suspect function to enable extension authors to point out in more detail
+what is wrong.
   - Improvement to error messages in some cases.
   - Changed behavior of set family on functions when variable is not already bound (now an error).
   - Fix of bug in flat_value handling.
@@ -232,7 +236,8 @@ JUL 29 2023: Version 0.17.0
   - recv-to special form added for receives with a timeout.
   - block_context_from_extension_timeout function added.
   - Unified sleeping and blocked queues.
-  - Added a new optional argument to spawn and spawn-trap that can be used to provide a name for the thread.
+  - Added a new optional argument to spawn and spawn-trap that can be used to provide a name for the
+thread.
   - Added profiler functionality.
 
 JUL 16 2023: Version 0.16.0
@@ -353,7 +358,8 @@ Jul 4 2022: Version 0.5.4
     is again a closure.
 
 May 24 2022: Version 0.5.3
-  - Fixed bug related to float-array literals not accepting whole numbers unless containing a decimal (0).
+  - Fixed bug related to float-array literals not accepting whole numbers unless containing a
+decimal (0).
 
 May 22 2022: Version 0.5.3
   - Fixed bug that could cause problems with call-cc on 64bit platforms.
@@ -442,7 +448,6 @@ Feb 13 2022: version 0.1.1
 Feb 11 2022: version 0.1.0
   - First state to be given a numbered version (0.1.0)
 */
-
 
 #ifdef __cplusplus
 }

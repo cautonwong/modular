@@ -15,38 +15,39 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include <lbm_custom_type.h>
 #include <heap.h>
+#include <lbm_custom_type.h>
 #include <lbm_memory.h>
 
+bool lbm_custom_type_create(lbm_uint value, custom_type_destructor fptr, const char *desc,
+                            lbm_value *result) {
 
-bool lbm_custom_type_create(lbm_uint value, custom_type_destructor fptr, const char *desc, lbm_value *result) {
+    lbm_uint *t = lbm_memory_allocate(3);
 
-  lbm_uint *t = lbm_memory_allocate(3);
+    if (t == NULL)
+        return false;
 
-  if (t == NULL) return false;
+    t[CUSTOM_TYPE_VALUE] = value;
+    t[CUSTOM_TYPE_DESCRIPTOR] = (lbm_uint)desc;
+    t[CUSTOM_TYPE_DESTRUCTOR] = (lbm_uint)fptr;
 
-  t[CUSTOM_TYPE_VALUE] = value;
-  t[CUSTOM_TYPE_DESCRIPTOR] = (lbm_uint)desc;
-  t[CUSTOM_TYPE_DESTRUCTOR] = (lbm_uint)fptr;
-
-  lbm_value cell = lbm_heap_allocate_cell(LBM_TYPE_CUSTOM, (lbm_uint) t, ENC_SYM_CUSTOM_TYPE);
-  if (cell == ENC_SYM_MERROR) {
+    lbm_value cell = lbm_heap_allocate_cell(LBM_TYPE_CUSTOM, (lbm_uint)t, ENC_SYM_CUSTOM_TYPE);
+    if (cell == ENC_SYM_MERROR) {
+        *result = cell;
+        lbm_memory_free(t);
+        return false;
+    }
+    //  lbm_set_car(cell, (lbm_uint)t);
+    // lbm_set_cdr(cell, lbm_enc_sym(SYM_CUSTOM_TYPE));
+    // cell = lbm_set_ptr_type(cell, LBM_TYPE_CUSTOM);
     *result = cell;
-    lbm_memory_free(t);
-    return false;
-  }
-  //  lbm_set_car(cell, (lbm_uint)t);
-  //lbm_set_cdr(cell, lbm_enc_sym(SYM_CUSTOM_TYPE));
-  //cell = lbm_set_ptr_type(cell, LBM_TYPE_CUSTOM);
-  *result = cell;
-  
-  return true;
+
+    return true;
 }
 
 bool lbm_custom_type_destroy(lbm_uint *lbm_mem_ptr) {
 
-  lbm_uint value = lbm_mem_ptr[CUSTOM_TYPE_VALUE];
-  custom_type_destructor destruct = (custom_type_destructor)lbm_mem_ptr[CUSTOM_TYPE_DESTRUCTOR];
-  return destruct(value);   
+    lbm_uint value = lbm_mem_ptr[CUSTOM_TYPE_VALUE];
+    custom_type_destructor destruct = (custom_type_destructor)lbm_mem_ptr[CUSTOM_TYPE_DESTRUCTOR];
+    return destruct(value);
 }

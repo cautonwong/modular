@@ -4,6 +4,10 @@
 #include "edge/module.h"
 #include "ports.h"
 
+#ifndef WATCH_POWER_MODULE_ID
+#define WATCH_POWER_MODULE_ID 0x1700u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

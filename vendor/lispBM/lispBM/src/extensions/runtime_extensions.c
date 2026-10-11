@@ -15,21 +15,20 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include <lbm_memory.h>
-#include <heap.h>
+#include <env.h>
 #include <eval_cps.h>
 #include <extensions.h>
+#include <heap.h>
+#include <lbm_memory.h>
 #include <lbm_utils.h>
 #include <lbm_version.h>
-#include <env.h>
 
 #ifdef LBM_OPT_RUNTIME_EXTENSIONS_SIZE
-#pragma GCC optimize ("-Os")
+#pragma GCC optimize("-Os")
 #endif
 #ifdef LBM_OPT_RUNTIME_EXTENSIONS_SIZE_AGGRESSIVE
-#pragma GCC optimize ("-Oz")
+#pragma GCC optimize("-Oz")
 #endif
-
 
 #ifdef FULL_RTS_LIB
 static lbm_uint sym_heap_size;
@@ -48,214 +47,212 @@ static lbm_uint big_endian = 0;
 #endif
 
 lbm_value ext_eval_set_quota(lbm_value *args, lbm_uint argn) {
-  LBM_CHECK_ARGN_NUMBER(1);
-  uint32_t q = lbm_dec_as_u32(args[0]);
+    LBM_CHECK_ARGN_NUMBER(1);
+    uint32_t q = lbm_dec_as_u32(args[0]);
 #ifdef LBM_USE_TIME_QUOTA
-  lbm_set_eval_time_quota(q);
+    lbm_set_eval_time_quota(q);
 #else
-  lbm_set_eval_step_quota(q);
+    lbm_set_eval_step_quota(q);
 #endif
-  return ENC_SYM_TRUE;
+    return ENC_SYM_TRUE;
 }
 
 lbm_value ext_hide_trapped_error(lbm_value *args, lbm_uint argn) {
-  (void)args;
-  (void)argn;
-  lbm_set_hide_trapped_error(true);
-  return ENC_SYM_TRUE;
+    (void)args;
+    (void)argn;
+    lbm_set_hide_trapped_error(true);
+    return ENC_SYM_TRUE;
 }
 
 lbm_value ext_show_trapped_error(lbm_value *args, lbm_uint argn) {
-  (void)args;
-  (void)argn;
-  lbm_set_hide_trapped_error(false);
-  return ENC_SYM_TRUE;
+    (void)args;
+    (void)argn;
+    lbm_set_hide_trapped_error(false);
+    return ENC_SYM_TRUE;
 }
 
 #ifdef FULL_RTS_LIB
 lbm_value ext_memory_num_free(lbm_value *args, lbm_uint argn) {
-  (void)args;
-  (void)argn;
-  lbm_uint n = lbm_memory_num_free();
-  return lbm_enc_i((lbm_int)n);
+    (void)args;
+    (void)argn;
+    lbm_uint n = lbm_memory_num_free();
+    return lbm_enc_i((lbm_int)n);
 }
 
 lbm_value ext_memory_longest_free(lbm_value *args, lbm_uint argn) {
-  (void)args;
-  (void)argn;
-  lbm_uint n = lbm_memory_longest_free();
-  return lbm_enc_i((lbm_int)n);
+    (void)args;
+    (void)argn;
+    lbm_uint n = lbm_memory_longest_free();
+    return lbm_enc_i((lbm_int)n);
 }
 
 lbm_value ext_memory_size(lbm_value *args, lbm_uint argn) {
-  (void)args;
-  (void)argn;
-  lbm_uint n = lbm_memory_num_words();
-  return lbm_enc_i((lbm_int)n);
+    (void)args;
+    (void)argn;
+    lbm_uint n = lbm_memory_num_words();
+    return lbm_enc_i((lbm_int)n);
 }
 
 lbm_value ext_memory_word_size(lbm_value *args, lbm_uint argn) {
-  (void)args;
-  (void)argn;
-  return lbm_enc_i((lbm_int)sizeof(lbm_uint));
+    (void)args;
+    (void)argn;
+    return lbm_enc_i((lbm_int)sizeof(lbm_uint));
 }
 
 lbm_value ext_lbm_version(lbm_value *args, lbm_uint argn) {
-  (void) args;
-  (void) argn;
-  lbm_value version = lbm_heap_allocate_list_init(3,
-                                                  lbm_enc_i(LBM_MAJOR_VERSION),
-                                                  lbm_enc_i(LBM_MINOR_VERSION),
-                                                  lbm_enc_i(LBM_PATCH_VERSION));
-  return version;
+    (void)args;
+    (void)argn;
+    lbm_value version =
+        lbm_heap_allocate_list_init(3, lbm_enc_i(LBM_MAJOR_VERSION), lbm_enc_i(LBM_MINOR_VERSION),
+                                    lbm_enc_i(LBM_PATCH_VERSION));
+    return version;
 }
 
 lbm_value ext_lbm_endianness(lbm_value *args, lbm_uint argn) {
-  (void) args;
-  (void) argn;
+    (void)args;
+    (void)argn;
 #if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-  return lbm_enc_sym(little_endian);
+    return lbm_enc_sym(little_endian);
 #else
-  return lbm_enc_sym(big_endian);
+    return lbm_enc_sym(big_endian);
 #endif
 }
 
 lbm_value ext_lbm_heap_state(lbm_value *args, lbm_uint argn) {
 
-  lbm_value res = ENC_SYM_TERROR;
+    lbm_value res = ENC_SYM_TERROR;
 
-  lbm_heap_state_t hs;
-  lbm_get_heap_state(&hs);
+    lbm_heap_state_t hs;
+    lbm_get_heap_state(&hs);
 
-  if (argn == 1 &&
-      lbm_is_symbol(args[0])) {
-    lbm_uint s = lbm_dec_sym(args[0]);
-    if (s == sym_heap_size) {
-      res = lbm_enc_u(hs.heap_size);
-    } else if (s == sym_heap_bytes) {
-      res = lbm_enc_u(hs.heap_bytes);
-    } else if (s == sym_num_alloc_cells) {
-      res = lbm_enc_u(hs.heap_size - hs.num_free);
-    } else if (s == sym_num_alloc_arrays) {
-      res = lbm_enc_u(hs.num_alloc_arrays);
-    } else if (s == sym_num_gc) {
-      res = lbm_enc_u(hs.gc_num);
-    } else if (s == sym_num_gc_marked) {
-      res = lbm_enc_u(hs.gc_marked);
-    } else if (s == sym_num_gc_recovered_cells) {
-      res = lbm_enc_u(hs.gc_recovered);
-    } else if (s == sym_num_gc_recovered_arrays) {
-      res = lbm_enc_u(hs.gc_recovered_arrays);
-    } else if (s == sym_num_least_free) {
-      res = lbm_enc_u(hs.gc_least_free);
-    } else if (s == sym_num_last_free) {
-      res = lbm_enc_u(hs.gc_last_free);
-    } else {
-      res = ENC_SYM_NIL;
+    if (argn == 1 && lbm_is_symbol(args[0])) {
+        lbm_uint s = lbm_dec_sym(args[0]);
+        if (s == sym_heap_size) {
+            res = lbm_enc_u(hs.heap_size);
+        } else if (s == sym_heap_bytes) {
+            res = lbm_enc_u(hs.heap_bytes);
+        } else if (s == sym_num_alloc_cells) {
+            res = lbm_enc_u(hs.heap_size - hs.num_free);
+        } else if (s == sym_num_alloc_arrays) {
+            res = lbm_enc_u(hs.num_alloc_arrays);
+        } else if (s == sym_num_gc) {
+            res = lbm_enc_u(hs.gc_num);
+        } else if (s == sym_num_gc_marked) {
+            res = lbm_enc_u(hs.gc_marked);
+        } else if (s == sym_num_gc_recovered_cells) {
+            res = lbm_enc_u(hs.gc_recovered);
+        } else if (s == sym_num_gc_recovered_arrays) {
+            res = lbm_enc_u(hs.gc_recovered_arrays);
+        } else if (s == sym_num_least_free) {
+            res = lbm_enc_u(hs.gc_least_free);
+        } else if (s == sym_num_last_free) {
+            res = lbm_enc_u(hs.gc_last_free);
+        } else {
+            res = ENC_SYM_NIL;
+        }
     }
-  }
-  return res;
+    return res;
 }
 
 lbm_value ext_env_get(lbm_value *args, lbm_uint argn) {
-  if (argn == 1 && lbm_is_number(args[0])) {
-    lbm_uint ix = lbm_dec_as_u32(args[0]) & GLOBAL_ENV_MASK;
-    return lbm_get_global_env()[ix];
-  }
-  return ENC_SYM_TERROR;
+    if (argn == 1 && lbm_is_number(args[0])) {
+        lbm_uint ix = lbm_dec_as_u32(args[0]) & GLOBAL_ENV_MASK;
+        return lbm_get_global_env()[ix];
+    }
+    return ENC_SYM_TERROR;
 }
 
 lbm_value ext_local_env_get(lbm_value *args, lbm_uint argn) {
-  (void) args;
-  (void) argn;
-  eval_context_t *ctx = lbm_get_current_context();
-  return ctx->curr_env;
+    (void)args;
+    (void)argn;
+    eval_context_t *ctx = lbm_get_current_context();
+    return ctx->curr_env;
 }
 
 lbm_value ext_env_set(lbm_value *args, lbm_uint argn) {
-  if (argn == 2 && lbm_is_number(args[0])) {
-    lbm_uint ix = lbm_dec_as_u32(args[0]) & GLOBAL_ENV_MASK;
-    lbm_value *glob_env = lbm_get_global_env();
-    glob_env[ix] = args[1];
-    return ENC_SYM_TRUE;
-  }
-  return ENC_SYM_NIL;
+    if (argn == 2 && lbm_is_number(args[0])) {
+        lbm_uint ix = lbm_dec_as_u32(args[0]) & GLOBAL_ENV_MASK;
+        lbm_value *glob_env = lbm_get_global_env();
+        glob_env[ix] = args[1];
+        return ENC_SYM_TRUE;
+    }
+    return ENC_SYM_NIL;
 }
 
 lbm_value ext_env_drop(lbm_value *args, lbm_uint argn) {
-  lbm_value r = ENC_SYM_TERROR;
-  if (argn == 2 && lbm_is_symbol(args[0])) {
-    r = lbm_env_drop_binding(args[1], args[0]);
-  }
-  return r;
+    lbm_value r = ENC_SYM_TERROR;
+    if (argn == 2 && lbm_is_symbol(args[0])) {
+        r = lbm_env_drop_binding(args[1], args[0]);
+    }
+    return r;
 }
 
 lbm_value ext_global_env_size(lbm_value *args, lbm_uint argn) {
-  (void) args;
-  (void) argn; // ignores any and all arguments.
-  return lbm_enc_u(lbm_get_global_env_size());
+    (void)args;
+    (void)argn; // ignores any and all arguments.
+    return lbm_enc_u(lbm_get_global_env_size());
 }
 
 lbm_value ext_set_gc_stack_size(lbm_value *args, lbm_uint argn) {
-  if (argn == 1) {
-    if (lbm_is_number(args[0])) {
-      uint32_t n = lbm_dec_as_u32(args[0]);
-      lbm_uint *new_stack = lbm_malloc(n * sizeof(lbm_uint));
-      if (new_stack) {
-        lbm_free(lbm_heap_state.gc_stack.data);
-        lbm_heap_state.gc_stack.data = new_stack;
-        lbm_heap_state.gc_stack.size = n;
-        lbm_heap_state.gc_stack.sp = 0;  // should already be 0
-        return ENC_SYM_TRUE;
-      }
-      return ENC_SYM_MERROR;
+    if (argn == 1) {
+        if (lbm_is_number(args[0])) {
+            uint32_t n = lbm_dec_as_u32(args[0]);
+            lbm_uint *new_stack = lbm_malloc(n * sizeof(lbm_uint));
+            if (new_stack) {
+                lbm_free(lbm_heap_state.gc_stack.data);
+                lbm_heap_state.gc_stack.data = new_stack;
+                lbm_heap_state.gc_stack.size = n;
+                lbm_heap_state.gc_stack.sp = 0; // should already be 0
+                return ENC_SYM_TRUE;
+            }
+            return ENC_SYM_MERROR;
+        }
     }
-  }
-  return ENC_SYM_TERROR;
+    return ENC_SYM_TERROR;
 }
 
 lbm_value ext_is_64bit(lbm_value *args, lbm_uint argn) {
-  (void) args;
-  (void) argn;
-  #ifndef LBM64
-  return ENC_SYM_NIL;
-  #else
-  return ENC_SYM_TRUE;
-  #endif
+    (void)args;
+    (void)argn;
+#ifndef LBM64
+    return ENC_SYM_NIL;
+#else
+    return ENC_SYM_TRUE;
+#endif
 }
 
 lbm_value ext_symbol_table_size(lbm_uint *args, lbm_uint argn) {
-  (void) args;
-  (void) argn;
-  return lbm_enc_u(lbm_get_symbol_table_size());
+    (void)args;
+    (void)argn;
+    return lbm_enc_u(lbm_get_symbol_table_size());
 }
 
 lbm_value ext_symbol_table_size_flash(lbm_uint *args, lbm_uint argn) {
-  (void) args;
-  (void) argn;
-  return lbm_enc_u(lbm_get_symbol_table_size_flash());
+    (void)args;
+    (void)argn;
+    return lbm_enc_u(lbm_get_symbol_table_size_flash());
 }
 
 lbm_value ext_symbol_table_size_names(lbm_uint *args, lbm_uint argn) {
-  (void) args;
-  (void) argn;
-  return lbm_enc_u(lbm_get_symbol_table_size_names());
+    (void)args;
+    (void)argn;
+    return lbm_enc_u(lbm_get_symbol_table_size_names());
 }
 
 lbm_value ext_symbol_table_size_names_flash(lbm_uint *args, lbm_uint argn) {
-  (void) args;
-  (void) argn;
-  return lbm_enc_u(lbm_get_symbol_table_size_names_flash());
+    (void)args;
+    (void)argn;
+    return lbm_enc_u(lbm_get_symbol_table_size_names_flash());
 }
 
 lbm_value ext_is_always_gc(lbm_uint *args, lbm_uint argn) {
-  (void) args;
-  (void) argn;
-  #ifdef LBM_ALWAYS_GC
-  return ENC_SYM_TRUE;
-  #else
-  return ENC_SYM_NIL;
-  #endif
+    (void)args;
+    (void)argn;
+#ifdef LBM_ALWAYS_GC
+    return ENC_SYM_TRUE;
+#else
+    return ENC_SYM_NIL;
+#endif
 }
 
 #endif
@@ -263,39 +260,37 @@ lbm_value ext_is_always_gc(lbm_uint *args, lbm_uint argn) {
 #if defined(LBM_USE_EXT_MAILBOX_GET) || defined(FULL_RTS_LIB)
 
 void find_cid(eval_context_t *ctx, void *arg1, void *arg2) {
-  lbm_cid id = (lbm_cid)arg1;
-  if (ctx->id == id) {
-    *(eval_context_t**)arg2 = ctx;
-  }
+    lbm_cid id = (lbm_cid)arg1;
+    if (ctx->id == id) {
+        *(eval_context_t **)arg2 = ctx;
+    }
 }
-
 
 lbm_value ext_mailbox_get(lbm_uint *args, lbm_uint argn) {
-  lbm_value res = ENC_SYM_TERROR;
-  eval_context_t *ctx = NULL;
+    lbm_value res = ENC_SYM_TERROR;
+    eval_context_t *ctx = NULL;
 
-  if (argn == 1 && lbm_is_number(args[0])) {
-    res = ENC_SYM_NIL;
-    lbm_cid cid = lbm_dec_as_i32(args[0]);
-    lbm_all_ctxs_iterator(find_cid, (void*)cid, (void*)&ctx);
-    if (ctx) {
-      uint32_t num_mail = ctx->num_mail;
-      lbm_value ls = (lbm_heap_allocate_list(num_mail));
-      res = ls;
-      if (lbm_is_ptr(ls)) {
-        lbm_value curr = ls;
-        int i = 0;
-        while (lbm_is_ptr(curr)) {
-          lbm_set_car(curr, ctx->mailbox[i++]);
-          curr = lbm_cdr(curr);
+    if (argn == 1 && lbm_is_number(args[0])) {
+        res = ENC_SYM_NIL;
+        lbm_cid cid = lbm_dec_as_i32(args[0]);
+        lbm_all_ctxs_iterator(find_cid, (void *)cid, (void *)&ctx);
+        if (ctx) {
+            uint32_t num_mail = ctx->num_mail;
+            lbm_value ls = (lbm_heap_allocate_list(num_mail));
+            res = ls;
+            if (lbm_is_ptr(ls)) {
+                lbm_value curr = ls;
+                int i = 0;
+                while (lbm_is_ptr(curr)) {
+                    lbm_set_car(curr, ctx->mailbox[i++]);
+                    curr = lbm_cdr(curr);
+                }
+            }
         }
-      }
     }
-  }
-  return res;
+    return res;
 }
 #endif
-
 
 void lbm_runtime_extensions_init(void) {
 
@@ -323,7 +318,7 @@ void lbm_runtime_extensions_init(void) {
     lbm_add_extension("hide-trapped-error", ext_hide_trapped_error);
     lbm_add_extension("show-trapped-error", ext_show_trapped_error);
 #else
-    lbm_add_extension("is-always-gc",ext_is_always_gc);
+    lbm_add_extension("is-always-gc", ext_is_always_gc);
     lbm_add_extension("set-eval-quota", ext_eval_set_quota);
     lbm_add_extension("hide-trapped-error", ext_hide_trapped_error);
     lbm_add_extension("show-trapped-error", ext_show_trapped_error);

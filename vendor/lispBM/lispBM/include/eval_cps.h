@@ -19,10 +19,10 @@
 #ifndef EVAL_CPS_H_
 #define EVAL_CPS_H_
 
-#include "lbm_types.h"
-#include "stack.h"
 #include "lbm_channel.h"
 #include "lbm_flat_value.h"
+#include "lbm_types.h"
+#include "stack.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -32,12 +32,12 @@ extern "C" {
  * @{
  */
 
-#define EVAL_CPS_STATE_NONE    0
-#define EVAL_CPS_STATE_PAUSED  1
+#define EVAL_CPS_STATE_NONE 0
+#define EVAL_CPS_STATE_PAUSED 1
 #define EVAL_CPS_STATE_RUNNING 2
-#define EVAL_CPS_STATE_KILL    4
-#define EVAL_CPS_STATE_DEAD    8
-#define EVAL_CPS_STATE_RESET   16
+#define EVAL_CPS_STATE_KILL 4
+#define EVAL_CPS_STATE_DEAD 8
+#define EVAL_CPS_STATE_RESET 16
 
 /** @} */
 
@@ -47,25 +47,27 @@ extern "C" {
 /** @name Evaluator Context Flags
  * @{
  */
-#define EVAL_CPS_CONTEXT_FLAG_NOTHING               (uint32_t)0x00
-#define EVAL_CPS_CONTEXT_FLAG_TRAP                  (uint32_t)0x01
-#define EVAL_CPS_CONTEXT_FLAG_CONST                 (uint32_t)0x02
-#define EVAL_CPS_CONTEXT_FLAG_CONST_SYMBOL_STRINGS  (uint32_t)0x04
-#define EVAL_CPS_CONTEXT_FLAG_INCREMENTAL_READ      (uint32_t)0x08
-#define EVAL_CPS_CONTEXT_FLAG_TRAP_UNROLL_RETURN    (uint32_t)0x10
-#define EVAL_CPS_CONTEXT_READER_FLAGS_MASK          (EVAL_CPS_CONTEXT_FLAG_CONST | EVAL_CPS_CONTEXT_FLAG_CONST_SYMBOL_STRINGS | EVAL_CPS_CONTEXT_FLAG_INCREMENTAL_READ)
+#define EVAL_CPS_CONTEXT_FLAG_NOTHING (uint32_t)0x00
+#define EVAL_CPS_CONTEXT_FLAG_TRAP (uint32_t)0x01
+#define EVAL_CPS_CONTEXT_FLAG_CONST (uint32_t)0x02
+#define EVAL_CPS_CONTEXT_FLAG_CONST_SYMBOL_STRINGS (uint32_t)0x04
+#define EVAL_CPS_CONTEXT_FLAG_INCREMENTAL_READ (uint32_t)0x08
+#define EVAL_CPS_CONTEXT_FLAG_TRAP_UNROLL_RETURN (uint32_t)0x10
+#define EVAL_CPS_CONTEXT_READER_FLAGS_MASK                                                         \
+    (EVAL_CPS_CONTEXT_FLAG_CONST | EVAL_CPS_CONTEXT_FLAG_CONST_SYMBOL_STRINGS |                    \
+     EVAL_CPS_CONTEXT_FLAG_INCREMENTAL_READ)
 /** @} */
 
 /** @name Thread States
  * @{
  */
-#define LBM_THREAD_STATE_READY      (uint32_t)0u
-#define LBM_THREAD_STATE_BLOCKED    (uint32_t)1u
-#define LBM_THREAD_STATE_TIMEOUT    (uint32_t)2u
-#define LBM_THREAD_STATE_SLEEPING   (uint32_t)4u
-#define LBM_THREAD_STATE_RECV_BL    (uint32_t)8u
-#define LBM_THREAD_STATE_RECV_TO    (uint32_t)16u
-#define LBM_THREAD_STATE_GC_BIT     (uint32_t)(1u << 31)
+#define LBM_THREAD_STATE_READY (uint32_t)0u
+#define LBM_THREAD_STATE_BLOCKED (uint32_t)1u
+#define LBM_THREAD_STATE_TIMEOUT (uint32_t)2u
+#define LBM_THREAD_STATE_SLEEPING (uint32_t)4u
+#define LBM_THREAD_STATE_RECV_BL (uint32_t)8u
+#define LBM_THREAD_STATE_RECV_TO (uint32_t)16u
+#define LBM_THREAD_STATE_GC_BIT (uint32_t)(1u << 31)
 /** @} */
 
 /** @name Thread State Groups
@@ -79,46 +81,46 @@ extern "C" {
 
 /** Represents an evaluation context (a thread)
  */
-typedef struct eval_context_s{
-  lbm_value program;
-  lbm_value curr_exp;
-  lbm_value curr_env;
-  lbm_value *mailbox;    // Message passing mailbox */
-  uint32_t  mailbox_size;
-  uint32_t  num_mail;    // Number of messages in mailbox
-  uint32_t  flags;
-  lbm_value r;
-  const char *error_reason;
-  bool  app_cont;
-  lbm_stack_t K;
-  lbm_uint timestamp;
-  lbm_uint sleep_us;
-  uint32_t state;
-  char *name;
-  lbm_cid id;
-  lbm_cid parent;
-  // while reading
-  lbm_int row0;
-  lbm_int row1;
-  lbm_value reader_stream; // Reader stream register
-  // List structure
-  struct eval_context_s *prev;
-  struct eval_context_s *next;
+typedef struct eval_context_s {
+    lbm_value program;
+    lbm_value curr_exp;
+    lbm_value curr_env;
+    lbm_value *mailbox; // Message passing mailbox */
+    uint32_t mailbox_size;
+    uint32_t num_mail; // Number of messages in mailbox
+    uint32_t flags;
+    lbm_value r;
+    const char *error_reason;
+    bool app_cont;
+    lbm_stack_t K;
+    lbm_uint timestamp;
+    lbm_uint sleep_us;
+    uint32_t state;
+    char *name;
+    lbm_cid id;
+    lbm_cid parent;
+    // while reading
+    lbm_int row0;
+    lbm_int row1;
+    lbm_value reader_stream; // Reader stream register
+    // List structure
+    struct eval_context_s *prev;
+    struct eval_context_s *next;
 } eval_context_t;
 
 /** Event types */
 typedef enum {
-  LBM_EVENT_FOR_HANDLER = 0,
-  LBM_EVENT_UNBLOCK_CTX,
-  LBM_EVENT_DEFINE
+    LBM_EVENT_FOR_HANDLER = 0,
+    LBM_EVENT_UNBLOCK_CTX,
+    LBM_EVENT_DEFINE
 } lbm_event_type_t;
 
 /** Event structure for passing events from C-side to Lisp-side */
 typedef struct {
-  lbm_event_type_t type;
-  lbm_uint parameter;
-  lbm_uint buf_ptr;
-  lbm_uint buf_len;
+    lbm_event_type_t type;
+    lbm_uint parameter;
+    lbm_uint buf_ptr;
+    lbm_uint buf_len;
 } lbm_event_t;
 
 /** Fundamental operation type */
@@ -133,7 +135,7 @@ extern const fundamental_fun fundamental_table[];
  * \param
  * \param
  */
-typedef void (*ctx_fun)(eval_context_t *, void*, void*);
+typedef void (*ctx_fun)(eval_context_t *, void *, void *);
 
 extern int (*lbm_printf_callback)(const char *, ...);
 
@@ -184,11 +186,11 @@ void lbm_set_event_handler_pid(lbm_cid pid);
  * \return True if event handler exists, otherwise false.
  */
 bool lbm_event_handler_exists(void);
-  /** Sen an event that causes a definition to be performed at the nect convenience.
-   * \param key symbol to bind.
-   * \param fv Flat value representation of value.
-   * \return true if event is successfully added to queue.
-   */
+/** Sen an event that causes a definition to be performed at the nect convenience.
+ * \param key symbol to bind.
+ * \param fv Flat value representation of value.
+ * \return true if event is successfully added to queue.
+ */
 bool lbm_event_define(lbm_value key, lbm_flat_value_t *fv);
 /** Send an event to the registered event handler process.
  * If lbm_event returns false the C code will still be responsible for
@@ -223,7 +225,7 @@ int lbm_remove_done_ctx(lbm_cid cid, lbm_value *v);
 /** step function for integration of evaluator in a single thread application.
     The boolean result is an indication of how "busy" or not "busy" the runtime system is.
  */
-bool lbm_eval_step(int n);  
+bool lbm_eval_step(int n);
 #else
 /** This function executes the evaluation loop and does not return.
  *  lbm_run_eval should be started in a new thread provided by the underlying HAL or OS.
@@ -231,10 +233,9 @@ bool lbm_eval_step(int n);
 void lbm_run_eval(void);
 #endif
 /** Indicate that the evaluator should reset at the next opportunity.
- * You cannot assume that the evaluator has entered reset state unless you call lbm_get_eval_state and get the
- * return value EVAL_CPS_STATE_RESET.
- * While in reset state, all LBM memories should be reinitialized and cleared.
- * Use lbm_continue_eval(), to resume operation after reset.
+ * You cannot assume that the evaluator has entered reset state unless you call lbm_get_eval_state
+ * and get the return value EVAL_CPS_STATE_RESET. While in reset state, all LBM memories should be
+ * reinitialized and cleared. Use lbm_continue_eval(), to resume operation after reset.
  */
 void lbm_reset_eval(void);
 /** Indicate that the evaluator should pause at the next iteration.
@@ -335,14 +336,14 @@ void lbm_all_ctxs_iterator(ctx_fun f, void *arg1, void *arg2);
  * \param arg1 Pointer argument that can be used to convey information back to user.
  * \param arg2 Same as above.
  */
-void lbm_running_iterator(ctx_fun f, void*, void*);
+void lbm_running_iterator(ctx_fun f, void *, void *);
 /** Iterate over all blocked contexts and apply function on each context.
  *
  * \param f Function to apply to each context.
  * \param arg1 Pointer argument that can be used to convey information back to user.
  * \param arg2 Same as above
  */
-void lbm_blocked_iterator(ctx_fun f, void*, void*);
+void lbm_blocked_iterator(ctx_fun f, void *, void *);
 /** toggle verbosity level of error messages
  */
 void lbm_toggle_verbose(void);
@@ -376,7 +377,7 @@ void lbm_set_ctx_done_callback(void (*fptr)(eval_context_t *));
  *
  * \param fptr Pointer to a "printf" function.
  */
-void lbm_set_printf_callback(int (*prnt)(const char*, ...));
+void lbm_set_printf_callback(int (*prnt)(const char *, ...));
 /** Set a callback for dynamically loading code associated with
  * an undefined symbol
  */
@@ -404,7 +405,7 @@ void lbm_surrender_quota(void);
 bool lbm_mailbox_change_size(eval_context_t *ctx, lbm_uint new_size);
 
 lbm_flash_status request_flash_storage_cell(lbm_value val, lbm_value *res);
-  //bool lift_array_flash(lbm_value flash_cell, char *data, lbm_uint num_elt);
+// bool lift_array_flash(lbm_value flash_cell, char *data, lbm_uint num_elt);
 
 /** deliver a message
  *

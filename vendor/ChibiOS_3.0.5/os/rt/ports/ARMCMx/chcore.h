@@ -50,13 +50,13 @@
  * @brief   Compiler name and version.
  */
 #if defined(__GNUC__) || defined(__DOXYGEN__)
-#define PORT_COMPILER_NAME              "GCC " __VERSION__
+#define PORT_COMPILER_NAME "GCC " __VERSION__
 
 #elif defined(__ICCARM__)
-#define PORT_COMPILER_NAME              "IAR"
+#define PORT_COMPILER_NAME "IAR"
 
 #elif defined(__CC_ARM)
-#define PORT_COMPILER_NAME              "RVCT"
+#define PORT_COMPILER_NAME "RVCT"
 
 #else
 #error "unsupported compiler"
@@ -80,7 +80,7 @@
  *          @p chcore_timer_alt.h is included instead.
  */
 #if !defined(PORT_USE_ALT_TIMER)
-#define PORT_USE_ALT_TIMER              FALSE
+#define PORT_USE_ALT_TIMER FALSE
 #endif
 
 /*===========================================================================*/
@@ -135,7 +135,7 @@ struct port_intctx {};
  *          at context switch time.
  */
 struct context {
-  struct port_intctx *r13;
+    struct port_intctx *r13;
 };
 
 #endif /* !defined(_FROM_ASM_) */
@@ -147,38 +147,36 @@ struct context {
 /**
  * @brief   Total priority levels.
  */
-#define CORTEX_PRIORITY_LEVELS          (1U << CORTEX_PRIORITY_BITS)
+#define CORTEX_PRIORITY_LEVELS (1U << CORTEX_PRIORITY_BITS)
 
 /**
  * @brief   Minimum priority level.
  * @details This minimum priority level is calculated from the number of
  *          priority bits supported by the specific Cortex-Mx implementation.
  */
-#define CORTEX_MINIMUM_PRIORITY         (CORTEX_PRIORITY_LEVELS - 1)
+#define CORTEX_MINIMUM_PRIORITY (CORTEX_PRIORITY_LEVELS - 1)
 
 /**
  * @brief   Maximum priority level.
  * @details The maximum allowed priority level is always zero.
  */
-#define CORTEX_MAXIMUM_PRIORITY         0U
+#define CORTEX_MAXIMUM_PRIORITY 0U
 
 /**
  * @brief   Priority level to priority mask conversion macro.
  */
-#define CORTEX_PRIO_MASK(n)                                                 \
-  ((n) << (8U - (unsigned)CORTEX_PRIORITY_BITS))
+#define CORTEX_PRIO_MASK(n) ((n) << (8U - (unsigned)CORTEX_PRIORITY_BITS))
 
 /**
  * @brief   Priority level verification macro.
  */
-#define PORT_IRQ_IS_VALID_PRIORITY(n)                                       \
-  (((n) >= 0U) && ((n) < CORTEX_PRIORITY_LEVELS))
+#define PORT_IRQ_IS_VALID_PRIORITY(n) (((n) >= 0U) && ((n) < CORTEX_PRIORITY_LEVELS))
 
 /**
  * @brief   Priority level verification macro.
  */
-#define PORT_IRQ_IS_VALID_KERNEL_PRIORITY(n)                                \
-  (((n) >= CORTEX_MAX_KERNEL_PRIORITY) && ((n) < CORTEX_PRIORITY_LEVELS))
+#define PORT_IRQ_IS_VALID_KERNEL_PRIORITY(n)                                                       \
+    (((n) >= CORTEX_MAX_KERNEL_PRIORITY) && ((n) < CORTEX_PRIORITY_LEVELS))
 
 /*===========================================================================*/
 /* External declarations.                                                    */

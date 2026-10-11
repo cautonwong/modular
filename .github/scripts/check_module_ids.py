@@ -70,9 +70,35 @@ def check(root: Path) -> tuple:
                 "block of the layer that owns the module"
             )
 
+    # Decentralized scan: scan all module domain headers across app/, infra/, board/, soc/, sys/
+    local_id_pattern = re.compile(
+        r"^\s*#define\s+([A-Za-z0-9_]+_MODULE_ID)\s+\(?\s*(0[xX][0-9A-Fa-f]+|\d+)u?\s*\)?",
+        re.M,
+    )
+    scanned_headers = 0
+    scanned_local_ids = {}
+    for search_dir in ("app", "infra", "board", "soc", "sys"):
+        p_dir = root / search_dir
+        if not p_dir.is_dir():
+            continue
+        for h_path in p_dir.glob("**/include/**/*.h"):
+            scanned_headers += 1
+            h_text = h_path.read_text(encoding="utf-8", errors="replace")
+            for macro_name, seg_val in local_id_pattern.findall(h_text):
+                val = int(seg_val, 0)
+                if val & 0xFF:
+                    problems.append(f"{h_path}: {macro_name} not 0xNN00 segment aligned: 0x{val:04x}")
+                if val in scanned_local_ids and scanned_local_ids[val][0] != macro_name:
+                    problems.append(
+                        f"Decentralized module ID collision: {macro_name} ({h_path}) and "
+                        f"{scanned_local_ids[val][0]} ({scanned_local_ids[val][1]}) = 0x{val:04x}"
+                    )
+                else:
+                    scanned_local_ids[val] = (macro_name, h_path)
+
     if problems:
         return (1, problems)
-    return (0, [f"module ID check: PASS ({len(entries)} IDs in {len(blocks)} layer blocks)"])
+    return (0, [f"module ID check: PASS ({len(entries)} central IDs in {len(blocks)} blocks, {len(scanned_local_ids)} decentralized IDs verified across {scanned_headers} headers)"])
 
 
 def main(argv) -> int:

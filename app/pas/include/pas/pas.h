@@ -8,6 +8,10 @@
 #include "edge/module.h"
 #include "edge/modules.h"
 
+#ifndef PAS_MODULE_ID
+#define PAS_MODULE_ID 0x5200u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

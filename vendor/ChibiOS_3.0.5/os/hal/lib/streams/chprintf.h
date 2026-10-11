@@ -31,14 +31,14 @@
  * @brief   Float type support.
  */
 #if !defined(CHPRINTF_USE_FLOAT) || defined(__DOXYGEN__)
-#define CHPRINTF_USE_FLOAT          FALSE
+#define CHPRINTF_USE_FLOAT FALSE
 #endif
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-  int chvprintf(BaseSequentialStream *chp, const char *fmt, va_list ap);
-  int chsnprintf(char *str, size_t size, const char *fmt, ...);
+int chvprintf(BaseSequentialStream *chp, const char *fmt, va_list ap);
+int chsnprintf(char *str, size_t size, const char *fmt, ...);
 #ifdef __cplusplus
 }
 #endif
@@ -67,14 +67,14 @@ extern "C" {
  * @api
  */
 static inline int chprintf(BaseSequentialStream *chp, const char *fmt, ...) {
-  va_list ap;
-  int formatted_bytes;
+    va_list ap;
+    int formatted_bytes;
 
-  va_start(ap, fmt);
-  formatted_bytes = chvprintf(chp, fmt, ap);
-  va_end(ap);
+    va_start(ap, fmt);
+    formatted_bytes = chvprintf(chp, fmt, ap);
+    va_end(ap);
 
-  return formatted_bytes;
+    return formatted_bytes;
 }
 
 #endif /* _CHPRINTF_H_ */

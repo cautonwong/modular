@@ -31,20 +31,20 @@
 /*===========================================================================*/
 
 #if defined(STM32L1XX)
-#define AHB_EN_MASK     (RCC_AHBENR_GPIOAEN | RCC_AHBENR_GPIOBEN |          \
-                         RCC_AHBENR_GPIOCEN | RCC_AHBENR_GPIODEN |          \
-                         RCC_AHBENR_GPIOEEN | RCC_AHBENR_GPIOHEN)
-#define AHB_LPEN_MASK   AHB_EN_MASK
+#define AHB_EN_MASK                                                                                \
+    (RCC_AHBENR_GPIOAEN | RCC_AHBENR_GPIOBEN | RCC_AHBENR_GPIOCEN | RCC_AHBENR_GPIODEN |           \
+     RCC_AHBENR_GPIOEEN | RCC_AHBENR_GPIOHEN)
+#define AHB_LPEN_MASK AHB_EN_MASK
 
 #elif defined(STM32F0XX)
-#define AHB_EN_MASK     STM32_GPIO_EN_MASK
+#define AHB_EN_MASK STM32_GPIO_EN_MASK
 
 #elif defined(STM32F3XX) || defined(STM32F37X)
-#define AHB_EN_MASK     STM32_GPIO_EN_MASK
+#define AHB_EN_MASK STM32_GPIO_EN_MASK
 
 #elif defined(STM32F2XX) || defined(STM32F4XX)
-#define AHB1_EN_MASK    STM32_GPIO_EN_MASK
-#define AHB1_LPEN_MASK  AHB1_EN_MASK
+#define AHB1_EN_MASK STM32_GPIO_EN_MASK
+#define AHB1_LPEN_MASK AHB1_EN_MASK
 
 #else
 #error "missing or unsupported platform for GPIOv2 PAL driver"
@@ -64,13 +64,13 @@
 
 static void initgpio(stm32_gpio_t *gpiop, const stm32_gpio_setup_t *config) {
 
-  gpiop->OTYPER  = config->otyper;
-  gpiop->OSPEEDR = config->ospeedr;
-  gpiop->PUPDR   = config->pupdr;
-  gpiop->ODR     = config->odr;
-  gpiop->AFRL    = config->afrl;
-  gpiop->AFRH    = config->afrh;
-  gpiop->MODER   = config->moder;
+    gpiop->OTYPER = config->otyper;
+    gpiop->OSPEEDR = config->ospeedr;
+    gpiop->PUPDR = config->pupdr;
+    gpiop->ODR = config->odr;
+    gpiop->AFRL = config->afrl;
+    gpiop->AFRH = config->afrh;
+    gpiop->MODER = config->moder;
 }
 
 /*===========================================================================*/
@@ -91,50 +91,50 @@ static void initgpio(stm32_gpio_t *gpiop, const stm32_gpio_setup_t *config) {
  */
 void _pal_lld_init(const PALConfig *config) {
 
-  /*
-   * Enables the GPIO related clocks.
-   */
+    /*
+     * Enables the GPIO related clocks.
+     */
 #if defined(STM32L1XX)
-  rccEnableAHB(AHB_EN_MASK, TRUE);
-  RCC->AHBLPENR |= AHB_LPEN_MASK;
+    rccEnableAHB(AHB_EN_MASK, TRUE);
+    RCC->AHBLPENR |= AHB_LPEN_MASK;
 #elif defined(STM32F0XX)
-  rccEnableAHB(AHB_EN_MASK, TRUE);
+    rccEnableAHB(AHB_EN_MASK, TRUE);
 #elif defined(STM32F3XX) || defined(STM32F37X)
-  rccEnableAHB(AHB_EN_MASK, TRUE);
+    rccEnableAHB(AHB_EN_MASK, TRUE);
 #elif defined(STM32F2XX) || defined(STM32F4XX)
-  RCC->AHB1ENR   |= AHB1_EN_MASK;
-  RCC->AHB1LPENR |= AHB1_LPEN_MASK;
+    RCC->AHB1ENR |= AHB1_EN_MASK;
+    RCC->AHB1LPENR |= AHB1_LPEN_MASK;
 #endif
 
-  /*
-   * Initial GPIO setup.
-   */
+    /*
+     * Initial GPIO setup.
+     */
 #if STM32_HAS_GPIOA
-  initgpio(GPIOA, &config->PAData);
+    initgpio(GPIOA, &config->PAData);
 #endif
 #if STM32_HAS_GPIOB
-  initgpio(GPIOB, &config->PBData);
+    initgpio(GPIOB, &config->PBData);
 #endif
 #if STM32_HAS_GPIOC
-  initgpio(GPIOC, &config->PCData);
+    initgpio(GPIOC, &config->PCData);
 #endif
 #if STM32_HAS_GPIOD
-  initgpio(GPIOD, &config->PDData);
+    initgpio(GPIOD, &config->PDData);
 #endif
 #if STM32_HAS_GPIOE
-  initgpio(GPIOE, &config->PEData);
+    initgpio(GPIOE, &config->PEData);
 #endif
 #if STM32_HAS_GPIOF
-  initgpio(GPIOF, &config->PFData);
+    initgpio(GPIOF, &config->PFData);
 #endif
 #if STM32_HAS_GPIOG
-  initgpio(GPIOG, &config->PGData);
+    initgpio(GPIOG, &config->PGData);
 #endif
 #if STM32_HAS_GPIOH
-  initgpio(GPIOH, &config->PHData);
+    initgpio(GPIOH, &config->PHData);
 #endif
 #if STM32_HAS_GPIOI
-  initgpio(GPIOI, &config->PIData);
+    initgpio(GPIOI, &config->PIData);
 #endif
 }
 
@@ -152,80 +152,76 @@ void _pal_lld_init(const PALConfig *config) {
  * @notapi
  */
 #if 1
-void _pal_lld_setgroupmode(ioportid_t port,
-                           ioportmask_t mask,
-                           iomode_t mode) {
+void _pal_lld_setgroupmode(ioportid_t port, ioportmask_t mask, iomode_t mode) {
 
-  uint32_t moder   = (mode & PAL_STM32_MODE_MASK) >> 0;
-  uint32_t otyper  = (mode & PAL_STM32_OTYPE_MASK) >> 2;
-  uint32_t ospeedr = (mode & PAL_STM32_OSPEED_MASK) >> 3;
-  uint32_t pupdr   = (mode & PAL_STM32_PUDR_MASK) >> 5;
-  uint32_t altr    = (mode & PAL_STM32_ALTERNATE_MASK) >> 7;
-  uint32_t bit     = 0;
-  while (TRUE) {
-    if ((mask & 1) != 0) {
-      uint32_t altrmask, m1, m2, m4;
+    uint32_t moder = (mode & PAL_STM32_MODE_MASK) >> 0;
+    uint32_t otyper = (mode & PAL_STM32_OTYPE_MASK) >> 2;
+    uint32_t ospeedr = (mode & PAL_STM32_OSPEED_MASK) >> 3;
+    uint32_t pupdr = (mode & PAL_STM32_PUDR_MASK) >> 5;
+    uint32_t altr = (mode & PAL_STM32_ALTERNATE_MASK) >> 7;
+    uint32_t bit = 0;
+    while (TRUE) {
+        if ((mask & 1) != 0) {
+            uint32_t altrmask, m1, m2, m4;
 
-      altrmask = altr << ((bit & 7) * 4);
-      m4 = 15 << ((bit & 7) * 4);
-      if (bit < 8)
-        port->AFRL = (port->AFRL & ~m4) | altrmask;
-      else
-        port->AFRH = (port->AFRH & ~m4) | altrmask;
-      m1 = 1 << bit;
-      port->OTYPER  = (port->OTYPER & ~m1) | otyper;
-      m2 = 3 << (bit * 2);
-      port->OSPEEDR = (port->OSPEEDR & ~m2) | ospeedr;
-      port->PUPDR   = (port->PUPDR & ~m2) | pupdr;
-      port->MODER   = (port->MODER & ~m2) | moder;
+            altrmask = altr << ((bit & 7) * 4);
+            m4 = 15 << ((bit & 7) * 4);
+            if (bit < 8)
+                port->AFRL = (port->AFRL & ~m4) | altrmask;
+            else
+                port->AFRH = (port->AFRH & ~m4) | altrmask;
+            m1 = 1 << bit;
+            port->OTYPER = (port->OTYPER & ~m1) | otyper;
+            m2 = 3 << (bit * 2);
+            port->OSPEEDR = (port->OSPEEDR & ~m2) | ospeedr;
+            port->PUPDR = (port->PUPDR & ~m2) | pupdr;
+            port->MODER = (port->MODER & ~m2) | moder;
+        }
+        mask >>= 1;
+        if (!mask)
+            return;
+        otyper <<= 1;
+        ospeedr <<= 2;
+        pupdr <<= 2;
+        moder <<= 2;
+        bit++;
     }
-    mask >>= 1;
-    if (!mask)
-      return;
-    otyper <<= 1;
-    ospeedr <<= 2;
-    pupdr <<= 2;
-    moder <<= 2;
-    bit++;
-  }
 }
 #else
-void _pal_lld_setgroupmode(ioportid_t port,
-                           ioportmask_t mask,
-                           iomode_t mode) {
-  uint32_t afrm, moderm, pupdrm, otyperm, ospeedrm;
-  uint32_t m1 = (uint32_t)mask;
-  uint32_t m2 = 0;
-  uint32_t m4l = 0;
-  uint32_t m4h = 0;
-  uint32_t bit = 0;
-  do {
-    if ((mask & 1) != 0) {
-      m2 |= 3 << bit;
-      if (bit < 16)
-        m4l |= 15 << ((bit & 14) * 2);
-      else
-        m4h |= 15 << ((bit & 14) * 2);
-    }
-    bit += 2;
-    mask >>= 1;
-  } while (mask);
+void _pal_lld_setgroupmode(ioportid_t port, ioportmask_t mask, iomode_t mode) {
+    uint32_t afrm, moderm, pupdrm, otyperm, ospeedrm;
+    uint32_t m1 = (uint32_t)mask;
+    uint32_t m2 = 0;
+    uint32_t m4l = 0;
+    uint32_t m4h = 0;
+    uint32_t bit = 0;
+    do {
+        if ((mask & 1) != 0) {
+            m2 |= 3 << bit;
+            if (bit < 16)
+                m4l |= 15 << ((bit & 14) * 2);
+            else
+                m4h |= 15 << ((bit & 14) * 2);
+        }
+        bit += 2;
+        mask >>= 1;
+    } while (mask);
 
-  afrm = ((mode & PAL_STM32_ALTERNATE_MASK) >> 7) * 0x1111;
-  port->AFRL = (port->AFRL & ~m4l) | (afrm & m4l);
-  port->AFRH = (port->AFRH & ~m4h) | (afrm & m4h);
+    afrm = ((mode & PAL_STM32_ALTERNATE_MASK) >> 7) * 0x1111;
+    port->AFRL = (port->AFRL & ~m4l) | (afrm & m4l);
+    port->AFRH = (port->AFRH & ~m4h) | (afrm & m4h);
 
-  ospeedrm = ((mode & PAL_STM32_OSPEED_MASK) >> 3) * 0x5555;
-  port->OSPEEDR = (port->OSPEEDR & ~m2) | (ospeedrm & m2);
+    ospeedrm = ((mode & PAL_STM32_OSPEED_MASK) >> 3) * 0x5555;
+    port->OSPEEDR = (port->OSPEEDR & ~m2) | (ospeedrm & m2);
 
-  otyperm = ((mode & PAL_STM32_OTYPE_MASK) >> 2) * 0xffff;
-  port->OTYPER = (port->OTYPER & ~m1) | (otyperm & m1);
+    otyperm = ((mode & PAL_STM32_OTYPE_MASK) >> 2) * 0xffff;
+    port->OTYPER = (port->OTYPER & ~m1) | (otyperm & m1);
 
-  pupdrm = ((mode & PAL_STM32_PUDR_MASK) >> 5) * 0x5555;
-  port->PUPDR = (port->PUPDR & ~m2) | (pupdrm & m2);
+    pupdrm = ((mode & PAL_STM32_PUDR_MASK) >> 5) * 0x5555;
+    port->PUPDR = (port->PUPDR & ~m2) | (pupdrm & m2);
 
-  moderm = ((mode & PAL_STM32_MODE_MASK) >> 0) * 0x5555;
-  port->MODER = (port->MODER & ~m2) | (moderm & m2);
+    moderm = ((mode & PAL_STM32_MODE_MASK) >> 0) * 0x5555;
+    port->MODER = (port->MODER & ~m2) | (moderm & m2);
 }
 #endif
 

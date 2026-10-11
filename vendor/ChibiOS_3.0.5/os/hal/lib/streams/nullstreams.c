@@ -22,8 +22,8 @@
  * @{
  */
 
-#include "hal.h"
 #include "nullstreams.h"
+#include "hal.h"
 
 /*===========================================================================*/
 /* Driver local definitions.                                                 */
@@ -43,34 +43,34 @@
 
 static size_t writes(void *ip, const uint8_t *bp, size_t n) {
 
-  (void)ip;
-  (void)bp;
+    (void)ip;
+    (void)bp;
 
-  return n;
+    return n;
 }
 
 static size_t reads(void *ip, uint8_t *bp, size_t n) {
 
-  (void)ip;
-  (void)bp;
-  (void)n;
+    (void)ip;
+    (void)bp;
+    (void)n;
 
-  return 0;
+    return 0;
 }
 
 static msg_t put(void *ip, uint8_t b) {
 
-  (void)ip;
-  (void)b;
+    (void)ip;
+    (void)b;
 
-  return MSG_OK;
+    return MSG_OK;
 }
 
 static msg_t get(void *ip) {
 
-  (void)ip;
+    (void)ip;
 
-  return 4;
+    return 4;
 }
 
 static const struct NullStreamVMT vmt = {writes, reads, put, get};
@@ -86,7 +86,7 @@ static const struct NullStreamVMT vmt = {writes, reads, put, get};
  */
 void nullObjectInit(NullStream *nsp) {
 
-  nsp->vmt = &vmt;
+    nsp->vmt = &vmt;
 }
 
 /** @} */

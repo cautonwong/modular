@@ -20,9 +20,9 @@
 #ifndef LISPBM_TYPES_H_
 #define LISPBM_TYPES_H_
 
-#include <stdint.h>
-#include <stdbool.h>
 #include <inttypes.h>
+#include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -46,52 +46,52 @@ typedef uint32_t lbm_value;
 typedef uint32_t lbm_type;
 
 typedef uint32_t lbm_uint;
-typedef int32_t  lbm_int;
-typedef float    lbm_float;
-typedef double   lbm_double;
+typedef int32_t lbm_int;
+typedef float lbm_float;
+typedef double lbm_double;
 
 #define LBM_UINT_MAX UINT32_MAX
-#define LBM_INT_MIN  INT32_MIN
-#define LBM_INT_MAX  INT32_MAX
+#define LBM_INT_MIN INT32_MIN
+#define LBM_INT_MAX INT32_MAX
 
 #define PRI_VALUE PRIu32
-#define PRI_TYPE  PRIu32
-#define PRI_UINT  PRIu32
-#define PRI_INT   PRId32
-#define PRI_HEX   PRIx32
+#define PRI_TYPE PRIu32
+#define PRI_UINT PRIu32
+#define PRI_INT PRId32
+#define PRI_HEX PRIx32
 #define PRI_FLOAT "f"
 
-typedef int32_t   lbm_cid;
+typedef int32_t lbm_cid;
 
 #else
 /** A lispBM value.
  *
  */
-typedef uint64_t  lbm_value;
+typedef uint64_t lbm_value;
 /** A lispBM type. */
-typedef uint64_t  lbm_type;
+typedef uint64_t lbm_type;
 
-typedef uint64_t  lbm_uint;
-typedef int64_t   lbm_int;
+typedef uint64_t lbm_uint;
+typedef int64_t lbm_int;
 
-typedef float    lbm_float;
-typedef double   lbm_double;
+typedef float lbm_float;
+typedef double lbm_double;
 
 #define LBM_UINT_MAX UINT64_MAX
-#define LBM_INT_MIN  INT64_MIN
-#define LBM_INT_MAX  INT64_MAX
+#define LBM_INT_MIN INT64_MIN
+#define LBM_INT_MAX INT64_MAX
 
 #define PRI_VALUE PRIu64
-#define PRI_TYPE  PRIu64
-#define PRI_UINT  PRIu64
-#define PRI_INT   PRId64
-#define PRI_HEX   PRIx64
+#define PRI_TYPE PRIu64
+#define PRI_UINT PRIu64
+#define PRI_INT PRId64
+#define PRI_HEX PRIx64
 #define PRI_FLOAT "lf"
 
 /**
  * Represents a lisp process "context"-id
  */
-typedef int64_t   lbm_cid;
+typedef int64_t lbm_cid;
 #endif
 
 #ifdef __cplusplus

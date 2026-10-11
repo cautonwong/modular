@@ -61,3 +61,29 @@ void dlt645_construct(dlt645_t *self, uint32_t module_id, uint32_t priority,
 edge_module_t *dlt645_module(dlt645_t *self) {
     return self != NULL ? &self->module : NULL;
 }
+
+static edge_status_t dlt645_desc_init(void *instance, const void *deps) {
+    (void)deps;
+    return dlt645_init((dlt645_t *)instance);
+}
+
+static edge_status_t dlt645_desc_stop(void *instance) {
+    return dlt645_deinit((dlt645_t *)instance);
+}
+
+static const edge_module_desc_t g_dlt645_desc = {
+    .id = DLT645_MODULE_ID,
+    .name = "dlt645",
+    .instance_size = sizeof(dlt645_t),
+    .dependencies = NULL,
+    .dependency_count = 0,
+    .init = dlt645_desc_init,
+    .start = NULL,
+    .stop = dlt645_desc_stop,
+    .suspend = NULL,
+    .resume = NULL,
+};
+
+const edge_module_desc_t *dlt645_descriptor(void) {
+    return &g_dlt645_desc;
+}

@@ -8,6 +8,10 @@
 #include "edge/errors.h"
 #include "edge/module.h"
 
+#ifndef ZMK_BEHAVIOR_QUEUE_MODULE_ID
+#define ZMK_BEHAVIOR_QUEUE_MODULE_ID 0x2D00u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

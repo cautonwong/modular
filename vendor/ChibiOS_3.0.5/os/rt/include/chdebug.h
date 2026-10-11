@@ -44,14 +44,14 @@
  * @brief   Trace buffer entries.
  */
 #ifndef CH_DBG_TRACE_BUFFER_SIZE
-#define CH_DBG_TRACE_BUFFER_SIZE            64
+#define CH_DBG_TRACE_BUFFER_SIZE 64
 #endif
 
 /**
  * @brief   Fill value for thread stack area in debug mode.
  */
 #ifndef CH_DBG_STACK_FILL_VALUE
-#define CH_DBG_STACK_FILL_VALUE             0x55
+#define CH_DBG_STACK_FILL_VALUE 0x55
 #endif
 
 /**
@@ -62,7 +62,7 @@
  *          better to know it.
  */
 #ifndef CH_DBG_THREAD_FILL_VALUE
-#define CH_DBG_THREAD_FILL_VALUE            0xFF
+#define CH_DBG_THREAD_FILL_VALUE 0xFF
 #endif
 /** @} */
 
@@ -79,40 +79,40 @@
  * @brief   Trace buffer record.
  */
 typedef struct {
-  /**
-   * @brief   Time of the switch event.
-   */
-  systime_t             se_time;
-  /**
-   * @brief   Switched in thread.
-   */
-  thread_t              *se_tp;
-  /**
-   * @brief   Object where going to sleep.
-   */
-  void                  *se_wtobjp;
-  /**
-   * @brief   Switched out thread state.
-   */
-  uint8_t               se_state;
+    /**
+     * @brief   Time of the switch event.
+     */
+    systime_t se_time;
+    /**
+     * @brief   Switched in thread.
+     */
+    thread_t *se_tp;
+    /**
+     * @brief   Object where going to sleep.
+     */
+    void *se_wtobjp;
+    /**
+     * @brief   Switched out thread state.
+     */
+    uint8_t se_state;
 } ch_swc_event_t;
 
 /**
  * @brief   Trace buffer header.
  */
 typedef struct {
-  /**
-   * @brief   Trace buffer size (entries).
-   */
-  unsigned              tb_size;
-  /**
-   * @brief   Pointer to the buffer front.
-   */
-  ch_swc_event_t        *tb_ptr;
-  /**
-   * @brief   Ring buffer.
-   */
-  ch_swc_event_t        tb_buffer[CH_DBG_TRACE_BUFFER_SIZE];
+    /**
+     * @brief   Trace buffer size (entries).
+     */
+    unsigned tb_size;
+    /**
+     * @brief   Pointer to the buffer front.
+     */
+    ch_swc_event_t *tb_ptr;
+    /**
+     * @brief   Ring buffer.
+     */
+    ch_swc_event_t tb_buffer[CH_DBG_TRACE_BUFFER_SIZE];
 } ch_trace_buffer_t;
 #endif /* CH_DBG_ENABLE_TRACE */
 
@@ -164,15 +164,16 @@ typedef struct {
  * @api
  */
 #if !defined(chDbgCheck)
-#define chDbgCheck(c) do {                                                  \
-  /*lint -save -e506 -e774 [2.1, 14.3] Can be a constant by design.*/       \
-  if (CH_DBG_ENABLE_CHECKS != FALSE) {                                      \
-    if (!(c)) {                                                             \
-  /*lint -restore*/                                                         \
-      chSysHalt(__func__);                                                  \
-    }                                                                       \
-  }                                                                         \
-} while (false)
+#define chDbgCheck(c)                                                                              \
+    do {                                                                                           \
+        /*lint -save -e506 -e774 [2.1, 14.3] Can be a constant by design.*/                        \
+        if (CH_DBG_ENABLE_CHECKS != FALSE) {                                                       \
+            if (!(c)) {                                                                            \
+                /*lint -restore*/                                                                  \
+                chSysHalt(__func__);                                                               \
+            }                                                                                      \
+        }                                                                                          \
+    } while (false)
 #endif /* !defined(chDbgCheck) */
 
 /**
@@ -190,15 +191,16 @@ typedef struct {
  * @api
  */
 #if !defined(chDbgAssert)
-#define chDbgAssert(c, r) do {                                              \
-  /*lint -save -e506 -e774 [2.1, 14.3] Can be a constant by design.*/       \
-  if (CH_DBG_ENABLE_ASSERTS != FALSE) {                                     \
-    if (!(c)) {                                                             \
-  /*lint -restore*/                                                         \
-      chSysHalt(__func__);                                                  \
-    }                                                                       \
-  }                                                                         \
-} while (false)
+#define chDbgAssert(c, r)                                                                          \
+    do {                                                                                           \
+        /*lint -save -e506 -e774 [2.1, 14.3] Can be a constant by design.*/                        \
+        if (CH_DBG_ENABLE_ASSERTS != FALSE) {                                                      \
+            if (!(c)) {                                                                            \
+                /*lint -restore*/                                                                  \
+                chSysHalt(__func__);                                                               \
+            }                                                                                      \
+        }                                                                                          \
+    } while (false)
 #endif /* !defined(chDbgAssert) */
 /** @} */
 
@@ -210,21 +212,21 @@ typedef struct {
 extern "C" {
 #endif
 #if CH_DBG_SYSTEM_STATE_CHECK == TRUE
-  void _dbg_check_disable(void);
-  void _dbg_check_suspend(void);
-  void _dbg_check_enable(void);
-  void _dbg_check_lock(void);
-  void _dbg_check_unlock(void);
-  void _dbg_check_lock_from_isr(void);
-  void _dbg_check_unlock_from_isr(void);
-  void _dbg_check_enter_isr(void);
-  void _dbg_check_leave_isr(void);
-  void chDbgCheckClassI(void);
-  void chDbgCheckClassS(void);
+void _dbg_check_disable(void);
+void _dbg_check_suspend(void);
+void _dbg_check_enable(void);
+void _dbg_check_lock(void);
+void _dbg_check_unlock(void);
+void _dbg_check_lock_from_isr(void);
+void _dbg_check_unlock_from_isr(void);
+void _dbg_check_enter_isr(void);
+void _dbg_check_leave_isr(void);
+void chDbgCheckClassI(void);
+void chDbgCheckClassS(void);
 #endif
 #if (CH_DBG_ENABLE_TRACE == TRUE) || defined(__DOXYGEN__)
-  void _dbg_trace_init(void);
-  void _dbg_trace(thread_t *otp);
+void _dbg_trace_init(void);
+void _dbg_trace(thread_t *otp);
 #endif
 #ifdef __cplusplus
 }

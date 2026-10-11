@@ -17,7 +17,8 @@
 //------------------------------------------------------------------------------
 // Function prototypes
 
-float FusionCompassCalculateHeading(const FusionVector3 accelerometer, const FusionVector3 magnetometer);
+float FusionCompassCalculateHeading(const FusionVector3 accelerometer,
+                                    const FusionVector3 magnetometer);
 
 #endif
 

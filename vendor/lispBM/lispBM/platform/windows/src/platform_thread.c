@@ -19,90 +19,86 @@
 #include <stdlib.h>
 
 typedef struct {
-  lbm_thread_func_t user_func;
-  void *user_arg;
+    lbm_thread_func_t user_func;
+    void *user_arg;
 } thread_start_data_t;
 
 static DWORD WINAPI thread_wrapper(LPVOID arg) {
-  thread_start_data_t *data = (thread_start_data_t *)arg;
-  lbm_thread_func_t func = data->user_func;
-  void *user_arg = data->user_arg;
-  free(data);
+    thread_start_data_t *data = (thread_start_data_t *)arg;
+    lbm_thread_func_t func = data->user_func;
+    void *user_arg = data->user_arg;
+    free(data);
 
-  func(user_arg);
-  return 0;
+    func(user_arg);
+    return 0;
 }
 
-bool lbm_thread_create(lbm_thread_t *t,
-                       const char *name,
-                       lbm_thread_func_t func,
-                       void *arg,
-                       lbm_thread_prio_t prio,
-                       uint32_t stack_size) {
-  (void)name;
+bool lbm_thread_create(lbm_thread_t *t, const char *name, lbm_thread_func_t func, void *arg,
+                       lbm_thread_prio_t prio, uint32_t stack_size) {
+    (void)name;
 
-  platform_thread_t *thread = (platform_thread_t *)t;
-  if (!thread) return false;
+    platform_thread_t *thread = (platform_thread_t *)t;
+    if (!thread)
+        return false;
 
-  thread_start_data_t *start_data = (thread_start_data_t *)malloc(sizeof(thread_start_data_t));
-  if (!start_data) return false;
+    thread_start_data_t *start_data = (thread_start_data_t *)malloc(sizeof(thread_start_data_t));
+    if (!start_data)
+        return false;
 
-  start_data->user_func = func;
-  start_data->user_arg = arg;
+    start_data->user_func = func;
+    start_data->user_arg = arg;
 
-  HANDLE h = CreateThread(NULL,
-                          (SIZE_T)stack_size,
-                          thread_wrapper,
-                          start_data,
-                          CREATE_SUSPENDED,
-                          NULL);
-  if (!h) {
-    free(start_data);
-    return false;
-  }
+    HANDLE h =
+        CreateThread(NULL, (SIZE_T)stack_size, thread_wrapper, start_data, CREATE_SUSPENDED, NULL);
+    if (!h) {
+        free(start_data);
+        return false;
+    }
 
-  int win_prio;
-  switch (prio) {
-  case LBM_THREAD_PRIO_LOW:
-    win_prio = THREAD_PRIORITY_BELOW_NORMAL;
-    break;
-  case LBM_THREAD_PRIO_HIGH:
-    win_prio = THREAD_PRIORITY_ABOVE_NORMAL;
-    break;
-  case LBM_THREAD_PRIO_REALTIME:
-    win_prio = THREAD_PRIORITY_TIME_CRITICAL;
-    break;
-  case LBM_THREAD_PRIO_NORMAL:
-  default:
-    win_prio = THREAD_PRIORITY_NORMAL;
-    break;
-  }
-  SetThreadPriority(h, win_prio);
-  ResumeThread(h);
+    int win_prio;
+    switch (prio) {
+    case LBM_THREAD_PRIO_LOW:
+        win_prio = THREAD_PRIORITY_BELOW_NORMAL;
+        break;
+    case LBM_THREAD_PRIO_HIGH:
+        win_prio = THREAD_PRIORITY_ABOVE_NORMAL;
+        break;
+    case LBM_THREAD_PRIO_REALTIME:
+        win_prio = THREAD_PRIORITY_TIME_CRITICAL;
+        break;
+    case LBM_THREAD_PRIO_NORMAL:
+    default:
+        win_prio = THREAD_PRIORITY_NORMAL;
+        break;
+    }
+    SetThreadPriority(h, win_prio);
+    ResumeThread(h);
 
-  thread->handle = h;
-  return true;
+    thread->handle = h;
+    return true;
 }
 
 void lbm_thread_sleep_us(uint32_t microseconds) {
-  HANDLE timer = CreateWaitableTimer(NULL, TRUE, NULL);
-  if (!timer) return;
-  LARGE_INTEGER delay;
-  delay.QuadPart = -(LONGLONG)microseconds * 10; // 100ns units, negative = relative
-  if (SetWaitableTimer(timer, &delay, 0, NULL, NULL, FALSE)) {
-    WaitForSingleObject(timer, INFINITE);
-  }
-  CloseHandle(timer);
+    HANDLE timer = CreateWaitableTimer(NULL, TRUE, NULL);
+    if (!timer)
+        return;
+    LARGE_INTEGER delay;
+    delay.QuadPart = -(LONGLONG)microseconds * 10; // 100ns units, negative = relative
+    if (SetWaitableTimer(timer, &delay, 0, NULL, NULL, FALSE)) {
+        WaitForSingleObject(timer, INFINITE);
+    }
+    CloseHandle(timer);
 }
 
 void lbm_thread_yield(void) {
-  SwitchToThread();
+    SwitchToThread();
 }
 
 void lbm_thread_destroy(lbm_thread_t *t) {
-  if (!t) return;
-  platform_thread_t *thread = (platform_thread_t *)t;
-  WaitForSingleObject(thread->handle, INFINITE);
-  CloseHandle(thread->handle);
-  thread->handle = NULL;
+    if (!t)
+        return;
+    platform_thread_t *thread = (platform_thread_t *)t;
+    WaitForSingleObject(thread->handle, INFINITE);
+    CloseHandle(thread->handle);
+    thread->handle = NULL;
 }

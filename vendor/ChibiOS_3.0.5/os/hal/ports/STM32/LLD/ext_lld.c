@@ -64,8 +64,8 @@ EXTDriver EXTD1;
  */
 void ext_lld_init(void) {
 
-  /* Driver initialization.*/
-  extObjectInit(&EXTD1);
+    /* Driver initialization.*/
+    extObjectInit(&EXTD1);
 }
 
 /**
@@ -76,17 +76,17 @@ void ext_lld_init(void) {
  * @notapi
  */
 void ext_lld_start(EXTDriver *extp) {
-  unsigned i;
+    unsigned i;
 
-  if (extp->state == EXT_STOP)
-    ext_lld_exti_irq_enable();
+    if (extp->state == EXT_STOP)
+        ext_lld_exti_irq_enable();
 
-  /* Configuration of automatic channels.*/
-  for (i = 0; i < EXT_MAX_CHANNELS; i++)
-    if (extp->config->channels[i].mode & EXT_CH_MODE_AUTOSTART)
-      ext_lld_channel_enable(extp, i);
-    else
-      ext_lld_channel_disable(extp, i);
+    /* Configuration of automatic channels.*/
+    for (i = 0; i < EXT_MAX_CHANNELS; i++)
+        if (extp->config->channels[i].mode & EXT_CH_MODE_AUTOSTART)
+            ext_lld_channel_enable(extp, i);
+        else
+            ext_lld_channel_disable(extp, i);
 }
 
 /**
@@ -98,14 +98,14 @@ void ext_lld_start(EXTDriver *extp) {
  */
 void ext_lld_stop(EXTDriver *extp) {
 
-  if (extp->state == EXT_ACTIVE)
-    ext_lld_exti_irq_disable();
+    if (extp->state == EXT_ACTIVE)
+        ext_lld_exti_irq_disable();
 
-  EXTI->EMR = 0;
-  EXTI->IMR = 0;
-  EXTI->PR  = 0xFFFFFFFF;
+    EXTI->EMR = 0;
+    EXTI->IMR = 0;
+    EXTI->PR = 0xFFFFFFFF;
 #if STM32_EXTI_NUM_CHANNELS > 32
-  EXTI->PR2 = 0xFFFFFFFF;
+    EXTI->PR2 = 0xFFFFFFFF;
 #endif
 }
 
@@ -119,66 +119,63 @@ void ext_lld_stop(EXTDriver *extp) {
  */
 void ext_lld_channel_enable(EXTDriver *extp, expchannel_t channel) {
 
-  /* Setting the associated GPIO for external channels.*/
-  if (channel < 16) {
-    uint32_t n = channel >> 2;
-    uint32_t mask = ~(0xF << ((channel & 3) * 4));
-    uint32_t port = ((extp->config->channels[channel].mode &
-                      EXT_MODE_GPIO_MASK) >>
-                     EXT_MODE_GPIO_OFF) << ((channel & 3) * 4);
+    /* Setting the associated GPIO for external channels.*/
+    if (channel < 16) {
+        uint32_t n = channel >> 2;
+        uint32_t mask = ~(0xF << ((channel & 3) * 4));
+        uint32_t port =
+            ((extp->config->channels[channel].mode & EXT_MODE_GPIO_MASK) >> EXT_MODE_GPIO_OFF)
+            << ((channel & 3) * 4);
 
 #if defined(STM32F1XX)
-    AFIO->EXTICR[n] = (AFIO->EXTICR[n] & mask) | port;
-#else /* !defined(STM32F1XX) */
-    SYSCFG->EXTICR[n] = (SYSCFG->EXTICR[n] & mask) | port;
+        AFIO->EXTICR[n] = (AFIO->EXTICR[n] & mask) | port;
+#else  /* !defined(STM32F1XX) */
+        SYSCFG->EXTICR[n] = (SYSCFG->EXTICR[n] & mask) | port;
 #endif /* !defined(STM32F1XX) */
-  }
+    }
 
 #if STM32_EXTI_NUM_CHANNELS > 32
-  if (channel < 32) {
+    if (channel < 32) {
 #endif
-    /* Programming edge registers.*/
-    if (extp->config->channels[channel].mode & EXT_CH_MODE_RISING_EDGE)
-      EXTI->RTSR |= (1 << channel);
-    else
-      EXTI->RTSR &= ~(1 << channel);
-    if (extp->config->channels[channel].mode & EXT_CH_MODE_FALLING_EDGE)
-      EXTI->FTSR |= (1 << channel);
-    else
-      EXTI->FTSR &= ~(1 << channel);
+        /* Programming edge registers.*/
+        if (extp->config->channels[channel].mode & EXT_CH_MODE_RISING_EDGE)
+            EXTI->RTSR |= (1 << channel);
+        else
+            EXTI->RTSR &= ~(1 << channel);
+        if (extp->config->channels[channel].mode & EXT_CH_MODE_FALLING_EDGE)
+            EXTI->FTSR |= (1 << channel);
+        else
+            EXTI->FTSR &= ~(1 << channel);
 
-    /* Programming interrupt and event registers.*/
-    if (extp->config->channels[channel].cb != NULL) {
-      EXTI->IMR |= (1 << channel);
-      EXTI->EMR &= ~(1 << channel);
-    }
-    else {
-      EXTI->EMR |= (1 << channel);
-      EXTI->IMR &= ~(1 << channel);
-    }
+        /* Programming interrupt and event registers.*/
+        if (extp->config->channels[channel].cb != NULL) {
+            EXTI->IMR |= (1 << channel);
+            EXTI->EMR &= ~(1 << channel);
+        } else {
+            EXTI->EMR |= (1 << channel);
+            EXTI->IMR &= ~(1 << channel);
+        }
 #if STM32_EXTI_NUM_CHANNELS > 32
-  }
-  else {
-    /* Programming edge registers.*/
-    if (extp->config->channels[channel].mode & EXT_CH_MODE_RISING_EDGE)
-      EXTI->RTSR2 |= (1 << (32 - channel));
-    else
-      EXTI->RTSR2 &= ~(1 << (32 - channel));
-    if (extp->config->channels[channel].mode & EXT_CH_MODE_FALLING_EDGE)
-      EXTI->FTSR2 |= (1 << (32 - channel));
-    else
-      EXTI->FTSR2 &= ~(1 << (32 - channel));
+    } else {
+        /* Programming edge registers.*/
+        if (extp->config->channels[channel].mode & EXT_CH_MODE_RISING_EDGE)
+            EXTI->RTSR2 |= (1 << (32 - channel));
+        else
+            EXTI->RTSR2 &= ~(1 << (32 - channel));
+        if (extp->config->channels[channel].mode & EXT_CH_MODE_FALLING_EDGE)
+            EXTI->FTSR2 |= (1 << (32 - channel));
+        else
+            EXTI->FTSR2 &= ~(1 << (32 - channel));
 
-    /* Programming interrupt and event registers.*/
-    if (extp->config->channels[channel].cb != NULL) {
-      EXTI->IMR2 |= (1 << (32 - channel));
-      EXTI->EMR2 &= ~(1 << (32 - channel));
+        /* Programming interrupt and event registers.*/
+        if (extp->config->channels[channel].cb != NULL) {
+            EXTI->IMR2 |= (1 << (32 - channel));
+            EXTI->EMR2 &= ~(1 << (32 - channel));
+        } else {
+            EXTI->EMR2 |= (1 << (32 - channel));
+            EXTI->IMR2 &= ~(1 << (32 - channel));
+        }
     }
-    else {
-      EXTI->EMR2 |= (1 << (32 - channel));
-      EXTI->IMR2 &= ~(1 << (32 - channel));
-    }
-  }
 #endif
 }
 
@@ -192,25 +189,24 @@ void ext_lld_channel_enable(EXTDriver *extp, expchannel_t channel) {
  */
 void ext_lld_channel_disable(EXTDriver *extp, expchannel_t channel) {
 
-  (void)extp;
+    (void)extp;
 
 #if STM32_EXTI_NUM_CHANNELS > 32
-  if (channel < 32) {
+    if (channel < 32) {
 #endif
-    EXTI->IMR   &= ~(1 << channel);
-    EXTI->EMR   &= ~(1 << channel);
-    EXTI->RTSR  &= ~(1 << channel);
-    EXTI->FTSR  &= ~(1 << channel);
-    EXTI->PR     =  (1 << channel);
+        EXTI->IMR &= ~(1 << channel);
+        EXTI->EMR &= ~(1 << channel);
+        EXTI->RTSR &= ~(1 << channel);
+        EXTI->FTSR &= ~(1 << channel);
+        EXTI->PR = (1 << channel);
 #if STM32_EXTI_NUM_CHANNELS > 32
-  }
-  else {
-    EXTI->IMR2  &= ~(1 << (32 - channel));
-    EXTI->EMR2  &= ~(1 << (32 - channel));
-    EXTI->RTSR2 &= ~(1 << (32 - channel));
-    EXTI->FTSR2 &= ~(1 << (32 - channel));
-    EXTI->PR2    =  (1 << (32 - channel));
-  }
+    } else {
+        EXTI->IMR2 &= ~(1 << (32 - channel));
+        EXTI->EMR2 &= ~(1 << (32 - channel));
+        EXTI->RTSR2 &= ~(1 << (32 - channel));
+        EXTI->FTSR2 &= ~(1 << (32 - channel));
+        EXTI->PR2 = (1 << (32 - channel));
+    }
 #endif
 }
 

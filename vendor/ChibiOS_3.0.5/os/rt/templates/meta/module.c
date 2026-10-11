@@ -61,7 +61,6 @@
  * @notapi
  */
 void _xxx_init(void) {
-
 }
 
 /**
@@ -72,7 +71,6 @@ void _xxx_init(void) {
  * @init
  */
 void chXxxObjectInit(xxx_t *xxxp) {
-
 }
 
 #endif /* CH_CFG_USE_XXX */

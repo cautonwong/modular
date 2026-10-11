@@ -77,20 +77,18 @@ static uint8_t *endmem;
  */
 void _core_init(void) {
 #if CH_CFG_MEMCORE_SIZE == 0
-  extern uint8_t __heap_base__[];
-  extern uint8_t __heap_end__[];
+    extern uint8_t __heap_base__[];
+    extern uint8_t __heap_end__[];
 
-  /*lint -save -e9033 [10.8] Required cast operations.*/
-  nextmem = (uint8_t *)MEM_ALIGN_NEXT(__heap_base__);
-  endmem = (uint8_t *)MEM_ALIGN_PREV(__heap_end__);
-  /*lint restore*/
+    /*lint -save -e9033 [10.8] Required cast operations.*/
+    nextmem = (uint8_t *)MEM_ALIGN_NEXT(__heap_base__);
+    endmem = (uint8_t *)MEM_ALIGN_PREV(__heap_end__);
+    /*lint restore*/
 #else
-  static stkalign_t buffer[MEM_ALIGN_NEXT(CH_CFG_MEMCORE_SIZE) /
-                           MEM_ALIGN_SIZE];
+    static stkalign_t buffer[MEM_ALIGN_NEXT(CH_CFG_MEMCORE_SIZE) / MEM_ALIGN_SIZE];
 
-  nextmem = (uint8_t *)&buffer[0];
-  endmem = (uint8_t *)&buffer[MEM_ALIGN_NEXT(CH_CFG_MEMCORE_SIZE) /
-                              MEM_ALIGN_SIZE];
+    nextmem = (uint8_t *)&buffer[0];
+    endmem = (uint8_t *)&buffer[MEM_ALIGN_NEXT(CH_CFG_MEMCORE_SIZE) / MEM_ALIGN_SIZE];
 #endif
 }
 
@@ -107,13 +105,13 @@ void _core_init(void) {
  * @api
  */
 void *chCoreAlloc(size_t size) {
-  void *p;
+    void *p;
 
-  chSysLock();
-  p = chCoreAllocI(size);
-  chSysUnlock();
+    chSysLock();
+    p = chCoreAllocI(size);
+    chSysUnlock();
 
-  return p;
+    return p;
 }
 
 /**
@@ -129,20 +127,20 @@ void *chCoreAlloc(size_t size) {
  * @iclass
  */
 void *chCoreAllocI(size_t size) {
-  void *p;
+    void *p;
 
-  chDbgCheckClassI();
+    chDbgCheckClassI();
 
-  size = MEM_ALIGN_NEXT(size);
-  /*lint -save -e9033 [10.8] The cast is safe.*/
-  if ((size_t)(endmem - nextmem) < size) {
-  /*lint -restore*/
-    return NULL;
-  }
-  p = nextmem;
-  nextmem += size;
+    size = MEM_ALIGN_NEXT(size);
+    /*lint -save -e9033 [10.8] The cast is safe.*/
+    if ((size_t)(endmem - nextmem) < size) {
+        /*lint -restore*/
+        return NULL;
+    }
+    p = nextmem;
+    nextmem += size;
 
-  return p;
+    return p;
 }
 
 /**
@@ -154,9 +152,9 @@ void *chCoreAllocI(size_t size) {
  */
 size_t chCoreGetStatusX(void) {
 
-  /*lint -save -e9033 [10.8] The cast is safe.*/
-  return (size_t)(endmem - nextmem);
-  /*lint -restore*/
+    /*lint -save -e9033 [10.8] The cast is safe.*/
+    return (size_t)(endmem - nextmem);
+    /*lint -restore*/
 }
 #endif /* CH_CFG_USE_MEMCORE == TRUE */
 

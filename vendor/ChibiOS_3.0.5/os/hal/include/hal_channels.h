@@ -39,25 +39,22 @@
 /**
  * @brief   @p BaseChannel specific methods.
  */
-#define _base_channel_methods                                               \
-  _base_sequential_stream_methods                                           \
-  /* Channel put method with timeout specification.*/                       \
-  msg_t (*putt)(void *instance, uint8_t b, systime_t time);                 \
-  /* Channel get method with timeout specification.*/                       \
-  msg_t (*gett)(void *instance, systime_t time);                            \
-  /* Channel write method with timeout specification.*/                     \
-  size_t (*writet)(void *instance, const uint8_t *bp,                       \
-                   size_t n, systime_t time);                               \
-  /* Channel read method with timeout specification.*/                      \
-  size_t (*readt)(void *instance, uint8_t *bp, size_t n, systime_t time);
+#define _base_channel_methods                                                                      \
+    _base_sequential_stream_methods /* Channel put method with timeout specification.*/            \
+        msg_t (*putt)(void *instance, uint8_t b, systime_t time);                                  \
+    /* Channel get method with timeout specification.*/                                            \
+    msg_t (*gett)(void *instance, systime_t time);                                                 \
+    /* Channel write method with timeout specification.*/                                          \
+    size_t (*writet)(void *instance, const uint8_t *bp, size_t n, systime_t time);                 \
+    /* Channel read method with timeout specification.*/                                           \
+    size_t (*readt)(void *instance, uint8_t *bp, size_t n, systime_t time);
 
 /**
  * @brief   @p BaseChannel specific data.
  * @note    It is empty because @p BaseChannel is only an interface without
  *          implementation.
  */
-#define _base_channel_data                                                  \
-  _base_sequential_stream_data
+#define _base_channel_data _base_sequential_stream_data
 
 /**
  * @extends BaseSequentialStreamVMT
@@ -65,7 +62,7 @@
  * @brief   @p BaseChannel virtual methods table.
  */
 struct BaseChannelVMT {
-  _base_channel_methods
+    _base_channel_methods
 };
 
 /**
@@ -76,9 +73,9 @@ struct BaseChannelVMT {
  *          introduces generic I/O primitives with timeout specification.
  */
 typedef struct {
-  /** @brief Virtual Methods Table.*/
-  const struct BaseChannelVMT *vmt;
-  _base_channel_data
+    /** @brief Virtual Methods Table.*/
+    const struct BaseChannelVMT *vmt;
+    _base_channel_data
 } BaseChannel;
 
 /**
@@ -200,32 +197,30 @@ typedef struct {
  * @{
  */
 /** @brief No pending conditions.*/
-#define CHN_NO_ERROR            (eventflags_t)0
+#define CHN_NO_ERROR (eventflags_t)0
 /** @brief Connection happened.*/
-#define CHN_CONNECTED           (eventflags_t)1
+#define CHN_CONNECTED (eventflags_t)1
 /** @brief Disconnection happened.*/
-#define CHN_DISCONNECTED        (eventflags_t)2
+#define CHN_DISCONNECTED (eventflags_t)2
 /** @brief Data available in the input queue.*/
-#define CHN_INPUT_AVAILABLE     (eventflags_t)4
+#define CHN_INPUT_AVAILABLE (eventflags_t)4
 /** @brief Output queue empty.*/
-#define CHN_OUTPUT_EMPTY        (eventflags_t)8
+#define CHN_OUTPUT_EMPTY (eventflags_t)8
 /** @brief Transmission end.*/
-#define CHN_TRANSMISSION_END    (eventflags_t)16
+#define CHN_TRANSMISSION_END (eventflags_t)16
 /** @} */
 
 /**
  * @brief   @p BaseAsynchronousChannel specific methods.
  */
-#define _base_asynchronous_channel_methods                                  \
-  _base_channel_methods                                                     \
+#define _base_asynchronous_channel_methods _base_channel_methods
 
 /**
  * @brief   @p BaseAsynchronousChannel specific data.
  */
-#define _base_asynchronous_channel_data                                     \
-  _base_channel_data                                                        \
-  /* I/O condition event source.*/                                          \
-  event_source_t        event;
+#define _base_asynchronous_channel_data                                                            \
+    _base_channel_data /* I/O condition event source.*/                                            \
+        event_source_t event;
 
 /**
  * @extends BaseChannelVMT
@@ -233,7 +228,7 @@ typedef struct {
  * @brief   @p BaseAsynchronousChannel virtual methods table.
  */
 struct BaseAsynchronousChannelVMT {
-  _base_asynchronous_channel_methods
+    _base_asynchronous_channel_methods
 };
 
 /**
@@ -244,9 +239,9 @@ struct BaseAsynchronousChannelVMT {
  *          for asynchronous I/O for use in an event-driven environment.
  */
 typedef struct {
-  /** @brief Virtual Methods Table.*/
-  const struct BaseAsynchronousChannelVMT *vmt;
-  _base_asynchronous_channel_data
+    /** @brief Virtual Methods Table.*/
+    const struct BaseAsynchronousChannelVMT *vmt;
+    _base_asynchronous_channel_data
 } BaseAsynchronousChannel;
 
 /**
@@ -277,9 +272,8 @@ typedef struct {
  *
  * @iclass
  */
-#define chnAddFlagsI(ip, flags) {                                           \
-  osalEventBroadcastFlagsI(&(ip)->event, flags);                            \
-}
+#define chnAddFlagsI(ip, flags)                                                                    \
+    { osalEventBroadcastFlagsI(&(ip)->event, flags); }
 /** @} */
 
 #endif /* _HAL_CHANNELS_H_ */

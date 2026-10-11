@@ -4,6 +4,7 @@
 #include "edge/clock.h"
 #include "edge/event.h"
 #include "edge/module.h"
+#include "edge/product.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -78,6 +79,11 @@ typedef struct edge_sys_config {
 edge_status_t edge_sys_configure(edge_sys_t *sys, const edge_sys_config_t *config);
 
 edge_status_t edge_sys_init(edge_sys_t *sys, edge_module_t **apps, size_t count);
+/* Product Composition Root initializer: validates dependencies, runs product init rollback, and
+ * mounts modules (ADR-004) */
+edge_status_t edge_sys_init_with_product(edge_sys_t *sys, const edge_product_t *product,
+                                         edge_module_t **app_storage, size_t app_storage_capacity);
+edge_status_t edge_sys_deinit_with_product(edge_sys_t *sys, const edge_product_t *product);
 edge_status_t edge_sys_bind_event_queue(edge_sys_t *sys, edge_event_queue_t *queue,
                                         edge_sys_subscription_t *subscriptions, size_t capacity);
 /* Runner-owned deferred queue for `edge_sys_publish()` (D70). */

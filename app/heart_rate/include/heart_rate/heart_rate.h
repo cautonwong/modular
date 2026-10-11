@@ -9,6 +9,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef HEART_RATE_MODULE_ID
+#define HEART_RATE_MODULE_ID 0x1900u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

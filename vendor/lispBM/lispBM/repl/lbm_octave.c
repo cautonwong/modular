@@ -19,79 +19,76 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include <lispbm.h> 
+#include <lispbm.h>
 
 #define MAX_OCTAVE_INSTANCES 5
 
 FILE *octave_instances[MAX_OCTAVE_INSTANCES];
 
 lbm_value ext_octave_open(lbm_value *args, lbm_uint argn) {
-  (void) args;
-  (void) argn;
+    (void)args;
+    (void)argn;
 
-  lbm_value res = ENC_SYM_NIL;
-  int ix = -1;
-  
-  for (int i = 0; i < MAX_OCTAVE_INSTANCES; i ++) {
-    if (octave_instances[i] == NULL) {
-      ix = i;
-      break;
-    }
-  }
+    lbm_value res = ENC_SYM_NIL;
+    int ix = -1;
 
-  if (ix >= 0) {
-    FILE *o = popen("octave-cli --silent --no-init-file", "w");
-    if (o) {
-      octave_instances[ix] = o;
-      res = lbm_enc_i(ix);
+    for (int i = 0; i < MAX_OCTAVE_INSTANCES; i++) {
+        if (octave_instances[i] == NULL) {
+            ix = i;
+            break;
+        }
     }
-  }
-  return res;
+
+    if (ix >= 0) {
+        FILE *o = popen("octave-cli --silent --no-init-file", "w");
+        if (o) {
+            octave_instances[ix] = o;
+            res = lbm_enc_i(ix);
+        }
+    }
+    return res;
 }
 
 lbm_value ext_octave_close(lbm_value *args, lbm_uint argn) {
-  lbm_value res = ENC_SYM_TERROR;
-  if (argn == 1 &&
-      lbm_is_number(args[0])) {
-    int32_t ix = lbm_dec_as_i32(args[0]);
-    if (ix >= 0 && ix < MAX_OCTAVE_INSTANCES && octave_instances[ix]) {
-      fclose(octave_instances[ix]);
-      octave_instances[ix] = NULL;
-      res = ENC_SYM_TRUE;
-    } else {
-      res = ENC_SYM_NIL;
+    lbm_value res = ENC_SYM_TERROR;
+    if (argn == 1 && lbm_is_number(args[0])) {
+        int32_t ix = lbm_dec_as_i32(args[0]);
+        if (ix >= 0 && ix < MAX_OCTAVE_INSTANCES && octave_instances[ix]) {
+            fclose(octave_instances[ix]);
+            octave_instances[ix] = NULL;
+            res = ENC_SYM_TRUE;
+        } else {
+            res = ENC_SYM_NIL;
+        }
     }
-  }
-  return res;
+    return res;
 }
 
 lbm_value ext_octave_cmd(lbm_value *args, lbm_uint argn) {
-  lbm_value res = ENC_SYM_TERROR;
-  if (argn == 2 &&
-      lbm_is_number(args[0]) &&
-      lbm_is_array_r(args[1])) {
+    lbm_value res = ENC_SYM_TERROR;
+    if (argn == 2 && lbm_is_number(args[0]) && lbm_is_array_r(args[1])) {
 
-    int32_t ix = lbm_dec_as_i32(args[0]);
-    if (ix >= 0 && ix < MAX_OCTAVE_INSTANCES && octave_instances[ix]) {
-      char *cmd = lbm_dec_str(args[1]);
-      fprintf(octave_instances[ix], "%s\n", cmd);
-      fflush(octave_instances[ix]);
-      res = ENC_SYM_TRUE;
-    } else {
-      res = ENC_SYM_NIL;
+        int32_t ix = lbm_dec_as_i32(args[0]);
+        if (ix >= 0 && ix < MAX_OCTAVE_INSTANCES && octave_instances[ix]) {
+            char *cmd = lbm_dec_str(args[1]);
+            fprintf(octave_instances[ix], "%s\n", cmd);
+            fflush(octave_instances[ix]);
+            res = ENC_SYM_TRUE;
+        } else {
+            res = ENC_SYM_NIL;
+        }
     }
-  }
-  return res;
+    return res;
 }
 
 bool lbm_octave_init(void) {
-  for (int i = 0; i < MAX_OCTAVE_INSTANCES; i ++) {
-    octave_instances[i] = NULL;
-  }
+    for (int i = 0; i < MAX_OCTAVE_INSTANCES; i++) {
+        octave_instances[i] = NULL;
+    }
 
-  lbm_add_extension("octave-open", ext_octave_open);
-  lbm_add_extension("octave-close", ext_octave_close);
-  lbm_add_extension("octave-cmd", ext_octave_cmd);
-  
-  return lbm_get_num_extensions() < lbm_get_max_extensions();
+    lbm_add_extension("octave-open", ext_octave_open);
+    lbm_add_extension("octave-close", ext_octave_close);
+    lbm_add_extension("octave-cmd", ext_octave_cmd);
+
+    return lbm_get_num_extensions() < lbm_get_max_extensions();
 }

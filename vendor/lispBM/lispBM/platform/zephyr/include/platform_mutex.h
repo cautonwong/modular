@@ -18,8 +18,8 @@
 #ifndef PLATFORM_MUTEX_H_
 #define PLATFORM_MUTEX_H_
 
-#include <zephyr.h>
 #include <stdbool.h>
+#include <zephyr.h>
 
 typedef struct k_mutex lbm_mutex_t;
 

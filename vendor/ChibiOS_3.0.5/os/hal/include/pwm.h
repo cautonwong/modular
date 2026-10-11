@@ -38,22 +38,22 @@
 /**
  * @brief   Standard output modes mask.
  */
-#define PWM_OUTPUT_MASK                         0x0FU
+#define PWM_OUTPUT_MASK 0x0FU
 
 /**
  * @brief   Output not driven, callback only.
  */
-#define PWM_OUTPUT_DISABLED                     0x00U
+#define PWM_OUTPUT_DISABLED 0x00U
 
 /**
  * @brief   Positive PWM logic, active is logic level one.
  */
-#define PWM_OUTPUT_ACTIVE_HIGH                  0x01U
+#define PWM_OUTPUT_ACTIVE_HIGH 0x01U
 
 /**
  * @brief   Inverse PWM logic, active is logic level zero.
  */
-#define PWM_OUTPUT_ACTIVE_LOW                   0x02U
+#define PWM_OUTPUT_ACTIVE_LOW 0x02U
 /** @} */
 
 /*===========================================================================*/
@@ -72,9 +72,9 @@
  * @brief   Driver state machine possible states.
  */
 typedef enum {
-  PWM_UNINIT = 0,                   /**< Not initialized.                   */
-  PWM_STOP = 1,                     /**< Stopped.                           */
-  PWM_READY = 2                     /**< Ready.                             */
+    PWM_UNINIT = 0, /**< Not initialized.                   */
+    PWM_STOP = 1,   /**< Stopped.                           */
+    PWM_READY = 2   /**< Ready.                             */
 } pwmstate_t;
 
 /**
@@ -113,9 +113,8 @@ typedef void (*pwmcallback_t)(PWMDriver *pwmp);
  *
  * @api
  */
-#define PWM_FRACTION_TO_WIDTH(pwmp, denominator, numerator)                 \
-  ((pwmcnt_t)((((pwmcnt_t)(pwmp)->period) *                                 \
-               (pwmcnt_t)(numerator)) / (pwmcnt_t)(denominator)))
+#define PWM_FRACTION_TO_WIDTH(pwmp, denominator, numerator)                                        \
+    ((pwmcnt_t)((((pwmcnt_t)(pwmp)->period) * (pwmcnt_t)(numerator)) / (pwmcnt_t)(denominator)))
 
 /**
  * @brief   Converts from degrees to pulse width.
@@ -130,8 +129,7 @@ typedef void (*pwmcallback_t)(PWMDriver *pwmp);
  *
  * @api
  */
-#define PWM_DEGREES_TO_WIDTH(pwmp, degrees)                                 \
-  PWM_FRACTION_TO_WIDTH(pwmp, 36000, degrees)
+#define PWM_DEGREES_TO_WIDTH(pwmp, degrees) PWM_FRACTION_TO_WIDTH(pwmp, 36000, degrees)
 
 /**
  * @brief   Converts from percentage to pulse width.
@@ -146,8 +144,7 @@ typedef void (*pwmcallback_t)(PWMDriver *pwmp);
  *
  * @api
  */
-#define PWM_PERCENTAGE_TO_WIDTH(pwmp, percentage)                           \
-  PWM_FRACTION_TO_WIDTH(pwmp, 10000, percentage)
+#define PWM_PERCENTAGE_TO_WIDTH(pwmp, percentage) PWM_FRACTION_TO_WIDTH(pwmp, 10000, percentage)
 /** @} */
 
 /**
@@ -169,10 +166,11 @@ typedef void (*pwmcallback_t)(PWMDriver *pwmp);
  *
  * @iclass
  */
-#define pwmChangePeriodI(pwmp, value) {                                     \
-  (pwmp)->period = (value);                                                 \
-  pwm_lld_change_period(pwmp, value);                                       \
-}
+#define pwmChangePeriodI(pwmp, value)                                                              \
+    {                                                                                              \
+        (pwmp)->period = (value);                                                                  \
+        pwm_lld_change_period(pwmp, value);                                                        \
+    }
 
 /**
  * @brief   Enables a PWM channel.
@@ -188,10 +186,11 @@ typedef void (*pwmcallback_t)(PWMDriver *pwmp);
  *
  * @iclass
  */
-#define pwmEnableChannelI(pwmp, channel, width) do {                        \
-  (pwmp)->enabled |= ((pwmchnmsk_t)1U << (pwmchnmsk_t)(channel));           \
-  pwm_lld_enable_channel(pwmp, channel, width);                             \
-} while (false)
+#define pwmEnableChannelI(pwmp, channel, width)                                                    \
+    do {                                                                                           \
+        (pwmp)->enabled |= ((pwmchnmsk_t)1U << (pwmchnmsk_t)(channel));                            \
+        pwm_lld_enable_channel(pwmp, channel, width);                                              \
+    } while (false)
 
 /**
  * @brief   Disables a PWM channel.
@@ -207,10 +206,11 @@ typedef void (*pwmcallback_t)(PWMDriver *pwmp);
  *
  * @iclass
  */
-#define pwmDisableChannelI(pwmp, channel) do {                              \
-  (pwmp)->enabled &= ~((pwmchnmsk_t)1U << (pwmchnmsk_t)(channel));          \
-  pwm_lld_disable_channel(pwmp, channel);                                   \
-} while (false)
+#define pwmDisableChannelI(pwmp, channel)                                                          \
+    do {                                                                                           \
+        (pwmp)->enabled &= ~((pwmchnmsk_t)1U << (pwmchnmsk_t)(channel));                           \
+        pwm_lld_disable_channel(pwmp, channel);                                                    \
+    } while (false)
 
 /**
  * @brief   Returns a PWM channel status.
@@ -221,8 +221,8 @@ typedef void (*pwmcallback_t)(PWMDriver *pwmp);
  *
  * @iclass
  */
-#define pwmIsChannelEnabledI(pwmp, channel)                                 \
-  (((pwmp)->enabled & ((pwmchnmsk_t)1U << (pwmchnmsk_t)(channel))) != 0U)
+#define pwmIsChannelEnabledI(pwmp, channel)                                                        \
+    (((pwmp)->enabled & ((pwmchnmsk_t)1U << (pwmchnmsk_t)(channel))) != 0U)
 
 /**
  * @brief   Enables the periodic activation edge notification.
@@ -233,8 +233,7 @@ typedef void (*pwmcallback_t)(PWMDriver *pwmp);
  *
  * @iclass
  */
-#define pwmEnablePeriodicNotificationI(pwmp)                                \
-  pwm_lld_enable_periodic_notification(pwmp)
+#define pwmEnablePeriodicNotificationI(pwmp) pwm_lld_enable_periodic_notification(pwmp)
 
 /**
  * @brief   Disables the periodic activation edge notification.
@@ -245,8 +244,7 @@ typedef void (*pwmcallback_t)(PWMDriver *pwmp);
  *
  * @iclass
  */
-#define pwmDisablePeriodicNotificationI(pwmp)                               \
-  pwm_lld_disable_periodic_notification(pwmp)
+#define pwmDisablePeriodicNotificationI(pwmp) pwm_lld_disable_periodic_notification(pwmp)
 
 /**
  * @brief   Enables a channel de-activation edge notification.
@@ -259,8 +257,8 @@ typedef void (*pwmcallback_t)(PWMDriver *pwmp);
  *
  * @iclass
  */
-#define pwmEnableChannelNotificationI(pwmp, channel)                        \
-  pwm_lld_enable_channel_notification(pwmp, channel)
+#define pwmEnableChannelNotificationI(pwmp, channel)                                               \
+    pwm_lld_enable_channel_notification(pwmp, channel)
 
 /**
  * @brief   Disables a channel de-activation edge notification.
@@ -273,8 +271,8 @@ typedef void (*pwmcallback_t)(PWMDriver *pwmp);
  *
  * @iclass
  */
-#define pwmDisableChannelNotificationI(pwmp, channel)                       \
-  pwm_lld_disable_channel_notification(pwmp, channel)
+#define pwmDisableChannelNotificationI(pwmp, channel)                                              \
+    pwm_lld_disable_channel_notification(pwmp, channel)
 /** @} */
 
 /*===========================================================================*/
@@ -284,19 +282,17 @@ typedef void (*pwmcallback_t)(PWMDriver *pwmp);
 #ifdef __cplusplus
 extern "C" {
 #endif
-  void pwmInit(void);
-  void pwmObjectInit(PWMDriver *pwmp);
-  void pwmStart(PWMDriver *pwmp, const PWMConfig *config);
-  void pwmStop(PWMDriver *pwmp);
-  void pwmChangePeriod(PWMDriver *pwmp, pwmcnt_t period);
-  void pwmEnableChannel(PWMDriver *pwmp,
-                        pwmchannel_t channel,
-                        pwmcnt_t width);
-  void pwmDisableChannel(PWMDriver *pwmp, pwmchannel_t channel);
-  void pwmEnablePeriodicNotification(PWMDriver *pwmp);
-  void pwmDisablePeriodicNotification(PWMDriver *pwmp);
-  void pwmEnableChannelNotification(PWMDriver *pwmp, pwmchannel_t channel);
-  void pwmDisableChannelNotification(PWMDriver *pwmp, pwmchannel_t channel);
+void pwmInit(void);
+void pwmObjectInit(PWMDriver *pwmp);
+void pwmStart(PWMDriver *pwmp, const PWMConfig *config);
+void pwmStop(PWMDriver *pwmp);
+void pwmChangePeriod(PWMDriver *pwmp, pwmcnt_t period);
+void pwmEnableChannel(PWMDriver *pwmp, pwmchannel_t channel, pwmcnt_t width);
+void pwmDisableChannel(PWMDriver *pwmp, pwmchannel_t channel);
+void pwmEnablePeriodicNotification(PWMDriver *pwmp);
+void pwmDisablePeriodicNotification(PWMDriver *pwmp);
+void pwmEnableChannelNotification(PWMDriver *pwmp, pwmchannel_t channel);
+void pwmDisableChannelNotification(PWMDriver *pwmp, pwmchannel_t channel);
 #ifdef __cplusplus
 }
 #endif

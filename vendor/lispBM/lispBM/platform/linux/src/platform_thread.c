@@ -18,11 +18,11 @@
 #define _GNU_SOURCE
 #define _POSIX_C_SOURCE 200809L
 #include "platform_thread.h"
-#include <stdlib.h>
-#include <time.h>
-#include <sched.h>
 #include <errno.h>
+#include <sched.h>
+#include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #ifdef __APPLE__
 typedef time_t __time_t;
@@ -30,79 +30,79 @@ typedef long __syscall_slong_t;
 #endif
 
 typedef struct {
-  lbm_thread_func_t user_func;
-  void *user_arg;
+    lbm_thread_func_t user_func;
+    void *user_arg;
 } thread_start_data_t;
 
 static void *thread_wrapper(void *arg) {
-  thread_start_data_t *data = (thread_start_data_t *)arg;
-  lbm_thread_func_t func = data->user_func;
-  void *user_arg = data->user_arg;
-  free(data);
+    thread_start_data_t *data = (thread_start_data_t *)arg;
+    lbm_thread_func_t func = data->user_func;
+    void *user_arg = data->user_arg;
+    free(data);
 
-  func(user_arg);
-  return NULL;
+    func(user_arg);
+    return NULL;
 }
 
-bool lbm_thread_create(lbm_thread_t *t,
-                       const char *name,
-                       lbm_thread_func_t func,
-                       void *arg,
-                       lbm_thread_prio_t prio,
-                       uint32_t stack_size) {
+bool lbm_thread_create(lbm_thread_t *t, const char *name, lbm_thread_func_t func, void *arg,
+                       lbm_thread_prio_t prio, uint32_t stack_size) {
 
-  (void)name;
-  platform_thread_t *thread = (platform_thread_t *)t;
-  if (!thread) return false;
+    (void)name;
+    platform_thread_t *thread = (platform_thread_t *)t;
+    if (!thread)
+        return false;
 
-  thread_start_data_t *start_data = (thread_start_data_t *)malloc(sizeof(thread_start_data_t));
-  if (!start_data) {
-    return false;
-  }
+    thread_start_data_t *start_data = (thread_start_data_t *)malloc(sizeof(thread_start_data_t));
+    if (!start_data) {
+        return false;
+    }
 
-  start_data->user_func = func;
-  start_data->user_arg = arg;
+    start_data->user_func = func;
+    start_data->user_arg = arg;
 
-  pthread_attr_t attr;
-  pthread_attr_init(&attr);
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
 
-  if (stack_size) pthread_attr_setstacksize(&attr, stack_size);
+    if (stack_size)
+        pthread_attr_setstacksize(&attr, stack_size);
 
-  if (prio == LBM_THREAD_PRIO_REALTIME) {
-    struct sched_param param;
-    param.sched_priority = sched_get_priority_max(SCHED_FIFO);
-    pthread_attr_setschedpolicy(&attr, SCHED_FIFO);
-    pthread_attr_setschedparam(&attr, &param);
-  }
+    if (prio == LBM_THREAD_PRIO_REALTIME) {
+        struct sched_param param;
+        param.sched_priority = sched_get_priority_max(SCHED_FIFO);
+        pthread_attr_setschedpolicy(&attr, SCHED_FIFO);
+        pthread_attr_setschedparam(&attr, &param);
+    }
 
-  int result = pthread_create(&thread->handle, &attr, thread_wrapper, start_data);
-  pthread_attr_destroy(&attr);
+    int result = pthread_create(&thread->handle, &attr, thread_wrapper, start_data);
+    pthread_attr_destroy(&attr);
 
-  if (result != 0) {
-    free(start_data);
-    return false;
-  }
-  // np apparently means "non-portable"
-  // also requires the __GNU_SOURCE define.
+    if (result != 0) {
+        free(start_data);
+        return false;
+    }
+    // np apparently means "non-portable"
+    // also requires the __GNU_SOURCE define.
 #ifndef __APPLE__
-  if (name) pthread_setname_np(thread->handle, name);
+    if (name)
+        pthread_setname_np(thread->handle, name);
 #endif
 
-  return true;
+    return true;
 }
 
 void lbm_thread_sleep_us(uint32_t microseconds) {
-  struct timespec ts;
-  ts.tv_sec = (__time_t)(microseconds / 1000000);
-  ts.tv_nsec = (__syscall_slong_t)((microseconds % 1000000) * 1000);
-  nanosleep(&ts, NULL);
+    struct timespec ts;
+    ts.tv_sec = (__time_t)(microseconds / 1000000);
+    ts.tv_nsec = (__syscall_slong_t)((microseconds % 1000000) * 1000);
+    nanosleep(&ts, NULL);
 }
 
 void lbm_thread_yield(void) {
-  sched_yield();
+    sched_yield();
 }
 
 void lbm_thread_destroy(lbm_thread_t *thread) {
-  if (!thread) return;
-  pthread_join(thread->handle, NULL);
+    if (!thread)
+        return;
+    pthread_join(thread->handle, NULL);
 }

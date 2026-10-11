@@ -18,21 +18,20 @@
 #ifndef LBM_PROF_H_
 #define LBM_PROF_H_
 
-#include "heap.h"
 #include "eval_cps.h"
+#include "heap.h"
 
 #define LBM_PROF_MAX_NAME_SIZE 20
 
 typedef struct {
-  lbm_cid cid;
-  bool has_name;
-  char name[LBM_PROF_MAX_NAME_SIZE];
-  lbm_uint count;
-  lbm_uint gc_count;
+    lbm_cid cid;
+    bool has_name;
+    char name[LBM_PROF_MAX_NAME_SIZE];
+    lbm_uint count;
+    lbm_uint gc_count;
 } lbm_prof_t;
 
-bool lbm_prof_init(lbm_prof_t *prof_data_buf,
-                   lbm_uint    prof_data_buf_num);
+bool lbm_prof_init(lbm_prof_t *prof_data_buf, lbm_uint prof_data_buf_num);
 lbm_uint lbm_prof_get_num_samples(void);
 lbm_uint lbm_prof_get_num_system_samples(void);
 lbm_uint lbm_prof_get_num_sleep_samples(void);

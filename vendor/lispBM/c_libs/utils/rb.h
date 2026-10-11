@@ -1,9 +1,9 @@
 /*
-	Copyright 2022 Benjamin Vedder	benjamin@vedder.se
+    Copyright 2022 Benjamin Vedder	benjamin@vedder.se
 
-	This file is part of the VESC firmware.
+    This file is part of the VESC firmware.
 
-	The VESC firmware is free software: you can redistribute it and/or modify
+    The VESC firmware is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
@@ -20,18 +20,18 @@
 #ifndef RB_H_
 #define RB_H_
 
-#include <stdint.h>
-#include <stdbool.h>
 #include "vesc_c_if.h"
+#include <stdbool.h>
+#include <stdint.h>
 
 typedef struct {
-	void *data;
-	unsigned int head;
-	unsigned int tail;
-	unsigned int item_size;
-	unsigned int item_count;
-	lib_mutex mutex;
-	bool full;
+    void *data;
+    unsigned int head;
+    unsigned int tail;
+    unsigned int item_size;
+    unsigned int item_count;
+    lib_mutex mutex;
+    bool full;
 } rb_t;
 
 void rb_init(rb_t *rb, void *buffer, int item_size, int item_count);
@@ -48,4 +48,3 @@ unsigned int rb_get_item_count(rb_t *rb);
 unsigned int rb_get_free_space(rb_t *rb);
 
 #endif
-

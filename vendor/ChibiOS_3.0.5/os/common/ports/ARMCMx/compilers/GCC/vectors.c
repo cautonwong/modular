@@ -41,29 +41,29 @@
 /**
  * @brief   Type of an IRQ vector.
  */
-typedef void  (*irq_vector_t)(void);
+typedef void (*irq_vector_t)(void);
 
 /**
  * @brief   Type of a structure representing the whole vectors table.
  */
 typedef struct {
-  uint32_t      *init_stack;
-  irq_vector_t  reset_handler;
-  irq_vector_t  nmi_handler;
-  irq_vector_t  hardfault_handler;
-  irq_vector_t  memmanage_handler;
-  irq_vector_t  busfault_handler;
-  irq_vector_t  usagefault_handler;
-  irq_vector_t  vector1c;
-  irq_vector_t  vector20;
-  irq_vector_t  vector24;
-  irq_vector_t  vector28;
-  irq_vector_t  svc_handler;
-  irq_vector_t  debugmonitor_handler;
-  irq_vector_t  vector34;
-  irq_vector_t  pendsv_handler;
-  irq_vector_t  systick_handler;
-  irq_vector_t  vectors[CORTEX_NUM_VECTORS];
+    uint32_t *init_stack;
+    irq_vector_t reset_handler;
+    irq_vector_t nmi_handler;
+    irq_vector_t hardfault_handler;
+    irq_vector_t memmanage_handler;
+    irq_vector_t busfault_handler;
+    irq_vector_t usagefault_handler;
+    irq_vector_t vector1c;
+    irq_vector_t vector20;
+    irq_vector_t vector24;
+    irq_vector_t vector28;
+    irq_vector_t svc_handler;
+    irq_vector_t debugmonitor_handler;
+    irq_vector_t vector34;
+    irq_vector_t pendsv_handler;
+    irq_vector_t systick_handler;
+    irq_vector_t vectors[CORTEX_NUM_VECTORS];
 } vectors_t;
 
 /**
@@ -75,10 +75,10 @@ typedef struct {
  */
 /*lint -save -e9075 [8.4] All symbols are invoked from asm context.*/
 void _unhandled_exception(void) {
-/*lint -restore*/
+    /*lint -restore*/
 
-  while (true) {
-  }
+    while (true) {
+    }
 }
 
 #if !defined(__DOXYGEN__)
@@ -462,195 +462,385 @@ void Vector3FC(void) __attribute__((weak, alias("_unhandled_exception")));
  * @brief   STM32 vectors table.
  */
 #if !defined(__DOXYGEN__)
-__attribute__ ((used, section(".vectors")))
+__attribute__((used, section(".vectors")))
 #endif
 /*lint -save -e9075 [8.4] All symbols are invoked from asm context.*/
 vectors_t _vectors = {
-/*lint -restore*/
-  &__main_stack_end__,Reset_Handler,      NMI_Handler,        HardFault_Handler,
-  MemManage_Handler,  BusFault_Handler,   UsageFault_Handler, Vector1C,
-  Vector20,           Vector24,           Vector28,           SVC_Handler,
-  DebugMon_Handler,   Vector34,           PendSV_Handler,     SysTick_Handler,
-  {
-    Vector40,           Vector44,           Vector48,           Vector4C,
+    /*lint -restore*/
+    &__main_stack_end__,
+    Reset_Handler,
+    NMI_Handler,
+    HardFault_Handler,
+    MemManage_Handler,
+    BusFault_Handler,
+    UsageFault_Handler,
+    Vector1C,
+    Vector20,
+    Vector24,
+    Vector28,
+    SVC_Handler,
+    DebugMon_Handler,
+    Vector34,
+    PendSV_Handler,
+    SysTick_Handler,
+    {Vector40,
+     Vector44,
+     Vector48,
+     Vector4C,
 #if CORTEX_NUM_VECTORS > 4
-    Vector50,           Vector54,           Vector58,           Vector5C,
+     Vector50,
+     Vector54,
+     Vector58,
+     Vector5C,
 #endif
 #if CORTEX_NUM_VECTORS > 8
-    Vector60,           Vector64,           Vector68,           Vector6C,
+     Vector60,
+     Vector64,
+     Vector68,
+     Vector6C,
 #endif
 #if CORTEX_NUM_VECTORS > 12
-    Vector70,           Vector74,           Vector78,           Vector7C,
+     Vector70,
+     Vector74,
+     Vector78,
+     Vector7C,
 #endif
 #if CORTEX_NUM_VECTORS > 16
-    Vector80,           Vector84,           Vector88,           Vector8C,
+     Vector80,
+     Vector84,
+     Vector88,
+     Vector8C,
 #endif
 #if CORTEX_NUM_VECTORS > 20
-    Vector90,           Vector94,           Vector98,           Vector9C,
+     Vector90,
+     Vector94,
+     Vector98,
+     Vector9C,
 #endif
 #if CORTEX_NUM_VECTORS > 24
-    VectorA0,           VectorA4,           VectorA8,           VectorAC,
+     VectorA0,
+     VectorA4,
+     VectorA8,
+     VectorAC,
 #endif
 #if CORTEX_NUM_VECTORS > 28
-    VectorB0,           VectorB4,           VectorB8,           VectorBC,
+     VectorB0,
+     VectorB4,
+     VectorB8,
+     VectorBC,
 #endif
 #if CORTEX_NUM_VECTORS > 32
-    VectorC0,           VectorC4,           VectorC8,           VectorCC,
+     VectorC0,
+     VectorC4,
+     VectorC8,
+     VectorCC,
 #endif
 #if CORTEX_NUM_VECTORS > 36
-    VectorD0,           VectorD4,           VectorD8,           VectorDC,
+     VectorD0,
+     VectorD4,
+     VectorD8,
+     VectorDC,
 #endif
 #if CORTEX_NUM_VECTORS > 40
-    VectorE0,           VectorE4,           VectorE8,           VectorEC,
+     VectorE0,
+     VectorE4,
+     VectorE8,
+     VectorEC,
 #endif
 #if CORTEX_NUM_VECTORS > 44
-    VectorF0,           VectorF4,           VectorF8,           VectorFC,
+     VectorF0,
+     VectorF4,
+     VectorF8,
+     VectorFC,
 #endif
 #if CORTEX_NUM_VECTORS > 48
-    Vector100,          Vector104,          Vector108,          Vector10C,
+     Vector100,
+     Vector104,
+     Vector108,
+     Vector10C,
 #endif
 #if CORTEX_NUM_VECTORS > 52
-    Vector110,          Vector114,          Vector118,          Vector11C,
+     Vector110,
+     Vector114,
+     Vector118,
+     Vector11C,
 #endif
 #if CORTEX_NUM_VECTORS > 56
-    Vector120,          Vector124,          Vector128,          Vector12C,
+     Vector120,
+     Vector124,
+     Vector128,
+     Vector12C,
 #endif
 #if CORTEX_NUM_VECTORS > 60
-    Vector130,          Vector134,          Vector138,          Vector13C,
+     Vector130,
+     Vector134,
+     Vector138,
+     Vector13C,
 #endif
 #if CORTEX_NUM_VECTORS > 64
-    Vector140,          Vector144,          Vector148,          Vector14C,
+     Vector140,
+     Vector144,
+     Vector148,
+     Vector14C,
 #endif
 #if CORTEX_NUM_VECTORS > 68
-    Vector150,          Vector154,          Vector158,          Vector15C,
+     Vector150,
+     Vector154,
+     Vector158,
+     Vector15C,
 #endif
 #if CORTEX_NUM_VECTORS > 72
-    Vector160,          Vector164,          Vector168,          Vector16C,
+     Vector160,
+     Vector164,
+     Vector168,
+     Vector16C,
 #endif
 #if CORTEX_NUM_VECTORS > 76
-    Vector170,          Vector174,          Vector178,          Vector17C,
+     Vector170,
+     Vector174,
+     Vector178,
+     Vector17C,
 #endif
 #if CORTEX_NUM_VECTORS > 80
-    Vector180,          Vector184,          Vector188,          Vector18C,
+     Vector180,
+     Vector184,
+     Vector188,
+     Vector18C,
 #endif
 #if CORTEX_NUM_VECTORS > 84
-    Vector190,          Vector194,          Vector198,          Vector19C,
+     Vector190,
+     Vector194,
+     Vector198,
+     Vector19C,
 #endif
 #if CORTEX_NUM_VECTORS > 88
-    Vector1A0,          Vector1A4,          Vector1A8,          Vector1AC,
+     Vector1A0,
+     Vector1A4,
+     Vector1A8,
+     Vector1AC,
 #endif
 #if CORTEX_NUM_VECTORS > 92
-    Vector1B0,          Vector1B4,          Vector1B8,          Vector1BC,
+     Vector1B0,
+     Vector1B4,
+     Vector1B8,
+     Vector1BC,
 #endif
 #if CORTEX_NUM_VECTORS > 96
-    Vector1C0,          Vector1C4,          Vector1C8,          Vector1CC,
+     Vector1C0,
+     Vector1C4,
+     Vector1C8,
+     Vector1CC,
 #endif
 #if CORTEX_NUM_VECTORS > 100
-    Vector1D0,          Vector1D4,          Vector1D8,          Vector1DC,
+     Vector1D0,
+     Vector1D4,
+     Vector1D8,
+     Vector1DC,
 #endif
 #if CORTEX_NUM_VECTORS > 104
-    Vector1E0,          Vector1E4,          Vector1E8,          Vector1EC,
+     Vector1E0,
+     Vector1E4,
+     Vector1E8,
+     Vector1EC,
 #endif
 #if CORTEX_NUM_VECTORS > 108
-    Vector1F0,          Vector1F4,          Vector1F8,          Vector1FC,
+     Vector1F0,
+     Vector1F4,
+     Vector1F8,
+     Vector1FC,
 #endif
 #if CORTEX_NUM_VECTORS > 112
-    Vector200,          Vector204,          Vector208,          Vector20C,
+     Vector200,
+     Vector204,
+     Vector208,
+     Vector20C,
 #endif
 #if CORTEX_NUM_VECTORS > 116
-    Vector210,          Vector214,          Vector218,          Vector21C,
+     Vector210,
+     Vector214,
+     Vector218,
+     Vector21C,
 #endif
 #if CORTEX_NUM_VECTORS > 120
-    Vector220,          Vector224,          Vector228,          Vector22C,
+     Vector220,
+     Vector224,
+     Vector228,
+     Vector22C,
 #endif
 #if CORTEX_NUM_VECTORS > 124
-    Vector230,          Vector234,          Vector238,          Vector23C,
+     Vector230,
+     Vector234,
+     Vector238,
+     Vector23C,
 #endif
 #if CORTEX_NUM_VECTORS > 128
-    Vector240,          Vector244,          Vector248,          Vector24C,
+     Vector240,
+     Vector244,
+     Vector248,
+     Vector24C,
 #endif
 #if CORTEX_NUM_VECTORS > 132
-    Vector250,          Vector254,          Vector258,          Vector25C,
+     Vector250,
+     Vector254,
+     Vector258,
+     Vector25C,
 #endif
 #if CORTEX_NUM_VECTORS > 136
-    Vector260,          Vector264,          Vector268,          Vector26C,
+     Vector260,
+     Vector264,
+     Vector268,
+     Vector26C,
 #endif
 #if CORTEX_NUM_VECTORS > 140
-    Vector270,          Vector274,          Vector278,          Vector27C,
+     Vector270,
+     Vector274,
+     Vector278,
+     Vector27C,
 #endif
 #if CORTEX_NUM_VECTORS > 144
-    Vector280,          Vector284,          Vector288,          Vector28C,
+     Vector280,
+     Vector284,
+     Vector288,
+     Vector28C,
 #endif
 #if CORTEX_NUM_VECTORS > 148
-    Vector290,          Vector294,          Vector298,          Vector29C,
+     Vector290,
+     Vector294,
+     Vector298,
+     Vector29C,
 #endif
 #if CORTEX_NUM_VECTORS > 152
-    Vector2A0,          Vector2A4,          Vector2A8,          Vector2AC,
+     Vector2A0,
+     Vector2A4,
+     Vector2A8,
+     Vector2AC,
 #endif
 #if CORTEX_NUM_VECTORS > 156
-    Vector2B0,          Vector2B4,          Vector2B8,          Vector2BC,
+     Vector2B0,
+     Vector2B4,
+     Vector2B8,
+     Vector2BC,
 #endif
 #if CORTEX_NUM_VECTORS > 160
-    Vector2C0,          Vector2C4,          Vector2C8,          Vector2CC,
+     Vector2C0,
+     Vector2C4,
+     Vector2C8,
+     Vector2CC,
 #endif
 #if CORTEX_NUM_VECTORS > 164
-    Vector2D0,          Vector2D4,          Vector2D8,          Vector2DC,
+     Vector2D0,
+     Vector2D4,
+     Vector2D8,
+     Vector2DC,
 #endif
 #if CORTEX_NUM_VECTORS > 168
-    Vector2E0,          Vector2E4,          Vector2E8,          Vector2EC,
+     Vector2E0,
+     Vector2E4,
+     Vector2E8,
+     Vector2EC,
 #endif
 #if CORTEX_NUM_VECTORS > 172
-    Vector2F0,          Vector2F4,          Vector2F8,          Vector2FC,
+     Vector2F0,
+     Vector2F4,
+     Vector2F8,
+     Vector2FC,
 #endif
 #if CORTEX_NUM_VECTORS > 176
-    Vector300,          Vector304,          Vector308,          Vector30C,
+     Vector300,
+     Vector304,
+     Vector308,
+     Vector30C,
 #endif
 #if CORTEX_NUM_VECTORS > 180
-    Vector310,          Vector314,          Vector318,          Vector31C,
+     Vector310,
+     Vector314,
+     Vector318,
+     Vector31C,
 #endif
 #if CORTEX_NUM_VECTORS > 184
-    Vector320,          Vector324,          Vector328,          Vector32C,
+     Vector320,
+     Vector324,
+     Vector328,
+     Vector32C,
 #endif
 #if CORTEX_NUM_VECTORS > 188
-    Vector330,          Vector334,          Vector338,          Vector33C,
+     Vector330,
+     Vector334,
+     Vector338,
+     Vector33C,
 #endif
 #if CORTEX_NUM_VECTORS > 192
-    Vector340,          Vector344,          Vector348,          Vector34C,
+     Vector340,
+     Vector344,
+     Vector348,
+     Vector34C,
 #endif
 #if CORTEX_NUM_VECTORS > 196
-    Vector350,          Vector354,          Vector358,          Vector35C,
+     Vector350,
+     Vector354,
+     Vector358,
+     Vector35C,
 #endif
 #if CORTEX_NUM_VECTORS > 200
-    Vector360,          Vector364,          Vector368,          Vector36C,
+     Vector360,
+     Vector364,
+     Vector368,
+     Vector36C,
 #endif
 #if CORTEX_NUM_VECTORS > 204
-    Vector370,          Vector374,          Vector378,          Vector37C,
+     Vector370,
+     Vector374,
+     Vector378,
+     Vector37C,
 #endif
 #if CORTEX_NUM_VECTORS > 208
-    Vector380,          Vector384,          Vector388,          Vector38C,
+     Vector380,
+     Vector384,
+     Vector388,
+     Vector38C,
 #endif
 #if CORTEX_NUM_VECTORS > 212
-    Vector390,          Vector394,          Vector398,          Vector39C,
+     Vector390,
+     Vector394,
+     Vector398,
+     Vector39C,
 #endif
 #if CORTEX_NUM_VECTORS > 216
-    Vector3A0,          Vector3A4,          Vector3A8,          Vector3AC,
+     Vector3A0,
+     Vector3A4,
+     Vector3A8,
+     Vector3AC,
 #endif
 #if CORTEX_NUM_VECTORS > 220
-    Vector3B0,          Vector3B4,          Vector3B8,          Vector3BC,
+     Vector3B0,
+     Vector3B4,
+     Vector3B8,
+     Vector3BC,
 #endif
 #if CORTEX_NUM_VECTORS > 224
-    Vector3C0,          Vector3C4,          Vector3C8,          Vector3CC,
+     Vector3C0,
+     Vector3C4,
+     Vector3C8,
+     Vector3CC,
 #endif
 #if CORTEX_NUM_VECTORS > 228
-    Vector3D0,          Vector3D4,          Vector3D8,          Vector3DC
+     Vector3D0,
+     Vector3D4,
+     Vector3D8,
+     Vector3DC
 #endif
 #if CORTEX_NUM_VECTORS > 232
-    Vector3E0,          Vector3E4,          Vector3E8,          Vector3EC
+         Vector3E0,
+     Vector3E4,
+     Vector3E8,
+     Vector3EC
 #endif
 #if CORTEX_NUM_VECTORS > 236
-    Vector3F0,          Vector3F4,          Vector3F8,          Vector3FC
+         Vector3F0,
+     Vector3F4,
+     Vector3F8,
+     Vector3FC
 #endif
-  }
-};
+    }};
 
 /** @} */

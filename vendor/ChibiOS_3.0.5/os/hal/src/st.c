@@ -59,9 +59,8 @@
  */
 void stInit(void) {
 
-  st_lld_init();
+    st_lld_init();
 }
-
 
 /**
  * @brief   Starts the alarm.
@@ -76,9 +75,9 @@ void stInit(void) {
  */
 void stStartAlarm(systime_t abstime) {
 
-  osalDbgAssert(stIsAlarmActive() == false, "already active");
+    osalDbgAssert(stIsAlarmActive() == false, "already active");
 
-  st_lld_start_alarm(abstime);
+    st_lld_start_alarm(abstime);
 }
 
 /**
@@ -90,7 +89,7 @@ void stStartAlarm(systime_t abstime) {
  */
 void stStopAlarm(void) {
 
-  st_lld_stop_alarm();
+    st_lld_stop_alarm();
 }
 
 /**
@@ -104,9 +103,9 @@ void stStopAlarm(void) {
  */
 void stSetAlarm(systime_t abstime) {
 
-  osalDbgAssert(stIsAlarmActive() != false, "not active");
+    osalDbgAssert(stIsAlarmActive() != false, "not active");
 
-  st_lld_set_alarm(abstime);
+    st_lld_set_alarm(abstime);
 }
 
 /**
@@ -120,9 +119,9 @@ void stSetAlarm(systime_t abstime) {
  */
 systime_t stGetAlarm(void) {
 
-  osalDbgAssert(stIsAlarmActive() != false, "not active");
+    osalDbgAssert(stIsAlarmActive() != false, "not active");
 
-  return st_lld_get_alarm();
+    return st_lld_get_alarm();
 }
 
 #endif /* OSAL_ST_MODE != OSAL_ST_MODE_NONE */

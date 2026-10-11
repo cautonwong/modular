@@ -32,9 +32,9 @@
 #ifndef _CHTYPES_H_
 #define _CHTYPES_H_
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdbool.h>
 
 /**
  * @name    Common constants
@@ -43,14 +43,14 @@
  * @brief   Generic 'false' boolean constant.
  */
 #if !defined(FALSE) || defined(__DOXYGEN__)
-#define FALSE               0
+#define FALSE 0
 #endif
 
 /**
  * @brief   Generic 'true' boolean constant.
  */
 #if !defined(TRUE) || defined(__DOXYGEN__)
-#define TRUE                (!FALSE)
+#define TRUE (!FALSE)
 #endif
 /** @} */
 
@@ -58,32 +58,32 @@
  * @name    Derived generic types
  * @{
  */
-typedef volatile int8_t     vint8_t;        /**< Volatile signed 8 bits.    */
-typedef volatile uint8_t    vuint8_t;       /**< Volatile unsigned 8 bits.  */
-typedef volatile int16_t    vint16_t;       /**< Volatile signed 16 bits.   */
-typedef volatile uint16_t   vuint16_t;      /**< Volatile unsigned 16 bits. */
-typedef volatile int32_t    vint32_t;       /**< Volatile signed 32 bits.   */
-typedef volatile uint32_t   vuint32_t;      /**< Volatile unsigned 32 bits. */
+typedef volatile int8_t vint8_t;     /**< Volatile signed 8 bits.    */
+typedef volatile uint8_t vuint8_t;   /**< Volatile unsigned 8 bits.  */
+typedef volatile int16_t vint16_t;   /**< Volatile signed 16 bits.   */
+typedef volatile uint16_t vuint16_t; /**< Volatile unsigned 16 bits. */
+typedef volatile int32_t vint32_t;   /**< Volatile signed 32 bits.   */
+typedef volatile uint32_t vuint32_t; /**< Volatile unsigned 32 bits. */
 /** @} */
 
 /**
  * @name    Kernel types
  * @{
  */
-typedef uint32_t            rtcnt_t;        /**< Realtime counter.          */
-typedef uint64_t            rttime_t;       /**< Realtime accumulator.      */
-typedef uint32_t            syssts_t;       /**< System status word.        */
-typedef uint8_t             tmode_t;        /**< Thread flags.              */
-typedef uint8_t             tstate_t;       /**< Thread state.              */
-typedef uint8_t             trefs_t;        /**< Thread references counter. */
-typedef uint8_t             tslices_t;      /**< Thread time slices counter.*/
-typedef uint32_t            tprio_t;        /**< Thread priority.           */
-typedef int32_t             msg_t;          /**< Inter-thread message.      */
-typedef int32_t             eventid_t;      /**< Numeric event identifier.  */
-typedef uint32_t            eventmask_t;    /**< Mask of event identifiers. */
-typedef uint32_t            eventflags_t;   /**< Mask of event flags.       */
-typedef int32_t             cnt_t;          /**< Generic signed counter.    */
-typedef uint32_t            ucnt_t;         /**< Generic unsigned counter.  */
+typedef uint32_t rtcnt_t;      /**< Realtime counter.          */
+typedef uint64_t rttime_t;     /**< Realtime accumulator.      */
+typedef uint32_t syssts_t;     /**< System status word.        */
+typedef uint8_t tmode_t;       /**< Thread flags.              */
+typedef uint8_t tstate_t;      /**< Thread state.              */
+typedef uint8_t trefs_t;       /**< Thread references counter. */
+typedef uint8_t tslices_t;     /**< Thread time slices counter.*/
+typedef uint32_t tprio_t;      /**< Thread priority.           */
+typedef int32_t msg_t;         /**< Inter-thread message.      */
+typedef int32_t eventid_t;     /**< Numeric event identifier.  */
+typedef uint32_t eventmask_t;  /**< Mask of event identifiers. */
+typedef uint32_t eventflags_t; /**< Mask of event flags.       */
+typedef int32_t cnt_t;         /**< Generic signed counter.    */
+typedef uint32_t ucnt_t;       /**< Generic unsigned counter.  */
 /** @} */
 
 /**

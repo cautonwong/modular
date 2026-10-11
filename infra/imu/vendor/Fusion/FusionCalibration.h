@@ -28,8 +28,12 @@
  * @param bias Bias in lsb.
  * @return Calibrated gyroscope or accelerometer measurement.
  */
-static inline __attribute__((always_inline)) FusionVector3 FusionCalibrationInertial(const FusionVector3 uncalibrated, const FusionRotationMatrix misalignment, const FusionVector3 sensitivity, const FusionVector3 bias) {
-    return FusionRotationMatrixMultiplyVector(misalignment, FusionVectorHadamardProduct(FusionVectorSubtract(uncalibrated, bias), sensitivity));
+static inline __attribute__((always_inline)) FusionVector3
+FusionCalibrationInertial(const FusionVector3 uncalibrated, const FusionRotationMatrix misalignment,
+                          const FusionVector3 sensitivity, const FusionVector3 bias) {
+    return FusionRotationMatrixMultiplyVector(
+        misalignment,
+        FusionVectorHadamardProduct(FusionVectorSubtract(uncalibrated, bias), sensitivity));
 }
 
 /**
@@ -39,8 +43,12 @@ static inline __attribute__((always_inline)) FusionVector3 FusionCalibrationIner
  * @param hardIronBias Hard-iron bias in uT.
  * @return Calibrated magnetometer measurement.
  */
-static inline __attribute__((always_inline)) FusionVector3 FusionCalibrationMagnetic(const FusionVector3 uncalibrated, const FusionRotationMatrix softIronMatrix, const FusionVector3 hardIronBias) {
-    return FusionVectorSubtract(FusionRotationMatrixMultiplyVector(softIronMatrix, uncalibrated), hardIronBias);
+static inline __attribute__((always_inline)) FusionVector3
+FusionCalibrationMagnetic(const FusionVector3 uncalibrated,
+                          const FusionRotationMatrix softIronMatrix,
+                          const FusionVector3 hardIronBias) {
+    return FusionVectorSubtract(FusionRotationMatrixMultiplyVector(softIronMatrix, uncalibrated),
+                                hardIronBias);
 }
 
 #endif

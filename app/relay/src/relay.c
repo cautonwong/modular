@@ -72,3 +72,29 @@ void relay_construct(relay_t *self, uint32_t module_id, uint32_t priority,
 edge_module_t *relay_module(relay_t *self) {
     return self != NULL ? &self->module : NULL;
 }
+
+static edge_status_t relay_desc_init(void *instance, const void *deps) {
+    (void)deps;
+    return relay_init((relay_t *)instance);
+}
+
+static edge_status_t relay_desc_stop(void *instance) {
+    return relay_deinit((relay_t *)instance);
+}
+
+static const edge_module_desc_t g_relay_desc = {
+    .id = RELAY_MODULE_ID,
+    .name = "relay",
+    .instance_size = sizeof(relay_t),
+    .dependencies = NULL,
+    .dependency_count = 0,
+    .init = relay_desc_init,
+    .start = NULL,
+    .stop = relay_desc_stop,
+    .suspend = NULL,
+    .resume = NULL,
+};
+
+const edge_module_desc_t *relay_descriptor(void) {
+    return &g_relay_desc;
+}

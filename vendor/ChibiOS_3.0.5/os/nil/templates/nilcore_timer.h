@@ -67,7 +67,7 @@
  */
 static inline void port_timer_start_alarm(systime_t abstime) {
 
-  (void)abstime;
+    (void)abstime;
 }
 
 /**
@@ -76,7 +76,6 @@ static inline void port_timer_start_alarm(systime_t abstime) {
  * @notapi
  */
 static inline void port_timer_stop_alarm(void) {
-
 }
 
 /**
@@ -88,7 +87,7 @@ static inline void port_timer_stop_alarm(void) {
  */
 static inline void port_timer_set_alarm(systime_t abstime) {
 
-  (void)abstime;
+    (void)abstime;
 }
 
 /**
@@ -100,7 +99,7 @@ static inline void port_timer_set_alarm(systime_t abstime) {
  */
 static inline systime_t port_timer_get_time(void) {
 
-  return (systime_t)0;
+    return (systime_t)0;
 }
 
 /**
@@ -112,7 +111,7 @@ static inline systime_t port_timer_get_time(void) {
  */
 static inline systime_t port_timer_get_alarm(void) {
 
-  return (systime_t)0;
+    return (systime_t)0;
 }
 
 #endif /* _NILCORE_TIMER_H_ */

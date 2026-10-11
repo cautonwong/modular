@@ -9,6 +9,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef BLE_NOTIFICATIONS_MODULE_ID
+#define BLE_NOTIFICATIONS_MODULE_ID 0x3300u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

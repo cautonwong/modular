@@ -65,7 +65,7 @@ typedef struct ch_thread thread_t;
 /**
  * @brief   Type of a thread reference.
  */
-typedef thread_t * thread_reference_t;
+typedef thread_t *thread_reference_t;
 
 /**
  * @brief   Type of a generic threads single link list, it works like a stack.
@@ -99,7 +99,7 @@ typedef struct ch_virtual_timer virtual_timer_t;
 /**
  * @brief   Type of virtual timers list header.
  */
-typedef struct ch_virtual_timers_list  virtual_timers_list_t;
+typedef struct ch_virtual_timers_list virtual_timers_list_t;
 
 /**
  * @brief   Type of a system debug structure.

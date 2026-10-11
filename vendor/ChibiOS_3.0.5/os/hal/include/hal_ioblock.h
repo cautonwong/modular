@@ -38,60 +38,58 @@
  * @brief   Driver state machine possible states.
  */
 typedef enum {
-  BLK_UNINIT = 0,                   /**< Not initialized.                   */
-  BLK_STOP = 1,                     /**< Stopped.                           */
-  BLK_ACTIVE = 2,                   /**< Interface active.                  */
-  BLK_CONNECTING = 3,               /**< Connection in progress.            */
-  BLK_DISCONNECTING = 4,            /**< Disconnection in progress.         */
-  BLK_READY = 5,                    /**< Device ready.                      */
-  BLK_READING = 6,                  /**< Read operation in progress.        */
-  BLK_WRITING = 7,                  /**< Write operation in progress.       */
-  BLK_SYNCING = 8                   /**< Sync. operation in progress.       */
+    BLK_UNINIT = 0,        /**< Not initialized.                   */
+    BLK_STOP = 1,          /**< Stopped.                           */
+    BLK_ACTIVE = 2,        /**< Interface active.                  */
+    BLK_CONNECTING = 3,    /**< Connection in progress.            */
+    BLK_DISCONNECTING = 4, /**< Disconnection in progress.         */
+    BLK_READY = 5,         /**< Device ready.                      */
+    BLK_READING = 6,       /**< Read operation in progress.        */
+    BLK_WRITING = 7,       /**< Write operation in progress.       */
+    BLK_SYNCING = 8        /**< Sync. operation in progress.       */
 } blkstate_t;
 
 /**
  * @brief   Block device info.
  */
 typedef struct {
-  uint32_t      blk_size;           /**< @brief Block size in bytes.        */
-  uint32_t      blk_num;            /**< @brief Total number of blocks.     */
+    uint32_t blk_size; /**< @brief Block size in bytes.        */
+    uint32_t blk_num;  /**< @brief Total number of blocks.     */
 } BlockDeviceInfo;
 
 /**
  * @brief   @p BaseBlockDevice specific methods.
  */
-#define _base_block_device_methods                                          \
-  /* Removable media detection.*/                                           \
-  bool (*is_inserted)(void *instance);                                      \
-  /* Removable write protection detection.*/                                \
-  bool (*is_protected)(void *instance);                                     \
-  /* Connection to the block device.*/                                      \
-  bool (*connect)(void *instance);                                          \
-  /* Disconnection from the block device.*/                                 \
-  bool (*disconnect)(void *instance);                                       \
-  /* Reads one or more blocks.*/                                            \
-  bool (*read)(void *instance, uint32_t startblk,                           \
-                 uint8_t *buffer, uint32_t n);                              \
-  /* Writes one or more blocks.*/                                           \
-  bool (*write)(void *instance, uint32_t startblk,                          \
-                  const uint8_t *buffer, uint32_t n);                       \
-  /* Write operations synchronization.*/                                    \
-  bool (*sync)(void *instance);                                             \
-  /* Obtains info about the media.*/                                        \
-  bool (*get_info)(void *instance, BlockDeviceInfo *bdip);
+#define _base_block_device_methods                                                                 \
+    /* Removable media detection.*/                                                                \
+    bool (*is_inserted)(void *instance);                                                           \
+    /* Removable write protection detection.*/                                                     \
+    bool (*is_protected)(void *instance);                                                          \
+    /* Connection to the block device.*/                                                           \
+    bool (*connect)(void *instance);                                                               \
+    /* Disconnection from the block device.*/                                                      \
+    bool (*disconnect)(void *instance);                                                            \
+    /* Reads one or more blocks.*/                                                                 \
+    bool (*read)(void *instance, uint32_t startblk, uint8_t *buffer, uint32_t n);                  \
+    /* Writes one or more blocks.*/                                                                \
+    bool (*write)(void *instance, uint32_t startblk, const uint8_t *buffer, uint32_t n);           \
+    /* Write operations synchronization.*/                                                         \
+    bool (*sync)(void *instance);                                                                  \
+    /* Obtains info about the media.*/                                                             \
+    bool (*get_info)(void *instance, BlockDeviceInfo *bdip);
 
 /**
  * @brief   @p BaseBlockDevice specific data.
  */
-#define _base_block_device_data                                             \
-  /* Driver state.*/                                                        \
-  blkstate_t            state;
+#define _base_block_device_data                                                                    \
+    /* Driver state.*/                                                                             \
+    blkstate_t state;
 
 /**
  * @brief   @p BaseBlockDevice virtual methods table.
  */
 struct BaseBlockDeviceVMT {
-  _base_block_device_methods
+    _base_block_device_methods
 };
 
 /**
@@ -99,9 +97,9 @@ struct BaseBlockDeviceVMT {
  * @details This class represents a generic, block-accessible, device.
  */
 typedef struct {
-  /** @brief Virtual Methods Table.*/
-  const struct BaseBlockDeviceVMT *vmt;
-  _base_block_device_data
+    /** @brief Virtual Methods Table.*/
+    const struct BaseBlockDeviceVMT *vmt;
+    _base_block_device_data
 } BaseBlockDevice;
 
 /**
@@ -132,10 +130,9 @@ typedef struct {
  *
  * @special
  */
-#define blkIsTransferring(ip) ((((ip)->state) == BLK_CONNECTING) ||         \
-                               (((ip)->state) == BLK_DISCONNECTING) ||      \
-                               (((ip)->state) == BLK_READING) ||            \
-                               (((ip)->state) == BLK_WRITING))
+#define blkIsTransferring(ip)                                                                      \
+    ((((ip)->state) == BLK_CONNECTING) || (((ip)->state) == BLK_DISCONNECTING) ||                  \
+     (((ip)->state) == BLK_READING) || (((ip)->state) == BLK_WRITING))
 
 /**
  * @brief   Returns the media insertion status.
@@ -211,8 +208,7 @@ typedef struct {
  *
  * @api
  */
-#define blkRead(ip, startblk, buf, n)                                       \
-  ((ip)->vmt->read(ip, startblk, buf, n))
+#define blkRead(ip, startblk, buf, n) ((ip)->vmt->read(ip, startblk, buf, n))
 
 /**
  * @brief   Writes one or more blocks.
@@ -228,8 +224,7 @@ typedef struct {
  *
  * @api
  */
-#define blkWrite(ip, startblk, buf, n)                                      \
-  ((ip)->vmt->write(ip, startblk, buf, n))
+#define blkWrite(ip, startblk, buf, n) ((ip)->vmt->write(ip, startblk, buf, n))
 
 /**
  * @brief   Ensures write synchronization.

@@ -229,6 +229,94 @@ static void test_null_safe_counters(void **state) {
     (void)state;
     assert_int_equal(edge_event_count(NULL), 0u);
     assert_int_equal(edge_event_dropped(NULL), 0u);
+    assert_int_equal(edge_event_high_watermark(NULL), 0u);
+}
+
+static void test_backpressure_drop_oldest(void **state) {
+    (void)state;
+    edge_event_t storage[3];
+    edge_event_queue_t queue;
+    edge_event_t out;
+    const edge_event_t a = {.id = 0x10u, .source = 1u};
+    const edge_event_t b = {.id = 0x20u, .source = 2u};
+    const edge_event_t c = {.id = 0x30u, .source = 3u};
+
+    assert_int_equal(edge_event_queue_init(&queue, storage, 3u), EDGE_OK);
+    assert_int_equal(edge_event_queue_set_policy(&queue, EDGE_QUEUE_DROP_OLDEST), EDGE_OK);
+
+    assert_int_equal(edge_event_push_isr(&queue, &a), EDGE_OK);
+    assert_int_equal(edge_event_push_isr(&queue, &b), EDGE_OK);
+    assert_int_equal(edge_event_count(&queue), 2u);
+
+    /* Pushing C into full queue drops oldest (A) and succeeds */
+    assert_int_equal(edge_event_push_isr(&queue, &c), EDGE_OK);
+    assert_int_equal(edge_event_dropped(&queue), 1u);
+    assert_int_equal(edge_event_count(&queue), 2u);
+
+    assert_int_equal(edge_event_pop(&queue, &out), EDGE_OK);
+    assert_int_equal(out.id, 0x20u); /* B was preserved */
+    assert_int_equal(edge_event_pop(&queue, &out), EDGE_OK);
+    assert_int_equal(out.id, 0x30u); /* C was preserved */
+    assert_int_equal(edge_event_count(&queue), 0u);
+}
+
+static void test_event_coalescing(void **state) {
+    (void)state;
+    edge_event_t storage[4];
+    edge_event_queue_t queue;
+    edge_event_t out;
+    const edge_event_t a1 = {.id = 0x1601u, .source = 1u, .arg0 = 10u, .timestamp = 100u};
+    const edge_event_t a2 = {.id = 0x1601u, .source = 1u, .arg0 = 25u, .timestamp = 105u};
+    const edge_event_t b = {.id = 0x1602u, .source = 1u, .arg0 = 50u, .timestamp = 110u};
+
+    assert_int_equal(edge_event_queue_init(&queue, storage, 4u), EDGE_OK);
+    assert_int_equal(edge_event_push_coalesced_isr(&queue, &a1), EDGE_OK);
+    assert_int_equal(edge_event_count(&queue), 1u);
+
+    /* Same id and source: coalesced into single slot with updated payload */
+    assert_int_equal(edge_event_push_coalesced_isr(&queue, &a2), EDGE_OK);
+    assert_int_equal(edge_event_count(&queue), 1u);
+
+    /* Different id: pushes new event */
+    assert_int_equal(edge_event_push_coalesced_isr(&queue, &b), EDGE_OK);
+    assert_int_equal(edge_event_count(&queue), 2u);
+
+    assert_int_equal(edge_event_pop(&queue, &out), EDGE_OK);
+    assert_int_equal(out.id, 0x1601u);
+    assert_int_equal(out.arg0, 25u);
+    assert_int_equal(out.timestamp, 105u);
+
+    assert_int_equal(edge_event_pop(&queue, &out), EDGE_OK);
+    assert_int_equal(out.id, 0x1602u);
+    assert_int_equal(out.arg0, 50u);
+}
+
+static void test_critical_reserve_and_watermark(void **state) {
+    (void)state;
+    edge_event_t storage[4]; /* capacity 4 -> holds max 3 events */
+    edge_event_queue_t queue;
+    const edge_event_t normal1 = {.id = 0x1200u};
+    const edge_event_t normal2 = {.id = 0x1300u};
+    const edge_event_t critical = {.id = 0x0002u}; /* Framework critical event */
+
+    assert_int_equal(edge_event_queue_init(&queue, storage, 4u), EDGE_OK);
+    assert_int_equal(edge_event_queue_set_critical_reserve(&queue, 1u), EDGE_OK);
+
+    assert_int_equal(edge_event_push_isr(&queue, &normal1), EDGE_OK);
+    assert_int_equal(edge_event_high_watermark(&queue), 1u);
+
+    /* 1 slot used out of 3, 2 free slots. Critical reserve is 1.
+     * Pushing normal2 leaves 1 free slot (which hits the critical reserve boundary) */
+    assert_int_equal(edge_event_push_isr(&queue, &normal2), EDGE_OK);
+    assert_int_equal(edge_event_high_watermark(&queue), 2u);
+
+    /* Now free_slots is 1 <= critical_reserve (1). Non-critical event should be rejected */
+    const edge_event_t normal3 = {.id = 0x1400u};
+    assert_int_equal(edge_event_push_isr(&queue, &normal3), EDGE_EOVERFLOW);
+
+    /* But critical event is accepted into the reserved slot */
+    assert_int_equal(edge_event_push_isr(&queue, &critical), EDGE_OK);
+    assert_int_equal(edge_event_high_watermark(&queue), 3u);
 }
 
 int main(void) {
@@ -244,6 +332,9 @@ int main(void) {
         cmocka_unit_test(test_sink_without_clock_preserves_timestamp),
         cmocka_unit_test(test_sink_validates_arguments),
         cmocka_unit_test(test_null_safe_counters),
+        cmocka_unit_test(test_backpressure_drop_oldest),
+        cmocka_unit_test(test_event_coalescing),
+        cmocka_unit_test(test_critical_reserve_and_watermark),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

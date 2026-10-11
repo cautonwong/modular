@@ -15,7 +15,6 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-
 /*
   lbm_defrag_mem.h/c provides a memory area that is compacted when
   needed.  This means that allocations in the lbm_defrag_mem must be
@@ -116,17 +115,16 @@
 extern lbm_value lbm_defrag_mem_create(lbm_uint nbytes);
 extern void lbm_defrag_mem_destroy(lbm_uint *ptr);
 extern lbm_value lbm_defrag_mem_alloc(lbm_uint *defrag_mem, lbm_uint nbytes);
-//extern lbm_value lbm_defrag_mem_alloc_lisparray(lbm_uint *defrag_mem, lbm_uint elts);
-extern void lbm_defrag_mem_free(lbm_uint* data);
+// extern lbm_value lbm_defrag_mem_alloc_lisparray(lbm_uint *defrag_mem, lbm_uint elts);
+extern void lbm_defrag_mem_free(lbm_uint *data);
 
 static inline bool lbm_defrag_mem_valid(lbm_value arr) {
-  return !(lbm_is_symbol_nil(lbm_car(arr)));
+    return !(lbm_is_symbol_nil(lbm_car(arr)));
 }
 
 static inline bool lbm_is_defrag_mem(lbm_value x) {
-  lbm_type t = lbm_type_of(x);
-  return ((t == LBM_TYPE_DEFRAG_MEM) && lbm_defrag_mem_valid(x)) ;
+    lbm_type t = lbm_type_of(x);
+    return ((t == LBM_TYPE_DEFRAG_MEM) && lbm_defrag_mem_valid(x));
 }
-
 
 #endif

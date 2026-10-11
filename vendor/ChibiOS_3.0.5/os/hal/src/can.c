@@ -55,7 +55,7 @@
  */
 void canInit(void) {
 
-  can_lld_init();
+    can_lld_init();
 }
 
 /**
@@ -67,16 +67,16 @@ void canInit(void) {
  */
 void canObjectInit(CANDriver *canp) {
 
-  canp->state    = CAN_STOP;
-  canp->config   = NULL;
-  osalThreadQueueObjectInit(&canp->txqueue);
-  osalThreadQueueObjectInit(&canp->rxqueue);
-  osalEventObjectInit(&canp->rxfull_event);
-  osalEventObjectInit(&canp->txempty_event);
-  osalEventObjectInit(&canp->error_event);
+    canp->state = CAN_STOP;
+    canp->config = NULL;
+    osalThreadQueueObjectInit(&canp->txqueue);
+    osalThreadQueueObjectInit(&canp->rxqueue);
+    osalEventObjectInit(&canp->rxfull_event);
+    osalEventObjectInit(&canp->txempty_event);
+    osalEventObjectInit(&canp->error_event);
 #if CAN_USE_SLEEP_MODE == TRUE
-  osalEventObjectInit(&canp->sleep_event);
-  osalEventObjectInit(&canp->wakeup_event);
+    osalEventObjectInit(&canp->sleep_event);
+    osalEventObjectInit(&canp->wakeup_event);
 #endif
 }
 
@@ -94,22 +94,22 @@ void canObjectInit(CANDriver *canp) {
  */
 void canStart(CANDriver *canp, const CANConfig *config) {
 
-  osalDbgCheck(canp != NULL);
+    osalDbgCheck(canp != NULL);
 
-  osalSysLock();
-  osalDbgAssert(canp->state == CAN_STOP, "invalid state");
+    osalSysLock();
+    osalDbgAssert(canp->state == CAN_STOP, "invalid state");
 
-  /* Entering initialization mode. */
-  canp->state = CAN_STARTING;
-  canp->config = config;
+    /* Entering initialization mode. */
+    canp->state = CAN_STARTING;
+    canp->config = config;
 
-  /* Low level initialization, could be a slow process and sleeps could
-     be performed inside.*/
-  can_lld_start(canp);
+    /* Low level initialization, could be a slow process and sleeps could
+       be performed inside.*/
+    can_lld_start(canp);
 
-  /* The driver finally goes into the ready state.*/
-  canp->state = CAN_READY;
-  osalSysUnlock();
+    /* The driver finally goes into the ready state.*/
+    canp->state = CAN_READY;
+    osalSysUnlock();
 }
 
 /**
@@ -121,22 +121,21 @@ void canStart(CANDriver *canp, const CANConfig *config) {
  */
 void canStop(CANDriver *canp) {
 
-  osalDbgCheck(canp != NULL);
+    osalDbgCheck(canp != NULL);
 
-  osalSysLock();
-  osalDbgAssert((canp->state == CAN_STOP) || (canp->state == CAN_READY),
-                "invalid state");
+    osalSysLock();
+    osalDbgAssert((canp->state == CAN_STOP) || (canp->state == CAN_READY), "invalid state");
 
-  /* The low level driver is stopped.*/
-  can_lld_stop(canp);
-  canp->state  = CAN_STOP;
+    /* The low level driver is stopped.*/
+    can_lld_stop(canp);
+    canp->state = CAN_STOP;
 
-  /* Threads waiting on CAN APIs are notified that the driver has been
-     stopped in order to not have stuck threads.*/
-  osalThreadDequeueAllI(&canp->rxqueue, MSG_RESET);
-  osalThreadDequeueAllI(&canp->txqueue, MSG_RESET);
-  osalOsRescheduleS();
-  osalSysUnlock();
+    /* Threads waiting on CAN APIs are notified that the driver has been
+       stopped in order to not have stuck threads.*/
+    osalThreadDequeueAllI(&canp->rxqueue, MSG_RESET);
+    osalThreadDequeueAllI(&canp->txqueue, MSG_RESET);
+    osalOsRescheduleS();
+    osalSysUnlock();
 }
 
 /**
@@ -160,29 +159,24 @@ void canStop(CANDriver *canp) {
  *
  * @api
  */
-msg_t canTransmit(CANDriver *canp,
-                  canmbx_t mailbox,
-                  const CANTxFrame *ctfp,
-                  systime_t timeout) {
+msg_t canTransmit(CANDriver *canp, canmbx_t mailbox, const CANTxFrame *ctfp, systime_t timeout) {
 
-  osalDbgCheck((canp != NULL) && (ctfp != NULL) &&
-               (mailbox <= (canmbx_t)CAN_TX_MAILBOXES));
+    osalDbgCheck((canp != NULL) && (ctfp != NULL) && (mailbox <= (canmbx_t)CAN_TX_MAILBOXES));
 
-  osalSysLock();
-  osalDbgAssert((canp->state == CAN_READY) || (canp->state == CAN_SLEEP),
-                "invalid state");
-  /*lint -save -e9007 [13.5] Right side is supposed to be pure.*/
-  while ((canp->state == CAN_SLEEP) || !can_lld_is_tx_empty(canp, mailbox)) {
-  /*lint -restore*/
-   msg_t msg = osalThreadEnqueueTimeoutS(&canp->txqueue, timeout);
-    if (msg != MSG_OK) {
-      osalSysUnlock();
-      return msg;
+    osalSysLock();
+    osalDbgAssert((canp->state == CAN_READY) || (canp->state == CAN_SLEEP), "invalid state");
+    /*lint -save -e9007 [13.5] Right side is supposed to be pure.*/
+    while ((canp->state == CAN_SLEEP) || !can_lld_is_tx_empty(canp, mailbox)) {
+        /*lint -restore*/
+        msg_t msg = osalThreadEnqueueTimeoutS(&canp->txqueue, timeout);
+        if (msg != MSG_OK) {
+            osalSysUnlock();
+            return msg;
+        }
     }
-  }
-  can_lld_transmit(canp, mailbox, ctfp);
-  osalSysUnlock();
-  return MSG_OK;
+    can_lld_transmit(canp, mailbox, ctfp);
+    osalSysUnlock();
+    return MSG_OK;
 }
 
 /**
@@ -207,29 +201,24 @@ msg_t canTransmit(CANDriver *canp,
  *
  * @api
  */
-msg_t canReceive(CANDriver *canp,
-                 canmbx_t mailbox,
-                 CANRxFrame *crfp,
-                 systime_t timeout) {
+msg_t canReceive(CANDriver *canp, canmbx_t mailbox, CANRxFrame *crfp, systime_t timeout) {
 
-  osalDbgCheck((canp != NULL) && (crfp != NULL) &&
-               (mailbox <= (canmbx_t)CAN_RX_MAILBOXES));
+    osalDbgCheck((canp != NULL) && (crfp != NULL) && (mailbox <= (canmbx_t)CAN_RX_MAILBOXES));
 
-  osalSysLock();
-  osalDbgAssert((canp->state == CAN_READY) || (canp->state == CAN_SLEEP),
-                "invalid state");
-  /*lint -save -e9007 [13.5] Right side is supposed to be pure.*/
-  while ((canp->state == CAN_SLEEP) || !can_lld_is_rx_nonempty(canp, mailbox)) {
-  /*lint -restore*/
-    msg_t msg = osalThreadEnqueueTimeoutS(&canp->rxqueue, timeout);
-    if (msg != MSG_OK) {
-      osalSysUnlock();
-      return msg;
+    osalSysLock();
+    osalDbgAssert((canp->state == CAN_READY) || (canp->state == CAN_SLEEP), "invalid state");
+    /*lint -save -e9007 [13.5] Right side is supposed to be pure.*/
+    while ((canp->state == CAN_SLEEP) || !can_lld_is_rx_nonempty(canp, mailbox)) {
+        /*lint -restore*/
+        msg_t msg = osalThreadEnqueueTimeoutS(&canp->rxqueue, timeout);
+        if (msg != MSG_OK) {
+            osalSysUnlock();
+            return msg;
+        }
     }
-  }
-  can_lld_receive(canp, mailbox, crfp);
-  osalSysUnlock();
-  return MSG_OK;
+    can_lld_receive(canp, mailbox, crfp);
+    osalSysUnlock();
+    return MSG_OK;
 }
 
 #if (CAN_USE_SLEEP_MODE == TRUE) || defined(__DOXYGEN__)
@@ -247,18 +236,17 @@ msg_t canReceive(CANDriver *canp,
  */
 void canSleep(CANDriver *canp) {
 
-  osalDbgCheck(canp != NULL);
+    osalDbgCheck(canp != NULL);
 
-  osalSysLock();
-  osalDbgAssert((canp->state == CAN_READY) || (canp->state == CAN_SLEEP),
-                "invalid state");
-  if (canp->state == CAN_READY) {
-    can_lld_sleep(canp);
-    canp->state = CAN_SLEEP;
-    osalEventBroadcastFlagsI(&canp->sleep_event, (eventflags_t)0);
-    osalOsRescheduleS();
-  }
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert((canp->state == CAN_READY) || (canp->state == CAN_SLEEP), "invalid state");
+    if (canp->state == CAN_READY) {
+        can_lld_sleep(canp);
+        canp->state = CAN_SLEEP;
+        osalEventBroadcastFlagsI(&canp->sleep_event, (eventflags_t)0);
+        osalOsRescheduleS();
+    }
+    osalSysUnlock();
 }
 
 /**
@@ -270,18 +258,17 @@ void canSleep(CANDriver *canp) {
  */
 void canWakeup(CANDriver *canp) {
 
-  osalDbgCheck(canp != NULL);
+    osalDbgCheck(canp != NULL);
 
-  osalSysLock();
-  osalDbgAssert((canp->state == CAN_READY) || (canp->state == CAN_SLEEP),
-                "invalid state");
-  if (canp->state == CAN_SLEEP) {
-    can_lld_wakeup(canp);
-    canp->state = CAN_READY;
-    osalEventBroadcastFlagsI(&canp->wakeup_event, (eventflags_t)0);
-    osalOsRescheduleS();
-  }
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert((canp->state == CAN_READY) || (canp->state == CAN_SLEEP), "invalid state");
+    if (canp->state == CAN_SLEEP) {
+        can_lld_wakeup(canp);
+        canp->state = CAN_READY;
+        osalEventBroadcastFlagsI(&canp->wakeup_event, (eventflags_t)0);
+        osalOsRescheduleS();
+    }
+    osalSysUnlock();
 }
 #endif /* CAN_USE_SLEEP_MODE == TRUE */
 

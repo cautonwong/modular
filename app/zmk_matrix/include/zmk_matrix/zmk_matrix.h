@@ -9,6 +9,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef ZMK_MATRIX_MODULE_ID
+#define ZMK_MATRIX_MODULE_ID 0x2100u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

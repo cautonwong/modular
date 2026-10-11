@@ -47,11 +47,11 @@
  * @brief   Driver state machine possible states.
  */
 typedef enum {
-  GPT_UNINIT = 0,                   /**< Not initialized.                   */
-  GPT_STOP = 1,                     /**< Stopped.                           */
-  GPT_READY = 2,                    /**< Ready.                             */
-  GPT_CONTINUOUS = 3,               /**< Active in continuous mode.         */
-  GPT_ONESHOT = 4                   /**< Active in one shot mode.           */
+    GPT_UNINIT = 0,     /**< Not initialized.                   */
+    GPT_STOP = 1,       /**< Stopped.                           */
+    GPT_READY = 2,      /**< Ready.                             */
+    GPT_CONTINUOUS = 3, /**< Active in continuous mode.         */
+    GPT_ONESHOT = 4     /**< Active in one shot mode.           */
 } gptstate_t;
 
 /**
@@ -83,9 +83,8 @@ typedef void (*gptcallback_t)(GPTDriver *gptp);
  *
  * @iclass
  */
-#define gptChangeIntervalI(gptp, interval) {                                \
-  gpt_lld_change_interval(gptp, interval);                                  \
-}
+#define gptChangeIntervalI(gptp, interval)                                                         \
+    { gpt_lld_change_interval(gptp, interval); }
 
 /**
  * @brief   Returns the interval of GPT peripheral.
@@ -118,18 +117,18 @@ typedef void (*gptcallback_t)(GPTDriver *gptp);
 #ifdef __cplusplus
 extern "C" {
 #endif
-  void gptInit(void);
-  void gptObjectInit(GPTDriver *gptp);
-  void gptStart(GPTDriver *gptp, const GPTConfig *config);
-  void gptStop(GPTDriver *gptp);
-  void gptStartContinuous(GPTDriver *gptp, gptcnt_t interval);
-  void gptStartContinuousI(GPTDriver *gptp, gptcnt_t interval);
-  void gptChangeInterval(GPTDriver *gptp, gptcnt_t interval);
-  void gptStartOneShot(GPTDriver *gptp, gptcnt_t interval);
-  void gptStartOneShotI(GPTDriver *gptp, gptcnt_t interval);
-  void gptStopTimer(GPTDriver *gptp);
-  void gptStopTimerI(GPTDriver *gptp);
-  void gptPolledDelay(GPTDriver *gptp, gptcnt_t interval);
+void gptInit(void);
+void gptObjectInit(GPTDriver *gptp);
+void gptStart(GPTDriver *gptp, const GPTConfig *config);
+void gptStop(GPTDriver *gptp);
+void gptStartContinuous(GPTDriver *gptp, gptcnt_t interval);
+void gptStartContinuousI(GPTDriver *gptp, gptcnt_t interval);
+void gptChangeInterval(GPTDriver *gptp, gptcnt_t interval);
+void gptStartOneShot(GPTDriver *gptp, gptcnt_t interval);
+void gptStartOneShotI(GPTDriver *gptp, gptcnt_t interval);
+void gptStopTimer(GPTDriver *gptp);
+void gptStopTimerI(GPTDriver *gptp);
+void gptPolledDelay(GPTDriver *gptp, gptcnt_t interval);
 #ifdef __cplusplus
 }
 #endif

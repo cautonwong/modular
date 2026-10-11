@@ -8,6 +8,10 @@
 #include "edge/module.h"
 #include "edge/modules.h"
 
+#ifndef NUNCHUK_MODULE_ID
+#define NUNCHUK_MODULE_ID 0x5100u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

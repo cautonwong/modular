@@ -34,29 +34,29 @@
 /**
  * @brief   Cortex core model.
  */
-#define CORTEX_MODEL            0
+#define CORTEX_MODEL 0
 
 /**
  * @brief   Systick unit presence.
  */
-#define CORTEX_HAS_ST           TRUE
+#define CORTEX_HAS_ST TRUE
 
 /**
  * @brief   Floating Point unit presence.
  */
-#define CORTEX_HAS_FPU          FALSE
+#define CORTEX_HAS_FPU FALSE
 
 /**
  * @brief   Number of bits in priority masks.
  */
-#define CORTEX_PRIORITY_BITS    2
+#define CORTEX_PRIORITY_BITS 2
 
 /**
  * @brief   Number of interrupt vectors.
  * @note    This number does not include the 16 system vectors and must be
  *          rounded to a multiple of 8.
  */
-#define CORTEX_NUM_VECTORS      32
+#define CORTEX_NUM_VECTORS 32
 
 /* The following code is not processed when the file is included from an
    asm module.*/

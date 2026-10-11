@@ -103,6 +103,16 @@ def check(root):
     root = root.resolve()
     roots = include_roots(root)
     problems = []
+    # Pre-index headers across include roots for instant O(1) lookup
+    header_index = {}
+    for inc_root in roots:
+        for hpath in inc_root.rglob("*.[ch]"):
+            try:
+                rel_inc = str(hpath.relative_to(inc_root))
+                if rel_inc not in header_index:
+                    header_index[rel_inc] = hpath.resolve()
+            except ValueError:
+                pass
 
     for layer in LAYER_DIRS:
         base = root / layer
@@ -117,11 +127,7 @@ def check(root):
                 if local.is_file():
                     resolved = local.resolve()
                 if resolved is None:
-                    for inc_root in roots:
-                        candidate = inc_root / include
-                        if candidate.is_file():
-                            resolved = candidate.resolve()
-                            break
+                    resolved = header_index.get(include)
                 if resolved is None:
                     continue  # standard/toolchain/external header
 

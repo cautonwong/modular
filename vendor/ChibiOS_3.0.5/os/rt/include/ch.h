@@ -39,7 +39,7 @@
 /**
  * @brief   Stable release flag.
  */
-#define CH_KERNEL_STABLE        1
+#define CH_KERNEL_STABLE 1
 
 /**
  * @name    ChibiOS/RT version identification
@@ -48,52 +48,52 @@
 /**
  * @brief   Kernel version string.
  */
-#define CH_KERNEL_VERSION       "3.0.4"
+#define CH_KERNEL_VERSION "3.0.4"
 
 /**
  * @brief   Kernel version major number.
  */
-#define CH_KERNEL_MAJOR         3
+#define CH_KERNEL_MAJOR 3
 
 /**
  * @brief   Kernel version minor number.
  */
-#define CH_KERNEL_MINOR         0
+#define CH_KERNEL_MINOR 0
 
 /**
  * @brief   Kernel version patch number.
  */
-#define CH_KERNEL_PATCH         4
+#define CH_KERNEL_PATCH 4
 /** @} */
 
 /* Core headers.*/
-#include "chtypes.h"
 #include "chconf.h"
-#include "chlicense.h"
-#include "chsystypes.h"
 #include "chcore.h"
 #include "chdebug.h"
-#include "chtm.h"
-#include "chstats.h"
+#include "chlicense.h"
 #include "chschd.h"
+#include "chstats.h"
 #include "chsys.h"
-#include "chvt.h"
+#include "chsystypes.h"
 #include "chthreads.h"
+#include "chtm.h"
+#include "chtypes.h"
+#include "chvt.h"
 
 /* Optional subsystems headers.*/
-#include "chregistry.h"
-#include "chsem.h"
 #include "chbsem.h"
-#include "chmtx.h"
 #include "chcond.h"
+#include "chdynamic.h"
 #include "chevents.h"
-#include "chmsg.h"
+#include "chheap.h"
 #include "chmboxes.h"
 #include "chmemcore.h"
-#include "chheap.h"
 #include "chmempools.h"
-#include "chdynamic.h"
+#include "chmsg.h"
+#include "chmtx.h"
 #include "chqueues.h"
+#include "chregistry.h"
+#include "chsem.h"
 #include "chstreams.h"
 
 #endif /* _CH_H_ */

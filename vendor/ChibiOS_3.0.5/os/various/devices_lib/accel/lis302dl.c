@@ -22,8 +22,8 @@
  * @{
  */
 
-#include "hal.h"
 #include "lis302dl.h"
+#include "hal.h"
 
 /*===========================================================================*/
 /* Driver local definitions.                                                 */
@@ -58,12 +58,12 @@ static uint8_t rxbuf[2];
  */
 uint8_t lis302dlReadRegister(SPIDriver *spip, uint8_t reg) {
 
-  spiSelect(spip);
-  txbuf[0] = 0x80 | reg;
-  txbuf[1] = 0xff;
-  spiExchange(spip, 2, txbuf, rxbuf);
-  spiUnselect(spip);
-  return rxbuf[1];
+    spiSelect(spip);
+    txbuf[0] = 0x80 | reg;
+    txbuf[1] = 0xff;
+    spiExchange(spip, 2, txbuf, rxbuf);
+    spiUnselect(spip);
+    return rxbuf[1];
 }
 
 /**
@@ -76,43 +76,43 @@ uint8_t lis302dlReadRegister(SPIDriver *spip, uint8_t reg) {
  */
 void lis302dlWriteRegister(SPIDriver *spip, uint8_t reg, uint8_t value) {
 
-  switch (reg) {
-  default:
-    /* Reserved register must not be written, according to the datasheet
-       this could permanently damage the device.*/
-    osalDbgAssert(FALSE, "reserved register");
-  case LIS302DL_WHO_AM_I:
-  case LIS302DL_HP_FILTER_RESET:
-  case LIS302DL_STATUS_REG:
-  case LIS302DL_OUTX:
-  case LIS302DL_OUTY:
-  case LIS302DL_OUTZ:
-  case LIS302DL_FF_WU_SRC1:
-  case LIS302DL_FF_WU_SRC2:
-  case LIS302DL_CLICK_SRC:
-    /* Read only registers cannot be written, the command is ignored.*/
-    return;
-  case LIS302DL_CTRL_REG1:
-  case LIS302DL_CTRL_REG2:
-  case LIS302DL_CTRL_REG3:
-  case LIS302DL_FF_WU_CFG1:
-  case LIS302DL_FF_WU_THS1:
-  case LIS302DL_FF_WU_DURATION1:
-  case LIS302DL_FF_WU_CFG2:
-  case LIS302DL_FF_WU_THS2:
-  case LIS302DL_FF_WU_DURATION2:
-  case LIS302DL_CLICK_CFG:
-  case LIS302DL_CLICK_THSY_X:
-  case LIS302DL_CLICK_THSZ:
-  case LIS302DL_CLICK_TIMELIMIT:
-  case LIS302DL_CLICK_LATENCY:
-  case LIS302DL_CLICK_WINDOW:
-    spiSelect(spip);
-    txbuf[0] = reg;
-    txbuf[1] = value;
-    spiSend(spip, 2, txbuf);
-    spiUnselect(spip);
-  }
+    switch (reg) {
+    default:
+        /* Reserved register must not be written, according to the datasheet
+           this could permanently damage the device.*/
+        osalDbgAssert(FALSE, "reserved register");
+    case LIS302DL_WHO_AM_I:
+    case LIS302DL_HP_FILTER_RESET:
+    case LIS302DL_STATUS_REG:
+    case LIS302DL_OUTX:
+    case LIS302DL_OUTY:
+    case LIS302DL_OUTZ:
+    case LIS302DL_FF_WU_SRC1:
+    case LIS302DL_FF_WU_SRC2:
+    case LIS302DL_CLICK_SRC:
+        /* Read only registers cannot be written, the command is ignored.*/
+        return;
+    case LIS302DL_CTRL_REG1:
+    case LIS302DL_CTRL_REG2:
+    case LIS302DL_CTRL_REG3:
+    case LIS302DL_FF_WU_CFG1:
+    case LIS302DL_FF_WU_THS1:
+    case LIS302DL_FF_WU_DURATION1:
+    case LIS302DL_FF_WU_CFG2:
+    case LIS302DL_FF_WU_THS2:
+    case LIS302DL_FF_WU_DURATION2:
+    case LIS302DL_CLICK_CFG:
+    case LIS302DL_CLICK_THSY_X:
+    case LIS302DL_CLICK_THSZ:
+    case LIS302DL_CLICK_TIMELIMIT:
+    case LIS302DL_CLICK_LATENCY:
+    case LIS302DL_CLICK_WINDOW:
+        spiSelect(spip);
+        txbuf[0] = reg;
+        txbuf[1] = value;
+        spiSend(spip, 2, txbuf);
+        spiUnselect(spip);
+    }
 }
 
 /** @} */

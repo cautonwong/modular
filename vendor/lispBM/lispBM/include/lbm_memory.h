@@ -75,8 +75,8 @@
 #define _LISPBM_MEMORY_H_
 
 #include "lbm_types.h"
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -111,14 +111,14 @@ extern "C" {
  *  approx 2KB lbm_mem avail at runtime)
  *  @{
  */
-#define LBM_MEMORY_SIZE_BLOCKS_TO_WORDS(X) (16*(X))
+#define LBM_MEMORY_SIZE_BLOCKS_TO_WORDS(X) (16 * (X))
 
 #ifndef LBM64
 #define LBM_MEMORY_BITMAP_SIZE(X) (X)
 #else
-  // if X is odd (X/2) gives a bitmap half a word too small.
-  // Bumping it up like this makes it a half a word too large in that case instead.
-#define LBM_MEMORY_BITMAP_SIZE(X) ((X+1)/2)
+// if X is odd (X/2) gives a bitmap half a word too small.
+// Bumping it up like this makes it a half a word too large in that case instead.
+#define LBM_MEMORY_BITMAP_SIZE(X) ((X + 1) / 2)
 #endif
 /** @} */
 
@@ -130,7 +130,7 @@ extern "C" {
  *              for platform-independent sizing.
  *  @{
  */
-#define LBM_MEMORY_SIZE_64BYTES_TIMES_X(X) (16*(X))
+#define LBM_MEMORY_SIZE_64BYTES_TIMES_X(X) (16 * (X))
 
 #define LBM_MEMORY_SIZE_512 LBM_MEMORY_SIZE_64BYTES_TIMES_X(8)
 #define LBM_MEMORY_SIZE_1K LBM_MEMORY_SIZE_64BYTES_TIMES_X(16)
@@ -145,16 +145,16 @@ extern "C" {
 #define LBM_MEMORY_SIZE_1M LBM_MEMORY_SIZE_64BYTES_TIMES_X(16384)
 
 #define LBM_MEMORY_BITMAP_SIZE_512 LBM_MEMORY_BITMAP_SIZE(8)
-#define LBM_MEMORY_BITMAP_SIZE_1K  LBM_MEMORY_BITMAP_SIZE(16)
-#define LBM_MEMORY_BITMAP_SIZE_2K  LBM_MEMORY_BITMAP_SIZE(32)
-#define LBM_MEMORY_BITMAP_SIZE_4K  LBM_MEMORY_BITMAP_SIZE(64)
-#define LBM_MEMORY_BITMAP_SIZE_8K  LBM_MEMORY_BITMAP_SIZE(128)
+#define LBM_MEMORY_BITMAP_SIZE_1K LBM_MEMORY_BITMAP_SIZE(16)
+#define LBM_MEMORY_BITMAP_SIZE_2K LBM_MEMORY_BITMAP_SIZE(32)
+#define LBM_MEMORY_BITMAP_SIZE_4K LBM_MEMORY_BITMAP_SIZE(64)
+#define LBM_MEMORY_BITMAP_SIZE_8K LBM_MEMORY_BITMAP_SIZE(128)
 #define LBM_MEMORY_BITMAP_SIZE_10K LBM_MEMORY_BITMAP_SIZE(160)
 #define LBM_MEMORY_BITMAP_SIZE_12K LBM_MEMORY_BITMAP_SIZE(192)
 #define LBM_MEMORY_BITMAP_SIZE_14K LBM_MEMORY_BITMAP_SIZE(224)
 #define LBM_MEMORY_BITMAP_SIZE_16K LBM_MEMORY_BITMAP_SIZE(256)
 #define LBM_MEMORY_BITMAP_SIZE_32K LBM_MEMORY_BITMAP_SIZE(512)
-#define LBM_MEMORY_BITMAP_SIZE_1M  LBM_MEMORY_BITMAP_SIZE(16384)
+#define LBM_MEMORY_BITMAP_SIZE_1M LBM_MEMORY_BITMAP_SIZE(16384)
 /** @} */
 
 /** Initialize the symbols and arrays memory
@@ -165,16 +165,15 @@ extern "C" {
  * \param bitmap_size The size of the meta-data in number of uint32_t elements.
  * \return true on success and false otherwise.
  */
-bool lbm_memory_init(lbm_uint *data, lbm_uint data_size,
-                     lbm_uint *bitmap, lbm_uint bitmap_size);
+bool lbm_memory_init(lbm_uint *data, lbm_uint data_size, lbm_uint *bitmap, lbm_uint bitmap_size);
 
 /** Set the size of the memory reserve in words.
  * \param num_words Number of words to treat as reserve.
  */
 void lbm_memory_set_reserve(lbm_uint num_words);
-  /** Get the number of words of memory that is treated as reserve.
-   *\return Number of words that are reserved
-   */
+/** Get the number of words of memory that is treated as reserve.
+ *\return Number of words that are reserved
+ */
 lbm_uint lbm_memory_get_reserve(void);
 /** Size of of the symbols and arrays memory in uint32_t chunks.
  *
@@ -192,7 +191,7 @@ lbm_uint lbm_memory_num_free(void);
  */
 lbm_uint lbm_memory_maximum_used(void);
 /** Update memory usage statistics. called by GC automatically
-  */
+ */
 void lbm_memory_update_min_free(void);
 /** Find the length of the longest run of consecutire free indices
  *  in the LBM memory.
@@ -214,12 +213,12 @@ int lbm_memory_free(lbm_uint *ptr);
  * \param size Size in bytes of memory to allocate.
  * \return Pointer to array or NULL.
  */
-void* lbm_malloc(size_t size);
+void *lbm_malloc(size_t size);
 /** Allocate memory potentially from the reserved memory.
  * \param size Size in bytes of memory to allocate.
  * \return Pointer to array or NULL.
  */
-void* lbm_malloc_reserve(size_t size);
+void *lbm_malloc_reserve(size_t size);
 /** Free memory allocated with lbm_malloc
  * \param Pointer to array to free
  */
@@ -237,7 +236,6 @@ bool lbm_memory_shrink(lbm_uint *ptr, lbm_uint n);
  * \return 1 for yes and 0 for no.
  */
 int lbm_memory_ptr_inside(lbm_uint *ptr);
-
 
 lbm_int lbm_memory_address_to_ix(lbm_uint *ptr);
 

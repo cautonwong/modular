@@ -19,38 +19,46 @@
 
 // extract an utf32 value from an utf8 string starting at index ix.
 bool get_utf32(uint8_t *utf8, uint32_t *utf32, uint32_t ix, uint32_t *next_ix) {
-  uint8_t *u = &utf8[ix];
-  uint32_t c = 0;
+    uint8_t *u = &utf8[ix];
+    uint32_t c = 0;
 
-  if (u[0] == 0) return false;
+    if (u[0] == 0)
+        return false;
 
-  if (!(u[0] & 0x80U)) {
-    *utf32 = u[0];
-    *next_ix = ix + 1;
-  } else if ((u[0] & 0xe0U) == 0xc0U) {
-    c = (u[0] & 0x1fU) << 6;
-    if ((u[1] & 0xc0U) != 0x80U) return false;
-    *utf32 = c + (u[1] & 0x3fU);
-    *next_ix = ix + 2;
-  } else if ((u[0] & 0xf0U) == 0xe0U) {
-    c = (u[0] & 0x0fU) << 12;
-    if ((u[1] & 0xc0U) != 0x80U) return false;
-    c += (u[1] & 0x3fU) << 6;
-    if ((u[2] & 0xc0U) != 0x80U) return false;
-    *utf32 = c + (u[2] & 0x3fU);
-    *next_ix = ix + 3;
-  } else if ((u[0] & 0xf8U) == 0xf0U) {
-    c = (u[0] & 0x07U) << 18;
-    if ((u[1] & 0xc0U) != 0x80U) return false;
-    c += (u[1] & 0x3fU) << 12;
-    if ((u[2] & 0xc0U) != 0x80U) return false;
-    c += (u[2] & 0x3fU) << 6;
-    if ((u[3] & 0xc0U) != 0x80U) return false;
-    c += (u[3] & 0x3fU);
-    if ((c & 0xFFFFF800U) == 0xD800U) return false;
-    *utf32 = c;
-    *next_ix = ix + 4;
-  } else return false;
-  return true;
+    if (!(u[0] & 0x80U)) {
+        *utf32 = u[0];
+        *next_ix = ix + 1;
+    } else if ((u[0] & 0xe0U) == 0xc0U) {
+        c = (u[0] & 0x1fU) << 6;
+        if ((u[1] & 0xc0U) != 0x80U)
+            return false;
+        *utf32 = c + (u[1] & 0x3fU);
+        *next_ix = ix + 2;
+    } else if ((u[0] & 0xf0U) == 0xe0U) {
+        c = (u[0] & 0x0fU) << 12;
+        if ((u[1] & 0xc0U) != 0x80U)
+            return false;
+        c += (u[1] & 0x3fU) << 6;
+        if ((u[2] & 0xc0U) != 0x80U)
+            return false;
+        *utf32 = c + (u[2] & 0x3fU);
+        *next_ix = ix + 3;
+    } else if ((u[0] & 0xf8U) == 0xf0U) {
+        c = (u[0] & 0x07U) << 18;
+        if ((u[1] & 0xc0U) != 0x80U)
+            return false;
+        c += (u[1] & 0x3fU) << 12;
+        if ((u[2] & 0xc0U) != 0x80U)
+            return false;
+        c += (u[2] & 0x3fU) << 6;
+        if ((u[3] & 0xc0U) != 0x80U)
+            return false;
+        c += (u[3] & 0x3fU);
+        if ((c & 0xFFFFF800U) == 0xD800U)
+            return false;
+        *utf32 = c;
+        *next_ix = ix + 4;
+    } else
+        return false;
+    return true;
 }
-

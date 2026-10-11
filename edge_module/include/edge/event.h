@@ -31,12 +31,20 @@ typedef struct edge_event {
 
 _Static_assert(sizeof(edge_event_t) == 24u, "edge_event_t ABI changed");
 
+typedef enum edge_queue_policy {
+    EDGE_QUEUE_DROP_NEWEST = 0,
+    EDGE_QUEUE_DROP_OLDEST = 1,
+} edge_queue_policy_t;
+
 typedef struct edge_event_queue {
     edge_event_t *items;
     uint32_t capacity;
     volatile uint32_t head;
     volatile uint32_t tail;
     volatile uint32_t dropped;
+    volatile uint32_t high_watermark;
+    uint8_t policy;
+    uint8_t critical_reserve;
 } edge_event_queue_t;
 
 typedef void (*edge_irq_enter_fn)(void *self);
@@ -56,7 +64,11 @@ typedef struct edge_event_sink {
 
 edge_status_t edge_event_queue_init(edge_event_queue_t *queue, edge_event_t *storage,
                                     uint32_t capacity);
+edge_status_t edge_event_queue_set_policy(edge_event_queue_t *queue, edge_queue_policy_t policy);
+edge_status_t edge_event_queue_set_critical_reserve(edge_event_queue_t *queue, uint8_t reserve);
+uint32_t edge_event_high_watermark(const edge_event_queue_t *queue);
 edge_status_t edge_event_push_isr(edge_event_queue_t *queue, const edge_event_t *event);
+edge_status_t edge_event_push_coalesced_isr(edge_event_queue_t *queue, const edge_event_t *event);
 edge_status_t edge_event_sink_push_isr(edge_event_sink_t *sink, const edge_event_t *event);
 edge_status_t edge_event_pop(edge_event_queue_t *queue, edge_event_t *event);
 size_t edge_event_count(const edge_event_queue_t *queue);

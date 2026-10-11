@@ -18,16 +18,16 @@
 #include "platform_mutex.h"
 
 bool lbm_mutex_init(lbm_mutex_t *m) {
-  if (pthread_mutex_init(m, NULL) != 0) {
-    return false;
-  }
-  return true;
+    if (pthread_mutex_init(m, NULL) != 0) {
+        return false;
+    }
+    return true;
 }
 
-void lbm_mutex_lock(lbm_mutex_t *m){
-  pthread_mutex_lock(m);
+void lbm_mutex_lock(lbm_mutex_t *m) {
+    pthread_mutex_lock(m);
 }
 
-void lbm_mutex_unlock(lbm_mutex_t *m){
-  pthread_mutex_unlock(m);
+void lbm_mutex_unlock(lbm_mutex_t *m) {
+    pthread_mutex_unlock(m);
 }

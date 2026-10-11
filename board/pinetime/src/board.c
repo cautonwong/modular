@@ -81,6 +81,9 @@ bool board_pinetime_hw_init(board_pinetime_hw_t *hw) {
 
 void board_pinetime_enter_low_power(void) {
     ++g_low_power_entries;
+#if defined(__arm__) || defined(__thumb__)
+    __asm__ volatile("wfi");
+#endif
 }
 
 void board_pinetime_feed_watchdog(void) {

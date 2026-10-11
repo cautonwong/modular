@@ -52,6 +52,47 @@ typedef struct edge_irq_stats {
     uint32_t buffer_overflow_count;
 } edge_irq_stats_t;
 
+typedef void (*edge_fault_handler_fn)(const edge_fault_record_t *fault, void *ctx);
+
+typedef struct edge_fault_manager {
+    edge_fault_record_t last_fault;
+    bool has_fault;
+    edge_fault_handler_fn handler;
+    void *ctx;
+} edge_fault_manager_t;
+
+static inline void edge_fault_manager_init(edge_fault_manager_t *mgr, edge_fault_handler_fn handler,
+                                           void *ctx) {
+    if (mgr == NULL) {
+        return;
+    }
+    mgr->has_fault = false;
+    mgr->handler = handler;
+    mgr->ctx = ctx;
+}
+
+static inline void edge_fault_capture_isr(edge_fault_manager_t *mgr,
+                                          const edge_fault_record_t *fault) {
+    if (mgr == NULL || fault == NULL) {
+        return;
+    }
+    mgr->last_fault = *fault;
+    mgr->has_fault = true;
+    if (mgr->handler != NULL) {
+        mgr->handler(fault, mgr->ctx);
+    }
+}
+
+static inline bool edge_fault_occurred(const edge_fault_manager_t *mgr) {
+    return mgr != NULL && mgr->has_fault;
+}
+
+static inline void edge_fault_clear(edge_fault_manager_t *mgr) {
+    if (mgr != NULL) {
+        mgr->has_fault = false;
+    }
+}
+
 #ifdef __cplusplus
 }
 #endif

@@ -35,8 +35,8 @@
  * @name    I2S modes
  * @{
  */
-#define I2S_MODE_SLAVE          0
-#define I2S_MODE_MASTER         1
+#define I2S_MODE_SLAVE 0
+#define I2S_MODE_MASTER 1
 /** @} */
 
 /*===========================================================================*/
@@ -55,11 +55,11 @@
  * @brief   Driver state machine possible states.
  */
 typedef enum {
-  I2S_UNINIT = 0,                   /**< Not initialized.                   */
-  I2S_STOP = 1,                     /**< Stopped.                           */
-  I2S_READY = 2,                    /**< Ready.                             */
-  I2S_ACTIVE = 3,                   /**< Active.                            */
-  I2S_COMPLETE = 4                  /**< Transmission complete.             */
+    I2S_UNINIT = 0,  /**< Not initialized.                   */
+    I2S_STOP = 1,    /**< Stopped.                           */
+    I2S_READY = 2,   /**< Ready.                             */
+    I2S_ACTIVE = 3,  /**< Active.                            */
+    I2S_COMPLETE = 4 /**< Transmission complete.             */
 } i2sstate_t;
 
 #include "i2s_lld.h"
@@ -79,10 +79,11 @@ typedef enum {
  *
  * @iclass
  */
-#define i2sStartExchangeI(i2sp) {                                           \
-  i2s_lld_start_exchange(i2sp);                                             \
-  (i2sp)->state = I2S_ACTIVE;                                               \
-}
+#define i2sStartExchangeI(i2sp)                                                                    \
+    {                                                                                              \
+        i2s_lld_start_exchange(i2sp);                                                              \
+        (i2sp)->state = I2S_ACTIVE;                                                                \
+    }
 
 /**
  * @brief   Stops the ongoing data exchange.
@@ -93,10 +94,11 @@ typedef enum {
  *
  * @iclass
  */
-#define i2sStopExchangeI(i2sp) {                                            \
-  i2s_lld_stop_exchange(i2sp);                                              \
-  (i2sp)->state = I2S_READY;                                                \
-}
+#define i2sStopExchangeI(i2sp)                                                                     \
+    {                                                                                              \
+        i2s_lld_stop_exchange(i2sp);                                                               \
+        (i2sp)->state = I2S_READY;                                                                 \
+    }
 
 /**
  * @brief   Common ISR code, half buffer event.
@@ -110,11 +112,12 @@ typedef enum {
  *
  * @notapi
  */
-#define _i2s_isr_half_code(i2sp) {                                          \
-  if ((i2sp)->config->end_cb != NULL) {                                     \
-    (i2sp)->config->end_cb(i2sp, 0, (i2sp)->config->size / 2);              \
-  }                                                                         \
-}
+#define _i2s_isr_half_code(i2sp)                                                                   \
+    {                                                                                              \
+        if ((i2sp)->config->end_cb != NULL) {                                                      \
+            (i2sp)->config->end_cb(i2sp, 0, (i2sp)->config->size / 2);                             \
+        }                                                                                          \
+    }
 
 /**
  * @brief   Common ISR code.
@@ -129,18 +132,16 @@ typedef enum {
  *
  * @notapi
  */
-#define _i2s_isr_full_code(i2sp) {                                               \
-  if ((i2sp)->config->end_cb) {                                             \
-    (i2sp)->state = I2S_COMPLETE;                                           \
-    (i2sp)->config->end_cb(i2sp,                                            \
-                           (i2sp)->config->size / 2,                        \
-                           (i2sp)->config->size / 2);                       \
-    if ((i2sp)->state == I2S_COMPLETE)                                      \
-      (i2sp)->state = I2S_READY;                                            \
-  }                                                                         \
-  else                                                                      \
-    (i2sp)->state = I2S_READY;                                              \
-}
+#define _i2s_isr_full_code(i2sp)                                                                   \
+    {                                                                                              \
+        if ((i2sp)->config->end_cb) {                                                              \
+            (i2sp)->state = I2S_COMPLETE;                                                          \
+            (i2sp)->config->end_cb(i2sp, (i2sp)->config->size / 2, (i2sp)->config->size / 2);      \
+            if ((i2sp)->state == I2S_COMPLETE)                                                     \
+                (i2sp)->state = I2S_READY;                                                         \
+        } else                                                                                     \
+            (i2sp)->state = I2S_READY;                                                             \
+    }
 /** @} */
 
 /*===========================================================================*/
@@ -150,12 +151,12 @@ typedef enum {
 #ifdef __cplusplus
 extern "C" {
 #endif
-  void i2sInit(void);
-  void i2sObjectInit(I2SDriver *i2sp);
-  void i2sStart(I2SDriver *i2sp, const I2SConfig *config);
-  void i2sStop(I2SDriver *i2sp);
-  void i2sStartExchange(I2SDriver *i2sp);
-  void i2sStopExchange(I2SDriver *i2sp);
+void i2sInit(void);
+void i2sObjectInit(I2SDriver *i2sp);
+void i2sStart(I2SDriver *i2sp, const I2SConfig *config);
+void i2sStop(I2SDriver *i2sp);
+void i2sStartExchange(I2SDriver *i2sp);
+void i2sStopExchange(I2SDriver *i2sp);
 #ifdef __cplusplus
 }
 #endif

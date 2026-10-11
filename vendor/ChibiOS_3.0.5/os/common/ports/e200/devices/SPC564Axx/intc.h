@@ -36,9 +36,9 @@
  * @name    INTC addresses
  * @{
  */
-#define INTC_BASE           0xFFF48000
-#define INTC_IACKR_ADDR     (INTC_BASE + 0x10)
-#define INTC_EOIR_ADDR      (INTC_BASE + 0x18)
+#define INTC_BASE 0xFFF48000
+#define INTC_IACKR_ADDR (INTC_BASE + 0x10)
+#define INTC_EOIR_ADDR (INTC_BASE + 0x18)
 /** @} */
 
 /**
@@ -66,17 +66,17 @@
  * @name    INTC-related macros
  * @{
  */
-#define INTC_BCR            (*((volatile uint32_t *)(INTC_BASE + 0)))
-#define INTC_CPR(n)         (*((volatile uint32_t *)(INTC_BASE + 8 + ((n) * sizeof (uint32_t)))))
-#define INTC_IACKR(n)       (*((volatile uint32_t *)(INTC_BASE + 0x10 + ((n) * sizeof (uint32_t)))))
-#define INTC_EOIR(n)        (*((volatile uint32_t *)(INTC_BASE + 0x18 + ((n) * sizeof (uint32_t)))))
-#define INTC_PSR(n)         (*((volatile uint8_t *)(INTC_BASE + 0x40 + ((n) * sizeof (uint8_t)))))
+#define INTC_BCR (*((volatile uint32_t *)(INTC_BASE + 0)))
+#define INTC_CPR(n) (*((volatile uint32_t *)(INTC_BASE + 8 + ((n) * sizeof(uint32_t)))))
+#define INTC_IACKR(n) (*((volatile uint32_t *)(INTC_BASE + 0x10 + ((n) * sizeof(uint32_t)))))
+#define INTC_EOIR(n) (*((volatile uint32_t *)(INTC_BASE + 0x18 + ((n) * sizeof(uint32_t)))))
+#define INTC_PSR(n) (*((volatile uint8_t *)(INTC_BASE + 0x40 + ((n) * sizeof(uint8_t)))))
 /** @} */
 
 /**
  * @brief   Core selection macros for PSR register.
  */
-#define INTC_PSR_CORE0      0x00
+#define INTC_PSR_CORE0 0x00
 
 /**
  * @brief   PSR register content helper

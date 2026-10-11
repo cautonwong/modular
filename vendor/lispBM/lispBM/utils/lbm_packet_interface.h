@@ -45,52 +45,52 @@
 #ifndef LBM_PACKET_INTERFACE_H_
 #define LBM_PACKET_INTERFACE_H_
 
-#include <stdint.h>
-#include <stdbool.h>
 #include "eval_cps.h"
+#include <stdbool.h>
+#include <stdint.h>
 
 typedef struct {
-  /**
-   * Hardware name string returned in COMM_FW_VERSION, e.g. "ESP32C3".
-   * Must remain valid for the lifetime of the interface. Required.
-   */
-  const char *hw_name;
+    /**
+     * Hardware name string returned in COMM_FW_VERSION, e.g. "ESP32C3".
+     * Must remain valid for the lifetime of the interface. Required.
+     */
+    const char *hw_name;
 
-  /**
-   * Firmware name string returned in COMM_FW_VERSION, e.g. "LispBM".
-   * Must remain valid for the lifetime of the interface. Required.
-   */
-  const char *fw_name;
+    /**
+     * Firmware name string returned in COMM_FW_VERSION, e.g. "LispBM".
+     * Must remain valid for the lifetime of the interface. Required.
+     */
+    const char *fw_name;
 
-  /** Major and minor version numbers returned in COMM_FW_VERSION. */
-  uint8_t fw_version_major;
-  uint8_t fw_version_minor;
+    /** Major and minor version numbers returned in COMM_FW_VERSION. */
+    uint8_t fw_version_major;
+    uint8_t fw_version_minor;
 
-  /**
-   * Send len bytes over the serial link. Required.
-   */
-  void (*send)(uint8_t *data, unsigned int len);
+    /**
+     * Send len bytes over the serial link. Required.
+     */
+    void (*send)(uint8_t *data, unsigned int len);
 
-  /**
-   * Sleep for ms milliseconds.
-   * Used in pause-wait loops and the stream write retry loop.
-   * If NULL a busy-wait is used instead (not recommended on RTOS).
-   */
-  void (*sleep_ms)(uint32_t ms);
+    /**
+     * Sleep for ms milliseconds.
+     * Used in pause-wait loops and the stream write retry loop.
+     * If NULL a busy-wait is used instead (not recommended on RTOS).
+     */
+    void (*sleep_ms)(uint32_t ms);
 
-  /**
-   * Restart LispBM. load_code is currently unused but reserved for
-   * platforms that persist code and want to reload it on restart.
-   * Returns true on success.
-   * If NULL, SET_RUNNING with running=true does nothing.
-   */
-  bool (*lbm_restart)(bool load_code);
+    /**
+     * Restart LispBM. load_code is currently unused but reserved for
+     * platforms that persist code and want to reload it on restart.
+     * Returns true on success.
+     * If NULL, SET_RUNNING with running=true does nothing.
+     */
+    bool (*lbm_restart)(bool load_code);
 
-  /**
-   * Optional done-callback forwarding. Called for every completed LispBM
-   * context that is not the active REPL context. Set to NULL if not needed.
-   */
-  void (*ctx_done)(eval_context_t *ctx);
+    /**
+     * Optional done-callback forwarding. Called for every completed LispBM
+     * context that is not the active REPL context. Set to NULL if not needed.
+     */
+    void (*ctx_done)(eval_context_t *ctx);
 } lbm_packet_if_cfg_t;
 
 /**

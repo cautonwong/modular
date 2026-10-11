@@ -28,9 +28,9 @@
 #ifndef _CHTYPES_H_
 #define _CHTYPES_H_
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdbool.h>
 
 /**
  * @name    Common constants
@@ -39,29 +39,29 @@
  * @brief   Generic 'false' boolean constant.
  */
 #if !defined(FALSE) || defined(__DOXYGEN__)
-#define FALSE               0
+#define FALSE 0
 #endif
 
 /**
  * @brief   Generic 'true' boolean constant.
  */
 #if !defined(TRUE) || defined(__DOXYGEN__)
-#define TRUE                (!FALSE)
+#define TRUE (!FALSE)
 #endif
 /** @} */
 
-typedef bool            bool_t;         /**< Fast boolean type.             */
-typedef uint8_t         syssts_t;       /**< System status word.            */
-typedef uint8_t         tmode_t;        /**< Thread flags.                  */
-typedef uint8_t         tstate_t;       /**< Thread state.                  */
-typedef uint8_t         trefs_t;        /**< Thread references counter.     */
-typedef uint8_t         tslices_t;      /**< Thread time slices counter.    */
-typedef uint8_t         tprio_t;        /**< Thread priority.               */
-typedef int16_t         msg_t;          /**< Inter-thread message.          */
-typedef uint8_t         eventid_t;      /**< Event Id.                      */
-typedef uint8_t         eventmask_t;    /**< Event mask.                    */
-typedef uint8_t         eventflags_t;   /**< Event flags.                   */
-typedef int8_t          cnt_t;          /**< Resources counter.             */
+typedef bool bool_t;          /**< Fast boolean type.             */
+typedef uint8_t syssts_t;     /**< System status word.            */
+typedef uint8_t tmode_t;      /**< Thread flags.                  */
+typedef uint8_t tstate_t;     /**< Thread state.                  */
+typedef uint8_t trefs_t;      /**< Thread references counter.     */
+typedef uint8_t tslices_t;    /**< Thread time slices counter.    */
+typedef uint8_t tprio_t;      /**< Thread priority.               */
+typedef int16_t msg_t;        /**< Inter-thread message.          */
+typedef uint8_t eventid_t;    /**< Event Id.                      */
+typedef uint8_t eventmask_t;  /**< Event mask.                    */
+typedef uint8_t eventflags_t; /**< Event flags.                   */
+typedef int8_t cnt_t;         /**< Resources counter.             */
 
 /**
  * @brief   ROM constant modifier.

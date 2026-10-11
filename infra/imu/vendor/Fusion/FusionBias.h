@@ -33,9 +33,10 @@ typedef struct {
 //------------------------------------------------------------------------------
 // Function prototypes
 
-void FusionBiasInitialise(FusionBias * const fusionBias, const float threshold, const float samplePeriod);
-FusionVector3 FusionBiasUpdate(FusionBias * const fusionBias, FusionVector3 gyroscope, float dt);
-bool FusionBiasIsActive(FusionBias * const fusionBias);
+void FusionBiasInitialise(FusionBias *const fusionBias, const float threshold,
+                          const float samplePeriod);
+FusionVector3 FusionBiasUpdate(FusionBias *const fusionBias, FusionVector3 gyroscope, float dt);
+bool FusionBiasIsActive(FusionBias *const fusionBias);
 
 #endif
 

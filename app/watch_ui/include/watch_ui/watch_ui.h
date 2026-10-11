@@ -9,6 +9,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef WATCH_UI_MODULE_ID
+#define WATCH_UI_MODULE_ID 0x1B00u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

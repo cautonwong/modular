@@ -64,18 +64,25 @@ typedef struct {
 //------------------------------------------------------------------------------
 // Function prototypes
 
-void FusionAhrsInitialise(FusionAhrs * const fusionAhrs, const float gain, const float acc_conf_decay);
-void FusionAhrsSetGain(FusionAhrs * const fusionAhrs, const float gain);
-void FusionAhrsSetAccConfDecay(FusionAhrs * const fusionAhrs, const float acc_conf_decay);
-void FusionAhrsSetMagneticField(FusionAhrs * const fusionAhrs, const float minimumMagneticField, const float maximumMagneticField);
-void FusionAhrsUpdate(FusionAhrs * const fusionAhrs, const FusionVector3 gyroscope, const FusionVector3 accelerometer, const FusionVector3 magnetometer, const float samplePeriod);
-void FusionAhrsUpdateWithoutMagnetometer(FusionAhrs * const fusionAhrs, const FusionVector3 gyroscope, const FusionVector3 accelerometer, const float samplePeriod);
-FusionQuaternion FusionAhrsGetQuaternion(const FusionAhrs * const fusionAhrs);
-FusionVector3 FusionAhrsGetLinearAcceleration(const FusionAhrs * const fusionAhrs);
-FusionVector3 FusionAhrsGetEarthAcceleration(const FusionAhrs * const fusionAhrs);
-void FusionAhrsReinitialise(FusionAhrs * const fusionAhrs);
-bool FusionAhrsIsInitialising(const FusionAhrs * const fusionAhrs);
-void FusionAhrsSetYaw(FusionAhrs * const fusionAhrs, const float yaw);
+void FusionAhrsInitialise(FusionAhrs *const fusionAhrs, const float gain,
+                          const float acc_conf_decay);
+void FusionAhrsSetGain(FusionAhrs *const fusionAhrs, const float gain);
+void FusionAhrsSetAccConfDecay(FusionAhrs *const fusionAhrs, const float acc_conf_decay);
+void FusionAhrsSetMagneticField(FusionAhrs *const fusionAhrs, const float minimumMagneticField,
+                                const float maximumMagneticField);
+void FusionAhrsUpdate(FusionAhrs *const fusionAhrs, const FusionVector3 gyroscope,
+                      const FusionVector3 accelerometer, const FusionVector3 magnetometer,
+                      const float samplePeriod);
+void FusionAhrsUpdateWithoutMagnetometer(FusionAhrs *const fusionAhrs,
+                                         const FusionVector3 gyroscope,
+                                         const FusionVector3 accelerometer,
+                                         const float samplePeriod);
+FusionQuaternion FusionAhrsGetQuaternion(const FusionAhrs *const fusionAhrs);
+FusionVector3 FusionAhrsGetLinearAcceleration(const FusionAhrs *const fusionAhrs);
+FusionVector3 FusionAhrsGetEarthAcceleration(const FusionAhrs *const fusionAhrs);
+void FusionAhrsReinitialise(FusionAhrs *const fusionAhrs);
+bool FusionAhrsIsInitialising(const FusionAhrs *const fusionAhrs);
+void FusionAhrsSetYaw(FusionAhrs *const fusionAhrs, const float yaw);
 
 #endif
 

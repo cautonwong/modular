@@ -42,17 +42,17 @@
 /**
  * @brief   No error return code.
  */
-#define FILE_OK         STM_OK
+#define FILE_OK STM_OK
 
 /**
  * @brief   Error code from the file stream methods.
  */
-#define FILE_ERROR      STM_TIMEOUT
+#define FILE_ERROR STM_TIMEOUT
 
 /**
  * @brief   End-of-file condition for file get/put methods.
  */
-#define FILE_EOF        STM_RESET
+#define FILE_EOF STM_RESET
 /** @} */
 
 /**
@@ -63,26 +63,24 @@ typedef uint32_t fileoffset_t;
 /**
  * @brief   FileStream specific methods.
  */
-#define _file_stream_methods                                                \
-  _base_sequential_stream_methods                                           \
-  /* File close method.*/                                                   \
-  msg_t (*close)(void *instance);                                           \
-  /* Get last error code method.*/                                          \
-  msg_t (*geterror)(void *instance);                                        \
-  /* File get size method.*/                                                \
-  msg_t (*getsize)(void *instance);                                         \
-  /* File get current position method.*/                                    \
-  msg_t (*getposition)(void *instance);                                     \
-  /* File seek method.*/                                                    \
-  msg_t (*lseek)(void *instance, fileoffset_t offset);
+#define _file_stream_methods                                                                       \
+    _base_sequential_stream_methods /* File close method.*/                                        \
+        msg_t (*close)(void *instance);                                                            \
+    /* Get last error code method.*/                                                               \
+    msg_t (*geterror)(void *instance);                                                             \
+    /* File get size method.*/                                                                     \
+    msg_t (*getsize)(void *instance);                                                              \
+    /* File get current position method.*/                                                         \
+    msg_t (*getposition)(void *instance);                                                          \
+    /* File seek method.*/                                                                         \
+    msg_t (*lseek)(void *instance, fileoffset_t offset);
 
 /**
  * @brief   @p FileStream specific data.
  * @note    It is empty because @p FileStream is only an interface
  *          without implementation.
  */
-#define _file_stream_data                                                   \
-  _base_sequential_stream_data
+#define _file_stream_data _base_sequential_stream_data
 
 /**
  * @extends BaseSequentialStreamVMT
@@ -90,7 +88,7 @@ typedef uint32_t fileoffset_t;
  * @brief   @p FileStream virtual methods table.
  */
 struct FileStreamVMT {
-  _file_stream_methods
+    _file_stream_methods
 };
 
 /**
@@ -100,9 +98,9 @@ struct FileStreamVMT {
  * @details This class represents a generic file data stream.
  */
 typedef struct {
-  /** @brief Virtual Methods Table.*/
-  const struct FileStreamVMT *vmt;
-  _file_stream_data
+    /** @brief Virtual Methods Table.*/
+    const struct FileStreamVMT *vmt;
+    _file_stream_data
 } FileStream;
 
 /**

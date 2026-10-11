@@ -41,7 +41,7 @@
  *          it is guaranteed to be equal to the after-reset state. It is
  *          usually an input state.
  */
-#define PAL_MODE_RESET                  0U
+#define PAL_MODE_RESET 0U
 
 /**
  * @brief   Safe state for <b>unconnected</b> pads.
@@ -50,37 +50,37 @@
  *          @p PAL_MODE_INPUT_PULLDOWN or @p PAL_MODE_OUTPUT_PUSHPULL for
  *          example.
  */
-#define PAL_MODE_UNCONNECTED            1U
+#define PAL_MODE_UNCONNECTED 1U
 
 /**
  * @brief   Regular input high-Z pad.
  */
-#define PAL_MODE_INPUT                  2U
+#define PAL_MODE_INPUT 2U
 
 /**
  * @brief   Input pad with weak pull up resistor.
  */
-#define PAL_MODE_INPUT_PULLUP           3U
+#define PAL_MODE_INPUT_PULLUP 3U
 
 /**
  * @brief   Input pad with weak pull down resistor.
  */
-#define PAL_MODE_INPUT_PULLDOWN         4U
+#define PAL_MODE_INPUT_PULLDOWN 4U
 
 /**
  * @brief   Analog input mode.
  */
-#define PAL_MODE_INPUT_ANALOG           5U
+#define PAL_MODE_INPUT_ANALOG 5U
 
 /**
  * @brief   Push-pull output pad.
  */
-#define PAL_MODE_OUTPUT_PUSHPULL        6U
+#define PAL_MODE_OUTPUT_PUSHPULL 6U
 
 /**
  * @brief   Open-drain output pad.
  */
-#define PAL_MODE_OUTPUT_OPENDRAIN       7U
+#define PAL_MODE_OUTPUT_OPENDRAIN 7U
 /** @} */
 
 /**
@@ -90,12 +90,12 @@
 /**
  * @brief   Logical low state.
  */
-#define PAL_LOW                         0U
+#define PAL_LOW 0U
 
 /**
  * @brief   Logical high state.
  */
-#define PAL_HIGH                        1U
+#define PAL_HIGH 1U
 /** @} */
 
 /*===========================================================================*/
@@ -120,20 +120,20 @@
  *          not belonging to the bus.
  */
 typedef struct {
-  /**
-   * @brief Port identifier.
-   */
-  ioportid_t            portid;
-  /**
-   * @brief Bus mask aligned to port bit 0.
-   * @note  The bus mask implicitly define the bus width. A logical AND is
-   *        performed on the bus data.
-   */
-  ioportmask_t          mask;
-  /**
-   * @brief Offset, within the port, of the least significant bit of the bus.
-   */
-  uint_fast8_t          offset;
+    /**
+     * @brief Port identifier.
+     */
+    ioportid_t portid;
+    /**
+     * @brief Bus mask aligned to port bit 0.
+     * @note  The bus mask implicitly define the bus width. A logical AND is
+     *        performed on the bus data.
+     */
+    ioportmask_t mask;
+    /**
+     * @brief Offset, within the port, of the least significant bit of the bus.
+     */
+    uint_fast8_t offset;
 } IOBus;
 
 /*===========================================================================*/
@@ -172,8 +172,8 @@ typedef struct {
  * @param[in] width     bus width in bits
  * @param[in] offset     bus bit offset within the port
  */
-#define _IOBUS_DATA(name, port, width, offset)                              \
-  {port, PAL_GROUP_MASK(width), offset}
+#define _IOBUS_DATA(name, port, width, offset)                                                     \
+    { port, PAL_GROUP_MASK(width), offset }
 
 /**
  * @brief   Static I/O bus initializer.
@@ -183,8 +183,7 @@ typedef struct {
  * @param[in] width     bus width in bits
  * @param[in] offset    bus bit offset within the port
  */
-#define IOBUS_DECL(name, port, width, offset)                               \
-  IOBus name = _IOBUS_DATA(name, port, width, offset)
+#define IOBUS_DECL(name, port, width, offset) IOBus name = _IOBUS_DATA(name, port, width, offset)
 
 /**
  * @name    Macro Functions
@@ -273,8 +272,7 @@ typedef struct {
  * @special
  */
 #if !defined(pal_lld_setport) || defined(__DOXYGEN__)
-#define palSetPort(port, bits)                                              \
-  palWritePort(port, palReadLatch(port) | (bits))
+#define palSetPort(port, bits) palWritePort(port, palReadLatch(port) | (bits))
 #else
 #define palSetPort(port, bits) pal_lld_setport(port, bits)
 #endif
@@ -296,8 +294,7 @@ typedef struct {
  * @special
  */
 #if !defined(pal_lld_clearport) || defined(__DOXYGEN__)
-#define palClearPort(port, bits)                                            \
-  palWritePort(port, palReadLatch(port) & ~(bits))
+#define palClearPort(port, bits) palWritePort(port, palReadLatch(port) & ~(bits))
 #else
 #define palClearPort(port, bits) pal_lld_clearport(port, bits)
 #endif
@@ -319,8 +316,7 @@ typedef struct {
  * @special
  */
 #if !defined(pal_lld_toggleport) || defined(__DOXYGEN__)
-#define palTogglePort(port, bits)                                           \
-  palWritePort(port, palReadLatch(port) ^ (bits))
+#define palTogglePort(port, bits) palWritePort(port, palReadLatch(port) ^ (bits))
 #else
 #define palTogglePort(port, bits) pal_lld_toggleport(port, bits)
 #endif
@@ -338,8 +334,7 @@ typedef struct {
  * @special
  */
 #if !defined(pal_lld_readgroup) || defined(__DOXYGEN__)
-#define palReadGroup(port, mask, offset)                                    \
-  ((palReadPort(port) >> (offset)) & (mask))
+#define palReadGroup(port, mask, offset) ((palReadPort(port) >> (offset)) & (mask))
 #else
 #define palReadGroup(port, mask, offset) pal_lld_readgroup(port, mask, offset)
 #endif
@@ -358,14 +353,12 @@ typedef struct {
  * @special
  */
 #if !defined(pal_lld_writegroup) || defined(__DOXYGEN__)
-#define palWriteGroup(port, mask, offset, bits)                             \
-  palWritePort(port, (palReadLatch(port) & ~((mask) << (offset))) |         \
-                     (((bits) & (mask)) << (offset)))
+#define palWriteGroup(port, mask, offset, bits)                                                    \
+    palWritePort(port,                                                                             \
+                 (palReadLatch(port) & ~((mask) << (offset))) | (((bits) & (mask)) << (offset)))
 #else
-#define palWriteGroup(port, mask, offset, bits)                             \
-  pal_lld_writegroup(port, mask, offset, bits)
+#define palWriteGroup(port, mask, offset, bits) pal_lld_writegroup(port, mask, offset, bits)
 #endif
-
 
 /**
  * @brief   Pads group mode setup.
@@ -384,8 +377,7 @@ typedef struct {
 #if !defined(pal_lld_setgroupmode) || defined(__DOXYGEN__)
 #define palSetGroupMode(port, mask, offset, mode)
 #else
-#define palSetGroupMode(port, mask, offset, mode)                           \
-  pal_lld_setgroupmode(port, mask, offset, mode)
+#define palSetGroupMode(port, mask, offset, mode) pal_lld_setgroupmode(port, mask, offset, mode)
 #endif
 
 /**
@@ -431,9 +423,8 @@ typedef struct {
  * @special
  */
 #if !defined(pal_lld_writepad) || defined(__DOXYGEN__)
-#define palWritePad(port, pad, bit)                                         \
-  palWritePort(port, (palReadLatch(port) & ~PAL_PORT_BIT(pad)) |            \
-                     (((bit) & 1U) << pad))
+#define palWritePad(port, pad, bit)                                                                \
+    palWritePort(port, (palReadLatch(port) & ~PAL_PORT_BIT(pad)) | (((bit)&1U) << pad))
 #else
 #define palWritePad(port, pad, bit) pal_lld_writepad(port, pad, bit)
 #endif
@@ -523,8 +514,7 @@ typedef struct {
  * @special
  */
 #if !defined(pal_lld_setpadmode) || defined(__DOXYGEN__)
-#define palSetPadMode(port, pad, mode)                                      \
-  palSetGroupMode(port, PAL_PORT_BIT(pad), 0U, mode)
+#define palSetPadMode(port, pad, mode) palSetGroupMode(port, PAL_PORT_BIT(pad), 0U, mode)
 #else
 #define palSetPadMode(port, pad, mode) pal_lld_setpadmode(port, pad, mode)
 #endif
@@ -537,9 +527,9 @@ typedef struct {
 #ifdef __cplusplus
 extern "C" {
 #endif
-  ioportmask_t palReadBus(IOBus *bus);
-  void palWriteBus(IOBus *bus, ioportmask_t bits);
-  void palSetBusMode(IOBus *bus, iomode_t mode);
+ioportmask_t palReadBus(IOBus *bus);
+void palWriteBus(IOBus *bus, ioportmask_t bits);
+void palSetBusMode(IOBus *bus, iomode_t mode);
 #ifdef __cplusplus
 }
 #endif

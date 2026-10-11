@@ -9,6 +9,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef ZMK_KEYMAP_MODULE_ID
+#define ZMK_KEYMAP_MODULE_ID 0x2200u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

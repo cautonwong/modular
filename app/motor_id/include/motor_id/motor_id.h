@@ -8,6 +8,10 @@
 #include "edge/module.h"
 #include "edge/modules.h"
 
+#ifndef MOTOR_ID_MODULE_ID
+#define MOTOR_ID_MODULE_ID 0x4D00u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

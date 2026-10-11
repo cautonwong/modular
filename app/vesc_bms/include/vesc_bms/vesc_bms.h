@@ -6,6 +6,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef VESC_BMS_MODULE_ID
+#define VESC_BMS_MODULE_ID 0x5500u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

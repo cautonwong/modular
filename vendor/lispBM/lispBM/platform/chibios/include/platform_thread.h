@@ -25,30 +25,24 @@
 typedef void (*lbm_thread_func_t)(void *arg);
 
 typedef struct {
-  thread_t *handle;
-  void *working_area;
-  uint32_t wa_size;
-  lbm_thread_func_t tfun;
-  void *arg;
+    thread_t *handle;
+    void *working_area;
+    uint32_t wa_size;
+    lbm_thread_func_t tfun;
+    void *arg;
 } platform_thread_t;
 
 typedef platform_thread_t lbm_thread_t;
 
-
-
 typedef enum {
-  LBM_THREAD_PRIO_LOW = LOWPRIO,
-  LBM_THREAD_PRIO_NORMAL = NORMALPRIO,
-  LBM_THREAD_PRIO_HIGH = NORMALPRIO + 10,
-  LBM_THREAD_PRIO_REALTIME = HIGHPRIO
+    LBM_THREAD_PRIO_LOW = LOWPRIO,
+    LBM_THREAD_PRIO_NORMAL = NORMALPRIO,
+    LBM_THREAD_PRIO_HIGH = NORMALPRIO + 10,
+    LBM_THREAD_PRIO_REALTIME = HIGHPRIO
 } lbm_thread_prio_t;
 
-extern bool lbm_thread_create(lbm_thread_t *t,
-                               const char *name,
-                               lbm_thread_func_t func,
-                               void *arg,
-                               lbm_thread_prio_t prio,
-                               uint32_t stack_size);
+extern bool lbm_thread_create(lbm_thread_t *t, const char *name, lbm_thread_func_t func, void *arg,
+                              lbm_thread_prio_t prio, uint32_t stack_size);
 extern void lbm_thread_sleep_us(uint32_t microseconds);
 extern void lbm_thread_yield(void);
 extern void lbm_thread_destroy(lbm_thread_t *t);

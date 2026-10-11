@@ -145,6 +145,64 @@ edge_status_t edge_sys_init(edge_sys_t *sys, edge_module_t **apps, size_t count)
     return EDGE_OK;
 }
 
+edge_status_t edge_sys_init_with_product(edge_sys_t *sys, const edge_product_t *product,
+                                         edge_module_t **app_storage, size_t app_storage_capacity) {
+    if (sys == NULL || product == NULL || app_storage == NULL) {
+        return EDGE_EINVAL;
+    }
+    if (product->module_count > app_storage_capacity) {
+        return EDGE_ENOSPC;
+    }
+
+    /* 1. Verify module dependencies: every required dependency ID must be provided */
+    for (size_t i = 0; i < product->module_count; ++i) {
+        const edge_product_module_t *pm = &product->modules[i];
+        if (pm->desc != NULL && pm->desc->dependencies != NULL) {
+            for (size_t d = 0; d < pm->desc->dependency_count; ++d) {
+                const uint32_t req_id = pm->desc->dependencies[d];
+                bool found = false;
+                for (size_t k = 0; k < product->module_count; ++k) {
+                    if (product->modules[k].desc != NULL &&
+                        product->modules[k].desc->id == req_id) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    return EDGE_ENOENT;
+                }
+            }
+        }
+    }
+
+    /* 2. Execute product forward lifecycle initialization with reverse rollback on error */
+    edge_status_t st = edge_product_init(product);
+    if (st != EDGE_OK) {
+        return st;
+    }
+
+    /* 3. Populate app_storage from registered module pointers */
+    size_t active_count = 0u;
+    for (size_t i = 0; i < product->module_count; ++i) {
+        if (product->modules[i].module != NULL) {
+            app_storage[active_count++] = product->modules[i].module;
+        }
+    }
+
+    return edge_sys_init(sys, app_storage, active_count);
+}
+
+edge_status_t edge_sys_deinit_with_product(edge_sys_t *sys, const edge_product_t *product) {
+    if (sys == NULL) {
+        return EDGE_EINVAL;
+    }
+    edge_status_t rc = edge_sys_deinit(sys);
+    if (product != NULL) {
+        edge_product_shutdown(product);
+    }
+    return rc;
+}
+
 edge_status_t edge_sys_bind_event_queue(edge_sys_t *sys, edge_event_queue_t *queue,
                                         edge_sys_subscription_t *subscriptions, size_t capacity) {
     if (sys == NULL || queue == NULL || (subscriptions == NULL && capacity != 0u))

@@ -7,6 +7,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef FOC_CORE_MODULE_ID
+#define FOC_CORE_MODULE_ID 0x4800u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

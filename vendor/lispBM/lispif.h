@@ -1,10 +1,10 @@
 /*
-	Copyright 2022 Benjamin Vedder	benjamin@vedder.se
-	Copyright 2022 Joel Svensson    svenssonjoel@yahoo.se
+    Copyright 2022 Benjamin Vedder	benjamin@vedder.se
+    Copyright 2022 Joel Svensson    svenssonjoel@yahoo.se
 
-	This file is part of the VESC firmware.
+    This file is part of the VESC firmware.
 
-	The VESC firmware is free software: you can redistribute it and/or modify
+    The VESC firmware is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
@@ -21,13 +21,13 @@
 #ifndef LISPBM_LISPIF_H_
 #define LISPBM_LISPIF_H_
 
-#include <stdint.h>
+#include "hal.h"
+#include "lispbm.h"
 #include <stdbool.h>
 #include <stddef.h>
-#include "lispbm.h"
-#include "hal.h"
+#include <stdint.h>
 
-typedef void* lib_thread;
+typedef void *lib_thread;
 
 // Functions
 void lispif_init(void);
@@ -44,14 +44,14 @@ bool lispif_symbol_to_io(lbm_uint sym, stm32_gpio_t **port, uint32_t *pin);
 void lispif_stop_lib(void);
 float lispif_get_ppm(void);
 void lispif_process_cmd(unsigned char *data, unsigned int len,
-		void(*reply_func)(unsigned char *data, unsigned int len));
+                        void (*reply_func)(unsigned char *data, unsigned int len));
 void lispif_process_can(uint32_t can_id, uint8_t *data8, int len, bool is_ext);
 void lispif_process_custom_app_data(unsigned char *data, unsigned int len);
 void lispif_process_shutdown(void);
 void lispif_process_rmsg(int slot, unsigned char *data, unsigned int len);
 
 void lispif_load_vesc_extensions(bool main_found);
-char* lispif_print_prefix(void);
-lib_thread lispif_spawn(void (*func)(void*), size_t stack_size, const char *name, void *arg);
+char *lispif_print_prefix(void);
+lib_thread lispif_spawn(void (*func)(void *), size_t stack_size, const char *name, void *arg);
 
 #endif /* LISPBM_LISPIF_H_ */

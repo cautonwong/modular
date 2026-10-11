@@ -17,7 +17,7 @@
 /**
  * @file    nullstreams.h
  * @brief   Null streams structures and macros.
- 
+
  * @addtogroup null_streams
  * @{
  */
@@ -44,14 +44,13 @@
 /**
  * @brief   @p NullStream specific data.
  */
-#define _null_stream_data                                                   \
-  _base_sequential_stream_data
+#define _null_stream_data _base_sequential_stream_data
 
 /**
  * @brief   @p NullStream virtual methods table.
  */
 struct NullStreamVMT {
-  _base_sequential_stream_methods
+    _base_sequential_stream_methods
 };
 
 /**
@@ -60,9 +59,9 @@ struct NullStreamVMT {
  * @brief   Null stream object.
  */
 typedef struct {
-  /** @brief Virtual Methods Table.*/
-  const struct NullStreamVMT *vmt;
-  _null_stream_data
+    /** @brief Virtual Methods Table.*/
+    const struct NullStreamVMT *vmt;
+    _null_stream_data
 } NullStream;
 
 /*===========================================================================*/
@@ -76,7 +75,7 @@ typedef struct {
 #ifdef __cplusplus
 extern "C" {
 #endif
-  void nullObjectInit(NullStream *nsp);
+void nullObjectInit(NullStream *nsp);
 #ifdef __cplusplus
 }
 #endif

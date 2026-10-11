@@ -8,6 +8,10 @@
 #include "edge/module.h"
 #include "edge/modules.h"
 
+#ifndef VESC_TERMINAL_MODULE_ID
+#define VESC_TERMINAL_MODULE_ID 0x5400u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

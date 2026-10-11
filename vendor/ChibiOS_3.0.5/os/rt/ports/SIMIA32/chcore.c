@@ -61,32 +61,32 @@ syssts_t port_irq_sts;
  * @param otp the thread to be switched out
  * @param ntp the thread to be switched in
  */
-__attribute__((used))
-static void __dummy(thread_t *ntp, thread_t *otp) {
-  (void)ntp; (void)otp;
+__attribute__((used)) static void __dummy(thread_t *ntp, thread_t *otp) {
+    (void)ntp;
+    (void)otp;
 
-  asm volatile (
+    asm volatile(
 #if defined(WIN32)
-                ".globl @port_switch@8                          \n\t"
-                "@port_switch@8:"
+        ".globl @port_switch@8                          \n\t"
+        "@port_switch@8:"
 #elif defined(__APPLE__)
-                ".globl _port_switch                            \n\t"
-                "_port_switch:"
+        ".globl _port_switch                            \n\t"
+        "_port_switch:"
 #else
-                ".globl port_switch                             \n\t"
-                "port_switch:"
+        ".globl port_switch                             \n\t"
+        "port_switch:"
 #endif
-                "push    %ebp                                   \n\t"
-                "push    %esi                                   \n\t"
-                "push    %edi                                   \n\t"
-                "push    %ebx                                   \n\t"
-                "movl    %esp, 12(%edx)                         \n\t"
-                "movl    12(%ecx), %esp                         \n\t"
-                "pop     %ebx                                   \n\t"
-                "pop     %edi                                   \n\t"
-                "pop     %esi                                   \n\t"
-                "pop     %ebp                                   \n\t"
-                "ret");
+        "push    %ebp                                   \n\t"
+        "push    %esi                                   \n\t"
+        "push    %edi                                   \n\t"
+        "push    %ebx                                   \n\t"
+        "movl    %esp, 12(%edx)                         \n\t"
+        "movl    12(%ecx), %esp                         \n\t"
+        "pop     %ebx                                   \n\t"
+        "pop     %edi                                   \n\t"
+        "pop     %esi                                   \n\t"
+        "pop     %ebp                                   \n\t"
+        "ret");
 }
 
 /**
@@ -94,15 +94,14 @@ static void __dummy(thread_t *ntp, thread_t *otp) {
  * @details If the work function returns @p chThdExit() is automatically
  *          invoked.
  */
-__attribute__((cdecl, noreturn))
-void _port_thread_start(msg_t (*pf)(void *), void *p) {
+__attribute__((cdecl, noreturn)) void _port_thread_start(msg_t (*pf)(void *), void *p) {
 
-  chSysUnlock();
-  pf(p);
-  chThdExit(0);
-  while(1);
+    chSysUnlock();
+    pf(p);
+    chThdExit(0);
+    while (1)
+        ;
 }
-
 
 /**
  * @brief   Returns the current value of the realtime counter.
@@ -110,11 +109,11 @@ void _port_thread_start(msg_t (*pf)(void *), void *p) {
  * @return              The realtime counter value.
  */
 rtcnt_t port_rt_get_counter_value(void) {
-  LARGE_INTEGER n;
+    LARGE_INTEGER n;
 
-  QueryPerformanceCounter(&n);
+    QueryPerformanceCounter(&n);
 
-  return (rtcnt_t)(n.QuadPart / 1000LL);
+    return (rtcnt_t)(n.QuadPart / 1000LL);
 }
 
 /** @} */

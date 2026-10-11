@@ -9,6 +9,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef BLE_NAV_MODULE_ID
+#define BLE_NAV_MODULE_ID 0x3200u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

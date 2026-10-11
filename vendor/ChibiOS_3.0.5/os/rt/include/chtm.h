@@ -54,10 +54,10 @@
  * @brief   Type of a time measurement calibration data.
  */
 typedef struct {
-  /**
-   * @brief   Measurement calibration value.
-   */
-  rtcnt_t               offset;
+    /**
+     * @brief   Measurement calibration value.
+     */
+    rtcnt_t offset;
 } tm_calibration_t;
 
 /**
@@ -70,11 +70,11 @@ typedef struct {
  *          with interrupts enabled.
  */
 typedef struct {
-  rtcnt_t               best;           /**< @brief Best measurement.       */
-  rtcnt_t               worst;          /**< @brief Worst measurement.      */
-  rtcnt_t               last;           /**< @brief Last measurement.       */
-  ucnt_t                n;              /**< @brief Number of measurements. */
-  rttime_t              cumulative;     /**< @brief Cumulative measurement. */
+    rtcnt_t best;        /**< @brief Best measurement.       */
+    rtcnt_t worst;       /**< @brief Worst measurement.      */
+    rtcnt_t last;        /**< @brief Last measurement.       */
+    ucnt_t n;            /**< @brief Number of measurements. */
+    rttime_t cumulative; /**< @brief Cumulative measurement. */
 } time_measurement_t;
 
 /*===========================================================================*/
@@ -88,12 +88,11 @@ typedef struct {
 #ifdef __cplusplus
 extern "C" {
 #endif
-  void _tm_init(void);
-  void chTMObjectInit(time_measurement_t *tmp);
-  NOINLINE void chTMStartMeasurementX(time_measurement_t *tmp);
-  NOINLINE void chTMStopMeasurementX(time_measurement_t *tmp);
-  NOINLINE void chTMChainMeasurementToX(time_measurement_t *tmp1,
-                                        time_measurement_t *tmp2);
+void _tm_init(void);
+void chTMObjectInit(time_measurement_t *tmp);
+NOINLINE void chTMStartMeasurementX(time_measurement_t *tmp);
+NOINLINE void chTMStopMeasurementX(time_measurement_t *tmp);
+NOINLINE void chTMChainMeasurementToX(time_measurement_t *tmp1, time_measurement_t *tmp2);
 #ifdef __cplusplus
 }
 #endif

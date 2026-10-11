@@ -50,26 +50,26 @@
  * @brief   ChibiOS/RT memory signature record.
  */
 typedef struct {
-  char      ch_identifier[4];       /**< @brief Always set to "main".       */
-  uint8_t   ch_zero;                /**< @brief Must be zero.               */
-  uint8_t   ch_size;                /**< @brief Size of this structure.     */
-  uint16_t  ch_version;             /**< @brief Encoded ChibiOS/RT version. */
-  uint8_t   ch_ptrsize;             /**< @brief Size of a pointer.          */
-  uint8_t   ch_timesize;            /**< @brief Size of a @p systime_t.     */
-  uint8_t   ch_threadsize;          /**< @brief Size of a @p thread_t.      */
-  uint8_t   cf_off_prio;            /**< @brief Offset of @p p_prio field.  */
-  uint8_t   cf_off_ctx;             /**< @brief Offset of @p p_ctx field.   */
-  uint8_t   cf_off_newer;           /**< @brief Offset of @p p_newer field. */
-  uint8_t   cf_off_older;           /**< @brief Offset of @p p_older field. */
-  uint8_t   cf_off_name;            /**< @brief Offset of @p p_name field.  */
-  uint8_t   cf_off_stklimit;        /**< @brief Offset of @p p_stklimit
-                                                field.                      */
-  uint8_t   cf_off_state;           /**< @brief Offset of @p p_state field. */
-  uint8_t   cf_off_flags;           /**< @brief Offset of @p p_flags field. */
-  uint8_t   cf_off_refs;            /**< @brief Offset of @p p_refs field.  */
-  uint8_t   cf_off_preempt;         /**< @brief Offset of @p p_preempt
-                                                field.                      */
-  uint8_t   cf_off_time;            /**< @brief Offset of @p p_time field.  */
+    char ch_identifier[4];   /**< @brief Always set to "main".       */
+    uint8_t ch_zero;         /**< @brief Must be zero.               */
+    uint8_t ch_size;         /**< @brief Size of this structure.     */
+    uint16_t ch_version;     /**< @brief Encoded ChibiOS/RT version. */
+    uint8_t ch_ptrsize;      /**< @brief Size of a pointer.          */
+    uint8_t ch_timesize;     /**< @brief Size of a @p systime_t.     */
+    uint8_t ch_threadsize;   /**< @brief Size of a @p thread_t.      */
+    uint8_t cf_off_prio;     /**< @brief Offset of @p p_prio field.  */
+    uint8_t cf_off_ctx;      /**< @brief Offset of @p p_ctx field.   */
+    uint8_t cf_off_newer;    /**< @brief Offset of @p p_newer field. */
+    uint8_t cf_off_older;    /**< @brief Offset of @p p_older field. */
+    uint8_t cf_off_name;     /**< @brief Offset of @p p_name field.  */
+    uint8_t cf_off_stklimit; /**< @brief Offset of @p p_stklimit
+                                         field.                      */
+    uint8_t cf_off_state;    /**< @brief Offset of @p p_state field. */
+    uint8_t cf_off_flags;    /**< @brief Offset of @p p_flags field. */
+    uint8_t cf_off_refs;     /**< @brief Offset of @p p_refs field.  */
+    uint8_t cf_off_preempt;  /**< @brief Offset of @p p_preempt
+                                         field.                      */
+    uint8_t cf_off_time;     /**< @brief Offset of @p p_time field.  */
 } chdebug_t;
 
 /*===========================================================================*/
@@ -82,10 +82,11 @@ typedef struct {
  *
  * @param[in] tp        thread to remove from the registry
  */
-#define REG_REMOVE(tp) {                                                    \
-  (tp)->p_older->p_newer = (tp)->p_newer;                                   \
-  (tp)->p_newer->p_older = (tp)->p_older;                                   \
-}
+#define REG_REMOVE(tp)                                                                             \
+    {                                                                                              \
+        (tp)->p_older->p_newer = (tp)->p_newer;                                                    \
+        (tp)->p_newer->p_older = (tp)->p_older;                                                    \
+    }
 
 /**
  * @brief   Adds a thread to the registry list.
@@ -93,12 +94,13 @@ typedef struct {
  *
  * @param[in] tp        thread to add to the registry
  */
-#define REG_INSERT(tp) {                                                    \
-  (tp)->p_newer = (thread_t *)&ch.rlist;                                    \
-  (tp)->p_older = ch.rlist.r_older;                                         \
-  (tp)->p_older->p_newer = (tp);                                            \
-  ch.rlist.r_older = (tp);                                                  \
-}
+#define REG_INSERT(tp)                                                                             \
+    {                                                                                              \
+        (tp)->p_newer = (thread_t *)&ch.rlist;                                                     \
+        (tp)->p_older = ch.rlist.r_older;                                                          \
+        (tp)->p_older->p_newer = (tp);                                                             \
+        ch.rlist.r_older = (tp);                                                                   \
+    }
 
 /*===========================================================================*/
 /* External declarations.                                                    */
@@ -107,9 +109,9 @@ typedef struct {
 #ifdef __cplusplus
 extern "C" {
 #endif
-  extern ROMCONST chdebug_t ch_debug;
-  thread_t *chRegFirstThread(void);
-  thread_t *chRegNextThread(thread_t *tp);
+extern ROMCONST chdebug_t ch_debug;
+thread_t *chRegFirstThread(void);
+thread_t *chRegNextThread(thread_t *tp);
 #ifdef __cplusplus
 }
 #endif
@@ -132,9 +134,9 @@ extern "C" {
 static inline void chRegSetThreadName(const char *name) {
 
 #if CH_CFG_USE_REGISTRY == TRUE
-  ch.rlist.r_current->p_name = name;
+    ch.rlist.r_current->p_name = name;
 #else
-  (void)name;
+    (void)name;
 #endif
 }
 
@@ -152,10 +154,10 @@ static inline void chRegSetThreadName(const char *name) {
 static inline const char *chRegGetThreadNameX(thread_t *tp) {
 
 #if CH_CFG_USE_REGISTRY == TRUE
-  return tp->p_name;
+    return tp->p_name;
 #else
-  (void)tp;
-  return NULL;
+    (void)tp;
+    return NULL;
 #endif
 }
 
@@ -172,10 +174,10 @@ static inline const char *chRegGetThreadNameX(thread_t *tp) {
 static inline void chRegSetThreadNameX(thread_t *tp, const char *name) {
 
 #if CH_CFG_USE_REGISTRY == TRUE
-  tp->p_name = name;
+    tp->p_name = name;
 #else
-  (void)tp;
-  (void)name;
+    (void)tp;
+    (void)name;
 #endif
 }
 

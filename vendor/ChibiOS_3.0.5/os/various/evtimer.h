@@ -52,9 +52,9 @@
  * @brief   Type of a event timer structure.
  */
 typedef struct {
-  virtual_timer_t       et_vt;
-  event_source_t        et_es;
-  systime_t             et_interval;
+    virtual_timer_t et_vt;
+    event_source_t et_es;
+    systime_t et_interval;
 } event_timer_t;
 
 /*===========================================================================*/
@@ -68,8 +68,8 @@ typedef struct {
 #ifdef __cplusplus
 extern "C" {
 #endif
-  void evtObjectInit(event_timer_t *etp, systime_t time);
-  void evtStart(event_timer_t *etp);
+void evtObjectInit(event_timer_t *etp, systime_t time);
+void evtStart(event_timer_t *etp);
 #ifdef __cplusplus
 }
 #endif
@@ -86,7 +86,7 @@ extern "C" {
  */
 static inline void vevtStop(event_timer_t *etp) {
 
-  chVTReset(&etp->et_vt);
+    chVTReset(&etp->et_vt);
 }
 
 #endif /* _EVTIMER_H_ */

@@ -27,18 +27,17 @@
 
 /* The ChibiOS/RT kernel provides the following definitions by itself, this
    check is performed in order to avoid conflicts. */
-#if !defined(_CHIBIOS_RT_) || (CH_CFG_USE_QUEUES == FALSE) ||               \
-    defined(__DOXYGEN__)
+#if !defined(_CHIBIOS_RT_) || (CH_CFG_USE_QUEUES == FALSE) || defined(__DOXYGEN__)
 
 /**
  * @name    Queue functions returned status value
  * @{
  */
-#define Q_OK            MSG_OK      /**< @brief Operation successful.       */
-#define Q_TIMEOUT       MSG_TIMEOUT /**< @brief Timeout condition.          */
-#define Q_RESET         MSG_RESET   /**< @brief Queue has been reset.       */
-#define Q_EMPTY         (msg_t)-3   /**< @brief Queue empty.                */
-#define Q_FULL          (msg_t)-4   /**< @brief Queue full,                 */
+#define Q_OK MSG_OK           /**< @brief Operation successful.       */
+#define Q_TIMEOUT MSG_TIMEOUT /**< @brief Timeout condition.          */
+#define Q_RESET MSG_RESET     /**< @brief Queue has been reset.       */
+#define Q_EMPTY (msg_t) - 3   /**< @brief Queue empty.                */
+#define Q_FULL (msg_t) - 4    /**< @brief Queue full,                 */
 /** @} */
 
 /**
@@ -62,15 +61,15 @@ typedef void (*qnotify_t)(io_queue_t *qp);
  *          lock zone and is non-blocking.
  */
 struct io_queue {
-  threads_queue_t       q_waiting;  /**< @brief Waiting thread.             */
-  volatile size_t       q_counter;  /**< @brief Resources counter.          */
-  uint8_t               *q_buffer;  /**< @brief Pointer to the queue buffer.*/
-  uint8_t               *q_top;     /**< @brief Pointer to the first
-                                         location after the buffer.         */
-  uint8_t               *q_wrptr;   /**< @brief Write pointer.              */
-  uint8_t               *q_rdptr;   /**< @brief Read pointer.               */
-  qnotify_t             q_notify;   /**< @brief Data notification callback. */
-  void                  *q_link;    /**< @brief Application defined field.  */
+    threads_queue_t q_waiting; /**< @brief Waiting thread.             */
+    volatile size_t q_counter; /**< @brief Resources counter.          */
+    uint8_t *q_buffer;         /**< @brief Pointer to the queue buffer.*/
+    uint8_t *q_top;            /**< @brief Pointer to the first
+                                    location after the buffer.         */
+    uint8_t *q_wrptr;          /**< @brief Write pointer.              */
+    uint8_t *q_rdptr;          /**< @brief Read pointer.               */
+    qnotify_t q_notify;        /**< @brief Data notification callback. */
+    void *q_link;              /**< @brief Application defined field.  */
 };
 
 /**
@@ -85,10 +84,9 @@ struct io_queue {
  *
  * @xclass
  */
-#define qSizeX(qp)                                                          \
-  /*lint -save -e9033 [10.8] The cast is safe.*/                            \
-  ((size_t)((qp)->q_top - (qp)->q_buffer))                                  \
-  /*lint -restore*/
+#define qSizeX(qp)                                                                                 \
+    /*lint -save -e9033 [10.8] The cast is safe.*/                                                 \
+    ((size_t)((qp)->q_top - (qp)->q_buffer)) /*lint -restore*/
 
 /**
  * @brief   Queue space.
@@ -174,8 +172,7 @@ typedef io_queue_t input_queue_t;
  *
  * @iclass
  */
-#define iqIsFullI(iqp) ((bool)(((iqp)->q_wrptr == (iqp)->q_rdptr) &&        \
-                               ((iqp)->q_counter != 0U)))
+#define iqIsFullI(iqp) ((bool)(((iqp)->q_wrptr == (iqp)->q_rdptr) && ((iqp)->q_counter != 0U)))
 
 /**
  * @brief   Input queue read.
@@ -203,16 +200,11 @@ typedef io_queue_t input_queue_t;
  * @param[in] inotify   input notification callback pointer
  * @param[in] link      application defined pointer
  */
-#define _INPUTQUEUE_DATA(name, buffer, size, inotify, link) {               \
-  NULL,                                                                     \
-  0U,                                                                       \
-  (uint8_t *)(buffer),                                                      \
-  (uint8_t *)(buffer) + (size),                                             \
-  (uint8_t *)(buffer),                                                      \
-  (uint8_t *)(buffer),                                                      \
-  (inotify),                                                                \
-  (link)                                                                    \
-}
+#define _INPUTQUEUE_DATA(name, buffer, size, inotify, link)                                        \
+    {                                                                                              \
+        NULL, 0U, (uint8_t *)(buffer), (uint8_t *)(buffer) + (size), (uint8_t *)(buffer),          \
+            (uint8_t *)(buffer), (inotify), (link)                                                 \
+    }
 
 /**
  * @brief   Static input queue initializer.
@@ -225,8 +217,8 @@ typedef io_queue_t input_queue_t;
  * @param[in] inotify   input notification callback pointer
  * @param[in] link      application defined pointer
  */
-#define INPUTQUEUE_DECL(name, buffer, size, inotify, link)                  \
-  input_queue_t name = _INPUTQUEUE_DATA(name, buffer, size, inotify, link)
+#define INPUTQUEUE_DECL(name, buffer, size, inotify, link)                                         \
+    input_queue_t name = _INPUTQUEUE_DATA(name, buffer, size, inotify, link)
 
 /**
  * @extends io_queue_t
@@ -276,8 +268,7 @@ typedef io_queue_t output_queue_t;
  *
  * @iclass
  */
-#define oqIsEmptyI(oqp) ((bool)(((oqp)->q_wrptr == (oqp)->q_rdptr) &&       \
-                                ((oqp)->q_counter != 0U)))
+#define oqIsEmptyI(oqp) ((bool)(((oqp)->q_wrptr == (oqp)->q_rdptr) && ((oqp)->q_counter != 0U)))
 
 /**
  * @brief   Evaluates to @p true if the specified output queue is full.
@@ -306,7 +297,7 @@ typedef io_queue_t output_queue_t;
  * @api
  */
 #define oqPut(oqp, b) oqPutTimeout(oqp, b, TIME_INFINITE)
- /** @} */
+/** @} */
 
 /**
  * @brief   Data part of a static output queue initializer.
@@ -319,16 +310,11 @@ typedef io_queue_t output_queue_t;
  * @param[in] onotify   output notification callback pointer
  * @param[in] link      application defined pointer
  */
-#define _OUTPUTQUEUE_DATA(name, buffer, size, onotify, link) {              \
-  NULL,                                                                     \
-  (size),                                                                   \
-  (uint8_t *)(buffer),                                                      \
-  (uint8_t *)(buffer) + (size),                                             \
-  (uint8_t *)(buffer),                                                      \
-  (uint8_t *)(buffer),                                                      \
-  (onotify),                                                                \
-  (link)                                                                    \
-}
+#define _OUTPUTQUEUE_DATA(name, buffer, size, onotify, link)                                       \
+    {                                                                                              \
+        NULL, (size), (uint8_t *)(buffer), (uint8_t *)(buffer) + (size), (uint8_t *)(buffer),      \
+            (uint8_t *)(buffer), (onotify), (link)                                                 \
+    }
 
 /**
  * @brief   Static output queue initializer.
@@ -341,27 +327,23 @@ typedef io_queue_t output_queue_t;
  * @param[in] onotify   output notification callback pointer
  * @param[in] link      application defined pointer
  */
-#define OUTPUTQUEUE_DECL(name, buffer, size, onotify, link)                 \
-  output_queue_t name = _OUTPUTQUEUE_DATA(name, buffer, size, onotify, link)
+#define OUTPUTQUEUE_DECL(name, buffer, size, onotify, link)                                        \
+    output_queue_t name = _OUTPUTQUEUE_DATA(name, buffer, size, onotify, link)
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-  void iqObjectInit(input_queue_t *iqp, uint8_t *bp, size_t size,
-                    qnotify_t infy, void *link);
-  void iqResetI(input_queue_t *iqp);
-  msg_t iqPutI(input_queue_t *iqp, uint8_t b);
-  msg_t iqGetTimeout(input_queue_t *iqp, systime_t timeout);
-  size_t iqReadTimeout(input_queue_t *iqp, uint8_t *bp,
-                       size_t n, systime_t timeout);
+void iqObjectInit(input_queue_t *iqp, uint8_t *bp, size_t size, qnotify_t infy, void *link);
+void iqResetI(input_queue_t *iqp);
+msg_t iqPutI(input_queue_t *iqp, uint8_t b);
+msg_t iqGetTimeout(input_queue_t *iqp, systime_t timeout);
+size_t iqReadTimeout(input_queue_t *iqp, uint8_t *bp, size_t n, systime_t timeout);
 
-  void oqObjectInit(output_queue_t *oqp, uint8_t *bp, size_t size,
-                    qnotify_t onfy, void *link);
-  void oqResetI(output_queue_t *oqp);
-  msg_t oqPutTimeout(output_queue_t *oqp, uint8_t b, systime_t timeout);
-  msg_t oqGetI(output_queue_t *oqp);
-  size_t oqWriteTimeout(output_queue_t *oqp, const uint8_t *bp,
-                        size_t n, systime_t timeout);
+void oqObjectInit(output_queue_t *oqp, uint8_t *bp, size_t size, qnotify_t onfy, void *link);
+void oqResetI(output_queue_t *oqp);
+msg_t oqPutTimeout(output_queue_t *oqp, uint8_t b, systime_t timeout);
+msg_t oqGetI(output_queue_t *oqp);
+size_t oqWriteTimeout(output_queue_t *oqp, const uint8_t *bp, size_t n, systime_t timeout);
 #ifdef __cplusplus
 }
 #endif
@@ -370,31 +352,29 @@ extern "C" {
 
 /* If ChibiOS is being used and its own queues subsystem is activated then
    this module will use the ChibiOS queues code.*/
-#define qSizeX(qp)                          chQSizeX(qp)
-#define qSpaceI(qp)                         chQSpaceI(qp)
-#define qGetLink(qp)                        chQGetLinkX(qp)
-#define iqGetFullI(iqp)                     chIQGetFullI(iqp)
-#define iqGetEmptyI(iqp)                    chIQGetEmptyI(iqp)
-#define iqIsEmptyI(iqp)                     chIQIsEmptyI(iqp)
-#define iqIsFullI(iqp)                      chIQIsFullI(iqp)
-#define iqGet(iqp)                          chIQGet(iqp)
-#define oqGetFullI(oqp)                     chOQGetFullI(oqp)
-#define oqGetEmptyI(oqp)                    chOQGetEmptyI(oqp)
-#define oqIsEmptyI(oqp)                     chOQIsEmptyI(oqp)
-#define oqIsFullI(oqp)                      chOQIsFullI(oqp)
-#define oqPut(oqp, b)                       chOQPut(oqp, b)
-#define iqObjectInit(iqp, bp, size, infy, link)                             \
-  chIQObjectInit(iqp, bp, size, infy, link)
-#define iqResetI(iqp)                       chIQResetI(iqp)
-#define iqPutI(iqp, b)                      chIQPutI(iqp, b)
-#define iqGetTimeout(iqp, time)             chIQGetTimeout(iqp, time)
-#define iqReadTimeout(iqp, bp, n, time)     chIQReadTimeout(iqp, bp, n, time)
-#define oqObjectInit(oqp, bp, size, onfy, link)                             \
-  chOQObjectInit(oqp, bp, size, onfy, link)
-#define oqResetI(oqp)                       chOQResetI(oqp)
-#define oqPutTimeout(oqp, b, time)          chOQPutTimeout(oqp, b, time)
-#define oqGetI(oqp)                         chOQGetI(oqp)
-#define oqWriteTimeout(oqp, bp, n, time)    chOQWriteTimeout(oqp, bp, n, time)
+#define qSizeX(qp) chQSizeX(qp)
+#define qSpaceI(qp) chQSpaceI(qp)
+#define qGetLink(qp) chQGetLinkX(qp)
+#define iqGetFullI(iqp) chIQGetFullI(iqp)
+#define iqGetEmptyI(iqp) chIQGetEmptyI(iqp)
+#define iqIsEmptyI(iqp) chIQIsEmptyI(iqp)
+#define iqIsFullI(iqp) chIQIsFullI(iqp)
+#define iqGet(iqp) chIQGet(iqp)
+#define oqGetFullI(oqp) chOQGetFullI(oqp)
+#define oqGetEmptyI(oqp) chOQGetEmptyI(oqp)
+#define oqIsEmptyI(oqp) chOQIsEmptyI(oqp)
+#define oqIsFullI(oqp) chOQIsFullI(oqp)
+#define oqPut(oqp, b) chOQPut(oqp, b)
+#define iqObjectInit(iqp, bp, size, infy, link) chIQObjectInit(iqp, bp, size, infy, link)
+#define iqResetI(iqp) chIQResetI(iqp)
+#define iqPutI(iqp, b) chIQPutI(iqp, b)
+#define iqGetTimeout(iqp, time) chIQGetTimeout(iqp, time)
+#define iqReadTimeout(iqp, bp, n, time) chIQReadTimeout(iqp, bp, n, time)
+#define oqObjectInit(oqp, bp, size, onfy, link) chOQObjectInit(oqp, bp, size, onfy, link)
+#define oqResetI(oqp) chOQResetI(oqp)
+#define oqPutTimeout(oqp, b, time) chOQPutTimeout(oqp, b, time)
+#define oqGetI(oqp) chOQGetI(oqp)
+#define oqWriteTimeout(oqp, bp, n, time) chOQWriteTimeout(oqp, bp, n, time)
 
 #endif /* defined(_CHIBIOS_RT_) || (CH_CFG_USE_QUEUES == FALSE) */
 

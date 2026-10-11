@@ -64,8 +64,8 @@ extern "C" {
 #include <bmi160_math.h>
 #else
 #include <math.h>
-#include <string.h>
 #include <stdlib.h>
+#include <string.h>
 #endif
 
 /*********************** User function prototypes ************************/
@@ -189,10 +189,8 @@ int8_t bmi160_get_power_mode(struct bmi160_pmu_status *pmu_status, const struct 
  * @return Result of API execution status
  * @retval zero -> Success  / -ve value -> Error
  */
-int8_t bmi160_get_sensor_data(uint8_t select_sensor,
-                              struct bmi160_sensor_data *accel,
-                              struct bmi160_sensor_data *gyro,
-                              const struct bmi160_dev *dev);
+int8_t bmi160_get_sensor_data(uint8_t select_sensor, struct bmi160_sensor_data *accel,
+                              struct bmi160_sensor_data *gyro, const struct bmi160_dev *dev);
 
 /*!
  * @brief This API configures the necessary interrupt based on
@@ -244,7 +242,8 @@ int8_t bmi160_read_step_counter(uint16_t *step_val, const struct bmi160_dev *dev
  * @return Result of API execution status
  * @retval zero -> Success / -ve value -> Error
  */
-int8_t bmi160_aux_read(uint8_t reg_addr, uint8_t *aux_data, uint16_t len, const struct bmi160_dev *dev);
+int8_t bmi160_aux_read(uint8_t reg_addr, uint8_t *aux_data, uint16_t len,
+                       const struct bmi160_dev *dev);
 
 /*!
  * @brief This API writes the mention no of byte of data to the given
@@ -259,7 +258,8 @@ int8_t bmi160_aux_read(uint8_t reg_addr, uint8_t *aux_data, uint16_t len, const 
  * @return Result of API execution status
  * @retval zero -> Success / -ve value -> Error
  */
-int8_t bmi160_aux_write(uint8_t reg_addr, uint8_t *aux_data, uint16_t len, const struct bmi160_dev *dev);
+int8_t bmi160_aux_write(uint8_t reg_addr, uint8_t *aux_data, uint16_t len,
+                        const struct bmi160_dev *dev);
 
 /*!
  * @brief This API initialize the auxiliary sensor
@@ -520,7 +520,8 @@ int8_t bmi160_set_fifo_wm(uint8_t fifo_wm, const struct bmi160_dev *dev);
  *  @retval Any non zero value -> Fail
  *
  */
-int8_t bmi160_extract_accel(struct bmi160_sensor_data *accel_data, uint8_t *accel_length, struct bmi160_dev const *dev);
+int8_t bmi160_extract_accel(struct bmi160_sensor_data *accel_data, uint8_t *accel_length,
+                            struct bmi160_dev const *dev);
 
 /*!
  *  @brief This API parses and extracts the gyro frames from
@@ -545,7 +546,8 @@ int8_t bmi160_extract_accel(struct bmi160_sensor_data *accel_data, uint8_t *acce
  *  @retval Any non zero value -> Fail
  *
  */
-int8_t bmi160_extract_gyro(struct bmi160_sensor_data *gyro_data, uint8_t *gyro_length, struct bmi160_dev const *dev);
+int8_t bmi160_extract_gyro(struct bmi160_sensor_data *gyro_data, uint8_t *gyro_length,
+                           struct bmi160_dev const *dev);
 
 /*!
  *  @brief This API parses and extracts the aux frames from
@@ -570,7 +572,8 @@ int8_t bmi160_extract_gyro(struct bmi160_sensor_data *gyro_data, uint8_t *gyro_l
  *  @retval Any non zero value -> Fail
  *
  */
-int8_t bmi160_extract_aux(struct bmi160_aux_data *aux_data, uint8_t *aux_len, struct bmi160_dev const *dev);
+int8_t bmi160_extract_aux(struct bmi160_aux_data *aux_data, uint8_t *aux_len,
+                          struct bmi160_dev const *dev);
 
 /*!
  *  @brief This API starts the FOC of accel and gyro
@@ -611,8 +614,7 @@ int8_t bmi160_extract_aux(struct bmi160_aux_data *aux_data, uint8_t *aux_len, st
  *  @retval 0 -> Success
  *  @retval Any non zero value -> Fail
  */
-int8_t bmi160_start_foc(const struct bmi160_foc_conf *foc_conf,
-                        struct bmi160_offsets *offset,
+int8_t bmi160_start_foc(const struct bmi160_foc_conf *foc_conf, struct bmi160_offsets *offset,
                         struct bmi160_dev const *dev);
 
 /*!
@@ -652,8 +654,7 @@ int8_t bmi160_get_offsets(struct bmi160_offsets *offset, const struct bmi160_dev
  *  @retval Any non zero value -> Fail
  */
 int8_t bmi160_set_offsets(const struct bmi160_foc_conf *foc_conf,
-                          const struct bmi160_offsets *offset,
-                          struct bmi160_dev const *dev);
+                          const struct bmi160_offsets *offset, struct bmi160_dev const *dev);
 
 /*!
  *  @brief This API writes the image registers values to NVM which is
@@ -681,8 +682,7 @@ int8_t bmi160_update_nvm(struct bmi160_dev const *dev);
  *  @retval Any non zero value -> Fail
  */
 int8_t bmi160_get_int_status(enum bmi160_int_status_sel int_status_sel,
-                             union bmi160_int_status *int_status,
-                             struct bmi160_dev const *dev);
+                             union bmi160_int_status *int_status, struct bmi160_dev const *dev);
 
 /*************************** C++ guard macro *****************************/
 #ifdef __cplusplus

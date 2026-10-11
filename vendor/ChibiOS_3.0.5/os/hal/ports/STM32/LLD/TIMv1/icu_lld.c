@@ -103,39 +103,34 @@ ICUDriver ICUD9;
 /*===========================================================================*/
 
 static bool icu_lld_wait_edge(ICUDriver *icup) {
-  uint32_t sr;
-  bool result;
+    uint32_t sr;
+    bool result;
 
-  /* Polled mode so re-enabling the interrupts while the operation is
-     performed.*/
-  osalSysUnlock();
+    /* Polled mode so re-enabling the interrupts while the operation is
+       performed.*/
+    osalSysUnlock();
 
-  /* Polling the right bit depending on the input channel.*/
-  if (icup->config->channel == ICU_CHANNEL_1) {
-    /* Waiting for an edge.*/
-    while (((sr = icup->tim->SR) &
-            (STM32_TIM_SR_CC1IF | STM32_TIM_SR_UIF)) == 0)
-      ;
-  }
-  else {
-    /* Waiting for an edge.*/
-    while (((sr = icup->tim->SR) &
-            (STM32_TIM_SR_CC2IF | STM32_TIM_SR_UIF)) == 0)
-      ;
-  }
+    /* Polling the right bit depending on the input channel.*/
+    if (icup->config->channel == ICU_CHANNEL_1) {
+        /* Waiting for an edge.*/
+        while (((sr = icup->tim->SR) & (STM32_TIM_SR_CC1IF | STM32_TIM_SR_UIF)) == 0)
+            ;
+    } else {
+        /* Waiting for an edge.*/
+        while (((sr = icup->tim->SR) & (STM32_TIM_SR_CC2IF | STM32_TIM_SR_UIF)) == 0)
+            ;
+    }
 
-  /* Edge or overflow?*/
-  result = (sr & STM32_TIM_SR_UIF) != 0 ? true : false;
+    /* Edge or overflow?*/
+    result = (sr & STM32_TIM_SR_UIF) != 0 ? true : false;
 
-  /* Done, disabling interrupts again.*/
-  osalSysLock();
+    /* Done, disabling interrupts again.*/
+    osalSysLock();
 
-  /* Resetting all flags.*/
-  icup->tim->SR &= ~(STM32_TIM_SR_CC1IF |
-                     STM32_TIM_SR_CC2IF |
-                     STM32_TIM_SR_UIF);
+    /* Resetting all flags.*/
+    icup->tim->SR &= ~(STM32_TIM_SR_CC1IF | STM32_TIM_SR_CC2IF | STM32_TIM_SR_UIF);
 
-  return result;
+    return result;
 }
 
 /**
@@ -144,25 +139,24 @@ static bool icu_lld_wait_edge(ICUDriver *icup) {
  * @param[in] icup      pointer to the @p ICUDriver object
  */
 static void icu_lld_serve_interrupt(ICUDriver *icup) {
-  uint32_t sr;
+    uint32_t sr;
 
-  sr  = icup->tim->SR;
-  sr &= icup->tim->DIER & STM32_TIM_DIER_IRQ_MASK;
-  icup->tim->SR = ~sr;
-  if (icup->config->channel == ICU_CHANNEL_1) {
-    if ((sr & STM32_TIM_SR_CC2IF) != 0)
-      _icu_isr_invoke_width_cb(icup);
-    if ((sr & STM32_TIM_SR_CC1IF) != 0)
-      _icu_isr_invoke_period_cb(icup);
-  }
-  else {
-    if ((sr & STM32_TIM_SR_CC1IF) != 0)
-      _icu_isr_invoke_width_cb(icup);
-    if ((sr & STM32_TIM_SR_CC2IF) != 0)
-      _icu_isr_invoke_period_cb(icup);
-  }
-  if ((sr & STM32_TIM_SR_UIF) != 0)
-    _icu_isr_invoke_overflow_cb(icup);
+    sr = icup->tim->SR;
+    sr &= icup->tim->DIER & STM32_TIM_DIER_IRQ_MASK;
+    icup->tim->SR = ~sr;
+    if (icup->config->channel == ICU_CHANNEL_1) {
+        if ((sr & STM32_TIM_SR_CC2IF) != 0)
+            _icu_isr_invoke_width_cb(icup);
+        if ((sr & STM32_TIM_SR_CC1IF) != 0)
+            _icu_isr_invoke_period_cb(icup);
+    } else {
+        if ((sr & STM32_TIM_SR_CC1IF) != 0)
+            _icu_isr_invoke_width_cb(icup);
+        if ((sr & STM32_TIM_SR_CC2IF) != 0)
+            _icu_isr_invoke_period_cb(icup);
+    }
+    if ((sr & STM32_TIM_SR_UIF) != 0)
+        _icu_isr_invoke_overflow_cb(icup);
 }
 
 /*===========================================================================*/
@@ -183,11 +177,11 @@ static void icu_lld_serve_interrupt(ICUDriver *icup) {
  */
 OSAL_IRQ_HANDLER(STM32_TIM1_UP_HANDLER) {
 
-  OSAL_IRQ_PROLOGUE();
+    OSAL_IRQ_PROLOGUE();
 
-  icu_lld_serve_interrupt(&ICUD1);
+    icu_lld_serve_interrupt(&ICUD1);
 
-  OSAL_IRQ_EPILOGUE();
+    OSAL_IRQ_EPILOGUE();
 }
 
 #if !defined(STM32_TIM1_CC_HANDLER)
@@ -203,11 +197,11 @@ OSAL_IRQ_HANDLER(STM32_TIM1_UP_HANDLER) {
  */
 OSAL_IRQ_HANDLER(STM32_TIM1_CC_HANDLER) {
 
-  OSAL_IRQ_PROLOGUE();
+    OSAL_IRQ_PROLOGUE();
 
-  icu_lld_serve_interrupt(&ICUD1);
+    icu_lld_serve_interrupt(&ICUD1);
 
-  OSAL_IRQ_EPILOGUE();
+    OSAL_IRQ_EPILOGUE();
 }
 #endif /* STM32_ICU_USE_TIM1 */
 
@@ -225,11 +219,11 @@ OSAL_IRQ_HANDLER(STM32_TIM1_CC_HANDLER) {
  */
 OSAL_IRQ_HANDLER(STM32_TIM2_HANDLER) {
 
-  OSAL_IRQ_PROLOGUE();
+    OSAL_IRQ_PROLOGUE();
 
-  icu_lld_serve_interrupt(&ICUD2);
+    icu_lld_serve_interrupt(&ICUD2);
 
-  OSAL_IRQ_EPILOGUE();
+    OSAL_IRQ_EPILOGUE();
 }
 #endif /* STM32_ICU_USE_TIM2 */
 
@@ -247,11 +241,11 @@ OSAL_IRQ_HANDLER(STM32_TIM2_HANDLER) {
  */
 OSAL_IRQ_HANDLER(STM32_TIM3_HANDLER) {
 
-  OSAL_IRQ_PROLOGUE();
+    OSAL_IRQ_PROLOGUE();
 
-  icu_lld_serve_interrupt(&ICUD3);
+    icu_lld_serve_interrupt(&ICUD3);
 
-  OSAL_IRQ_EPILOGUE();
+    OSAL_IRQ_EPILOGUE();
 }
 #endif /* STM32_ICU_USE_TIM3 */
 
@@ -269,11 +263,11 @@ OSAL_IRQ_HANDLER(STM32_TIM3_HANDLER) {
  */
 OSAL_IRQ_HANDLER(STM32_TIM4_HANDLER) {
 
-  OSAL_IRQ_PROLOGUE();
+    OSAL_IRQ_PROLOGUE();
 
-  icu_lld_serve_interrupt(&ICUD4);
+    icu_lld_serve_interrupt(&ICUD4);
 
-  OSAL_IRQ_EPILOGUE();
+    OSAL_IRQ_EPILOGUE();
 }
 #endif /* STM32_ICU_USE_TIM4 */
 
@@ -291,11 +285,11 @@ OSAL_IRQ_HANDLER(STM32_TIM4_HANDLER) {
  */
 OSAL_IRQ_HANDLER(STM32_TIM5_HANDLER) {
 
-  OSAL_IRQ_PROLOGUE();
+    OSAL_IRQ_PROLOGUE();
 
-  icu_lld_serve_interrupt(&ICUD5);
+    icu_lld_serve_interrupt(&ICUD5);
 
-  OSAL_IRQ_EPILOGUE();
+    OSAL_IRQ_EPILOGUE();
 }
 #endif /* STM32_ICU_USE_TIM5 */
 
@@ -313,11 +307,11 @@ OSAL_IRQ_HANDLER(STM32_TIM5_HANDLER) {
  */
 OSAL_IRQ_HANDLER(STM32_TIM8_UP_HANDLER) {
 
-  OSAL_IRQ_PROLOGUE();
+    OSAL_IRQ_PROLOGUE();
 
-  icu_lld_serve_interrupt(&ICUD8);
+    icu_lld_serve_interrupt(&ICUD8);
 
-  OSAL_IRQ_EPILOGUE();
+    OSAL_IRQ_EPILOGUE();
 }
 
 #if !defined(STM32_TIM8_CC_HANDLER)
@@ -333,11 +327,11 @@ OSAL_IRQ_HANDLER(STM32_TIM8_UP_HANDLER) {
  */
 OSAL_IRQ_HANDLER(STM32_TIM8_CC_HANDLER) {
 
-  OSAL_IRQ_PROLOGUE();
+    OSAL_IRQ_PROLOGUE();
 
-  icu_lld_serve_interrupt(&ICUD8);
+    icu_lld_serve_interrupt(&ICUD8);
 
-  OSAL_IRQ_EPILOGUE();
+    OSAL_IRQ_EPILOGUE();
 }
 #endif /* STM32_ICU_USE_TIM8 */
 
@@ -355,11 +349,11 @@ OSAL_IRQ_HANDLER(STM32_TIM8_CC_HANDLER) {
  */
 OSAL_IRQ_HANDLER(STM32_TIM9_HANDLER) {
 
-  OSAL_IRQ_PROLOGUE();
+    OSAL_IRQ_PROLOGUE();
 
-  icu_lld_serve_interrupt(&ICUD9);
+    icu_lld_serve_interrupt(&ICUD9);
 
-  OSAL_IRQ_EPILOGUE();
+    OSAL_IRQ_EPILOGUE();
 }
 #endif /* STM32_ICU_USE_TIM9 */
 
@@ -375,45 +369,45 @@ OSAL_IRQ_HANDLER(STM32_TIM9_HANDLER) {
 void icu_lld_init(void) {
 
 #if STM32_ICU_USE_TIM1
-  /* Driver initialization.*/
-  icuObjectInit(&ICUD1);
-  ICUD1.tim = STM32_TIM1;
+    /* Driver initialization.*/
+    icuObjectInit(&ICUD1);
+    ICUD1.tim = STM32_TIM1;
 #endif
 
 #if STM32_ICU_USE_TIM2
-  /* Driver initialization.*/
-  icuObjectInit(&ICUD2);
-  ICUD2.tim = STM32_TIM2;
+    /* Driver initialization.*/
+    icuObjectInit(&ICUD2);
+    ICUD2.tim = STM32_TIM2;
 #endif
 
 #if STM32_ICU_USE_TIM3
-  /* Driver initialization.*/
-  icuObjectInit(&ICUD3);
-  ICUD3.tim = STM32_TIM3;
+    /* Driver initialization.*/
+    icuObjectInit(&ICUD3);
+    ICUD3.tim = STM32_TIM3;
 #endif
 
 #if STM32_ICU_USE_TIM4
-  /* Driver initialization.*/
-  icuObjectInit(&ICUD4);
-  ICUD4.tim = STM32_TIM4;
+    /* Driver initialization.*/
+    icuObjectInit(&ICUD4);
+    ICUD4.tim = STM32_TIM4;
 #endif
 
 #if STM32_ICU_USE_TIM5
-  /* Driver initialization.*/
-  icuObjectInit(&ICUD5);
-  ICUD5.tim = STM32_TIM5;
+    /* Driver initialization.*/
+    icuObjectInit(&ICUD5);
+    ICUD5.tim = STM32_TIM5;
 #endif
 
 #if STM32_ICU_USE_TIM8
-  /* Driver initialization.*/
-  icuObjectInit(&ICUD8);
-  ICUD8.tim = STM32_TIM8;
+    /* Driver initialization.*/
+    icuObjectInit(&ICUD8);
+    ICUD8.tim = STM32_TIM8;
 #endif
 
 #if STM32_ICU_USE_TIM9
-  /* Driver initialization.*/
-  icuObjectInit(&ICUD9);
-  ICUD9.tim = STM32_TIM9;
+    /* Driver initialization.*/
+    icuObjectInit(&ICUD9);
+    ICUD9.tim = STM32_TIM9;
 #endif
 }
 
@@ -425,150 +419,143 @@ void icu_lld_init(void) {
  * @notapi
  */
 void icu_lld_start(ICUDriver *icup) {
-  uint32_t psc;
+    uint32_t psc;
 
-  osalDbgAssert((icup->config->channel == ICU_CHANNEL_1) ||
-                (icup->config->channel == ICU_CHANNEL_2),
-                "invalid input");
+    osalDbgAssert((icup->config->channel == ICU_CHANNEL_1) ||
+                      (icup->config->channel == ICU_CHANNEL_2),
+                  "invalid input");
 
-  if (icup->state == ICU_STOP) {
-    /* Clock activation and timer reset.*/
+    if (icup->state == ICU_STOP) {
+        /* Clock activation and timer reset.*/
 #if STM32_ICU_USE_TIM1
-    if (&ICUD1 == icup) {
-      rccEnableTIM1(FALSE);
-      rccResetTIM1();
-      nvicEnableVector(STM32_TIM1_UP_NUMBER, STM32_ICU_TIM1_IRQ_PRIORITY);
-      nvicEnableVector(STM32_TIM1_CC_NUMBER, STM32_ICU_TIM1_IRQ_PRIORITY);
+        if (&ICUD1 == icup) {
+            rccEnableTIM1(FALSE);
+            rccResetTIM1();
+            nvicEnableVector(STM32_TIM1_UP_NUMBER, STM32_ICU_TIM1_IRQ_PRIORITY);
+            nvicEnableVector(STM32_TIM1_CC_NUMBER, STM32_ICU_TIM1_IRQ_PRIORITY);
 #if defined(STM32_TIM1CLK)
-      icup->clock = STM32_TIM1CLK;
+            icup->clock = STM32_TIM1CLK;
 #else
-      icup->clock = STM32_TIMCLK2;
+            icup->clock = STM32_TIMCLK2;
 #endif
-    }
+        }
 #endif
 #if STM32_ICU_USE_TIM2
-    if (&ICUD2 == icup) {
-      rccEnableTIM2(FALSE);
-      rccResetTIM2();
-      nvicEnableVector(STM32_TIM2_NUMBER, STM32_ICU_TIM2_IRQ_PRIORITY);
-      icup->clock = STM32_TIMCLK1;
-    }
+        if (&ICUD2 == icup) {
+            rccEnableTIM2(FALSE);
+            rccResetTIM2();
+            nvicEnableVector(STM32_TIM2_NUMBER, STM32_ICU_TIM2_IRQ_PRIORITY);
+            icup->clock = STM32_TIMCLK1;
+        }
 #endif
 #if STM32_ICU_USE_TIM3
-    if (&ICUD3 == icup) {
-      rccEnableTIM3(FALSE);
-      rccResetTIM3();
-      nvicEnableVector(STM32_TIM3_NUMBER, STM32_ICU_TIM3_IRQ_PRIORITY);
-      icup->clock = STM32_TIMCLK1;
-    }
+        if (&ICUD3 == icup) {
+            rccEnableTIM3(FALSE);
+            rccResetTIM3();
+            nvicEnableVector(STM32_TIM3_NUMBER, STM32_ICU_TIM3_IRQ_PRIORITY);
+            icup->clock = STM32_TIMCLK1;
+        }
 #endif
 #if STM32_ICU_USE_TIM4
-    if (&ICUD4 == icup) {
-      rccEnableTIM4(FALSE);
-      rccResetTIM4();
-      nvicEnableVector(STM32_TIM4_NUMBER, STM32_ICU_TIM4_IRQ_PRIORITY);
-      icup->clock = STM32_TIMCLK1;
-    }
+        if (&ICUD4 == icup) {
+            rccEnableTIM4(FALSE);
+            rccResetTIM4();
+            nvicEnableVector(STM32_TIM4_NUMBER, STM32_ICU_TIM4_IRQ_PRIORITY);
+            icup->clock = STM32_TIMCLK1;
+        }
 #endif
 #if STM32_ICU_USE_TIM5
-    if (&ICUD5 == icup) {
-      rccEnableTIM5(FALSE);
-      rccResetTIM5();
-      nvicEnableVector(STM32_TIM5_NUMBER, STM32_ICU_TIM5_IRQ_PRIORITY);
-      icup->clock = STM32_TIMCLK1;
-    }
+        if (&ICUD5 == icup) {
+            rccEnableTIM5(FALSE);
+            rccResetTIM5();
+            nvicEnableVector(STM32_TIM5_NUMBER, STM32_ICU_TIM5_IRQ_PRIORITY);
+            icup->clock = STM32_TIMCLK1;
+        }
 #endif
 #if STM32_ICU_USE_TIM8
-    if (&ICUD8 == icup) {
-      rccEnableTIM8(FALSE);
-      rccResetTIM8();
-      nvicEnableVector(STM32_TIM8_UP_NUMBER, STM32_ICU_TIM8_IRQ_PRIORITY);
-      nvicEnableVector(STM32_TIM8_CC_NUMBER, STM32_ICU_TIM8_IRQ_PRIORITY);
+        if (&ICUD8 == icup) {
+            rccEnableTIM8(FALSE);
+            rccResetTIM8();
+            nvicEnableVector(STM32_TIM8_UP_NUMBER, STM32_ICU_TIM8_IRQ_PRIORITY);
+            nvicEnableVector(STM32_TIM8_CC_NUMBER, STM32_ICU_TIM8_IRQ_PRIORITY);
 #if defined(STM32_TIM8CLK)
-      icup->clock = STM32_TIM8CLK;
+            icup->clock = STM32_TIM8CLK;
 #else
-      icup->clock = STM32_TIMCLK2;
+            icup->clock = STM32_TIMCLK2;
 #endif
-    }
+        }
 #endif
 #if STM32_ICU_USE_TIM9
-    if (&ICUD9 == icup) {
-      rccEnableTIM9(FALSE);
-      rccResetTIM9();
-      nvicEnableVector(STM32_TIM9_NUMBER, STM32_ICU_TIM9_IRQ_PRIORITY);
-      icup->clock = STM32_TIMCLK2;
-    }
+        if (&ICUD9 == icup) {
+            rccEnableTIM9(FALSE);
+            rccResetTIM9();
+            nvicEnableVector(STM32_TIM9_NUMBER, STM32_ICU_TIM9_IRQ_PRIORITY);
+            icup->clock = STM32_TIMCLK2;
+        }
 #endif
-  }
-  else {
-    /* Driver re-configuration scenario, it must be stopped first.*/
-    icup->tim->CR1    = 0;                  /* Timer disabled.              */
-    icup->tim->CCR[0] = 0;                  /* Comparator 1 disabled.       */
-    icup->tim->CCR[1] = 0;                  /* Comparator 2 disabled.       */
-    icup->tim->CNT    = 0;                  /* Counter reset to zero.       */
-  }
+    } else {
+        /* Driver re-configuration scenario, it must be stopped first.*/
+        icup->tim->CR1 = 0;    /* Timer disabled.              */
+        icup->tim->CCR[0] = 0; /* Comparator 1 disabled.       */
+        icup->tim->CCR[1] = 0; /* Comparator 2 disabled.       */
+        icup->tim->CNT = 0;    /* Counter reset to zero.       */
+    }
 
-  /* Timer configuration.*/
-  icup->tim->SR   = 0;                      /* Clear eventual pending IRQs. */
-  icup->tim->DIER = icup->config->dier &    /* DMA-related DIER settings.   */
-                    ~STM32_TIM_DIER_IRQ_MASK;
-  psc = (icup->clock / icup->config->frequency) - 1;
-  osalDbgAssert((psc <= 0xFFFF) &&
-                ((psc + 1) * icup->config->frequency) == icup->clock,
-                "invalid frequency");
-  icup->tim->PSC  = psc;
-  icup->tim->ARR  = 0xFFFF;
+    /* Timer configuration.*/
+    icup->tim->SR = 0;                     /* Clear eventual pending IRQs. */
+    icup->tim->DIER = icup->config->dier & /* DMA-related DIER settings.   */
+                      ~STM32_TIM_DIER_IRQ_MASK;
+    psc = (icup->clock / icup->config->frequency) - 1;
+    osalDbgAssert((psc <= 0xFFFF) && ((psc + 1) * icup->config->frequency) == icup->clock,
+                  "invalid frequency");
+    icup->tim->PSC = psc;
+    icup->tim->ARR = 0xFFFF;
 
-  if (icup->config->channel == ICU_CHANNEL_1) {
-    /* Selected input 1.
-       CCMR1_CC1S = 01 = CH1 Input on TI1.
-       CCMR1_CC2S = 10 = CH2 Input on TI1.*/
-    icup->tim->CCMR1 = STM32_TIM_CCMR1_CC1S(1) | STM32_TIM_CCMR1_CC2S(2);
+    if (icup->config->channel == ICU_CHANNEL_1) {
+        /* Selected input 1.
+           CCMR1_CC1S = 01 = CH1 Input on TI1.
+           CCMR1_CC2S = 10 = CH2 Input on TI1.*/
+        icup->tim->CCMR1 = STM32_TIM_CCMR1_CC1S(1) | STM32_TIM_CCMR1_CC2S(2);
 
-    /* SMCR_TS  = 101, input is TI1FP1.
-       SMCR_SMS = 100, reset on rising edge.*/
-    icup->tim->SMCR  = STM32_TIM_SMCR_TS(5) | STM32_TIM_SMCR_SMS(4);
+        /* SMCR_TS  = 101, input is TI1FP1.
+           SMCR_SMS = 100, reset on rising edge.*/
+        icup->tim->SMCR = STM32_TIM_SMCR_TS(5) | STM32_TIM_SMCR_SMS(4);
 
-    /* The CCER settings depend on the selected trigger mode.
-       ICU_INPUT_ACTIVE_HIGH: Active on rising edge, idle on falling edge.
-       ICU_INPUT_ACTIVE_LOW:  Active on falling edge, idle on rising edge.*/
-    if (icup->config->mode == ICU_INPUT_ACTIVE_HIGH)
-      icup->tim->CCER = STM32_TIM_CCER_CC1E |
-                        STM32_TIM_CCER_CC2E | STM32_TIM_CCER_CC2P;
-    else
-      icup->tim->CCER = STM32_TIM_CCER_CC1E | STM32_TIM_CCER_CC1P |
-                        STM32_TIM_CCER_CC2E;
+        /* The CCER settings depend on the selected trigger mode.
+           ICU_INPUT_ACTIVE_HIGH: Active on rising edge, idle on falling edge.
+           ICU_INPUT_ACTIVE_LOW:  Active on falling edge, idle on rising edge.*/
+        if (icup->config->mode == ICU_INPUT_ACTIVE_HIGH)
+            icup->tim->CCER = STM32_TIM_CCER_CC1E | STM32_TIM_CCER_CC2E | STM32_TIM_CCER_CC2P;
+        else
+            icup->tim->CCER = STM32_TIM_CCER_CC1E | STM32_TIM_CCER_CC1P | STM32_TIM_CCER_CC2E;
 
-    /* Direct pointers to the capture registers in order to make reading
-       data faster from within callbacks.*/
-    icup->wccrp = &icup->tim->CCR[1];
-    icup->pccrp = &icup->tim->CCR[0];
-  }
-  else {
-    /* Selected input 2.
-       CCMR1_CC1S = 10 = CH1 Input on TI2.
-       CCMR1_CC2S = 01 = CH2 Input on TI2.*/
-    icup->tim->CCMR1 = STM32_TIM_CCMR1_CC1S(2) | STM32_TIM_CCMR1_CC2S(1);
+        /* Direct pointers to the capture registers in order to make reading
+           data faster from within callbacks.*/
+        icup->wccrp = &icup->tim->CCR[1];
+        icup->pccrp = &icup->tim->CCR[0];
+    } else {
+        /* Selected input 2.
+           CCMR1_CC1S = 10 = CH1 Input on TI2.
+           CCMR1_CC2S = 01 = CH2 Input on TI2.*/
+        icup->tim->CCMR1 = STM32_TIM_CCMR1_CC1S(2) | STM32_TIM_CCMR1_CC2S(1);
 
-    /* SMCR_TS  = 110, input is TI2FP2.
-       SMCR_SMS = 100, reset on rising edge.*/
-    icup->tim->SMCR  = STM32_TIM_SMCR_TS(6) | STM32_TIM_SMCR_SMS(4);
+        /* SMCR_TS  = 110, input is TI2FP2.
+           SMCR_SMS = 100, reset on rising edge.*/
+        icup->tim->SMCR = STM32_TIM_SMCR_TS(6) | STM32_TIM_SMCR_SMS(4);
 
-    /* The CCER settings depend on the selected trigger mode.
-       ICU_INPUT_ACTIVE_HIGH: Active on rising edge, idle on falling edge.
-       ICU_INPUT_ACTIVE_LOW:  Active on falling edge, idle on rising edge.*/
-    if (icup->config->mode == ICU_INPUT_ACTIVE_HIGH)
-      icup->tim->CCER = STM32_TIM_CCER_CC1E | STM32_TIM_CCER_CC1P |
-                        STM32_TIM_CCER_CC2E;
-    else
-      icup->tim->CCER = STM32_TIM_CCER_CC1E |
-                        STM32_TIM_CCER_CC2E | STM32_TIM_CCER_CC2P;
+        /* The CCER settings depend on the selected trigger mode.
+           ICU_INPUT_ACTIVE_HIGH: Active on rising edge, idle on falling edge.
+           ICU_INPUT_ACTIVE_LOW:  Active on falling edge, idle on rising edge.*/
+        if (icup->config->mode == ICU_INPUT_ACTIVE_HIGH)
+            icup->tim->CCER = STM32_TIM_CCER_CC1E | STM32_TIM_CCER_CC1P | STM32_TIM_CCER_CC2E;
+        else
+            icup->tim->CCER = STM32_TIM_CCER_CC1E | STM32_TIM_CCER_CC2E | STM32_TIM_CCER_CC2P;
 
-    /* Direct pointers to the capture registers in order to make reading
-       data faster from within callbacks.*/
-    icup->wccrp = &icup->tim->CCR[0];
-    icup->pccrp = &icup->tim->CCR[1];
-  }
+        /* Direct pointers to the capture registers in order to make reading
+           data faster from within callbacks.*/
+        icup->wccrp = &icup->tim->CCR[0];
+        icup->pccrp = &icup->tim->CCR[1];
+    }
 }
 
 /**
@@ -580,57 +567,57 @@ void icu_lld_start(ICUDriver *icup) {
  */
 void icu_lld_stop(ICUDriver *icup) {
 
-  if (icup->state == ICU_READY) {
-    /* Clock deactivation.*/
-    icup->tim->CR1  = 0;                    /* Timer disabled.              */
-    icup->tim->DIER = 0;                    /* All IRQs disabled.           */
-    icup->tim->SR   = 0;                    /* Clear eventual pending IRQs. */
+    if (icup->state == ICU_READY) {
+        /* Clock deactivation.*/
+        icup->tim->CR1 = 0;  /* Timer disabled.              */
+        icup->tim->DIER = 0; /* All IRQs disabled.           */
+        icup->tim->SR = 0;   /* Clear eventual pending IRQs. */
 
 #if STM32_ICU_USE_TIM1
-    if (&ICUD1 == icup) {
-      nvicDisableVector(STM32_TIM1_UP_NUMBER);
-      nvicDisableVector(STM32_TIM1_CC_NUMBER);
-      rccDisableTIM1(FALSE);
-    }
+        if (&ICUD1 == icup) {
+            nvicDisableVector(STM32_TIM1_UP_NUMBER);
+            nvicDisableVector(STM32_TIM1_CC_NUMBER);
+            rccDisableTIM1(FALSE);
+        }
 #endif
 #if STM32_ICU_USE_TIM2
-    if (&ICUD2 == icup) {
-      nvicDisableVector(STM32_TIM2_NUMBER);
-      rccDisableTIM2(FALSE);
-    }
+        if (&ICUD2 == icup) {
+            nvicDisableVector(STM32_TIM2_NUMBER);
+            rccDisableTIM2(FALSE);
+        }
 #endif
 #if STM32_ICU_USE_TIM3
-    if (&ICUD3 == icup) {
-      nvicDisableVector(STM32_TIM3_NUMBER);
-      rccDisableTIM3(FALSE);
-    }
+        if (&ICUD3 == icup) {
+            nvicDisableVector(STM32_TIM3_NUMBER);
+            rccDisableTIM3(FALSE);
+        }
 #endif
 #if STM32_ICU_USE_TIM4
-    if (&ICUD4 == icup) {
-      nvicDisableVector(STM32_TIM4_NUMBER);
-      rccDisableTIM4(FALSE);
-    }
+        if (&ICUD4 == icup) {
+            nvicDisableVector(STM32_TIM4_NUMBER);
+            rccDisableTIM4(FALSE);
+        }
 #endif
 #if STM32_ICU_USE_TIM5
-    if (&ICUD5 == icup) {
-      nvicDisableVector(STM32_TIM5_NUMBER);
-      rccDisableTIM5(FALSE);
-    }
+        if (&ICUD5 == icup) {
+            nvicDisableVector(STM32_TIM5_NUMBER);
+            rccDisableTIM5(FALSE);
+        }
 #endif
 #if STM32_ICU_USE_TIM8
-    if (&ICUD8 == icup) {
-      nvicDisableVector(STM32_TIM8_UP_NUMBER);
-      nvicDisableVector(STM32_TIM8_CC_NUMBER);
-      rccDisableTIM8(FALSE);
-    }
+        if (&ICUD8 == icup) {
+            nvicDisableVector(STM32_TIM8_UP_NUMBER);
+            nvicDisableVector(STM32_TIM8_CC_NUMBER);
+            rccDisableTIM8(FALSE);
+        }
 #endif
 #if STM32_ICU_USE_TIM9
-    if (&ICUD9 == icup) {
-      nvicDisableVector(STM32_TIM9_NUMBER);
-      rccDisableTIM9(FALSE);
-    }
+        if (&ICUD9 == icup) {
+            nvicDisableVector(STM32_TIM9_NUMBER);
+            rccDisableTIM9(FALSE);
+        }
 #endif
-  }
+    }
 }
 
 /**
@@ -642,12 +629,12 @@ void icu_lld_stop(ICUDriver *icup) {
  */
 void icu_lld_start_capture(ICUDriver *icup) {
 
-  /* Triggering an UG and clearing the IRQ status.*/
-  icup->tim->EGR |= STM32_TIM_EGR_UG;
-  icup->tim->SR = 0;
+    /* Triggering an UG and clearing the IRQ status.*/
+    icup->tim->EGR |= STM32_TIM_EGR_UG;
+    icup->tim->SR = 0;
 
-  /* Timer is started.*/
-  icup->tim->CR1 = STM32_TIM_CR1_URS | STM32_TIM_CR1_CEN;
+    /* Timer is started.*/
+    icup->tim->CR1 = STM32_TIM_CR1_URS | STM32_TIM_CR1_CEN;
 }
 
 /**
@@ -664,14 +651,14 @@ void icu_lld_start_capture(ICUDriver *icup) {
  */
 bool icu_lld_wait_capture(ICUDriver *icup) {
 
-  /* If the driver is still in the ICU_WAITING state then we need to wait
-     for the first activation edge.*/
-  if (icup->state == ICU_WAITING)
-    if (icu_lld_wait_edge(icup))
-      return true;
+    /* If the driver is still in the ICU_WAITING state then we need to wait
+       for the first activation edge.*/
+    if (icup->state == ICU_WAITING)
+        if (icu_lld_wait_edge(icup))
+            return true;
 
-  /* This edge marks the availability of a capture result.*/
-  return icu_lld_wait_edge(icup);
+    /* This edge marks the availability of a capture result.*/
+    return icu_lld_wait_edge(icup);
 }
 
 /**
@@ -683,11 +670,11 @@ bool icu_lld_wait_capture(ICUDriver *icup) {
  */
 void icu_lld_stop_capture(ICUDriver *icup) {
 
-  /* Timer stopped.*/
-  icup->tim->CR1   = 0;
+    /* Timer stopped.*/
+    icup->tim->CR1 = 0;
 
-  /* All interrupts disabled.*/
-  icup->tim->DIER &= ~STM32_TIM_DIER_IRQ_MASK;
+    /* All interrupts disabled.*/
+    icup->tim->DIER &= ~STM32_TIM_DIER_IRQ_MASK;
 }
 
 /**
@@ -700,40 +687,39 @@ void icu_lld_stop_capture(ICUDriver *icup) {
  * @api
  */
 void icu_lld_enable_notifications(ICUDriver *icup) {
-  uint32_t dier = icup->tim->DIER;
+    uint32_t dier = icup->tim->DIER;
 
-  /* If interrupts were already enabled then the operation is skipped.
-     This is done in order to avoid clearing the SR and risk losing
-     pending interrupts.*/
-  if ((dier & STM32_TIM_DIER_IRQ_MASK) == 0) {
-    /* Previously triggered IRQs are ignored, status cleared.*/
-    icup->tim->SR = 0;
+    /* If interrupts were already enabled then the operation is skipped.
+       This is done in order to avoid clearing the SR and risk losing
+       pending interrupts.*/
+    if ((dier & STM32_TIM_DIER_IRQ_MASK) == 0) {
+        /* Previously triggered IRQs are ignored, status cleared.*/
+        icup->tim->SR = 0;
 
-    if (icup->config->channel == ICU_CHANNEL_1) {
-      /* Enabling periodic callback on CC1.*/
-      dier |= STM32_TIM_DIER_CC1IE;
+        if (icup->config->channel == ICU_CHANNEL_1) {
+            /* Enabling periodic callback on CC1.*/
+            dier |= STM32_TIM_DIER_CC1IE;
 
-      /* Optionally enabling width callback on CC2.*/
-      if (icup->config->width_cb != NULL)
-        dier |= STM32_TIM_DIER_CC2IE;
+            /* Optionally enabling width callback on CC2.*/
+            if (icup->config->width_cb != NULL)
+                dier |= STM32_TIM_DIER_CC2IE;
+        } else {
+            /* Enabling periodic callback on CC2.*/
+            dier |= STM32_TIM_DIER_CC2IE;
+
+            /* Optionally enabling width callback on CC1.*/
+            if (icup->config->width_cb != NULL)
+                dier |= STM32_TIM_DIER_CC1IE;
+        }
+
+        /* If an overflow callback is defined then also the overflow callback
+           is enabled.*/
+        if (icup->config->overflow_cb != NULL)
+            dier |= STM32_TIM_DIER_UIE;
+
+        /* One single atomic write.*/
+        icup->tim->DIER = dier;
     }
-    else {
-      /* Enabling periodic callback on CC2.*/
-      dier |= STM32_TIM_DIER_CC2IE;
-
-      /* Optionally enabling width callback on CC1.*/
-      if (icup->config->width_cb != NULL)
-        dier |= STM32_TIM_DIER_CC1IE;
-    }
-
-    /* If an overflow callback is defined then also the overflow callback
-       is enabled.*/
-    if (icup->config->overflow_cb != NULL)
-      dier |= STM32_TIM_DIER_UIE;
-
-    /* One single atomic write.*/
-    icup->tim->DIER = dier;
-  }
 }
 
 /**
@@ -747,8 +733,8 @@ void icu_lld_enable_notifications(ICUDriver *icup) {
  */
 void icu_lld_disable_notifications(ICUDriver *icup) {
 
-  /* All interrupts disabled.*/
-  icup->tim->DIER &= ~STM32_TIM_DIER_IRQ_MASK;
+    /* All interrupts disabled.*/
+    icup->tim->DIER &= ~STM32_TIM_DIER_IRQ_MASK;
 }
 
 #endif /* HAL_USE_ICU */

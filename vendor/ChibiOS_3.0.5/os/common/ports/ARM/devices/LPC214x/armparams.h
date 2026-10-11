@@ -34,30 +34,30 @@
 /**
  * @brief   ARM core model.
  */
-#define ARM_CORE                ARM_CORE_ARM7TDMI
+#define ARM_CORE ARM_CORE_ARM7TDMI
 
 /**
  * @brief   Thumb-capable.
  */
-#define ARM_SUPPORTS_THUMB      1
+#define ARM_SUPPORTS_THUMB 1
 
 /**
  * @brief   Thumb2-capable.
  */
-#define ARM_SUPPORTS_THUMB2     0
+#define ARM_SUPPORTS_THUMB2 0
 
 /**
  * @brief   Implementation of the wait-for-interrupt state enter.
  */
-#define ARM_WFI_IMPL            (PCON = 1)
+#define ARM_WFI_IMPL (PCON = 1)
 
 #if !defined(_FROM_ASM_) || defined(__DOXYGEN__)
 /**
  * @brief   Address of the IRQ vector register in the interrupt controller.
  */
-#define ARM_IRQ_VECTOR_REG      0xFFFFF030U
+#define ARM_IRQ_VECTOR_REG 0xFFFFF030U
 #else
-#define ARM_IRQ_VECTOR_REG      0xFFFFF030
+#define ARM_IRQ_VECTOR_REG 0xFFFFF030
 #endif
 
 #endif /* _ARMPARAMS_H_ */

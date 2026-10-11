@@ -21,15 +21,15 @@
 #define LBM_CONSTANTS_H_
 
 // Error messages
-extern const char* lbm_error_str_parse_eof;
-extern const char* lbm_error_str_parse_token;
-extern const char* lbm_error_str_parse_dot;
-extern const char* lbm_error_str_parse_close;
-extern const char* lbm_error_str_num_args;
-extern const char* lbm_error_str_forbidden_in_atomic;
-extern const char* lbm_error_str_no_number;
-extern const char* lbm_error_str_not_a_boolean;
-extern const char* lbm_error_str_incorrect_arg;
-extern const char* lbm_error_str_not_applicable;
+extern const char *lbm_error_str_parse_eof;
+extern const char *lbm_error_str_parse_token;
+extern const char *lbm_error_str_parse_dot;
+extern const char *lbm_error_str_parse_close;
+extern const char *lbm_error_str_num_args;
+extern const char *lbm_error_str_forbidden_in_atomic;
+extern const char *lbm_error_str_no_number;
+extern const char *lbm_error_str_not_a_boolean;
+extern const char *lbm_error_str_incorrect_arg;
+extern const char *lbm_error_str_not_applicable;
 
 #endif

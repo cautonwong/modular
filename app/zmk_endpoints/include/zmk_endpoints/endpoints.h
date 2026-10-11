@@ -8,6 +8,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef ZMK_ENDPOINTS_MODULE_ID
+#define ZMK_ENDPOINTS_MODULE_ID 0x2500u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

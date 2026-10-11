@@ -32,40 +32,40 @@
 #ifndef FT232H_W25N01_H_
 #define FT232H_W25N01_H_
 
-#include <stdint.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 // W25N01GVZEIG geometry
-#define NAND_PAGE_DATA_SIZE    2048
-#define NAND_PAGE_SPARE_SIZE     64
-#define NAND_PAGE_TOTAL_SIZE   (NAND_PAGE_DATA_SIZE + NAND_PAGE_SPARE_SIZE)
-#define NAND_PAGES_PER_BLOCK     64
-#define NAND_NUM_BLOCKS        1024
-#define NAND_NUM_PAGES         (NAND_NUM_BLOCKS * NAND_PAGES_PER_BLOCK)
+#define NAND_PAGE_DATA_SIZE 2048
+#define NAND_PAGE_SPARE_SIZE 64
+#define NAND_PAGE_TOTAL_SIZE (NAND_PAGE_DATA_SIZE + NAND_PAGE_SPARE_SIZE)
+#define NAND_PAGES_PER_BLOCK 64
+#define NAND_NUM_BLOCKS 1024
+#define NAND_NUM_PAGES (NAND_NUM_BLOCKS * NAND_PAGES_PER_BLOCK)
 
 // Status register addresses passed to nand_read_status / nand_write_status
-#define NAND_SR1  0xA0   // Protection Register
-#define NAND_SR2  0xB0   // Configuration Register
-#define NAND_SR3  0xC0   // Status Register
+#define NAND_SR1 0xA0 // Protection Register
+#define NAND_SR2 0xB0 // Configuration Register
+#define NAND_SR3 0xC0 // Status Register
 
 // SR3 bit flags
-#define NAND_SR3_BUSY   0x01
-#define NAND_SR3_WEL    0x02
-#define NAND_SR3_EFAIL  0x04
-#define NAND_SR3_PFAIL  0x08
-#define NAND_SR3_ECC0   0x10
-#define NAND_SR3_ECC1   0x20
+#define NAND_SR3_BUSY 0x01
+#define NAND_SR3_WEL 0x02
+#define NAND_SR3_EFAIL 0x04
+#define NAND_SR3_PFAIL 0x08
+#define NAND_SR3_ECC0 0x10
+#define NAND_SR3_ECC1 0x20
 
 // ECC result returned by nand_read_page
 typedef enum {
-  NAND_ECC_OK             = 0,  // no errors
-  NAND_ECC_CORRECTED      = 1,  // 1-4 bit errors corrected by internal ECC
-  NAND_ECC_UNCORRECTABLE  = 2,  // uncorrectable bit errors — data invalid
-  NAND_ECC_ERROR          = 3,  // SPI or timeout error
+    NAND_ECC_OK = 0,            // no errors
+    NAND_ECC_CORRECTED = 1,     // 1-4 bit errors corrected by internal ECC
+    NAND_ECC_UNCORRECTABLE = 2, // uncorrectable bit errors — data invalid
+    NAND_ECC_ERROR = 3,         // SPI or timeout error
 } nand_ecc_t;
 
 // ---- Device open/close -----------------------------------------------

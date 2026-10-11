@@ -23,7 +23,7 @@ extern "C" {
 #endif
 
 void lbm_mutex_extensions_init(void);
-  
+
 #ifdef __cplusplus
 }
 #endif

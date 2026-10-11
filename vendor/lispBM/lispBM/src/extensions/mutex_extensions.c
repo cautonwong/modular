@@ -17,16 +17,15 @@
 
 #include "extensions/mutex_extensions.h"
 
-#include "extensions.h"
 #include "eval_cps.h"
+#include "extensions.h"
 
 #ifdef LBM_OPT_MUTEX_EXTENSIONS_SIZE
-#pragma GCC optimize ("-Os")
+#pragma GCC optimize("-Os")
 #endif
 #ifdef LBM_OPT_MUTEX_EXTENSIONS_SIZE_AGGRESSIVE
-#pragma GCC optimize ("-Oz")
+#pragma GCC optimize("-Oz")
 #endif
-
 
 // This file provides a mutual exclusion feature based on the block_from_extension
 // mechanism present in LBM.
@@ -52,107 +51,106 @@
 // two references into a single list, implementing a O(1)-insert-last O(1)-remove-first
 // queue. At the surface though, it is a regular lisp dotted pair that
 // can be destroyed with standard lisp functionality, no protection!
-// When a good replacement for "Custom types" is invented this will be improved. 
+// When a good replacement for "Custom types" is invented this will be improved.
 
 bool is_mutex(lbm_value v) {
-  // true if it is somewhat likely that v is a mutex.
-  bool res = (lbm_is_cons(v) &&
-              (!lbm_is_symbol_nil(lbm_car(v)) ||  lbm_is_symbol_nil(lbm_cdr(v)))); // car == nil -> cdr == nil
-  // potentially add a clause
-  //      car == (cons a b) -> cdr == (cons c nil) 
-  return res; 
+    // true if it is somewhat likely that v is a mutex.
+    bool res = (lbm_is_cons(v) && (!lbm_is_symbol_nil(lbm_car(v)) ||
+                                   lbm_is_symbol_nil(lbm_cdr(v)))); // car == nil -> cdr == nil
+    // potentially add a clause
+    //      car == (cons a b) -> cdr == (cons c nil)
+    return res;
 }
 
 bool is_mutex_unlocked(lbm_value v) {
-  return (lbm_is_symbol_nil(lbm_car(v)));
+    return (lbm_is_symbol_nil(lbm_car(v)));
 }
 
 void enqueue_cid(lbm_value mutex, lbm_value cid_pair) {
-  if (lbm_is_symbol_nil(lbm_car(mutex))) {
-    lbm_set_car(mutex, cid_pair);
-    lbm_set_cdr(mutex, cid_pair);
-  } else {
-    lbm_value last = lbm_cdr(mutex);
-    lbm_set_cdr(last, cid_pair);
-    lbm_set_cdr(mutex, cid_pair);
-  }
+    if (lbm_is_symbol_nil(lbm_car(mutex))) {
+        lbm_set_car(mutex, cid_pair);
+        lbm_set_cdr(mutex, cid_pair);
+    } else {
+        lbm_value last = lbm_cdr(mutex);
+        lbm_set_cdr(last, cid_pair);
+        lbm_set_cdr(mutex, cid_pair);
+    }
 }
 
 bool dequeue_cid(lbm_value mutex, lbm_value cid) {
-  bool res = false;
-  if (lbm_is_cons(lbm_car(mutex))) {
-    lbm_value locked_cid = lbm_car(lbm_car(mutex));
-    if (locked_cid == cid) { // no decoding
-      res = true;
-      lbm_value head = lbm_car(mutex);
-      lbm_value last = lbm_cdr(mutex);
-      if (head == last) { // one element
-        lbm_set_car(mutex, ENC_SYM_NIL);
-        lbm_set_cdr(mutex, ENC_SYM_NIL);
-      } else {
-        lbm_set_car(mutex, lbm_cdr(head));
-      }
+    bool res = false;
+    if (lbm_is_cons(lbm_car(mutex))) {
+        lbm_value locked_cid = lbm_car(lbm_car(mutex));
+        if (locked_cid == cid) { // no decoding
+            res = true;
+            lbm_value head = lbm_car(mutex);
+            lbm_value last = lbm_cdr(mutex);
+            if (head == last) { // one element
+                lbm_set_car(mutex, ENC_SYM_NIL);
+                lbm_set_cdr(mutex, ENC_SYM_NIL);
+            } else {
+                lbm_set_car(mutex, lbm_cdr(head));
+            }
+        }
     }
-  }
-  return res;
+    return res;
 }
 
 lbm_value head_of_queue(lbm_value mutex) {
-  lbm_value res = ENC_SYM_NIL;
-  if (lbm_is_cons(lbm_car(mutex))) {
-    res = lbm_car(lbm_car(mutex));
-  }
-  return res;
+    lbm_value res = ENC_SYM_NIL;
+    if (lbm_is_cons(lbm_car(mutex))) {
+        res = lbm_car(lbm_car(mutex));
+    }
+    return res;
 }
 
 static lbm_value ext_mutex_create(lbm_value *args, lbm_uint argn) {
-  (void) args;
-  (void) argn;
-  return lbm_cons(ENC_SYM_NIL, ENC_SYM_NIL);
+    (void)args;
+    (void)argn;
+    return lbm_cons(ENC_SYM_NIL, ENC_SYM_NIL);
 }
 
 static lbm_value ext_mutex_lock(lbm_value *args, lbm_uint argn) {
-  lbm_value res = ENC_SYM_TERROR;
-  if (argn == 1 && is_mutex(args[0])) {
-    lbm_cid cid = lbm_get_current_cid();
-    lbm_value cid_pair = lbm_cons(lbm_enc_i(cid), ENC_SYM_NIL);
-    res = cid_pair; // Return the error from cons if failed.
-    if (lbm_is_cons(cid_pair)) {
-      res = ENC_SYM_TRUE;
-      if (is_mutex_unlocked(args[0])) {
-        enqueue_cid(args[0], cid_pair);
-      } else {
-        enqueue_cid(args[0], cid_pair);
-        lbm_block_ctx_from_extension(); 
-      }
+    lbm_value res = ENC_SYM_TERROR;
+    if (argn == 1 && is_mutex(args[0])) {
+        lbm_cid cid = lbm_get_current_cid();
+        lbm_value cid_pair = lbm_cons(lbm_enc_i(cid), ENC_SYM_NIL);
+        res = cid_pair; // Return the error from cons if failed.
+        if (lbm_is_cons(cid_pair)) {
+            res = ENC_SYM_TRUE;
+            if (is_mutex_unlocked(args[0])) {
+                enqueue_cid(args[0], cid_pair);
+            } else {
+                enqueue_cid(args[0], cid_pair);
+                lbm_block_ctx_from_extension();
+            }
+        }
     }
-  }
-  return res;
+    return res;
 }
 
 static lbm_value ext_mutex_unlock(lbm_value *args, lbm_uint argn) {
-  lbm_value res = ENC_SYM_TERROR;
-  if (argn == 1 && is_mutex(args[0])) {
-    res = ENC_SYM_EERROR; // no mutex is locked!
-    if (!is_mutex_unlocked(args[0])) {
-      lbm_cid cid = lbm_get_current_cid(); // this cid should be top of queue!
-                                           // otherwise error
-      if (dequeue_cid(args[0], lbm_enc_i(cid))) {
-        lbm_value h = head_of_queue(args[0]);
-        res = ENC_SYM_TRUE;
-        if (!lbm_is_symbol_nil(h)) {
-          lbm_cid unblock = lbm_dec_i(h);
-          lbm_unblock_ctx_unboxed(unblock, ENC_SYM_TRUE);
+    lbm_value res = ENC_SYM_TERROR;
+    if (argn == 1 && is_mutex(args[0])) {
+        res = ENC_SYM_EERROR; // no mutex is locked!
+        if (!is_mutex_unlocked(args[0])) {
+            lbm_cid cid = lbm_get_current_cid(); // this cid should be top of queue!
+                                                 // otherwise error
+            if (dequeue_cid(args[0], lbm_enc_i(cid))) {
+                lbm_value h = head_of_queue(args[0]);
+                res = ENC_SYM_TRUE;
+                if (!lbm_is_symbol_nil(h)) {
+                    lbm_cid unblock = lbm_dec_i(h);
+                    lbm_unblock_ctx_unboxed(unblock, ENC_SYM_TRUE);
+                }
+            }
         }
-      } 
     }
-  }
-  return res;
+    return res;
 }
 
-
 void lbm_mutex_extensions_init(void) {
-  lbm_add_extension("mutex-create", ext_mutex_create);
-  lbm_add_extension("mutex-lock", ext_mutex_lock);
-  lbm_add_extension("mutex-unlock", ext_mutex_unlock);
+    lbm_add_extension("mutex-create", ext_mutex_create);
+    lbm_add_extension("mutex-lock", ext_mutex_lock);
+    lbm_add_extension("mutex-unlock", ext_mutex_unlock);
 }

@@ -18,15 +18,14 @@
 #include "platform_mutex.h"
 
 bool lbm_mutex_init(lbm_mutex_t *m) {
-  chMtxObjectInit(m);
-  return true;
+    chMtxObjectInit(m);
+    return true;
 }
 
 void lbm_mutex_lock(lbm_mutex_t *m) {
-  chMtxLock(m);
+    chMtxLock(m);
 }
 
 void lbm_mutex_unlock(lbm_mutex_t *m) {
-  chMtxUnlock(m);
+    chMtxUnlock(m);
 }
-

@@ -21,8 +21,8 @@
 #ifndef DISPLAY_EXTENSIONS_H_
 #define DISPLAY_EXTENSIONS_H_
 
-#include <stdint.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "lispbm.h"
 #include "tinygfx.h"
@@ -34,65 +34,63 @@ extern "C" {
 #define IMAGE_BUFFER_HEADER_SIZE (lbm_uint)5
 
 static inline uint8_t color_format_to_byte(color_format_t fmt) {
-  return (uint8_t)fmt;
+    return (uint8_t)fmt;
 }
 
 static inline uint16_t image_buffer_width(uint8_t *data) {
-  return (uint16_t)(data[0] << 8 | data[1]);
+    return (uint16_t)(data[0] << 8 | data[1]);
 }
 
 static inline uint16_t image_buffer_height(uint8_t *data) {
-  return (uint16_t)(data[2] << 8 | data[3]);
+    return (uint16_t)(data[2] << 8 | data[3]);
 }
 
 static inline uint8_t image_buffer_format(uint8_t *data) {
-  return (uint8_t)data[4];
+    return (uint8_t)data[4];
 }
 
 static inline uint8_t *image_buffer_data(uint8_t *data) {
-  return &(data[5]);
+    return &(data[5]);
 }
 
 static inline void image_buffer_set_width(uint8_t *data, uint16_t w) {
-  data[0] = (uint8_t)(w >> 8);
-  data[1] = (uint8_t)w;
+    data[0] = (uint8_t)(w >> 8);
+    data[1] = (uint8_t)w;
 }
 
 static inline void image_buffer_set_height(uint8_t *data, uint16_t h) {
-  data[2] = (uint8_t)(h >> 8);
-  data[3] = (uint8_t)h;
+    data[2] = (uint8_t)(h >> 8);
+    data[3] = (uint8_t)h;
 }
 
 static inline void image_buffer_set_format(uint8_t *data, color_format_t fmt) {
-  data[4] = color_format_to_byte(fmt);
+    data[4] = color_format_to_byte(fmt);
 }
 
 static inline uint32_t image_buffer_size_bytes(uint8_t *data) {
-  return (((uint32_t)image_buffer_width(data) *
-           (uint32_t)image_buffer_height(data) *
-           (uint32_t)image_buffer_format(data)) / 8);
+    return (((uint32_t)image_buffer_width(data) * (uint32_t)image_buffer_height(data) *
+             (uint32_t)image_buffer_format(data)) /
+            8);
 }
 
 static inline bool image_buffer_is_valid(uint8_t *data, lbm_uint size) {
-  return
-    (size > IMAGE_BUFFER_HEADER_SIZE) &&
-    (size >= (IMAGE_BUFFER_HEADER_SIZE + image_buffer_size_bytes(data)));
+    return (size > IMAGE_BUFFER_HEADER_SIZE) &&
+           (size >= (IMAGE_BUFFER_HEADER_SIZE + image_buffer_size_bytes(data)));
 }
 
 static inline bool array_is_image_buffer(lbm_value v) {
-  lbm_array_header_t *arr = lbm_dec_array_r(v);
-  return arr && image_buffer_is_valid((uint8_t*)arr->data, arr->size);
+    lbm_array_header_t *arr = lbm_dec_array_r(v);
+    return arr && image_buffer_is_valid((uint8_t *)arr->data, arr->size);
 }
 
 static inline lbm_array_header_t *get_image_buffer(lbm_value v) {
-  lbm_array_header_t *res = NULL;
-  lbm_array_header_t *arr = lbm_dec_array_r(v);
-  if (arr && image_buffer_is_valid((uint8_t*)arr->data, arr->size)) {
-    res = arr;
-  }
-  return res;
+    lbm_array_header_t *res = NULL;
+    lbm_array_header_t *arr = lbm_dec_array_r(v);
+    if (arr && image_buffer_is_valid((uint8_t *)arr->data, arr->size)) {
+        res = arr;
+    }
+    return res;
 }
-
 
 // Interface
 
@@ -107,11 +105,8 @@ bool lbm_display_decode_color_list(lbm_value color_list, color_t *colors, int ma
 
 void lbm_display_extensions_init(void);
 void lbm_display_extensions_set_callbacks(
-                                          bool(* volatile render_image)(image_buffer_t *img, uint16_t x, uint16_t y, color_t *colors),
-                                          void(* volatile clear)(uint32_t color),
-                                          void(* volatile reset)(void)
-                                          );
-
+    bool (*volatile render_image)(image_buffer_t *img, uint16_t x, uint16_t y, color_t *colors),
+    void (*volatile clear)(uint32_t color), void (*volatile reset)(void));
 
 #ifdef __cplusplus
 }

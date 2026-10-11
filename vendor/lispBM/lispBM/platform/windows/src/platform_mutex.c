@@ -15,25 +15,23 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-
 #include "platform_mutex.h"
 
 bool lbm_mutex_init(lbm_mutex_t *m) {
-  HANDLE ghMutex = CreateMutex(
-                        NULL,              // default security attributes
-                        FALSE,             // initially not owned
-                        NULL);             // unnamed mutex
+    HANDLE ghMutex = CreateMutex(NULL,  // default security attributes
+                                 FALSE, // initially not owned
+                                 NULL); // unnamed mutex
 
-  if (ghMutex == NULL) return false;
-  *m = ghMutex;
-  return true;
+    if (ghMutex == NULL)
+        return false;
+    *m = ghMutex;
+    return true;
 }
 
 void lbm_mutex_lock(lbm_mutex_t *m) {
-  WaitForSingleObject((HANDLE)*m,
-                      INFINITE);
+    WaitForSingleObject((HANDLE)*m, INFINITE);
 }
 
 void lbm_mutex_unlock(lbm_mutex_t *m) {
-  ReleaseMutex((HANDLE)*m);
+    ReleaseMutex((HANDLE)*m);
 }

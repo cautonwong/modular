@@ -8,6 +8,10 @@
 #include "edge/module.h"
 #include "edge/modules.h"
 
+#ifndef PPM_MODULE_ID
+#define PPM_MODULE_ID 0x4E00u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

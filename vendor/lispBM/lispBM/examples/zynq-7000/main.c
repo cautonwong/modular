@@ -21,19 +21,19 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-#include "lispbm.h"
 #include "lbm_image.h"
+#include "lispbm.h"
 #include "platform_thread.h"
 
 // ////////////////////////////////////////////////////////////
 // LispBM configuration
 
-#define GC_STACK_SIZE          256
-#define PRINT_STACK_SIZE       256
-#define HEAP_SIZE              8192
+#define GC_STACK_SIZE 256
+#define PRINT_STACK_SIZE 256
+#define HEAP_SIZE 8192
 #define EXTENSION_STORAGE_SIZE 256
 
-static lbm_cons_t heap[HEAP_SIZE] __attribute__ ((aligned (8)));
+static lbm_cons_t heap[HEAP_SIZE] __attribute__((aligned(8)));
 static lbm_uint memory_array[LBM_MEMORY_SIZE_16K];
 static lbm_uint bitmap_array[LBM_MEMORY_BITMAP_SIZE_16K];
 static lbm_extension_t extensions[EXTENSION_STORAGE_SIZE];
@@ -50,33 +50,34 @@ static lbm_thread_t eval_thread;
 // Callbacks
 
 static void done_callback(eval_context_t *ctx) {
-  char buf[256];
-  lbm_print_value(buf, 256, ctx->r);
-  printf("# %s\n", buf);
+    char buf[256];
+    lbm_print_value(buf, 256, ctx->r);
+    printf("# %s\n", buf);
 }
 
 static void usleep_callback(uint32_t us) {
-  TickType_t t = us / (portTICK_PERIOD_MS * 1000);
-  if (t == 0) t = 1;
-  vTaskDelay(t);
+    TickType_t t = us / (portTICK_PERIOD_MS * 1000);
+    if (t == 0)
+        t = 1;
+    vTaskDelay(t);
 }
 
 // ////////////////////////////////////////////////////////////
 // Image (RAM-backed, not persistent across power cycles)
 
 static bool image_write(uint32_t data, int32_t index, bool const_heap) {
-  (void)const_heap;
-  image_buffer[index] = data;
-  return true;
+    (void)const_heap;
+    image_buffer[index] = data;
+    return true;
 }
 
 // ////////////////////////////////////////////////////////////
 // Eval thread
 
 static void eval_thread_func(void *arg) {
-  (void)arg;
-  lbm_run_eval();
-  vTaskDelete(NULL);
+    (void)arg;
+    lbm_run_eval();
+    vTaskDelete(NULL);
 }
 
 // ////////////////////////////////////////////////////////////
@@ -84,47 +85,39 @@ static void eval_thread_func(void *arg) {
 
 static bool startup_lbm(void) {
 
-  if (!lbm_init(heap, HEAP_SIZE,
-                memory_array, LBM_MEMORY_SIZE_16K,
-                bitmap_array, LBM_MEMORY_BITMAP_SIZE_16K,
-                GC_STACK_SIZE,
-                PRINT_STACK_SIZE,
-                extensions,
-                EXTENSION_STORAGE_SIZE)) {
-    printf("Failed to initialize LispBM\n");
-    return false;
-  }
+    if (!lbm_init(heap, HEAP_SIZE, memory_array, LBM_MEMORY_SIZE_16K, bitmap_array,
+                  LBM_MEMORY_BITMAP_SIZE_16K, GC_STACK_SIZE, PRINT_STACK_SIZE, extensions,
+                  EXTENSION_STORAGE_SIZE)) {
+        printf("Failed to initialize LispBM\n");
+        return false;
+    }
 
-  lbm_set_usleep_callback(usleep_callback);
-  lbm_set_ctx_done_callback(done_callback);
-  lbm_set_printf_callback(printf);
-  lbm_set_verbose(true);
+    lbm_set_usleep_callback(usleep_callback);
+    lbm_set_ctx_done_callback(done_callback);
+    lbm_set_printf_callback(printf);
+    lbm_set_verbose(true);
 
-  lbm_image_init(image_buffer, IMAGE_SIZE, image_write);
+    lbm_image_init(image_buffer, IMAGE_SIZE, image_write);
 
-  if (!lbm_image_exists()) {
-    printf("Image does not exist - creating\n");
-    lbm_image_create("v01");
-  }
-  if (!lbm_image_boot()) {
-    printf("Unable to boot image\n");
-    return false;
-  }
-  printf("Image booted\n");
+    if (!lbm_image_exists()) {
+        printf("Image does not exist - creating\n");
+        lbm_image_create("v01");
+    }
+    if (!lbm_image_boot()) {
+        printf("Unable to boot image\n");
+        return false;
+    }
+    printf("Image booted\n");
 
-  lbm_add_eval_symbols();
+    lbm_add_eval_symbols();
 
-  if (!lbm_thread_create(&eval_thread,
-                         "lbm_eval",
-                         eval_thread_func,
-                         NULL,
-                         LBM_THREAD_PRIO_NORMAL,
-                         4096)) {
-    printf("Failed to create eval thread\n");
-    return false;
-  }
+    if (!lbm_thread_create(&eval_thread, "lbm_eval", eval_thread_func, NULL, LBM_THREAD_PRIO_NORMAL,
+                           4096)) {
+        printf("Failed to create eval thread\n");
+        return false;
+    }
 
-  return true;
+    return true;
 }
 
 // ////////////////////////////////////////////////////////////
@@ -133,50 +126,50 @@ static bool startup_lbm(void) {
 #define INPUT_BUFFER_SIZE 512
 
 static void repl_task(void *pvParameters) {
-  (void)pvParameters;
+    (void)pvParameters;
 
-  char input_buffer[INPUT_BUFFER_SIZE];
-  int pos = 0;
+    char input_buffer[INPUT_BUFFER_SIZE];
+    int pos = 0;
 
-  printf("\nLispBM REPL on Zynq 7000\n");
-  printf("> "); fflush(stdout);
+    printf("\nLispBM REPL on Zynq 7000\n");
+    printf("> ");
+    fflush(stdout);
 
-  while (1) {
-    char c = inbyte();
+    while (1) {
+        char c = inbyte();
 
-    if (c == '\r' || c == '\n') {
-      printf("\n");
-      if (pos > 0) {
-        input_buffer[pos] = '\0';
+        if (c == '\r' || c == '\n') {
+            printf("\n");
+            if (pos > 0) {
+                input_buffer[pos] = '\0';
 
-        lbm_pause_eval();
-        while (lbm_get_eval_state() != EVAL_CPS_STATE_PAUSED) {
-          vTaskDelay(1);
+                lbm_pause_eval();
+                while (lbm_get_eval_state() != EVAL_CPS_STATE_PAUSED) {
+                    vTaskDelay(1);
+                }
+
+                lbm_create_string_char_channel(&string_tok_state, &string_tok, input_buffer);
+                lbm_load_and_eval_expression(&string_tok);
+                lbm_continue_eval();
+
+                vTaskDelay(100 / portTICK_PERIOD_MS);
+
+                pos = 0;
+            }
+            printf("> ");
+            fflush(stdout);
+        } else if (c == 127 || c == '\b') {
+            if (pos > 0) {
+                pos--;
+                outbyte('\b');
+                outbyte(' ');
+                outbyte('\b');
+            }
+        } else if (pos < INPUT_BUFFER_SIZE - 1) {
+            input_buffer[pos++] = c;
+            outbyte(c);
         }
-
-        lbm_create_string_char_channel(&string_tok_state,
-                                       &string_tok,
-                                       input_buffer);
-        lbm_load_and_eval_expression(&string_tok);
-        lbm_continue_eval();
-
-        vTaskDelay(100 / portTICK_PERIOD_MS);
-
-        pos = 0;
-      }
-      printf("> "); fflush(stdout);
-    } else if (c == 127 || c == '\b') {
-      if (pos > 0) {
-        pos--;
-        outbyte('\b');
-        outbyte(' ');
-        outbyte('\b');
-      }
-    } else if (pos < INPUT_BUFFER_SIZE - 1) {
-      input_buffer[pos++] = c;
-      outbyte(c);
     }
-  }
 }
 
 // ////////////////////////////////////////////////////////////
@@ -184,22 +177,19 @@ static void repl_task(void *pvParameters) {
 
 int main(void) {
 
-  printf("LispBM REPL example starting...\n");
+    printf("LispBM REPL example starting...\n");
 
-  if (!startup_lbm()) {
-    printf("LispBM startup failed.\n");
-    for (;;);
-  }
+    if (!startup_lbm()) {
+        printf("LispBM startup failed.\n");
+        for (;;)
+            ;
+    }
 
-  xTaskCreate(repl_task,
-              "repl",
-              configMINIMAL_STACK_SIZE * 4,
-              NULL,
-              tskIDLE_PRIORITY + 1,
-              NULL);
+    xTaskCreate(repl_task, "repl", configMINIMAL_STACK_SIZE * 4, NULL, tskIDLE_PRIORITY + 1, NULL);
 
-  vTaskStartScheduler();
+    vTaskStartScheduler();
 
-  for (;;);
-  return 0;
+    for (;;)
+        ;
+    return 0;
 }

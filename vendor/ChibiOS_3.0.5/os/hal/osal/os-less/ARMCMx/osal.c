@@ -63,10 +63,10 @@ virtual_timers_list_t vtlist;
  */
 static void vtInit(void) {
 
-  /* Virtual Timers initialization.*/
-  vtlist.vt_next = vtlist.vt_prev = (void *)&vtlist;
-  vtlist.vt_time = (systime_t)-1;
-  vtlist.vt_systime = 0;
+    /* Virtual Timers initialization.*/
+    vtlist.vt_next = vtlist.vt_prev = (void *)&vtlist;
+    vtlist.vt_time = (systime_t)-1;
+    vtlist.vt_systime = 0;
 }
 
 /**
@@ -78,7 +78,7 @@ static void vtInit(void) {
  */
 static bool vtIsArmedI(virtual_timer_t *vtp) {
 
-  return vtp->vt_func != NULL;
+    return vtp->vt_func != NULL;
 }
 
 /**
@@ -92,21 +92,21 @@ static bool vtIsArmedI(virtual_timer_t *vtp) {
  */
 static void vtDoTickI(void) {
 
-  vtlist.vt_systime++;
-  if (&vtlist != (virtual_timers_list_t *)vtlist.vt_next) {
-    virtual_timer_t *vtp;
+    vtlist.vt_systime++;
+    if (&vtlist != (virtual_timers_list_t *)vtlist.vt_next) {
+        virtual_timer_t *vtp;
 
-    --vtlist.vt_next->vt_time;
-    while (!(vtp = vtlist.vt_next)->vt_time) {
-      vtfunc_t fn = vtp->vt_func;
-      vtp->vt_func = (vtfunc_t)NULL;
-      vtp->vt_next->vt_prev = (void *)&vtlist;
-      (&vtlist)->vt_next = vtp->vt_next;
-      osalSysUnlockFromISR();
-      fn(vtp->vt_par);
-      osalSysLockFromISR();
+        --vtlist.vt_next->vt_time;
+        while (!(vtp = vtlist.vt_next)->vt_time) {
+            vtfunc_t fn = vtp->vt_func;
+            vtp->vt_func = (vtfunc_t)NULL;
+            vtp->vt_next->vt_prev = (void *)&vtlist;
+            (&vtlist)->vt_next = vtp->vt_next;
+            osalSysUnlockFromISR();
+            fn(vtp->vt_par);
+            osalSysLockFromISR();
+        }
     }
-  }
 }
 
 /**
@@ -128,23 +128,22 @@ static void vtDoTickI(void) {
  *
  * @notapi
  */
-static void vtSetI(virtual_timer_t *vtp, systime_t time,
-                   vtfunc_t vtfunc, void *par) {
-  virtual_timer_t *p;
+static void vtSetI(virtual_timer_t *vtp, systime_t time, vtfunc_t vtfunc, void *par) {
+    virtual_timer_t *p;
 
-  vtp->vt_par = par;
-  vtp->vt_func = vtfunc;
-  p = vtlist.vt_next;
-  while (p->vt_time < time) {
-    time -= p->vt_time;
-    p = p->vt_next;
-  }
+    vtp->vt_par = par;
+    vtp->vt_func = vtfunc;
+    p = vtlist.vt_next;
+    while (p->vt_time < time) {
+        time -= p->vt_time;
+        p = p->vt_next;
+    }
 
-  vtp->vt_prev = (vtp->vt_next = p)->vt_prev;
-  vtp->vt_prev->vt_next = p->vt_prev = vtp;
-  vtp->vt_time = time;
-  if (p != (void *)&vtlist)
-    p->vt_time -= time;
+    vtp->vt_prev = (vtp->vt_next = p)->vt_prev;
+    vtp->vt_prev->vt_next = p->vt_prev = vtp;
+    vtp->vt_time = time;
+    if (p != (void *)&vtlist)
+        p->vt_time -= time;
 }
 
 /**
@@ -157,18 +156,17 @@ static void vtSetI(virtual_timer_t *vtp, systime_t time,
  */
 static void vtResetI(virtual_timer_t *vtp) {
 
-  if (vtp->vt_next != (void *)&vtlist)
-    vtp->vt_next->vt_time += vtp->vt_time;
-  vtp->vt_prev->vt_next = vtp->vt_next;
-  vtp->vt_next->vt_prev = vtp->vt_prev;
-  vtp->vt_func = (vtfunc_t)NULL;
+    if (vtp->vt_next != (void *)&vtlist)
+        vtp->vt_next->vt_time += vtp->vt_time;
+    vtp->vt_prev->vt_next = vtp->vt_next;
+    vtp->vt_next->vt_prev = vtp->vt_prev;
+    vtp->vt_func = (vtfunc_t)NULL;
 }
 
-
 static void callback_timeout(void *p) {
-  osalSysLockFromISR();
-  osalThreadResumeI((thread_reference_t *)p, MSG_TIMEOUT);
-  osalSysUnlockFromISR();
+    osalSysLockFromISR();
+    osalThreadResumeI((thread_reference_t *)p, MSG_TIMEOUT);
+    osalSysUnlockFromISR();
 }
 
 /*===========================================================================*/
@@ -182,9 +180,9 @@ static void callback_timeout(void *p) {
  */
 void osalInit(void) {
 
-  vtInit();
+    vtInit();
 
-  OSAL_INIT_HOOK();
+    OSAL_INIT_HOOK();
 }
 
 /**
@@ -199,10 +197,10 @@ __attribute__((weak, noreturn))
 #endif
 void osalSysHalt(const char *reason) {
 
-  osalSysDisable();
-  osal_halt_msg = reason;
-  while (true) {
-  }
+    osalSysDisable();
+    osal_halt_msg = reason;
+    while (true) {
+    }
 }
 
 /**
@@ -216,7 +214,7 @@ void osalSysHalt(const char *reason) {
  */
 void osalSysPolledDelayX(rtcnt_t cycles) {
 
-  (void)cycles;
+    (void)cycles;
 }
 
 /**
@@ -227,9 +225,9 @@ void osalSysPolledDelayX(rtcnt_t cycles) {
  */
 void osalOsTimerHandlerI(void) {
 
-  osalDbgCheckClassI();
+    osalDbgCheckClassI();
 
-  vtDoTickI();
+    vtDoTickI();
 }
 
 /**
@@ -242,7 +240,6 @@ void osalOsTimerHandlerI(void) {
  * @sclass
  */
 void osalOsRescheduleS(void) {
-
 }
 
 /**
@@ -260,7 +257,7 @@ void osalOsRescheduleS(void) {
  */
 systime_t osalOsGetSystemTimeX(void) {
 
-  return vtlist.vt_systime;
+    return vtlist.vt_systime;
 }
 
 /**
@@ -276,12 +273,12 @@ systime_t osalOsGetSystemTimeX(void) {
  * @sclass
  */
 void osalThreadSleepS(systime_t time) {
-  virtual_timer_t vt;
-  thread_reference_t tr;
+    virtual_timer_t vt;
+    thread_reference_t tr;
 
-  tr = NULL;
-  vtSetI(&vt, time, callback_timeout, (void *)&tr);
-  osalThreadSuspendS(&tr);
+    tr = NULL;
+    vtSetI(&vt, time, callback_timeout, (void *)&tr);
+    osalThreadSuspendS(&tr);
 }
 
 /**
@@ -298,9 +295,9 @@ void osalThreadSleepS(systime_t time) {
  */
 void osalThreadSleep(systime_t time) {
 
-  osalSysLock();
-  osalThreadSleepS(time);
-  osalSysUnlock();
+    osalSysLock();
+    osalThreadSleepS(time);
+    osalSysUnlock();
 }
 
 /**
@@ -314,20 +311,20 @@ void osalThreadSleep(systime_t time) {
  * @sclass
  */
 msg_t osalThreadSuspendS(thread_reference_t *trp) {
-  thread_t self = {MSG_WAIT};
+    thread_t self = {MSG_WAIT};
 
-  osalDbgCheck(trp != NULL);
+    osalDbgCheck(trp != NULL);
 
-  *trp = &self;
-  while (self.message == MSG_WAIT) {
-    osalSysUnlock();
-    /* A state-changing interrupt could occur here and cause the loop to
-       terminate, an hook macro is executed while waiting.*/
-    OSAL_IDLE_HOOK();
-    osalSysLock();
-  }
+    *trp = &self;
+    while (self.message == MSG_WAIT) {
+        osalSysUnlock();
+        /* A state-changing interrupt could occur here and cause the loop to
+           terminate, an hook macro is executed while waiting.*/
+        OSAL_IDLE_HOOK();
+        osalSysLock();
+    }
 
-  return self.message;
+    return self.message;
 }
 
 /**
@@ -350,20 +347,20 @@ msg_t osalThreadSuspendS(thread_reference_t *trp) {
  * @sclass
  */
 msg_t osalThreadSuspendTimeoutS(thread_reference_t *trp, systime_t timeout) {
-  msg_t msg;
-  virtual_timer_t vt;
+    msg_t msg;
+    virtual_timer_t vt;
 
-  osalDbgCheck(trp != NULL);
+    osalDbgCheck(trp != NULL);
 
-  if (TIME_INFINITE == timeout)
-   return osalThreadSuspendS(trp);
+    if (TIME_INFINITE == timeout)
+        return osalThreadSuspendS(trp);
 
-  vtSetI(&vt, timeout, callback_timeout, (void *)trp);
-  msg = osalThreadSuspendS(trp);
-  if (vtIsArmedI(&vt))
-    vtResetI(&vt);
+    vtSetI(&vt, timeout, callback_timeout, (void *)trp);
+    msg = osalThreadSuspendS(trp);
+    if (vtIsArmedI(&vt))
+        vtResetI(&vt);
 
-  return msg;
+    return msg;
 }
 
 /**
@@ -378,12 +375,12 @@ msg_t osalThreadSuspendTimeoutS(thread_reference_t *trp, systime_t timeout) {
  */
 void osalThreadResumeI(thread_reference_t *trp, msg_t msg) {
 
-  osalDbgCheck(trp != NULL);
+    osalDbgCheck(trp != NULL);
 
-  if (*trp != NULL) {
-    (*trp)->message = msg;
-    *trp = NULL;
-  }
+    if (*trp != NULL) {
+        (*trp)->message = msg;
+        *trp = NULL;
+    }
 }
 
 /**
@@ -398,12 +395,12 @@ void osalThreadResumeI(thread_reference_t *trp, msg_t msg) {
  */
 void osalThreadResumeS(thread_reference_t *trp, msg_t msg) {
 
-  osalDbgCheck(trp != NULL);
+    osalDbgCheck(trp != NULL);
 
-  if (*trp != NULL) {
-    (*trp)->message = msg;
-    *trp = NULL;
-  }
+    if (*trp != NULL) {
+        (*trp)->message = msg;
+        *trp = NULL;
+    }
 }
 
 /**
@@ -430,25 +427,25 @@ void osalThreadResumeS(thread_reference_t *trp, msg_t msg) {
  * @sclass
  */
 msg_t osalThreadEnqueueTimeoutS(threads_queue_t *tqp, systime_t timeout) {
-  msg_t msg;
-  virtual_timer_t vt;
+    msg_t msg;
+    virtual_timer_t vt;
 
-  osalDbgCheck(tqp != NULL);
+    osalDbgCheck(tqp != NULL);
 
-  if (TIME_IMMEDIATE == timeout)
-    return MSG_TIMEOUT;
+    if (TIME_IMMEDIATE == timeout)
+        return MSG_TIMEOUT;
 
-  tqp->tr = NULL;
+    tqp->tr = NULL;
 
-  if (TIME_INFINITE == timeout)
-   return osalThreadSuspendS(&tqp->tr);
+    if (TIME_INFINITE == timeout)
+        return osalThreadSuspendS(&tqp->tr);
 
-  vtSetI(&vt, timeout, callback_timeout, (void *)&tqp->tr);
-  msg = osalThreadSuspendS(&tqp->tr);
-  if (vtIsArmedI(&vt))
-    vtResetI(&vt);
+    vtSetI(&vt, timeout, callback_timeout, (void *)&tqp->tr);
+    msg = osalThreadSuspendS(&tqp->tr);
+    if (vtIsArmedI(&vt))
+        vtResetI(&vt);
 
-  return msg;
+    return msg;
 }
 
 /**
@@ -461,9 +458,9 @@ msg_t osalThreadEnqueueTimeoutS(threads_queue_t *tqp, systime_t timeout) {
  */
 void osalThreadDequeueNextI(threads_queue_t *tqp, msg_t msg) {
 
-  osalDbgCheck(tqp != NULL);
+    osalDbgCheck(tqp != NULL);
 
-  osalThreadResumeI(&tqp->tr, msg);
+    osalThreadResumeI(&tqp->tr, msg);
 }
 
 /**
@@ -476,9 +473,9 @@ void osalThreadDequeueNextI(threads_queue_t *tqp, msg_t msg) {
  */
 void osalThreadDequeueAllI(threads_queue_t *tqp, msg_t msg) {
 
-  osalDbgCheck(tqp != NULL);
+    osalDbgCheck(tqp != NULL);
 
-  osalThreadResumeI(&tqp->tr, msg);
+    osalThreadResumeI(&tqp->tr, msg);
 }
 
 /**
@@ -491,12 +488,12 @@ void osalThreadDequeueAllI(threads_queue_t *tqp, msg_t msg) {
  */
 void osalEventBroadcastFlagsI(event_source_t *esp, eventflags_t flags) {
 
-  osalDbgCheck(esp != NULL);
+    osalDbgCheck(esp != NULL);
 
-  esp->flags |= flags;
-  if (esp->cb != NULL) {
-    esp->cb(esp);
-  }
+    esp->flags |= flags;
+    if (esp->cb != NULL) {
+        esp->cb(esp);
+    }
 }
 
 /**
@@ -509,11 +506,11 @@ void osalEventBroadcastFlagsI(event_source_t *esp, eventflags_t flags) {
  */
 void osalEventBroadcastFlags(event_source_t *esp, eventflags_t flags) {
 
-  osalDbgCheck(esp != NULL);
+    osalDbgCheck(esp != NULL);
 
-  osalSysLock();
-  osalEventBroadcastFlagsI(esp, flags);
-  osalSysUnlock();
+    osalSysLock();
+    osalEventBroadcastFlagsI(esp, flags);
+    osalSysUnlock();
 }
 
 /**
@@ -531,14 +528,12 @@ void osalEventBroadcastFlags(event_source_t *esp, eventflags_t flags) {
  *
  * @api
  */
-void osalEventSetCallback(event_source_t *esp,
-                          eventcallback_t cb,
-                          void *param) {
+void osalEventSetCallback(event_source_t *esp, eventcallback_t cb, void *param) {
 
-  osalDbgCheck(esp != NULL);
+    osalDbgCheck(esp != NULL);
 
-  esp->cb    = cb;
-  esp->param = param;
+    esp->cb = cb;
+    esp->param = param;
 }
 
 /**
@@ -552,9 +547,9 @@ void osalEventSetCallback(event_source_t *esp,
  */
 void osalMutexLock(mutex_t *mp) {
 
-  osalDbgCheck(mp != NULL);
+    osalDbgCheck(mp != NULL);
 
-  *mp = 1;
+    *mp = 1;
 }
 
 /**
@@ -572,9 +567,9 @@ void osalMutexLock(mutex_t *mp) {
  */
 void osalMutexUnlock(mutex_t *mp) {
 
-  osalDbgCheck(mp != NULL);
+    osalDbgCheck(mp != NULL);
 
-  *mp = 0;
+    *mp = 0;
 }
 
 /** @} */

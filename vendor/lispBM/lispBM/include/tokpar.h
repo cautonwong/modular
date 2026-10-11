@@ -19,40 +19,39 @@
 #ifndef TOKPAR_H_
 #define TOKPAR_H_
 
-#include "lbm_types.h"
 #include "lbm_channel.h"
+#include "lbm_types.h"
 
-#define TOKOPENPAR      1u      // "("
-#define TOKCLOSEPAR     2u      // ")"
-#define TOKOPENBRACK    3u      // "["
-#define TOKCLOSEBRACK   4u      // "]"
-#define TOKDOT          5u      // "."
-#define TOKDONTCARE     6u      // "_"
-#define TOKQUOTE        7u      // "'"
-#define TOKBACKQUOTE    8u      // "`"
-#define TOKCOMMAAT      9u      // ",@"
-#define TOKCOMMA        10u     // ","
-#define TOKMATCHANY     11u     // "?"
-#define TOKOPENCURL     12u     // "{"
-#define TOKCLOSECURL    13u     // "}"
-#define TOKCONSTSTART   14u     // "@const-start"
-#define TOKCONSTEND     15u     // "@const-end"
-#define TOKOPENARRAY    16u     // "[|"
-#define TOKCLOSEARRAY   17u     // "|]"
+#define TOKOPENPAR 1u     // "("
+#define TOKCLOSEPAR 2u    // ")"
+#define TOKOPENBRACK 3u   // "["
+#define TOKCLOSEBRACK 4u  // "]"
+#define TOKDOT 5u         // "."
+#define TOKDONTCARE 6u    // "_"
+#define TOKQUOTE 7u       // "'"
+#define TOKBACKQUOTE 8u   // "`"
+#define TOKCOMMAAT 9u     // ",@"
+#define TOKCOMMA 10u      // ","
+#define TOKMATCHANY 11u   // "?"
+#define TOKOPENCURL 12u   // "{"
+#define TOKCLOSECURL 13u  // "}"
+#define TOKCONSTSTART 14u // "@const-start"
+#define TOKCONSTEND 15u   // "@const-end"
+#define TOKOPENARRAY 16u  // "[|"
+#define TOKCLOSEARRAY 17u // "|]"
 
-#define TOKTYPEBYTE     100u
-#define TOKTYPEI        101u
-#define TOKTYPEU        102u
-#define TOKTYPEI32      103u
-#define TOKTYPEU32      104u
-#define TOKTYPEI64      105u
-#define TOKTYPEU64      106u
-#define TOKTYPEF32      107u
-#define TOKTYPEF64      108u
-
+#define TOKTYPEBYTE 100u
+#define TOKTYPEI 101u
+#define TOKTYPEU 102u
+#define TOKTYPEI32 103u
+#define TOKTYPEU32 104u
+#define TOKTYPEI64 105u
+#define TOKTYPEU64 106u
+#define TOKTYPEF32 107u
+#define TOKTYPEF64 108u
 
 #define TOKENIZER_ERROR 1024u
-#define TOKENIZER_END   2048u
+#define TOKENIZER_END 2048u
 
 // Tokenizer return values
 // > 0 : Successfully found token
@@ -62,7 +61,7 @@
 //        This is an error!
 // = -4 : Tokenizer was reading a symbol but ran out of space.
 
-#define TOKENIZER_NO_TOKEN   0
+#define TOKENIZER_NO_TOKEN 0
 #define TOKENIZER_NEED_MORE -1
 #define TOKENIZER_STRING_ERROR -2
 #define TOKENIZER_CHAR_ERROR -3
@@ -72,7 +71,7 @@
 
 // The contents of tokpar_sym_str is reset every time
 // tok_symbol or tok_string is run.
-extern char tokpar_sym_str[TOKENIZER_MAX_SYMBOL_AND_STRING_LENGTH+1];
+extern char tokpar_sym_str[TOKENIZER_MAX_SYMBOL_AND_STRING_LENGTH + 1];
 
 #ifdef __cplusplus
 extern "C" {
@@ -84,63 +83,70 @@ extern "C" {
  * State struct for the string tokenizer.
  */
 typedef struct {
-  const char *str;
-  unsigned int pos;
-  unsigned int row;
-  unsigned int column;
+    const char *str;
+    unsigned int pos;
+    unsigned int row;
+    unsigned int column;
 } lbm_tokenizer_string_state_t;
 
 typedef struct {
-  uint32_t type;
-  uint64_t value;
-  bool negative;
+    uint32_t type;
+    uint64_t value;
+    bool negative;
 } token_int;
 
 typedef struct token_float {
-  uint32_t type;
-  double value;
-  bool negative;
+    uint32_t type;
+    double value;
+    bool negative;
 } token_float;
 
 /** Attempt to read a "syntax" token from the character stream.
  *  A "syntax" token is for example '(', ')', '@' and so on.
  *  \param chan Character channel to read characters from.
  *  \param res Result token identifier.
- *  \return A positive value indicating number of characters used if successful. Otherwise a negative status indicator.
+ *  \return A positive value indicating number of characters used if successful. Otherwise a
+ * negative status indicator.
  */
 int tok_syntax(lbm_char_channel_t *chan, uint32_t *res);
 /** Attempt to read a symbol from the character stream.
  * If successful the resulting symbol string is found in tokpar_sym_str.
  * \param chan Character channel to read characters from.
- * \return A positive value indicating number of characters used if successful. Otherwise a negative status indicator.
+ * \return A positive value indicating number of characters used if successful. Otherwise a negative
+ * status indicator.
  */
 int tok_symbol(lbm_char_channel_t *chan);
 /** Attempt to read a string from the character stream.
  * If successful the resulting string is found in tokpar_sym_str.
  * \param chan Character channel to read characters from.
- * \return A positive value indicating number of characters used if successful. Otherwise a negative status indicator.
+ * \return A positive value indicating number of characters used if successful. Otherwise a negative
+ * status indicator.
  */
 int tok_string(lbm_char_channel_t *chan, unsigned int *string_len);
 /** Attempt to read a character from the character stream.
  * \param chan Character channel to read characters from.
  * \param res Result character if successful.
- * \return A positive value indicating number of characters used if successful. Otherwise a negative status indicator.
+ * \return A positive value indicating number of characters used if successful. Otherwise a negative
+ * status indicator.
  */
 int tok_char(lbm_char_channel_t *chan, char *res);
 /** Attempt to read a floating point number from the character stream.
  * \param chan Character channel to read characters from.
  * \param res Result token_float-object if successful.
- * \return A positive value indicating number of characters used if successful. Otherwise a negative status indicator.
+ * \return A positive value indicating number of characters used if successful. Otherwise a negative
+ * status indicator.
  */
 int tok_double(lbm_char_channel_t *chan, token_float *result);
 /** Attempt to read an integer value from the character stream.
  * \param chan Character channel to read characters from.
  * \param res Result token_int-object if successful.
- * \return A positive value indicating number of characters used if successful. Otherwise a negative status indicator.
+ * \return A positive value indicating number of characters used if successful. Otherwise a negative
+ * status indicator.
  */
 int tok_integer(lbm_char_channel_t *chan, token_int *result);
 /** Clean off whitespace from head of the character stream
- * \return True if whitespace could be cleaned. False if stream has no more available characters at the moment.
+ * \return True if whitespace could be cleaned. False if stream has no more available characters at
+ * the moment.
  */
 bool tok_clean_whitespace(lbm_char_channel_t *chan);
 

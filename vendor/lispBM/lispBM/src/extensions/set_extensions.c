@@ -21,77 +21,77 @@
 #include "fundamental.h"
 
 #ifdef LBM_OPT_SET_EXTENSIONS_SIZE
-#pragma GCC optimize ("-Os")
+#pragma GCC optimize("-Os")
 #endif
 #ifdef LBM_OPT_SET_EXTENSIONS_SIZE_AGGRESSIVE
-#pragma GCC optimize ("-Oz")
+#pragma GCC optimize("-Oz")
 #endif
 
-
-#define ABORT_ON_MERROR(X) if ((X) == ENC_SYM_MERROR) return ENC_SYM_MERROR;
+#define ABORT_ON_MERROR(X)                                                                         \
+    if ((X) == ENC_SYM_MERROR)                                                                     \
+        return ENC_SYM_MERROR;
 
 static lbm_value ext_set_insert(lbm_value *args, lbm_uint argn);
 static lbm_value ext_set_union(lbm_value *args, lbm_uint argn);
 
 void lbm_set_extensions_init(void) {
-  lbm_add_extension("set-insert", ext_set_insert);
-  lbm_add_extension("set-union", ext_set_union);
+    lbm_add_extension("set-insert", ext_set_insert);
+    lbm_add_extension("set-union", ext_set_union);
 }
 
 static lbm_value set_insert(lbm_value set, lbm_value val) {
 
-  lbm_value end = ENC_SYM_NIL;
-  lbm_value start = ENC_SYM_NIL;
-    
-  lbm_value curr = set;
-  while (lbm_is_cons(curr)) {
-    lbm_value h = lbm_car(curr);
-    if (struct_eq(lbm_car(curr), val, 0)) {
-      return set;
+    lbm_value end = ENC_SYM_NIL;
+    lbm_value start = ENC_SYM_NIL;
+
+    lbm_value curr = set;
+    while (lbm_is_cons(curr)) {
+        lbm_value h = lbm_car(curr);
+        if (struct_eq(lbm_car(curr), val, 0)) {
+            return set;
+        }
+        lbm_value cell = lbm_cons(h, ENC_SYM_NIL);
+        ABORT_ON_MERROR(cell);
+        if (end == ENC_SYM_NIL) {
+            end = cell;
+            start = cell;
+        } else {
+            lbm_set_cdr(end, cell);
+            end = cell;
+        }
+        curr = lbm_cdr(curr);
     }
-    lbm_value cell = lbm_cons(h, ENC_SYM_NIL);
-    ABORT_ON_MERROR(cell);
+    lbm_value v = lbm_cons(val, ENC_SYM_NIL);
+    ABORT_ON_MERROR(v);
     if (end == ENC_SYM_NIL) {
-      end = cell;
-      start = cell;
+        start = v;
     } else {
-      lbm_set_cdr(end, cell);
-      end = cell;
+        lbm_set_cdr(end, v);
     }
-    curr = lbm_cdr(curr);
-  }
-  lbm_value v = lbm_cons(val, ENC_SYM_NIL);
-  ABORT_ON_MERROR(v);
-  if (end == ENC_SYM_NIL) {
-    start = v;
-  } else {
-    lbm_set_cdr(end, v);
-  }
-  return start;
+    return start;
 }
 
 /* extends a copy of the input set with the new element. */
 static lbm_value ext_set_insert(lbm_value *args, lbm_uint argn) {
-  lbm_value res = ENC_SYM_TERROR;
-  if (argn == 2 && lbm_is_list(args[0])) {
-    res = set_insert(args[0], args[1]);
-  }
-  return res;  
+    lbm_value res = ENC_SYM_TERROR;
+    if (argn == 2 && lbm_is_list(args[0])) {
+        res = set_insert(args[0], args[1]);
+    }
+    return res;
 }
 
-
 static lbm_value ext_set_union(lbm_value *args, lbm_uint argn) {
-  lbm_value res = ENC_SYM_TERROR;
-  if (argn == 2 && lbm_is_list(args[0]) && lbm_is_list(args[1])) {
-    lbm_value curr = args[0];
-    lbm_value set  = args[1];
+    lbm_value res = ENC_SYM_TERROR;
+    if (argn == 2 && lbm_is_list(args[0]) && lbm_is_list(args[1])) {
+        lbm_value curr = args[0];
+        lbm_value set = args[1];
 
-    while (lbm_is_cons(curr)) {
-      set = set_insert(set, lbm_car(curr));
-      ABORT_ON_MERROR(set);
-      curr = lbm_cdr(curr);
+        while (lbm_is_cons(curr)) {
+            set = set_insert(set, lbm_car(curr));
+            ABORT_ON_MERROR(set);
+            curr = lbm_cdr(curr);
+        }
+        return set;
     }
-    return set;
-  }
-  return res;
+    return res;
 }

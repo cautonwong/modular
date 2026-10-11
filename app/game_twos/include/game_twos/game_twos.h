@@ -8,6 +8,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#ifndef GAME_TWOS_MODULE_ID
+#define GAME_TWOS_MODULE_ID 0x3E00u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

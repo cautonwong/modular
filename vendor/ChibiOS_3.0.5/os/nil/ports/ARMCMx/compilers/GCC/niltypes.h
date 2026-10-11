@@ -28,9 +28,9 @@
 #ifndef _NILTYPES_H_
 #define _NILTYPES_H_
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdbool.h>
 
 /**
  * @name    Common constants
@@ -39,24 +39,24 @@
  * @brief   Generic 'false' boolean constant.
  */
 #if !defined(FALSE) || defined(__DOXYGEN__)
-#define FALSE                   0
+#define FALSE 0
 #endif
 
 /**
  * @brief   Generic 'true' boolean constant.
  */
 #if !defined(TRUE) || defined(__DOXYGEN__)
-#define TRUE                    1
+#define TRUE 1
 #endif
 /** @} */
 
-typedef uint32_t        syssts_t;       /**< System status word.            */
-typedef uint32_t        rtcnt_t;        /**< Realtime counter.              */
-typedef uint8_t         tstate_t;       /**< Thread state.                  */
-typedef int32_t         msg_t;          /**< Inter-thread message.          */
-typedef uint32_t        eventmask_t;    /**< Mask of event identifiers.     */
-typedef int32_t         cnt_t;          /**< Generic signed counter.        */
-typedef uint32_t        ucnt_t;         /**< Generic unsigned counter.      */
+typedef uint32_t syssts_t;    /**< System status word.            */
+typedef uint32_t rtcnt_t;     /**< Realtime counter.              */
+typedef uint8_t tstate_t;     /**< Thread state.                  */
+typedef int32_t msg_t;        /**< Inter-thread message.          */
+typedef uint32_t eventmask_t; /**< Mask of event identifiers.     */
+typedef int32_t cnt_t;        /**< Generic signed counter.        */
+typedef uint32_t ucnt_t;      /**< Generic unsigned counter.      */
 
 /**
  * @brief   Type of system time.
@@ -83,8 +83,7 @@ typedef uint16_t systime_t;
 /**
  * @brief   Optimized thread function declaration macro.
  */
-#define PORT_THD_FUNCTION(tname, arg)                                       \
-  __attribute__((noreturn)) void tname(void *arg)
+#define PORT_THD_FUNCTION(tname, arg) __attribute__((noreturn)) void tname(void *arg)
 
 /**
  * @brief   Packed variable specifier.

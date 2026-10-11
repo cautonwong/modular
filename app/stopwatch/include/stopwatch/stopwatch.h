@@ -9,6 +9,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef STOPWATCH_MODULE_ID
+#define STOPWATCH_MODULE_ID 0x1F00u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

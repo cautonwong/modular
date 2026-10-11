@@ -38,7 +38,8 @@
 __attribute__((weak))
 #endif
 /*lint -save -e9075 [8.4] All symbols are invoked from asm context.*/
-void __early_init(void) {}
+void __early_init(void) {
+}
 /*lint -restore*/
 
 /**
@@ -52,7 +53,8 @@ void __early_init(void) {}
 __attribute__((weak))
 #endif
 /*lint -save -e9075 [8.4] All symbols are invoked from asm context.*/
-void __late_init(void) {}
+void __late_init(void) {
+}
 /*lint -restore*/
 
 /**
@@ -66,10 +68,10 @@ __attribute__((noreturn, weak))
 #endif
 /*lint -save -e9075 [8.4] All symbols are invoked from asm context.*/
 void __default_exit(void) {
-/*lint -restore*/
+    /*lint -restore*/
 
-  while (true) {
-  }
+    while (true) {
+    }
 }
 
 /** @} */

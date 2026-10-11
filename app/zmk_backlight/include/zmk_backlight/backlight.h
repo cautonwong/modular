@@ -8,6 +8,10 @@
 #include "edge/errors.h"
 #include "edge/module.h"
 
+#ifndef ZMK_BACKLIGHT_MODULE_ID
+#define ZMK_BACKLIGHT_MODULE_ID 0x4500u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

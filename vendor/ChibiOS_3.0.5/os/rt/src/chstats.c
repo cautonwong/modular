@@ -61,10 +61,10 @@
  */
 void _stats_init(void) {
 
-  ch.kernel_stats.n_irq = (ucnt_t)0;
-  ch.kernel_stats.n_ctxswc = (ucnt_t)0;
-  chTMObjectInit(&ch.kernel_stats.m_crit_thd);
-  chTMObjectInit(&ch.kernel_stats.m_crit_isr);
+    ch.kernel_stats.n_irq = (ucnt_t)0;
+    ch.kernel_stats.n_ctxswc = (ucnt_t)0;
+    chTMObjectInit(&ch.kernel_stats.m_crit_thd);
+    chTMObjectInit(&ch.kernel_stats.m_crit_isr);
 }
 
 /**
@@ -72,9 +72,9 @@ void _stats_init(void) {
  */
 void _stats_increase_irq(void) {
 
-  port_lock_from_isr();
-  ch.kernel_stats.n_irq++;
-  port_unlock_from_isr();
+    port_lock_from_isr();
+    ch.kernel_stats.n_irq++;
+    port_unlock_from_isr();
 }
 
 /**
@@ -85,8 +85,8 @@ void _stats_increase_irq(void) {
  */
 void _stats_ctxswc(thread_t *ntp, thread_t *otp) {
 
-  ch.kernel_stats.n_ctxswc++;
-  chTMChainMeasurementToX(&otp->p_stats, &ntp->p_stats);
+    ch.kernel_stats.n_ctxswc++;
+    chTMChainMeasurementToX(&otp->p_stats, &ntp->p_stats);
 }
 
 /**
@@ -94,7 +94,7 @@ void _stats_ctxswc(thread_t *ntp, thread_t *otp) {
  */
 void _stats_start_measure_crit_thd(void) {
 
-  chTMStartMeasurementX(&ch.kernel_stats.m_crit_thd);
+    chTMStartMeasurementX(&ch.kernel_stats.m_crit_thd);
 }
 
 /**
@@ -102,7 +102,7 @@ void _stats_start_measure_crit_thd(void) {
  */
 void _stats_stop_measure_crit_thd(void) {
 
-  chTMStopMeasurementX(&ch.kernel_stats.m_crit_thd);
+    chTMStopMeasurementX(&ch.kernel_stats.m_crit_thd);
 }
 
 /**
@@ -110,7 +110,7 @@ void _stats_stop_measure_crit_thd(void) {
  */
 void _stats_start_measure_crit_isr(void) {
 
-  chTMStartMeasurementX(&ch.kernel_stats.m_crit_isr);
+    chTMStartMeasurementX(&ch.kernel_stats.m_crit_isr);
 }
 
 /**
@@ -118,7 +118,7 @@ void _stats_start_measure_crit_isr(void) {
  */
 void _stats_stop_measure_crit_isr(void) {
 
-  chTMStopMeasurementX(&ch.kernel_stats.m_crit_isr);
+    chTMStopMeasurementX(&ch.kernel_stats.m_crit_isr);
 }
 
 #endif /* CH_DBG_STATISTICS == TRUE */

@@ -57,6 +57,9 @@ void board_blackpill_set_led(bool on) {
 
 void board_blackpill_enter_low_power(void) {
     ++g_low_power_entries;
+#if defined(__arm__) || defined(__thumb__)
+    __asm__ volatile("wfi");
+#endif
 }
 
 void board_blackpill_feed_watchdog(void) {

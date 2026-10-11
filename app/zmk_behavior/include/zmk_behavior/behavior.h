@@ -9,6 +9,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef ZMK_BEHAVIOR_MODULE_ID
+#define ZMK_BEHAVIOR_MODULE_ID 0x2300u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

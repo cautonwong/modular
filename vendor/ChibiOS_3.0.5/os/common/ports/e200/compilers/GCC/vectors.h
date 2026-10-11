@@ -65,7 +65,7 @@ extern uint32_t _vectors[PPC_NUM_VECTORS];
 #ifdef __cplusplus
 extern "C" {
 #endif
-  void _unhandled_irq(void);
+void _unhandled_irq(void);
 #ifdef __cplusplus
 }
 #endif

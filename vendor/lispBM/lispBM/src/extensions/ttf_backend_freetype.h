@@ -23,12 +23,11 @@
 
 #include "ttf_backend.h"
 
-struct SFT_Font
-{
-  FT_Library library;
-  FT_Face    face;
-  const uint8_t *memory;
-  uint_fast32_t  size;
+struct SFT_Font {
+    FT_Library library;
+    FT_Face face;
+    const uint8_t *memory;
+    uint_fast32_t size;
 };
 
 #endif

@@ -18,11 +18,10 @@
 #ifndef STACK_H_
 #define STACK_H_
 
-
-#include <stdlib.h>
-#include <stdint.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "lbm_types.h"
 
@@ -31,11 +30,11 @@ extern "C" {
 #endif
 
 typedef struct {
-  lbm_uint sp;
-  lbm_uint size;
-  lbm_uint* data;
+    lbm_uint sp;
+    lbm_uint size;
+    lbm_uint *data;
 } lbm_stack_t;
-  
+
 /** Allocate a stack on the symbols and arrays memory.
  *  lbm_memory_init must have been run before this function or it will fail.
  * \param s Pointer to an lbm_stack_t to initialize.
@@ -50,11 +49,11 @@ int lbm_stack_allocate(lbm_stack_t *s, lbm_uint stack_size);
  * \param size Size in number of 32 bit words.
  * \return 1
  */
-int lbm_stack_create(lbm_stack_t *s, lbm_uint* data, lbm_uint size);
+int lbm_stack_create(lbm_stack_t *s, lbm_uint *data, lbm_uint size);
 /** Check maximum SP
  * \param s Pointer to stack
  * \return maximum SP written to in stack.
- */  
+ */
 lbm_uint lbm_get_max_stack(lbm_stack_t *s);
 /** Free a stack allocated on the lispbm_memory.
  *
@@ -94,8 +93,9 @@ int lbm_pop(lbm_stack_t *s, lbm_uint *val);
  * \return 1 if stack is empty otherwise 0.
  */
 static inline int lbm_stack_is_empty(lbm_stack_t *s) {
-  if (s->sp == 0) return 1;
-  return 0;
+    if (s->sp == 0)
+        return 1;
+    return 0;
 }
 
 /** Pop 2 values from a stack.

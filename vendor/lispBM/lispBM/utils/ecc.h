@@ -32,9 +32,9 @@ extern "C" {
    ...
    32    | 16          | 223        */
 
-int  ecc_rs_encoded_size(int payload_size, int nroots);
+int ecc_rs_encoded_size(int payload_size, int nroots);
 void ecc_rs_encode(uint8_t *data, int payload_len, int nroots);
-int  ecc_rs_decode(uint8_t *data, int payload_len, int nroots);
+int ecc_rs_decode(uint8_t *data, int payload_len, int nroots);
 
 #ifdef __cplusplus
 }

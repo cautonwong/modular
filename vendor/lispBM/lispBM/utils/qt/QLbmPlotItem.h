@@ -18,25 +18,27 @@
 #ifndef QLBMPLOTITEM_H
 #define QLBMPLOTITEM_H
 
-#include <QQuickPaintedItem>
-#include <QVector>
-#include <QString>
 #include <QColor>
+#include <QQuickPaintedItem>
+#include <QString>
+#include <QVector>
 
 class QCustomPlot;
 
 class QLbmPlotItem : public QQuickPaintedItem {
     Q_OBJECT
-public:
+  public:
     explicit QLbmPlotItem(QQuickItem *parent = nullptr);
     ~QLbmPlotItem() override;
 
     // Expose the underlying QCustomPlot so callers can connect to its signals.
-    QCustomPlot *plot() const { return m_plot; }
+    QCustomPlot *plot() const {
+        return m_plot;
+    }
 
     // All methods below must be called on the Qt GUI thread
     // (use QMetaObject::invokeMethod from the LBM evaluator thread).
-    int  addGraph(const QString &name, const QColor &color = QColor());
+    int addGraph(const QString &name, const QColor &color = QColor());
     void setData(int graphIndex, const QVector<double> &keys, const QVector<double> &values);
     void appendPoint(int graphIndex, double key, double value);
     void clearGraph(int graphIndex);
@@ -53,7 +55,7 @@ public:
 
     void paint(QPainter *painter) override;
 
-protected:
+  protected:
     void geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry) override;
 
     // Qt Quick input events — forwarded to QCustomPlot for interactive pan/zoom/select.
@@ -64,7 +66,7 @@ protected:
     void wheelEvent(QWheelEvent *event) override;
     void hoverMoveEvent(QHoverEvent *event) override;
 
-private:
+  private:
     QCustomPlot *m_plot;
 };
 

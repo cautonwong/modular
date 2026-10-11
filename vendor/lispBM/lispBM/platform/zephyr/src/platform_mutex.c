@@ -17,17 +17,17 @@
 
 #include "platform_mutex.h"
 
-bool lbm_mutex_init(lbm_mutex_t *m){
-  if (k_mutex_init(m) != 0) {
-    return false;
-  }
-  return true;
+bool lbm_mutex_init(lbm_mutex_t *m) {
+    if (k_mutex_init(m) != 0) {
+        return false;
+    }
+    return true;
 }
 
-void lbm_mutex_lock(lbm_mutex_t *m){
-  k_mutex_lock(m, K_FOREVER);
+void lbm_mutex_lock(lbm_mutex_t *m) {
+    k_mutex_lock(m, K_FOREVER);
 }
 
-void lbm_mutex_unlock(lbm_mutex_t *m){
-  k_mutex_unlock(m);
+void lbm_mutex_unlock(lbm_mutex_t *m) {
+    k_mutex_unlock(m);
 }

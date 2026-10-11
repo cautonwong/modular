@@ -19,37 +19,35 @@
 #include <lbm_utils.h>
 
 #ifdef LBM_OPT_RANDOM_EXTENSIONS_SIZE
-#pragma GCC optimize ("-Os")
+#pragma GCC optimize("-Os")
 #endif
 #ifdef LBM_OPT_RANDOM_EXTENSIONS_SIZE_AGGRESSIVE
-#pragma GCC optimize ("-Oz")
+#pragma GCC optimize("-Oz")
 #endif
-
 
 #define M 268435183 //(1 << 28)
 #define A 268435043
 #define C 268434949
 
-
 static lbm_uint random_seed = 177739;
 
 static lbm_value ext_seed(lbm_value *args, lbm_uint argn) {
 
-  LBM_CHECK_ARGN_NUMBER(1);
+    LBM_CHECK_ARGN_NUMBER(1);
 
-  random_seed = lbm_dec_as_u32(args[0]);
-  return ENC_SYM_TRUE;
+    random_seed = lbm_dec_as_u32(args[0]);
+    return ENC_SYM_TRUE;
 }
 
 static lbm_value ext_random(lbm_value *args, lbm_uint argn) {
-  (void)args;
-  (void)argn;
-  random_seed = (A * random_seed + C) % M;
-  return lbm_enc_u(random_seed);
+    (void)args;
+    (void)argn;
+    random_seed = (A * random_seed + C) % M;
+    return lbm_enc_u(random_seed);
 }
 
 void lbm_random_extensions_init(void) {
 
-  lbm_add_extension("seed", ext_seed);
-  lbm_add_extension("random", ext_random);
+    lbm_add_extension("seed", ext_seed);
+    lbm_add_extension("random", ext_random);
 }

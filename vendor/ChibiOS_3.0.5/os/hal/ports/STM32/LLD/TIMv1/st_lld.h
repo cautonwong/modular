@@ -47,7 +47,7 @@
  * @brief   SysTick timer IRQ priority.
  */
 #if !defined(STM32_ST_IRQ_PRIORITY) || defined(__DOXYGEN__)
-#define STM32_ST_IRQ_PRIORITY               8
+#define STM32_ST_IRQ_PRIORITY 8
 #endif
 
 /**
@@ -57,7 +57,7 @@
  * @note    Timers 2, 3, 4 and 5 are supported.
  */
 #if !defined(STM32_ST_USE_TIMER) || defined(__DOXYGEN__)
-#define STM32_ST_USE_TIMER                  2
+#define STM32_ST_USE_TIMER 2
 #endif
 /** @} */
 
@@ -69,25 +69,25 @@
 #if !STM32_HAS_TIM2
 #error "TIM2 not present"
 #endif
-#define STM32_ST_TIM                              STM32_TIM2
+#define STM32_ST_TIM STM32_TIM2
 
 #elif STM32_ST_USE_TIMER == 3
 #if !STM32_HAS_TIM3
 #error "TIM3 not present"
 #endif
-#define STM32_ST_TIM                              STM32_TIM3
+#define STM32_ST_TIM STM32_TIM3
 
 #elif STM32_ST_USE_TIMER == 4
 #if !STM32_HAS_TIM4
 #error "TIM4 not present"
 #endif
-#define STM32_ST_TIM                              STM32_TIM4
+#define STM32_ST_TIM STM32_TIM4
 
 #elif STM32_ST_USE_TIMER == 5
 #if !STM32_HAS_TIM5
 #error "TIM5 not present"
 #endif
-#define STM32_ST_TIM                              STM32_TIM5
+#define STM32_ST_TIM STM32_TIM5
 
 #else
 #error "STM32_ST_USE_TIMER specifies an unsupported timer"
@@ -108,7 +108,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-  void st_lld_init(void);
+void st_lld_init(void);
 #ifdef __cplusplus
 }
 #endif
@@ -126,7 +126,7 @@ extern "C" {
  */
 static inline systime_t st_lld_get_counter(void) {
 
-  return (systime_t)STM32_ST_TIM->CNT;
+    return (systime_t)STM32_ST_TIM->CNT;
 }
 
 /**
@@ -140,9 +140,9 @@ static inline systime_t st_lld_get_counter(void) {
  */
 static inline void st_lld_start_alarm(systime_t time) {
 
-  STM32_ST_TIM->CCR[0] = (uint32_t)time;
-  STM32_ST_TIM->SR     = 0;
-  STM32_ST_TIM->DIER   = STM32_TIM_DIER_CC1IE;
+    STM32_ST_TIM->CCR[0] = (uint32_t)time;
+    STM32_ST_TIM->SR = 0;
+    STM32_ST_TIM->DIER = STM32_TIM_DIER_CC1IE;
 }
 
 /**
@@ -152,7 +152,7 @@ static inline void st_lld_start_alarm(systime_t time) {
  */
 static inline void st_lld_stop_alarm(void) {
 
-  STM32_ST_TIM->DIER = 0;
+    STM32_ST_TIM->DIER = 0;
 }
 
 /**
@@ -164,7 +164,7 @@ static inline void st_lld_stop_alarm(void) {
  */
 static inline void st_lld_set_alarm(systime_t time) {
 
-  STM32_ST_TIM->CCR[0] = (uint32_t)time;
+    STM32_ST_TIM->CCR[0] = (uint32_t)time;
 }
 
 /**
@@ -176,7 +176,7 @@ static inline void st_lld_set_alarm(systime_t time) {
  */
 static inline systime_t st_lld_get_alarm(void) {
 
-  return (systime_t)STM32_ST_TIM->CCR[0];
+    return (systime_t)STM32_ST_TIM->CCR[0];
 }
 
 /**
@@ -190,7 +190,7 @@ static inline systime_t st_lld_get_alarm(void) {
  */
 static inline bool st_lld_is_alarm_active(void) {
 
-  return (bool)((STM32_ST_TIM->DIER & STM32_TIM_DIER_CC1IE) != 0);
+    return (bool)((STM32_ST_TIM->DIER & STM32_TIM_DIER_CC1IE) != 0);
 }
 
 #endif /* _ST_LLD_H_ */

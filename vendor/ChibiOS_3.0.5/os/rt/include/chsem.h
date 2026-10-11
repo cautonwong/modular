@@ -50,9 +50,9 @@
  * @brief   Semaphore structure.
  */
 typedef struct ch_semaphore {
-  threads_queue_t       s_queue;    /**< @brief Queue of the threads sleeping
-                                                on this semaphore.          */
-  cnt_t                 s_cnt;      /**< @brief The semaphore counter.      */
+    threads_queue_t s_queue; /**< @brief Queue of the threads sleeping
+                                         on this semaphore.          */
+    cnt_t s_cnt;             /**< @brief The semaphore counter.      */
 } semaphore_t;
 
 /*===========================================================================*/
@@ -68,7 +68,8 @@ typedef struct ch_semaphore {
  * @param[in] n         the counter initial value, this value must be
  *                      non-negative
  */
-#define _SEMAPHORE_DATA(name, n) {_THREADS_QUEUE_DATA(name.s_queue), n}
+#define _SEMAPHORE_DATA(name, n)                                                                   \
+    { _THREADS_QUEUE_DATA(name.s_queue), n }
 
 /**
  * @brief   Static semaphore initializer.
@@ -88,17 +89,17 @@ typedef struct ch_semaphore {
 #ifdef __cplusplus
 extern "C" {
 #endif
-  void chSemObjectInit(semaphore_t *sp, cnt_t n);
-  void chSemReset(semaphore_t *sp, cnt_t n);
-  void chSemResetI(semaphore_t *sp, cnt_t n);
-  msg_t chSemWait(semaphore_t *sp);
-  msg_t chSemWaitS(semaphore_t *sp);
-  msg_t chSemWaitTimeout(semaphore_t *sp, systime_t time);
-  msg_t chSemWaitTimeoutS(semaphore_t *sp, systime_t time);
-  void chSemSignal(semaphore_t *sp);
-  void chSemSignalI(semaphore_t *sp);
-  void chSemAddCounterI(semaphore_t *sp, cnt_t n);
-  msg_t chSemSignalWait(semaphore_t *sps, semaphore_t *spw);
+void chSemObjectInit(semaphore_t *sp, cnt_t n);
+void chSemReset(semaphore_t *sp, cnt_t n);
+void chSemResetI(semaphore_t *sp, cnt_t n);
+msg_t chSemWait(semaphore_t *sp);
+msg_t chSemWaitS(semaphore_t *sp);
+msg_t chSemWaitTimeout(semaphore_t *sp, systime_t time);
+msg_t chSemWaitTimeoutS(semaphore_t *sp, systime_t time);
+void chSemSignal(semaphore_t *sp);
+void chSemSignalI(semaphore_t *sp);
+void chSemAddCounterI(semaphore_t *sp, cnt_t n);
+msg_t chSemSignalWait(semaphore_t *sps, semaphore_t *spw);
 #ifdef __cplusplus
 }
 #endif
@@ -117,9 +118,9 @@ extern "C" {
  */
 static inline void chSemFastWaitI(semaphore_t *sp) {
 
-  chDbgCheckClassI();
+    chDbgCheckClassI();
 
-  sp->s_cnt--;
+    sp->s_cnt--;
 }
 
 /**
@@ -133,9 +134,9 @@ static inline void chSemFastWaitI(semaphore_t *sp) {
  */
 static inline void chSemFastSignalI(semaphore_t *sp) {
 
-  chDbgCheckClassI();
+    chDbgCheckClassI();
 
-  sp->s_cnt++;
+    sp->s_cnt++;
 }
 
 /**
@@ -148,9 +149,9 @@ static inline void chSemFastSignalI(semaphore_t *sp) {
  */
 static inline cnt_t chSemGetCounterI(semaphore_t *sp) {
 
-  chDbgCheckClassI();
+    chDbgCheckClassI();
 
-  return sp->s_cnt;
+    return sp->s_cnt;
 }
 
 #endif /* CH_CFG_USE_SEMAPHORES == TRUE */

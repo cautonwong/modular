@@ -6,6 +6,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef ZMK_SPLIT_MODULE_ID
+#define ZMK_SPLIT_MODULE_ID 0x2600u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

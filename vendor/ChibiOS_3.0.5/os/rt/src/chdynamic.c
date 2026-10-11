@@ -67,12 +67,12 @@
  */
 thread_t *chThdAddRef(thread_t *tp) {
 
-  chSysLock();
-  chDbgAssert(tp->p_refs < (trefs_t)255, "too many references");
-  tp->p_refs++;
-  chSysUnlock();
+    chSysLock();
+    chDbgAssert(tp->p_refs < (trefs_t)255, "too many references");
+    tp->p_refs++;
+    chSysUnlock();
 
-  return tp;
+    return tp;
 }
 
 /**
@@ -89,41 +89,41 @@ thread_t *chThdAddRef(thread_t *tp) {
  * @api
  */
 void chThdRelease(thread_t *tp) {
-  trefs_t refs;
+    trefs_t refs;
 
-  chSysLock();
-  chDbgAssert(tp->p_refs > (trefs_t)0, "not referenced");
-  tp->p_refs--;
-  refs = tp->p_refs;
-  chSysUnlock();
+    chSysLock();
+    chDbgAssert(tp->p_refs > (trefs_t)0, "not referenced");
+    tp->p_refs--;
+    refs = tp->p_refs;
+    chSysUnlock();
 
-  /* If the references counter reaches zero and the thread is in its
-     terminated state then the memory can be returned to the proper
-     allocator. Of course static threads are not affected.*/
-  if ((refs == (trefs_t)0) && (tp->p_state == CH_STATE_FINAL)) {
-    switch (tp->p_flags & CH_FLAG_MODE_MASK) {
+    /* If the references counter reaches zero and the thread is in its
+       terminated state then the memory can be returned to the proper
+       allocator. Of course static threads are not affected.*/
+    if ((refs == (trefs_t)0) && (tp->p_state == CH_STATE_FINAL)) {
+        switch (tp->p_flags & CH_FLAG_MODE_MASK) {
 #if CH_CFG_USE_HEAP == TRUE
-    case CH_FLAG_MODE_HEAP:
+        case CH_FLAG_MODE_HEAP:
 #if CH_CFG_USE_REGISTRY == TRUE
-      REG_REMOVE(tp);
+            REG_REMOVE(tp);
 #endif
-      chHeapFree(tp);
-      break;
+            chHeapFree(tp);
+            break;
 #endif
 #if CH_CFG_USE_MEMPOOLS == TRUE
-    case CH_FLAG_MODE_MPOOL:
+        case CH_FLAG_MODE_MPOOL:
 #if CH_CFG_USE_REGISTRY == TRUE
-      REG_REMOVE(tp);
+            REG_REMOVE(tp);
 #endif
-      chPoolFree(tp->p_mpool, tp);
-      break;
+            chPoolFree(tp->p_mpool, tp);
+            break;
 #endif
-    default:
-      /* Nothing to do for static threads, those are removed from the
-         registry on exit.*/
-      break;
+        default:
+            /* Nothing to do for static threads, those are removed from the
+               registry on exit.*/
+            break;
+        }
     }
-  }
 }
 
 #if (CH_CFG_USE_HEAP == TRUE) || defined(__DOXYGEN__)
@@ -149,32 +149,29 @@ void chThdRelease(thread_t *tp) {
  *
  * @api
  */
-thread_t *chThdCreateFromHeap(memory_heap_t *heapp, size_t size,
-                              tprio_t prio, tfunc_t pf, void *arg) {
-  void *wsp;
-  thread_t *tp;
+thread_t *chThdCreateFromHeap(memory_heap_t *heapp, size_t size, tprio_t prio, tfunc_t pf,
+                              void *arg) {
+    void *wsp;
+    thread_t *tp;
 
-  wsp = chHeapAlloc(heapp, size);
-  if (wsp == NULL) {
-    return NULL;
-  }
-  
+    wsp = chHeapAlloc(heapp, size);
+    if (wsp == NULL) {
+        return NULL;
+    }
+
 #if CH_DBG_FILL_THREADS == TRUE
-  _thread_memfill((uint8_t *)wsp,
-                  (uint8_t *)wsp + sizeof(thread_t),
-                  CH_DBG_THREAD_FILL_VALUE);
-  _thread_memfill((uint8_t *)wsp + sizeof(thread_t),
-                  (uint8_t *)wsp + size,
-                  CH_DBG_STACK_FILL_VALUE);
+    _thread_memfill((uint8_t *)wsp, (uint8_t *)wsp + sizeof(thread_t), CH_DBG_THREAD_FILL_VALUE);
+    _thread_memfill((uint8_t *)wsp + sizeof(thread_t), (uint8_t *)wsp + size,
+                    CH_DBG_STACK_FILL_VALUE);
 #endif
-  
-  chSysLock();
-  tp = chThdCreateI(wsp, size, prio, pf, arg);
-  tp->p_flags = CH_FLAG_MODE_HEAP;
-  chSchWakeupS(tp, MSG_OK);
-  chSysUnlock();
 
-  return tp;
+    chSysLock();
+    tp = chThdCreateI(wsp, size, prio, pf, arg);
+    tp->p_flags = CH_FLAG_MODE_HEAP;
+    chSchWakeupS(tp, MSG_OK);
+    chSysUnlock();
+
+    return tp;
 }
 #endif /* CH_CFG_USE_HEAP == TRUE */
 
@@ -201,35 +198,31 @@ thread_t *chThdCreateFromHeap(memory_heap_t *heapp, size_t size,
  *
  * @api
  */
-thread_t *chThdCreateFromMemoryPool(memory_pool_t *mp, tprio_t prio,
-                                    tfunc_t pf, void *arg) {
-  void *wsp;
-  thread_t *tp;
+thread_t *chThdCreateFromMemoryPool(memory_pool_t *mp, tprio_t prio, tfunc_t pf, void *arg) {
+    void *wsp;
+    thread_t *tp;
 
-  chDbgCheck(mp != NULL);
+    chDbgCheck(mp != NULL);
 
-  wsp = chPoolAlloc(mp);
-  if (wsp == NULL) {
-    return NULL;
-  }
-  
+    wsp = chPoolAlloc(mp);
+    if (wsp == NULL) {
+        return NULL;
+    }
+
 #if CH_DBG_FILL_THREADS == TRUE
-  _thread_memfill((uint8_t *)wsp,
-                  (uint8_t *)wsp + sizeof(thread_t),
-                  CH_DBG_THREAD_FILL_VALUE);
-  _thread_memfill((uint8_t *)wsp + sizeof(thread_t),
-                  (uint8_t *)wsp + mp->mp_object_size,
-                  CH_DBG_STACK_FILL_VALUE);
+    _thread_memfill((uint8_t *)wsp, (uint8_t *)wsp + sizeof(thread_t), CH_DBG_THREAD_FILL_VALUE);
+    _thread_memfill((uint8_t *)wsp + sizeof(thread_t), (uint8_t *)wsp + mp->mp_object_size,
+                    CH_DBG_STACK_FILL_VALUE);
 #endif
 
-  chSysLock();
-  tp = chThdCreateI(wsp, mp->mp_object_size, prio, pf, arg);
-  tp->p_flags = CH_FLAG_MODE_MPOOL;
-  tp->p_mpool = mp;
-  chSchWakeupS(tp, MSG_OK);
-  chSysUnlock();
+    chSysLock();
+    tp = chThdCreateI(wsp, mp->mp_object_size, prio, pf, arg);
+    tp->p_flags = CH_FLAG_MODE_MPOOL;
+    tp->p_mpool = mp;
+    chSchWakeupS(tp, MSG_OK);
+    chSysUnlock();
 
-  return tp;
+    return tp;
 }
 #endif /* CH_CFG_USE_MEMPOOLS == TRUE */
 

@@ -71,15 +71,14 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-  thread_t *chThdAddRef(thread_t *tp);
-  void chThdRelease(thread_t *tp);
+thread_t *chThdAddRef(thread_t *tp);
+void chThdRelease(thread_t *tp);
 #if CH_CFG_USE_HEAP == TRUE
-  thread_t *chThdCreateFromHeap(memory_heap_t *heapp, size_t size,
-                                tprio_t prio, tfunc_t pf, void *arg);
+thread_t *chThdCreateFromHeap(memory_heap_t *heapp, size_t size, tprio_t prio, tfunc_t pf,
+                              void *arg);
 #endif
 #if CH_CFG_USE_MEMPOOLS == TRUE
-  thread_t *chThdCreateFromMemoryPool(memory_pool_t *mp, tprio_t prio,
-                                      tfunc_t pf, void *arg);
+thread_t *chThdCreateFromMemoryPool(memory_pool_t *mp, tprio_t prio, tfunc_t pf, void *arg);
 #endif
 #ifdef __cplusplus
 }

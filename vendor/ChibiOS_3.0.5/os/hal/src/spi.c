@@ -55,7 +55,7 @@
  */
 void spiInit(void) {
 
-  spi_lld_init();
+    spi_lld_init();
 }
 
 /**
@@ -67,16 +67,16 @@ void spiInit(void) {
  */
 void spiObjectInit(SPIDriver *spip) {
 
-  spip->state = SPI_STOP;
-  spip->config = NULL;
+    spip->state = SPI_STOP;
+    spip->config = NULL;
 #if SPI_USE_WAIT == TRUE
-  spip->thread = NULL;
+    spip->thread = NULL;
 #endif
 #if SPI_USE_MUTUAL_EXCLUSION == TRUE
-  osalMutexObjectInit(&spip->mutex);
+    osalMutexObjectInit(&spip->mutex);
 #endif
 #if defined(SPI_DRIVER_EXT_INIT_HOOK)
-  SPI_DRIVER_EXT_INIT_HOOK(spip);
+    SPI_DRIVER_EXT_INIT_HOOK(spip);
 #endif
 }
 
@@ -90,15 +90,14 @@ void spiObjectInit(SPIDriver *spip) {
  */
 void spiStart(SPIDriver *spip, const SPIConfig *config) {
 
-  osalDbgCheck((spip != NULL) && (config != NULL));
+    osalDbgCheck((spip != NULL) && (config != NULL));
 
-  osalSysLock();
-  osalDbgAssert((spip->state == SPI_STOP) || (spip->state == SPI_READY),
-                "invalid state");
-  spip->config = config;
-  spi_lld_start(spip);
-  spip->state = SPI_READY;
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert((spip->state == SPI_STOP) || (spip->state == SPI_READY), "invalid state");
+    spip->config = config;
+    spi_lld_start(spip);
+    spip->state = SPI_READY;
+    osalSysUnlock();
 }
 
 /**
@@ -112,14 +111,13 @@ void spiStart(SPIDriver *spip, const SPIConfig *config) {
  */
 void spiStop(SPIDriver *spip) {
 
-  osalDbgCheck(spip != NULL);
+    osalDbgCheck(spip != NULL);
 
-  osalSysLock();
-  osalDbgAssert((spip->state == SPI_STOP) || (spip->state == SPI_READY),
-                "invalid state");
-  spi_lld_stop(spip);
-  spip->state = SPI_STOP;
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert((spip->state == SPI_STOP) || (spip->state == SPI_READY), "invalid state");
+    spi_lld_stop(spip);
+    spip->state = SPI_STOP;
+    osalSysUnlock();
 }
 
 /**
@@ -131,12 +129,12 @@ void spiStop(SPIDriver *spip) {
  */
 void spiSelect(SPIDriver *spip) {
 
-  osalDbgCheck(spip != NULL);
+    osalDbgCheck(spip != NULL);
 
-  osalSysLock();
-  osalDbgAssert(spip->state == SPI_READY, "not ready");
-  spiSelectI(spip);
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert(spip->state == SPI_READY, "not ready");
+    spiSelectI(spip);
+    osalSysUnlock();
 }
 
 /**
@@ -149,12 +147,12 @@ void spiSelect(SPIDriver *spip) {
  */
 void spiUnselect(SPIDriver *spip) {
 
-  osalDbgCheck(spip != NULL);
+    osalDbgCheck(spip != NULL);
 
-  osalSysLock();
-  osalDbgAssert(spip->state == SPI_READY, "not ready");
-  spiUnselectI(spip);
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert(spip->state == SPI_READY, "not ready");
+    spiUnselectI(spip);
+    osalSysUnlock();
 }
 
 /**
@@ -172,12 +170,12 @@ void spiUnselect(SPIDriver *spip) {
  */
 void spiStartIgnore(SPIDriver *spip, size_t n) {
 
-  osalDbgCheck((spip != NULL) && (n > 0U));
+    osalDbgCheck((spip != NULL) && (n > 0U));
 
-  osalSysLock();
-  osalDbgAssert(spip->state == SPI_READY, "not ready");
-  spiStartIgnoreI(spip, n);
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert(spip->state == SPI_READY, "not ready");
+    spiStartIgnoreI(spip, n);
+    osalSysUnlock();
 }
 
 /**
@@ -197,16 +195,14 @@ void spiStartIgnore(SPIDriver *spip, size_t n) {
  *
  * @api
  */
-void spiStartExchange(SPIDriver *spip, size_t n,
-                      const void *txbuf, void *rxbuf) {
+void spiStartExchange(SPIDriver *spip, size_t n, const void *txbuf, void *rxbuf) {
 
-  osalDbgCheck((spip != NULL) && (n > 0U) &&
-               (rxbuf != NULL) && (txbuf != NULL));
+    osalDbgCheck((spip != NULL) && (n > 0U) && (rxbuf != NULL) && (txbuf != NULL));
 
-  osalSysLock();
-  osalDbgAssert(spip->state == SPI_READY, "not ready");
-  spiStartExchangeI(spip, n, txbuf, rxbuf);
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert(spip->state == SPI_READY, "not ready");
+    spiStartExchangeI(spip, n, txbuf, rxbuf);
+    osalSysUnlock();
 }
 
 /**
@@ -226,12 +222,12 @@ void spiStartExchange(SPIDriver *spip, size_t n,
  */
 void spiStartSend(SPIDriver *spip, size_t n, const void *txbuf) {
 
-  osalDbgCheck((spip != NULL) && (n > 0U) && (txbuf != NULL));
+    osalDbgCheck((spip != NULL) && (n > 0U) && (txbuf != NULL));
 
-  osalSysLock();
-  osalDbgAssert(spip->state == SPI_READY, "not ready");
-  spiStartSendI(spip, n, txbuf);
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert(spip->state == SPI_READY, "not ready");
+    spiStartSendI(spip, n, txbuf);
+    osalSysUnlock();
 }
 
 /**
@@ -251,12 +247,12 @@ void spiStartSend(SPIDriver *spip, size_t n, const void *txbuf) {
  */
 void spiStartReceive(SPIDriver *spip, size_t n, void *rxbuf) {
 
-  osalDbgCheck((spip != NULL) && (n > 0U) && (rxbuf != NULL));
+    osalDbgCheck((spip != NULL) && (n > 0U) && (rxbuf != NULL));
 
-  osalSysLock();
-  osalDbgAssert(spip->state == SPI_READY, "not ready");
-  spiStartReceiveI(spip, n, rxbuf);
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert(spip->state == SPI_READY, "not ready");
+    spiStartReceiveI(spip, n, rxbuf);
+    osalSysUnlock();
 }
 
 #if (SPI_USE_WAIT == TRUE) || defined(__DOXYGEN__)
@@ -276,14 +272,14 @@ void spiStartReceive(SPIDriver *spip, size_t n, void *rxbuf) {
  */
 void spiIgnore(SPIDriver *spip, size_t n) {
 
-  osalDbgCheck((spip != NULL) && (n > 0U));
+    osalDbgCheck((spip != NULL) && (n > 0U));
 
-  osalSysLock();
-  osalDbgAssert(spip->state == SPI_READY, "not ready");
-  osalDbgAssert(spip->config->end_cb == NULL, "has callback");
-  spiStartIgnoreI(spip, n);
-  (void) osalThreadSuspendS(&spip->thread);
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert(spip->state == SPI_READY, "not ready");
+    osalDbgAssert(spip->config->end_cb == NULL, "has callback");
+    spiStartIgnoreI(spip, n);
+    (void)osalThreadSuspendS(&spip->thread);
+    osalSysUnlock();
 }
 
 /**
@@ -304,18 +300,16 @@ void spiIgnore(SPIDriver *spip, size_t n) {
  *
  * @api
  */
-void spiExchange(SPIDriver *spip, size_t n,
-                 const void *txbuf, void *rxbuf) {
+void spiExchange(SPIDriver *spip, size_t n, const void *txbuf, void *rxbuf) {
 
-  osalDbgCheck((spip != NULL) && (n > 0U) &&
-               (rxbuf != NULL) && (txbuf != NULL));
+    osalDbgCheck((spip != NULL) && (n > 0U) && (rxbuf != NULL) && (txbuf != NULL));
 
-  osalSysLock();
-  osalDbgAssert(spip->state == SPI_READY, "not ready");
-  osalDbgAssert(spip->config->end_cb == NULL, "has callback");
-  spiStartExchangeI(spip, n, txbuf, rxbuf);
-  (void) osalThreadSuspendS(&spip->thread);
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert(spip->state == SPI_READY, "not ready");
+    osalDbgAssert(spip->config->end_cb == NULL, "has callback");
+    spiStartExchangeI(spip, n, txbuf, rxbuf);
+    (void)osalThreadSuspendS(&spip->thread);
+    osalSysUnlock();
 }
 
 /**
@@ -336,14 +330,14 @@ void spiExchange(SPIDriver *spip, size_t n,
  */
 void spiSend(SPIDriver *spip, size_t n, const void *txbuf) {
 
-  osalDbgCheck((spip != NULL) && (n > 0U) && (txbuf != NULL));
+    osalDbgCheck((spip != NULL) && (n > 0U) && (txbuf != NULL));
 
-  osalSysLock();
-  osalDbgAssert(spip->state == SPI_READY, "not ready");
-  osalDbgAssert(spip->config->end_cb == NULL, "has callback");
-  spiStartSendI(spip, n, txbuf);
-  (void) osalThreadSuspendS(&spip->thread);
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert(spip->state == SPI_READY, "not ready");
+    osalDbgAssert(spip->config->end_cb == NULL, "has callback");
+    spiStartSendI(spip, n, txbuf);
+    (void)osalThreadSuspendS(&spip->thread);
+    osalSysUnlock();
 }
 
 /**
@@ -364,14 +358,14 @@ void spiSend(SPIDriver *spip, size_t n, const void *txbuf) {
  */
 void spiReceive(SPIDriver *spip, size_t n, void *rxbuf) {
 
-  osalDbgCheck((spip != NULL) && (n > 0U) && (rxbuf != NULL));
+    osalDbgCheck((spip != NULL) && (n > 0U) && (rxbuf != NULL));
 
-  osalSysLock();
-  osalDbgAssert(spip->state == SPI_READY, "not ready");
-  osalDbgAssert(spip->config->end_cb == NULL, "has callback");
-  spiStartReceiveI(spip, n, rxbuf);
-  (void) osalThreadSuspendS(&spip->thread);
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert(spip->state == SPI_READY, "not ready");
+    osalDbgAssert(spip->config->end_cb == NULL, "has callback");
+    spiStartReceiveI(spip, n, rxbuf);
+    (void)osalThreadSuspendS(&spip->thread);
+    osalSysUnlock();
 }
 #endif /* SPI_USE_WAIT == TRUE */
 
@@ -389,9 +383,9 @@ void spiReceive(SPIDriver *spip, size_t n, void *rxbuf) {
  */
 void spiAcquireBus(SPIDriver *spip) {
 
-  osalDbgCheck(spip != NULL);
+    osalDbgCheck(spip != NULL);
 
-  osalMutexLock(&spip->mutex);
+    osalMutexLock(&spip->mutex);
 }
 
 /**
@@ -405,9 +399,9 @@ void spiAcquireBus(SPIDriver *spip) {
  */
 void spiReleaseBus(SPIDriver *spip) {
 
-  osalDbgCheck(spip != NULL);
+    osalDbgCheck(spip != NULL);
 
-  osalMutexUnlock(&spip->mutex);
+    osalMutexUnlock(&spip->mutex);
 }
 #endif /* SPI_USE_MUTUAL_EXCLUSION == TRUE */
 

@@ -18,12 +18,12 @@
 #ifndef PLATFORM_TIMESTAMP_H_
 #define PLATFORM_TIMESTAMP_H_
 
-#include <zephyr/kernel.h>
 #include <stdint.h>
+#include <zephyr/kernel.h>
 
 // timestamp interface
 static inline uint32_t lbm_timestamp(void) {
-  return (uint32_t)k_cyc_to_us_floor32(k_cycle_get_32());
+    return (uint32_t)k_cyc_to_us_floor32(k_cycle_get_32());
 }
 
 #endif

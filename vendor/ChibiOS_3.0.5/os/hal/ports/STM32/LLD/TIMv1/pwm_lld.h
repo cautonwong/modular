@@ -36,7 +36,7 @@
 /**
  * @brief   Number of PWM channels per PWM driver.
  */
-#define PWM_CHANNELS                            STM32_TIM_MAX_CHANNELS
+#define PWM_CHANNELS STM32_TIM_MAX_CHANNELS
 
 /**
  * @name    STM32-specific PWM complementary output mode macros
@@ -46,13 +46,13 @@
  * @brief   Complementary output modes mask.
  * @note    This is an STM32-specific setting.
  */
-#define PWM_COMPLEMENTARY_OUTPUT_MASK           0xF0
+#define PWM_COMPLEMENTARY_OUTPUT_MASK 0xF0
 
 /**
  * @brief   Complementary output not driven.
  * @note    This is an STM32-specific setting.
  */
-#define PWM_COMPLEMENTARY_OUTPUT_DISABLED       0x00
+#define PWM_COMPLEMENTARY_OUTPUT_DISABLED 0x00
 
 /**
  * @brief   Complementary output, active is logic level one.
@@ -61,7 +61,7 @@
  *          @p STM32_PWM_USE_ADVANCED is set to TRUE and only for advanced
  *          timers TIM1 and TIM8.
  */
-#define PWM_COMPLEMENTARY_OUTPUT_ACTIVE_HIGH    0x10
+#define PWM_COMPLEMENTARY_OUTPUT_ACTIVE_HIGH 0x10
 
 /**
  * @brief   Complementary output, active is logic level zero.
@@ -70,7 +70,7 @@
  *          @p STM32_PWM_USE_ADVANCED is set to TRUE and only for advanced
  *          timers TIM1 and TIM8.
  */
-#define PWM_COMPLEMENTARY_OUTPUT_ACTIVE_LOW     0x20
+#define PWM_COMPLEMENTARY_OUTPUT_ACTIVE_LOW 0x20
 /** @} */
 
 /*===========================================================================*/
@@ -88,7 +88,7 @@
  * @note    The default is @p TRUE.
  */
 #if !defined(STM32_PWM_USE_ADVANCED) || defined(__DOXYGEN__)
-#define STM32_PWM_USE_ADVANCED              FALSE
+#define STM32_PWM_USE_ADVANCED FALSE
 #endif
 
 /**
@@ -97,7 +97,7 @@
  * @note    The default is @p TRUE.
  */
 #if !defined(STM32_PWM_USE_TIM1) || defined(__DOXYGEN__)
-#define STM32_PWM_USE_TIM1                  FALSE
+#define STM32_PWM_USE_TIM1 FALSE
 #endif
 
 /**
@@ -106,7 +106,7 @@
  * @note    The default is @p TRUE.
  */
 #if !defined(STM32_PWM_USE_TIM2) || defined(__DOXYGEN__)
-#define STM32_PWM_USE_TIM2                  FALSE
+#define STM32_PWM_USE_TIM2 FALSE
 #endif
 
 /**
@@ -115,7 +115,7 @@
  * @note    The default is @p TRUE.
  */
 #if !defined(STM32_PWM_USE_TIM3) || defined(__DOXYGEN__)
-#define STM32_PWM_USE_TIM3                  FALSE
+#define STM32_PWM_USE_TIM3 FALSE
 #endif
 
 /**
@@ -124,7 +124,7 @@
  * @note    The default is @p TRUE.
  */
 #if !defined(STM32_PWM_USE_TIM4) || defined(__DOXYGEN__)
-#define STM32_PWM_USE_TIM4                  FALSE
+#define STM32_PWM_USE_TIM4 FALSE
 #endif
 
 /**
@@ -133,7 +133,7 @@
  * @note    The default is @p TRUE.
  */
 #if !defined(STM32_PWM_USE_TIM5) || defined(__DOXYGEN__)
-#define STM32_PWM_USE_TIM5                  FALSE
+#define STM32_PWM_USE_TIM5 FALSE
 #endif
 
 /**
@@ -142,7 +142,7 @@
  * @note    The default is @p TRUE.
  */
 #if !defined(STM32_PWM_USE_TIM8) || defined(__DOXYGEN__)
-#define STM32_PWM_USE_TIM8                  FALSE
+#define STM32_PWM_USE_TIM8 FALSE
 #endif
 
 /**
@@ -151,49 +151,49 @@
  * @note    The default is @p TRUE.
  */
 #if !defined(STM32_PWM_USE_TIM9) || defined(__DOXYGEN__)
-#define STM32_PWM_USE_TIM9                  FALSE
+#define STM32_PWM_USE_TIM9 FALSE
 #endif
 
 /**
  * @brief   PWMD1 interrupt priority level setting.
  */
 #if !defined(STM32_PWM_TIM1_IRQ_PRIORITY) || defined(__DOXYGEN__)
-#define STM32_PWM_TIM1_IRQ_PRIORITY         7
+#define STM32_PWM_TIM1_IRQ_PRIORITY 7
 #endif
 
 /**
  * @brief   PWMD2 interrupt priority level setting.
  */
 #if !defined(STM32_PWM_TIM2_IRQ_PRIORITY) || defined(__DOXYGEN__)
-#define STM32_PWM_TIM2_IRQ_PRIORITY         7
+#define STM32_PWM_TIM2_IRQ_PRIORITY 7
 #endif
 
 /**
  * @brief   PWMD3 interrupt priority level setting.
  */
 #if !defined(STM32_PWM_TIM3_IRQ_PRIORITY) || defined(__DOXYGEN__)
-#define STM32_PWM_TIM3_IRQ_PRIORITY         7
+#define STM32_PWM_TIM3_IRQ_PRIORITY 7
 #endif
 
 /**
  * @brief   PWMD4 interrupt priority level setting.
  */
 #if !defined(STM32_PWM_TIM4_IRQ_PRIORITY) || defined(__DOXYGEN__)
-#define STM32_PWM_TIM4_IRQ_PRIORITY         7
+#define STM32_PWM_TIM4_IRQ_PRIORITY 7
 #endif
 
 /**
  * @brief   PWMD5 interrupt priority level setting.
  */
 #if !defined(STM32_PWM_TIM5_IRQ_PRIORITY) || defined(__DOXYGEN__)
-#define STM32_PWM_TIM5_IRQ_PRIORITY         7
+#define STM32_PWM_TIM5_IRQ_PRIORITY 7
 #endif
 
 /**
  * @brief   PWMD8 interrupt priority level setting.
  */
 #if !defined(STM32_PWM_TIM8_IRQ_PRIORITY) || defined(__DOXYGEN__)
-#define STM32_PWM_TIM8_IRQ_PRIORITY         7
+#define STM32_PWM_TIM8_IRQ_PRIORITY 7
 #endif
 /** @} */
 
@@ -201,7 +201,7 @@
  * @brief   PWMD9 interrupt priority level setting.
  */
 #if !defined(STM32_PWM_TIM9_IRQ_PRIORITY) || defined(__DOXYGEN__)
-#define STM32_PWM_TIM9_IRQ_PRIORITY         7
+#define STM32_PWM_TIM9_IRQ_PRIORITY 7
 #endif
 /** @} */
 
@@ -237,10 +237,8 @@
 #error "TIM9 not present in the selected device"
 #endif
 
-#if !STM32_PWM_USE_TIM1 && !STM32_PWM_USE_TIM2 &&                           \
-    !STM32_PWM_USE_TIM3 && !STM32_PWM_USE_TIM4 &&                           \
-    !STM32_PWM_USE_TIM5 && !STM32_PWM_USE_TIM8 &&                           \
-    !STM32_PWM_USE_TIM9
+#if !STM32_PWM_USE_TIM1 && !STM32_PWM_USE_TIM2 && !STM32_PWM_USE_TIM3 && !STM32_PWM_USE_TIM4 &&    \
+    !STM32_PWM_USE_TIM5 && !STM32_PWM_USE_TIM8 && !STM32_PWM_USE_TIM9
 #error "PWM driver activated but no TIM peripheral assigned"
 #endif
 
@@ -248,38 +246,31 @@
 #error "advanced mode selected but no advanced timer assigned"
 #endif
 
-#if STM32_PWM_USE_TIM1 &&                                                   \
-    !OSAL_IRQ_IS_VALID_PRIORITY(STM32_PWM_TIM1_IRQ_PRIORITY)
+#if STM32_PWM_USE_TIM1 && !OSAL_IRQ_IS_VALID_PRIORITY(STM32_PWM_TIM1_IRQ_PRIORITY)
 #error "Invalid IRQ priority assigned to TIM1"
 #endif
 
-#if STM32_PWM_USE_TIM2 &&                                                   \
-    !OSAL_IRQ_IS_VALID_PRIORITY(STM32_PWM_TIM2_IRQ_PRIORITY)
+#if STM32_PWM_USE_TIM2 && !OSAL_IRQ_IS_VALID_PRIORITY(STM32_PWM_TIM2_IRQ_PRIORITY)
 #error "Invalid IRQ priority assigned to TIM2"
 #endif
 
-#if STM32_PWM_USE_TIM3 &&                                                   \
-    !OSAL_IRQ_IS_VALID_PRIORITY(STM32_PWM_TIM3_IRQ_PRIORITY)
+#if STM32_PWM_USE_TIM3 && !OSAL_IRQ_IS_VALID_PRIORITY(STM32_PWM_TIM3_IRQ_PRIORITY)
 #error "Invalid IRQ priority assigned to TIM3"
 #endif
 
-#if STM32_PWM_USE_TIM4 &&                                                   \
-    !OSAL_IRQ_IS_VALID_PRIORITY(STM32_PWM_TIM4_IRQ_PRIORITY)
+#if STM32_PWM_USE_TIM4 && !OSAL_IRQ_IS_VALID_PRIORITY(STM32_PWM_TIM4_IRQ_PRIORITY)
 #error "Invalid IRQ priority assigned to TIM4"
 #endif
 
-#if STM32_PWM_USE_TIM5 &&                                                   \
-    !OSAL_IRQ_IS_VALID_PRIORITY(STM32_PWM_TIM5_IRQ_PRIORITY)
+#if STM32_PWM_USE_TIM5 && !OSAL_IRQ_IS_VALID_PRIORITY(STM32_PWM_TIM5_IRQ_PRIORITY)
 #error "Invalid IRQ priority assigned to TIM5"
 #endif
 
-#if STM32_PWM_USE_TIM8 &&                                                   \
-    !OSAL_IRQ_IS_VALID_PRIORITY(STM32_PWM_TIM8_IRQ_PRIORITY)
+#if STM32_PWM_USE_TIM8 && !OSAL_IRQ_IS_VALID_PRIORITY(STM32_PWM_TIM8_IRQ_PRIORITY)
 #error "Invalid IRQ priority assigned to TIM8"
 #endif
 
-#if STM32_PWM_USE_TIM9 &&                                                   \
-    !OSAL_IRQ_IS_VALID_PRIORITY(STM32_PWM_TIM9_IRQ_PRIORITY)
+#if STM32_PWM_USE_TIM9 && !OSAL_IRQ_IS_VALID_PRIORITY(STM32_PWM_TIM9_IRQ_PRIORITY)
 #error "Invalid IRQ priority assigned to TIM9"
 #endif
 
@@ -311,102 +302,102 @@ typedef uint32_t pwmcnt_t;
  * @brief   Type of a PWM driver channel configuration structure.
  */
 typedef struct {
-  /**
-   * @brief Channel active logic level.
-   */
-  pwmmode_t                 mode;
-  /**
-   * @brief Channel callback pointer.
-   * @note  This callback is invoked on the channel compare event. If set to
-   *        @p NULL then the callback is disabled.
-   */
-  pwmcallback_t             callback;
-  /* End of the mandatory fields.*/
+    /**
+     * @brief Channel active logic level.
+     */
+    pwmmode_t mode;
+    /**
+     * @brief Channel callback pointer.
+     * @note  This callback is invoked on the channel compare event. If set to
+     *        @p NULL then the callback is disabled.
+     */
+    pwmcallback_t callback;
+    /* End of the mandatory fields.*/
 } PWMChannelConfig;
 
 /**
  * @brief   Type of a PWM driver configuration structure.
  */
 typedef struct {
-  /**
-   * @brief   Timer clock in Hz.
-   * @note    The low level can use assertions in order to catch invalid
-   *          frequency specifications.
-   */
-  uint32_t                  frequency;
-  /**
-   * @brief   PWM period in ticks.
-   * @note    The low level can use assertions in order to catch invalid
-   *          period specifications.
-   */
-  pwmcnt_t                  period;
-  /**
-   * @brief Periodic callback pointer.
-   * @note  This callback is invoked on PWM counter reset. If set to
-   *        @p NULL then the callback is disabled.
-   */
-  pwmcallback_t             callback;
-  /**
-   * @brief Channels configurations.
-   */
-  PWMChannelConfig          channels[PWM_CHANNELS];
-  /* End of the mandatory fields.*/
-  /**
-   * @brief TIM CR2 register initialization data.
-   * @note  The value of this field should normally be equal to zero.
-   */
-  uint32_t                  cr2;
+    /**
+     * @brief   Timer clock in Hz.
+     * @note    The low level can use assertions in order to catch invalid
+     *          frequency specifications.
+     */
+    uint32_t frequency;
+    /**
+     * @brief   PWM period in ticks.
+     * @note    The low level can use assertions in order to catch invalid
+     *          period specifications.
+     */
+    pwmcnt_t period;
+    /**
+     * @brief Periodic callback pointer.
+     * @note  This callback is invoked on PWM counter reset. If set to
+     *        @p NULL then the callback is disabled.
+     */
+    pwmcallback_t callback;
+    /**
+     * @brief Channels configurations.
+     */
+    PWMChannelConfig channels[PWM_CHANNELS];
+    /* End of the mandatory fields.*/
+    /**
+     * @brief TIM CR2 register initialization data.
+     * @note  The value of this field should normally be equal to zero.
+     */
+    uint32_t cr2;
 #if STM32_PWM_USE_ADVANCED || defined(__DOXYGEN__)
-  /**
-   * @brief TIM BDTR (break & dead-time) register initialization data.
-   * @note  The value of this field should normally be equal to zero.
-   */                                                                     \
-   uint32_t                 bdtr;
+    /**
+     * @brief TIM BDTR (break & dead-time) register initialization data.
+     * @note  The value of this field should normally be equal to zero.
+     */
+    uint32_t bdtr;
 #endif
-   /**
-    * @brief TIM DIER register initialization data.
-    * @note  The value of this field should normally be equal to zero.
-    * @note  Only the DMA-related bits can be specified in this field.
-    */
-   uint32_t                 dier;
+    /**
+     * @brief TIM DIER register initialization data.
+     * @note  The value of this field should normally be equal to zero.
+     * @note  Only the DMA-related bits can be specified in this field.
+     */
+    uint32_t dier;
 } PWMConfig;
 
 /**
  * @brief   Structure representing a PWM driver.
  */
 struct PWMDriver {
-  /**
-   * @brief Driver state.
-   */
-  pwmstate_t                state;
-  /**
-   * @brief Current driver configuration data.
-   */
-  const PWMConfig           *config;
-  /**
-   * @brief   Current PWM period in ticks.
-   */
-  pwmcnt_t                  period;
-  /**
-   * @brief   Mask of the enabled channels.
-   */
-  pwmchnmsk_t               enabled;
-  /**
-   * @brief   Number of channels in this instance.
-   */
-  pwmchannel_t              channels;
+    /**
+     * @brief Driver state.
+     */
+    pwmstate_t state;
+    /**
+     * @brief Current driver configuration data.
+     */
+    const PWMConfig *config;
+    /**
+     * @brief   Current PWM period in ticks.
+     */
+    pwmcnt_t period;
+    /**
+     * @brief   Mask of the enabled channels.
+     */
+    pwmchnmsk_t enabled;
+    /**
+     * @brief   Number of channels in this instance.
+     */
+    pwmchannel_t channels;
 #if defined(PWM_DRIVER_EXT_FIELDS)
-  PWM_DRIVER_EXT_FIELDS
+    PWM_DRIVER_EXT_FIELDS
 #endif
-  /* End of the mandatory fields.*/
-  /**
-   * @brief Timer base clock.
-   */
-  uint32_t                  clock;
-  /**
-   * @brief Pointer to the TIMx registers block.
-   */
-  stm32_tim_t               *tim;
+    /* End of the mandatory fields.*/
+    /**
+     * @brief Timer base clock.
+     */
+    uint32_t clock;
+    /**
+     * @brief Pointer to the TIMx registers block.
+     */
+    stm32_tim_t *tim;
 };
 
 /*===========================================================================*/
@@ -429,8 +420,7 @@ struct PWMDriver {
  *
  * @notapi
  */
-#define pwm_lld_change_period(pwmp, period)                                 \
-  ((pwmp)->tim->ARR = ((period) - 1))
+#define pwm_lld_change_period(pwmp, period) ((pwmp)->tim->ARR = ((period)-1))
 
 /*===========================================================================*/
 /* External declarations.                                                    */
@@ -467,19 +457,15 @@ extern PWMDriver PWMD9;
 #ifdef __cplusplus
 extern "C" {
 #endif
-  void pwm_lld_init(void);
-  void pwm_lld_start(PWMDriver *pwmp);
-  void pwm_lld_stop(PWMDriver *pwmp);
-  void pwm_lld_enable_channel(PWMDriver *pwmp,
-                              pwmchannel_t channel,
-                              pwmcnt_t width);
-  void pwm_lld_disable_channel(PWMDriver *pwmp, pwmchannel_t channel);
-  void pwm_lld_enable_periodic_notification(PWMDriver *pwmp);
-  void pwm_lld_disable_periodic_notification(PWMDriver *pwmp);
-  void pwm_lld_enable_channel_notification(PWMDriver *pwmp,
-                                           pwmchannel_t channel);
-  void pwm_lld_disable_channel_notification(PWMDriver *pwmp,
-                                            pwmchannel_t channel);
+void pwm_lld_init(void);
+void pwm_lld_start(PWMDriver *pwmp);
+void pwm_lld_stop(PWMDriver *pwmp);
+void pwm_lld_enable_channel(PWMDriver *pwmp, pwmchannel_t channel, pwmcnt_t width);
+void pwm_lld_disable_channel(PWMDriver *pwmp, pwmchannel_t channel);
+void pwm_lld_enable_periodic_notification(PWMDriver *pwmp);
+void pwm_lld_disable_periodic_notification(PWMDriver *pwmp);
+void pwm_lld_enable_channel_notification(PWMDriver *pwmp, pwmchannel_t channel);
+void pwm_lld_disable_channel_notification(PWMDriver *pwmp, pwmchannel_t channel);
 #ifdef __cplusplus
 }
 #endif

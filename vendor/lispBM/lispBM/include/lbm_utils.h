@@ -17,7 +17,7 @@
 */
 
 #ifndef LBM_UTILS_H_
-#define LBM_UTILS_H_ 
+#define LBM_UTILS_H_
 
 #ifdef __cplusplus
 extern "C" {
@@ -39,23 +39,28 @@ extern "C" {
 #define RAD2DEG_f(rad) ((rad) * (float)(180.0 / M_PI))
 
 #ifndef MIN
-#define MIN(a,b) (((a)<(b))?(a):(b))
+#define MIN(a, b) (((a) < (b)) ? (a) : (b))
 #endif
 #ifndef MAX
-#define MAX(a,b) (((a)>(b))?(a):(b))
+#define MAX(a, b) (((a) > (b)) ? (a) : (b))
 #endif
 
-#define CMP(a,b) (((a) > (b)) - ((a) < (b)));
+#define CMP(a, b) (((a) > (b)) - ((a) < (b)));
 
 static inline bool str_eq(const char *str1, const char *str2) {
-  if (*str1 != *str2) return false;
-  if (*str1 == 0) return true;
+    if (*str1 != *str2)
+        return false;
+    if (*str1 == 0)
+        return true;
 
-  for (;;) {
-    ++str1; ++str2;
-    if (*str1 != *str2) return false;
-    if (*str1 == 0) return true;
-  }
+    for (;;) {
+        ++str1;
+        ++str2;
+        if (*str1 != *str2)
+            return false;
+        if (*str1 == 0)
+            return true;
+    }
 }
 
 #ifdef __cplusplus

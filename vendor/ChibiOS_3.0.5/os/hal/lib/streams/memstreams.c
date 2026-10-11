@@ -44,44 +44,44 @@
 /*===========================================================================*/
 
 static size_t writes(void *ip, const uint8_t *bp, size_t n) {
-  MemoryStream *msp = ip;
+    MemoryStream *msp = ip;
 
-  if (msp->size - msp->eos < n)
-    n = msp->size - msp->eos;
-  memcpy(msp->buffer + msp->eos, bp, n);
-  msp->eos += n;
-  return n;
+    if (msp->size - msp->eos < n)
+        n = msp->size - msp->eos;
+    memcpy(msp->buffer + msp->eos, bp, n);
+    msp->eos += n;
+    return n;
 }
 
 static size_t reads(void *ip, uint8_t *bp, size_t n) {
-  MemoryStream *msp = ip;
+    MemoryStream *msp = ip;
 
-  if (msp->eos - msp->offset < n)
-    n = msp->eos - msp->offset;
-  memcpy(bp, msp->buffer + msp->offset, n);
-  msp->offset += n;
-  return n;
+    if (msp->eos - msp->offset < n)
+        n = msp->eos - msp->offset;
+    memcpy(bp, msp->buffer + msp->offset, n);
+    msp->offset += n;
+    return n;
 }
 
 static msg_t put(void *ip, uint8_t b) {
-  MemoryStream *msp = ip;
+    MemoryStream *msp = ip;
 
-  if (msp->size - msp->eos <= 0)
-    return MSG_RESET;
-  *(msp->buffer + msp->eos) = b;
-  msp->eos += 1;
-  return MSG_OK;
+    if (msp->size - msp->eos <= 0)
+        return MSG_RESET;
+    *(msp->buffer + msp->eos) = b;
+    msp->eos += 1;
+    return MSG_OK;
 }
 
 static msg_t get(void *ip) {
-  uint8_t b;
-  MemoryStream *msp = ip;
+    uint8_t b;
+    MemoryStream *msp = ip;
 
-  if (msp->eos - msp->offset <= 0)
-    return MSG_RESET;
-  b = *(msp->buffer + msp->offset);
-  msp->offset += 1;
-  return b;
+    if (msp->eos - msp->offset <= 0)
+        return MSG_RESET;
+    b = *(msp->buffer + msp->offset);
+    msp->offset += 1;
+    return b;
 }
 
 static const struct MemStreamVMT vmt = {writes, reads, put, get};
@@ -100,14 +100,13 @@ static const struct MemStreamVMT vmt = {writes, reads, put, get};
  *                      put this to zero for RAM buffers or equal to @p size
  *                      for ROM streams.
  */
-void msObjectInit(MemoryStream *msp, uint8_t *buffer,
-                  size_t size, size_t eos) {
+void msObjectInit(MemoryStream *msp, uint8_t *buffer, size_t size, size_t eos) {
 
-  msp->vmt    = &vmt;
-  msp->buffer = buffer;
-  msp->size   = size;
-  msp->eos    = eos;
-  msp->offset = 0;
+    msp->vmt = &vmt;
+    msp->buffer = buffer;
+    msp->size = size;
+    msp->eos = eos;
+    msp->offset = 0;
 }
 
 /** @} */

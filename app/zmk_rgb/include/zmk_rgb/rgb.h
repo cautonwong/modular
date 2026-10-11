@@ -8,6 +8,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef ZMK_RGB_MODULE_ID
+#define ZMK_RGB_MODULE_ID 0x2800u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

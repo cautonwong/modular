@@ -22,8 +22,8 @@
  * @{
  */
 
-#include "ch.h"
 #include "evtimer.h"
+#include "ch.h"
 
 /*===========================================================================*/
 /* Module local definitions.                                                 */
@@ -46,12 +46,12 @@
 /*===========================================================================*/
 
 static void tmrcb(void *p) {
-  event_timer_t *etp = p;
+    event_timer_t *etp = p;
 
-  chSysLockFromISR();
-  chEvtBroadcastI(&etp->et_es);
-  chVTDoSetI(&etp->et_vt, etp->et_interval, tmrcb, etp);
-  chSysUnlockFromISR();
+    chSysLockFromISR();
+    chEvtBroadcastI(&etp->et_es);
+    chVTDoSetI(&etp->et_vt, etp->et_interval, tmrcb, etp);
+    chSysUnlockFromISR();
 }
 
 /*===========================================================================*/
@@ -66,9 +66,9 @@ static void tmrcb(void *p) {
  */
 void evtObjectInit(event_timer_t *etp, systime_t time) {
 
-  chEvtObjectInit(&etp->et_es);
-  chVTObjectInit(&etp->et_vt);
-  etp->et_interval = time;
+    chEvtObjectInit(&etp->et_es);
+    chVTObjectInit(&etp->et_vt);
+    etp->et_interval = time;
 }
 
 /**
@@ -79,7 +79,7 @@ void evtObjectInit(event_timer_t *etp, systime_t time) {
  */
 void evtStart(event_timer_t *etp) {
 
-  chVTSet(&etp->et_vt, etp->et_interval, tmrcb, etp);
+    chVTSet(&etp->et_vt, etp->et_interval, tmrcb, etp);
 }
 
 /** @} */

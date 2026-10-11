@@ -13,7 +13,7 @@
 //------------------------------------------------------------------------------
 // Includes
 
-#include <math.h> // M_PI, sqrtf, atan2f, asinf
+#include <math.h>   // M_PI, sqrtf, atan2f, asinf
 #include <stdint.h> // int32_t
 
 //------------------------------------------------------------------------------
@@ -85,24 +85,25 @@ typedef union {
 /**
  * @brief Zero-length vector definition.
  */
-#define FUSION_VECTOR3_ZERO ((FusionVector3){ .array = {0.0f, 0.0f, 0.0f} })
+#define FUSION_VECTOR3_ZERO ((FusionVector3){.array = {0.0f, 0.0f, 0.0f}})
 
 /**
  * @brief Quaternion identity definition to represent an aligned of
  * orientation.
  */
-#define FUSION_QUATERNION_IDENTITY ((FusionQuaternion){ .array = {1.0f, 0.0f, 0.0f, 0.0f} })
+#define FUSION_QUATERNION_IDENTITY ((FusionQuaternion){.array = {1.0f, 0.0f, 0.0f, 0.0f}})
 
 /**
  * @brief Rotation matrix identity definition to represent an aligned of
  * orientation.
  */
-#define FUSION_ROTATION_MATRIX_IDENTITY ((FusionRotationMatrix){ .array = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f} })
+#define FUSION_ROTATION_MATRIX_IDENTITY                                                            \
+    ((FusionRotationMatrix){.array = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f}})
 
 /**
  * @brief Euler angles zero definition to represent an aligned of orientation.
  */
-#define FUSION_EULER_ANGLES_ZERO ((FusionEulerAngles){ .array = {0.0f, 0.0f, 0.0f} })
+#define FUSION_EULER_ANGLES_ZERO ((FusionEulerAngles){.array = {0.0f, 0.0f, 0.0f}})
 
 /**
  * @brief Definition of M_PI.  Some compilers may not define this in math.h.
@@ -120,7 +121,7 @@ typedef union {
  * @return Radians.
  */
 static inline __attribute__((always_inline)) float FusionDegreesToRadians(const float degrees) {
-    return degrees * ((float) M_PI / 180.0f);
+    return degrees * ((float)M_PI / 180.0f);
 }
 
 /**
@@ -129,7 +130,7 @@ static inline __attribute__((always_inline)) float FusionDegreesToRadians(const 
  * @return Degrees.
  */
 static inline __attribute__((always_inline)) float FusionRadiansToDegrees(const float radians) {
-    return radians * (180.0f / (float) M_PI);
+    return radians * (180.0f / (float)M_PI);
 }
 
 //------------------------------------------------------------------------------
@@ -142,9 +143,9 @@ static inline __attribute__((always_inline)) float FusionRadiansToDegrees(const 
  * @return Reciprocal of the square root of x.
  */
 static inline __attribute__((always_inline)) float FusionFastInverseSqrt(const float x) {
-	if (x == 0.0) {
-		return 1.0;
-	}
+    if (x == 0.0) {
+        return 1.0;
+    }
     return 1.0 / sqrtf(x);
 }
 
@@ -157,7 +158,8 @@ static inline __attribute__((always_inline)) float FusionFastInverseSqrt(const f
  * @param vectorB Second vector of the operation.
  * @return Sum of vectorA and vectorB.
  */
-static inline __attribute__((always_inline)) FusionVector3 FusionVectorAdd(const FusionVector3 vectorA, const FusionVector3 vectorB) {
+static inline __attribute__((always_inline)) FusionVector3
+FusionVectorAdd(const FusionVector3 vectorA, const FusionVector3 vectorB) {
     FusionVector3 result;
     result.axis.x = vectorA.axis.x + vectorB.axis.x;
     result.axis.y = vectorA.axis.y + vectorB.axis.y;
@@ -171,7 +173,8 @@ static inline __attribute__((always_inline)) FusionVector3 FusionVectorAdd(const
  * @param vectorB Second vector of the operation.
  * @return vectorB subtracted from vectorA.
  */
-static inline __attribute__((always_inline)) FusionVector3 FusionVectorSubtract(const FusionVector3 vectorA, const FusionVector3 vectorB) {
+static inline __attribute__((always_inline)) FusionVector3
+FusionVectorSubtract(const FusionVector3 vectorA, const FusionVector3 vectorB) {
     FusionVector3 result;
     result.axis.x = vectorA.axis.x - vectorB.axis.x;
     result.axis.y = vectorA.axis.y - vectorB.axis.y;
@@ -185,7 +188,8 @@ static inline __attribute__((always_inline)) FusionVector3 FusionVectorSubtract(
  * @param scalar Scalar to be multiplied.
  * @return Vector multiplied by scalar.
  */
-static inline __attribute__((always_inline)) FusionVector3 FusionVectorMultiplyScalar(const FusionVector3 vector, const float scalar) {
+static inline __attribute__((always_inline)) FusionVector3
+FusionVectorMultiplyScalar(const FusionVector3 vector, const float scalar) {
     FusionVector3 result;
     result.axis.x = vector.axis.x * scalar;
     result.axis.y = vector.axis.y * scalar;
@@ -200,7 +204,8 @@ static inline __attribute__((always_inline)) FusionVector3 FusionVectorMultiplyS
  * @param vectorB Second vector of the operation.
  * @return Hadamard product of vectorA and vectorB.
  */
-static inline __attribute__((always_inline)) FusionVector3 FusionVectorHadamardProduct(const FusionVector3 vectorA, const FusionVector3 vectorB) {
+static inline __attribute__((always_inline)) FusionVector3
+FusionVectorHadamardProduct(const FusionVector3 vectorA, const FusionVector3 vectorB) {
     FusionVector3 result;
     result.axis.x = vectorA.axis.x * vectorB.axis.x;
     result.axis.y = vectorA.axis.y * vectorB.axis.y;
@@ -214,7 +219,8 @@ static inline __attribute__((always_inline)) FusionVector3 FusionVectorHadamardP
  * @param vectorB Second vector of the operation.
  * @return Cross-product of vectorA and vectorB.
  */
-static inline __attribute__((always_inline)) FusionVector3 FusionVectorCrossProduct(const FusionVector3 vectorA, const FusionVector3 vectorB) {
+static inline __attribute__((always_inline)) FusionVector3
+FusionVectorCrossProduct(const FusionVector3 vectorA, const FusionVector3 vectorB) {
 #define A vectorA.axis // define shorthand labels for more readable code
 #define B vectorB.axis
     FusionVector3 result;
@@ -231,7 +237,8 @@ static inline __attribute__((always_inline)) FusionVector3 FusionVectorCrossProd
  * @param vector Vector of the operation.
  * @return Vector magnitude squared.
  */
-static inline __attribute__((always_inline)) float FusionVectorMagnitudeSquared(const FusionVector3 vector) {
+static inline __attribute__((always_inline)) float
+FusionVectorMagnitudeSquared(const FusionVector3 vector) {
 #define V vector.axis // define shorthand label for more readable code
     return V.x * V.x + V.y * V.y + V.z * V.z;
 #undef V // undefine shorthand label
@@ -242,7 +249,8 @@ static inline __attribute__((always_inline)) float FusionVectorMagnitudeSquared(
  * @param vector Vector to be used in calculation.
  * @return Vector magnitude.
  */
-static inline __attribute__((always_inline)) float FusionVectorMagnitude(const FusionVector3 vector) {
+static inline __attribute__((always_inline)) float
+FusionVectorMagnitude(const FusionVector3 vector) {
     return sqrtf(FusionVectorMagnitudeSquared(vector));
 }
 
@@ -251,7 +259,8 @@ static inline __attribute__((always_inline)) float FusionVectorMagnitude(const F
  * @param vector Vector to be normalised.
  * @return Normalised vector.
  */
-static inline __attribute__((always_inline)) FusionVector3 FusionVectorNormalise(const FusionVector3 vector) {
+static inline __attribute__((always_inline)) FusionVector3
+FusionVectorNormalise(const FusionVector3 vector) {
     const float magnitudeReciprocal = 1.0f / sqrtf(FusionVectorMagnitudeSquared(vector));
     return FusionVectorMultiplyScalar(vector, magnitudeReciprocal);
 }
@@ -262,7 +271,8 @@ static inline __attribute__((always_inline)) FusionVector3 FusionVectorNormalise
  * @param vector Vector to be normalised.
  * @return Normalised vector.
  */
-static inline __attribute__((always_inline)) FusionVector3 FusionVectorFastNormalise(const FusionVector3 vector) {
+static inline __attribute__((always_inline)) FusionVector3
+FusionVectorFastNormalise(const FusionVector3 vector) {
     const float magnitudeReciprocal = FusionFastInverseSqrt(FusionVectorMagnitudeSquared(vector));
     return FusionVectorMultiplyScalar(vector, magnitudeReciprocal);
 }
@@ -276,7 +286,8 @@ static inline __attribute__((always_inline)) FusionVector3 FusionVectorFastNorma
  * @param quaternionB Second quaternion of the operation.
  * @return Sum of quaternionA and quaternionB.
  */
-static inline __attribute__((always_inline)) FusionQuaternion FusionQuaternionAdd(const FusionQuaternion quaternionA, const FusionQuaternion quaternionB) {
+static inline __attribute__((always_inline)) FusionQuaternion
+FusionQuaternionAdd(const FusionQuaternion quaternionA, const FusionQuaternion quaternionB) {
     FusionQuaternion result;
     result.element.w = quaternionA.element.w + quaternionB.element.w;
     result.element.x = quaternionA.element.x + quaternionB.element.x;
@@ -291,7 +302,8 @@ static inline __attribute__((always_inline)) FusionQuaternion FusionQuaternionAd
  * @param quaternionB Second quaternion of the operation.
  * @return quaternionA multiplied by quaternionB.
  */
-static inline __attribute__((always_inline)) FusionQuaternion FusionQuaternionMultiply(const FusionQuaternion quaternionA, const FusionQuaternion quaternionB) {
+static inline __attribute__((always_inline)) FusionQuaternion
+FusionQuaternionMultiply(const FusionQuaternion quaternionA, const FusionQuaternion quaternionB) {
 #define A quaternionA.element // define shorthand labels for more readable code
 #define B quaternionB.element
     FusionQuaternion result;
@@ -312,7 +324,8 @@ static inline __attribute__((always_inline)) FusionQuaternion FusionQuaternionMu
  * @param vector Vector to be multiplied.
  * @return Quaternion multiplied by vector.
  */
-static inline __attribute__((always_inline)) FusionQuaternion FusionQuaternionMultiplyVector(const FusionQuaternion quaternion, const FusionVector3 vector) {
+static inline __attribute__((always_inline)) FusionQuaternion
+FusionQuaternionMultiplyVector(const FusionQuaternion quaternion, const FusionVector3 vector) {
 #define Q quaternion.element // define shorthand labels for more readable code
 #define V vector.axis
     FusionQuaternion result;
@@ -330,7 +343,8 @@ static inline __attribute__((always_inline)) FusionQuaternion FusionQuaternionMu
  * @param quaternion Quaternion to be conjugated.
  * @return Conjugated quaternion.
  */
-static inline __attribute__((always_inline)) FusionQuaternion FusionQuaternionConjugate(const FusionQuaternion quaternion) {
+static inline __attribute__((always_inline)) FusionQuaternion
+FusionQuaternionConjugate(const FusionQuaternion quaternion) {
     FusionQuaternion conjugate;
     conjugate.element.w = quaternion.element.w;
     conjugate.element.x = -1.0f * quaternion.element.x;
@@ -344,7 +358,8 @@ static inline __attribute__((always_inline)) FusionQuaternion FusionQuaternionCo
  * @param quaternion Quaternion to be normalised.
  * @return Normalised quaternion.
  */
-static inline __attribute__((always_inline)) FusionQuaternion FusionQuaternionNormalise(const FusionQuaternion quaternion) {
+static inline __attribute__((always_inline)) FusionQuaternion
+FusionQuaternionNormalise(const FusionQuaternion quaternion) {
 #define Q quaternion.element // define shorthand label for more readable code
     const float magnitudeReciprocal = 1.0f / sqrtf(Q.w * Q.w + Q.x * Q.x + Q.y * Q.y + Q.z * Q.z);
     FusionQuaternion normalisedQuaternion;
@@ -362,9 +377,11 @@ static inline __attribute__((always_inline)) FusionQuaternion FusionQuaternionNo
  * @param quaternion Quaternion to be normalised.
  * @return Normalised quaternion.
  */
-static inline __attribute__((always_inline)) FusionQuaternion FusionQuaternionFastNormalise(const FusionQuaternion quaternion) {
+static inline __attribute__((always_inline)) FusionQuaternion
+FusionQuaternionFastNormalise(const FusionQuaternion quaternion) {
 #define Q quaternion.element // define shorthand label for more readable code
-    const float magnitudeReciprocal = FusionFastInverseSqrt(Q.w * Q.w + Q.x * Q.x + Q.y * Q.y + Q.z * Q.z);
+    const float magnitudeReciprocal =
+        FusionFastInverseSqrt(Q.w * Q.w + Q.x * Q.x + Q.y * Q.y + Q.z * Q.z);
     FusionQuaternion normalisedQuaternion;
     normalisedQuaternion.element.w = Q.w * magnitudeReciprocal;
     normalisedQuaternion.element.x = Q.x * magnitudeReciprocal;
@@ -383,7 +400,9 @@ static inline __attribute__((always_inline)) FusionQuaternion FusionQuaternionFa
  * @param rotationMatrixB Second rotation matrix of the operation.
  * @return rotationMatrixA with rotationMatrixB.
  */
-static inline __attribute__((always_inline)) FusionRotationMatrix FusionRotationMatrixMultiply(const FusionRotationMatrix rotationMatrixA, const FusionRotationMatrix rotationMatrixB) {
+static inline __attribute__((always_inline)) FusionRotationMatrix
+FusionRotationMatrixMultiply(const FusionRotationMatrix rotationMatrixA,
+                             const FusionRotationMatrix rotationMatrixB) {
 #define A rotationMatrixA.element // define shorthand label for more readable code
 #define B rotationMatrixB.element
     FusionRotationMatrix result;
@@ -407,7 +426,9 @@ static inline __attribute__((always_inline)) FusionRotationMatrix FusionRotation
  * @param vector Vector to be multiplied.
  * @return Rotation matrix multiplied with scalar.
  */
-static inline __attribute__((always_inline)) FusionVector3 FusionRotationMatrixMultiplyVector(const FusionRotationMatrix rotationMatrix, const FusionVector3 vector) {
+static inline __attribute__((always_inline)) FusionVector3
+FusionRotationMatrixMultiplyVector(const FusionRotationMatrix rotationMatrix,
+                                   const FusionVector3 vector) {
 #define R rotationMatrix.element // define shorthand label for more readable code
     FusionVector3 result;
     result.axis.x = R.xx * vector.axis.x + R.xy * vector.axis.y + R.xz * vector.axis.z;
@@ -425,8 +446,9 @@ static inline __attribute__((always_inline)) FusionVector3 FusionRotationMatrixM
  * @param quaternion Quaternion to be converted.
  * @return Rotation matrix.
  */
-static inline __attribute__((always_inline)) FusionRotationMatrix FusionQuaternionToRotationMatrix(const FusionQuaternion quaternion) {
-#define Q quaternion.element // define shorthand label for more readable code
+static inline __attribute__((always_inline)) FusionRotationMatrix
+FusionQuaternionToRotationMatrix(const FusionQuaternion quaternion) {
+#define Q quaternion.element      // define shorthand label for more readable code
     const float qwqw = Q.w * Q.w; // calculate common terms to avoid repeated operations
     const float qwqx = Q.w * Q.x;
     const float qwqy = Q.w * Q.y;
@@ -453,13 +475,17 @@ static inline __attribute__((always_inline)) FusionRotationMatrix FusionQuaterni
  * @param quaternion Quaternion to be converted.
  * @return Euler angles in degrees.
  */
-static inline __attribute__((always_inline)) FusionEulerAngles FusionQuaternionToEulerAngles(const FusionQuaternion quaternion) {
+static inline __attribute__((always_inline)) FusionEulerAngles
+FusionQuaternionToEulerAngles(const FusionQuaternion quaternion) {
 #define Q quaternion.element // define shorthand label for more readable code
-    const float qwqwMinusHalf = Q.w * Q.w - 0.5f; // calculate common terms to avoid repeated operations
+    const float qwqwMinusHalf =
+        Q.w * Q.w - 0.5f; // calculate common terms to avoid repeated operations
     FusionEulerAngles eulerAngles;
-    eulerAngles.angle.roll = FusionRadiansToDegrees(atan2f(Q.y * Q.z - Q.w * Q.x, qwqwMinusHalf + Q.z * Q.z));
+    eulerAngles.angle.roll =
+        FusionRadiansToDegrees(atan2f(Q.y * Q.z - Q.w * Q.x, qwqwMinusHalf + Q.z * Q.z));
     eulerAngles.angle.pitch = FusionRadiansToDegrees(-1.0f * asinf(2.0f * (Q.x * Q.z + Q.w * Q.y)));
-    eulerAngles.angle.yaw = FusionRadiansToDegrees(atan2f(Q.x * Q.y - Q.w * Q.z, qwqwMinusHalf + Q.x * Q.x));
+    eulerAngles.angle.yaw =
+        FusionRadiansToDegrees(atan2f(Q.x * Q.y - Q.w * Q.z, qwqwMinusHalf + Q.x * Q.x));
     return eulerAngles;
 #undef Q // undefine shorthand label
 }

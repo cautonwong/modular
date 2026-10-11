@@ -8,6 +8,10 @@
 #include "edge/errors.h"
 #include "edge/module.h"
 
+#ifndef ZMK_SETTINGS_MODULE_ID
+#define ZMK_SETTINGS_MODULE_ID 0x2E00u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

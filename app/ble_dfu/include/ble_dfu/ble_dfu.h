@@ -9,6 +9,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef BLE_DFU_MODULE_ID
+#define BLE_DFU_MODULE_ID 0x3600u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

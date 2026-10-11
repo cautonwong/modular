@@ -38,10 +38,10 @@
  * @name    Masks of executable integrity checks.
  * @{
  */
-#define CH_INTEGRITY_RLIST                  1U
-#define CH_INTEGRITY_VTLIST                 2U
-#define CH_INTEGRITY_REGISTRY               4U
-#define CH_INTEGRITY_PORT                   8U
+#define CH_INTEGRITY_RLIST 1U
+#define CH_INTEGRITY_VTLIST 2U
+#define CH_INTEGRITY_REGISTRY 4U
+#define CH_INTEGRITY_PORT 8U
 /** @} */
 
 /*===========================================================================*/
@@ -75,8 +75,7 @@
  * @retval true         if the priority is valid.
  */
 #if defined(PORT_IRQ_IS_VALID_PRIORITY) || defined(__DOXYGEN__)
-#define CH_IRQ_IS_VALID_PRIORITY(prio)                                      \
-  PORT_IRQ_IS_VALID_PRIORITY(prio)
+#define CH_IRQ_IS_VALID_PRIORITY(prio) PORT_IRQ_IS_VALID_PRIORITY(prio)
 #else
 #define CH_IRQ_IS_VALID_PRIORITY(prio) false
 #endif
@@ -93,8 +92,7 @@
  * @retval true         if the priority is valid.
  */
 #if defined(PORT_IRQ_IS_VALID_KERNEL_PRIORITY) || defined(__DOXYGEN__)
-#define CH_IRQ_IS_VALID_KERNEL_PRIORITY(prio)                               \
-  PORT_IRQ_IS_VALID_KERNEL_PRIORITY(prio)
+#define CH_IRQ_IS_VALID_KERNEL_PRIORITY(prio) PORT_IRQ_IS_VALID_KERNEL_PRIORITY(prio)
 #else
 #define CH_IRQ_IS_VALID_KERNEL_PRIORITY(prio) false
 #endif
@@ -106,10 +104,10 @@
  *
  * @special
  */
-#define CH_IRQ_PROLOGUE()                                                   \
-  PORT_IRQ_PROLOGUE();                                                      \
-  _stats_increase_irq();                                                    \
-  _dbg_check_enter_isr()
+#define CH_IRQ_PROLOGUE()                                                                          \
+    PORT_IRQ_PROLOGUE();                                                                           \
+    _stats_increase_irq();                                                                         \
+    _dbg_check_enter_isr()
 
 /**
  * @brief   IRQ handler exit code.
@@ -119,9 +117,9 @@
  *
  * @special
  */
-#define CH_IRQ_EPILOGUE()                                                   \
-  _dbg_check_leave_isr();                                                   \
-  PORT_IRQ_EPILOGUE()
+#define CH_IRQ_EPILOGUE()                                                                          \
+    _dbg_check_leave_isr();                                                                        \
+    PORT_IRQ_EPILOGUE()
 
 /**
  * @brief   Standard normal IRQ handler declaration.
@@ -204,7 +202,7 @@
  *
  * @api
  */
-#define RTC2S(freq, n) ((((n) - 1UL) / (freq)) + 1UL)
+#define RTC2S(freq, n) ((((n)-1UL) / (freq)) + 1UL)
 
 /**
  * @brief   Realtime counter cycles to milliseconds.
@@ -218,7 +216,7 @@
  *
  * @api
  */
-#define RTC2MS(freq, n) ((((n) - 1UL) / ((freq) / 1000UL)) + 1UL)
+#define RTC2MS(freq, n) ((((n)-1UL) / ((freq) / 1000UL)) + 1UL)
 
 /**
  * @brief   Realtime counter cycles to microseconds.
@@ -232,7 +230,7 @@
  *
  * @api
  */
-#define RTC2US(freq, n) ((((n) - 1UL) / ((freq) / 1000000UL)) + 1UL)
+#define RTC2US(freq, n) ((((n)-1UL) / ((freq) / 1000000UL)) + 1UL)
 /** @} */
 
 /**
@@ -246,7 +244,7 @@
  * @xclass
  */
 #if (PORT_SUPPORTS_RT == TRUE) || defined(__DOXYGEN__)
-#define chSysGetRealtimeCounterX() (rtcnt_t)port_rt_get_counter_value()
+#define chSysGetRealtimeCounterX() (rtcnt_t) port_rt_get_counter_value()
 #endif
 
 /**
@@ -259,13 +257,14 @@
  *
  * @special
  */
-#define chSysSwitch(ntp, otp) {                                             \
-                                                                            \
-  _dbg_trace(otp);                                                          \
-  _stats_ctxswc(ntp, otp);                                                  \
-  CH_CFG_CONTEXT_SWITCH_HOOK(ntp, otp);                                     \
-  port_switch(ntp, otp);                                                    \
-}
+#define chSysSwitch(ntp, otp)                                                                      \
+    {                                                                                              \
+                                                                                                   \
+        _dbg_trace(otp);                                                                           \
+        _stats_ctxswc(ntp, otp);                                                                   \
+        CH_CFG_CONTEXT_SWITCH_HOOK(ntp, otp);                                                      \
+        port_switch(ntp, otp);                                                                     \
+    }
 
 /*===========================================================================*/
 /* External declarations.                                                    */
@@ -274,15 +273,15 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-  void chSysInit(void);
-  void chSysHalt(const char *reason);
-  bool chSysIntegrityCheckI(unsigned testmask);
-  void chSysTimerHandlerI(void);
-  syssts_t chSysGetStatusAndLockX(void);
-  void chSysRestoreStatusX(syssts_t sts);
+void chSysInit(void);
+void chSysHalt(const char *reason);
+bool chSysIntegrityCheckI(unsigned testmask);
+void chSysTimerHandlerI(void);
+syssts_t chSysGetStatusAndLockX(void);
+void chSysRestoreStatusX(syssts_t sts);
 #if PORT_SUPPORTS_RT
-  bool chSysIsCounterWithinX(rtcnt_t cnt, rtcnt_t start, rtcnt_t end);
-  void chSysPolledDelayX(rtcnt_t cycles);
+bool chSysIsCounterWithinX(rtcnt_t cnt, rtcnt_t start, rtcnt_t end);
+void chSysPolledDelayX(rtcnt_t cycles);
 #endif
 #ifdef __cplusplus
 }
@@ -302,8 +301,8 @@ extern "C" {
  */
 static inline void chSysDisable(void) {
 
-  port_disable();
-  _dbg_check_disable();
+    port_disable();
+    _dbg_check_disable();
 }
 
 /**
@@ -319,8 +318,8 @@ static inline void chSysDisable(void) {
  */
 static inline void chSysSuspend(void) {
 
-  port_suspend();
-  _dbg_check_suspend();
+    port_suspend();
+    _dbg_check_suspend();
 }
 
 /**
@@ -334,8 +333,8 @@ static inline void chSysSuspend(void) {
  */
 static inline void chSysEnable(void) {
 
-  _dbg_check_enable();
-  port_enable();
+    _dbg_check_enable();
+    port_enable();
 }
 
 /**
@@ -345,9 +344,9 @@ static inline void chSysEnable(void) {
  */
 static inline void chSysLock(void) {
 
-  port_lock();
-  _stats_start_measure_crit_thd();
-  _dbg_check_lock();
+    port_lock();
+    _stats_start_measure_crit_thd();
+    _dbg_check_lock();
 }
 
 /**
@@ -357,18 +356,18 @@ static inline void chSysLock(void) {
  */
 static inline void chSysUnlock(void) {
 
-  _dbg_check_unlock();
-  _stats_stop_measure_crit_thd();
+    _dbg_check_unlock();
+    _stats_stop_measure_crit_thd();
 
-  /* The following condition can be triggered by the use of i-class functions
-     in a critical section not followed by a chSchResceduleS(), this means
-     that the current thread has a lower priority than the next thread in
-     the ready list.*/
-  chDbgAssert((ch.rlist.r_queue.p_next == (thread_t *)&ch.rlist.r_queue) ||
-              (ch.rlist.r_current->p_prio >= ch.rlist.r_queue.p_next->p_prio),
-              "priority violation, missing reschedule");
+    /* The following condition can be triggered by the use of i-class functions
+       in a critical section not followed by a chSchResceduleS(), this means
+       that the current thread has a lower priority than the next thread in
+       the ready list.*/
+    chDbgAssert((ch.rlist.r_queue.p_next == (thread_t *)&ch.rlist.r_queue) ||
+                    (ch.rlist.r_current->p_prio >= ch.rlist.r_queue.p_next->p_prio),
+                "priority violation, missing reschedule");
 
-  port_unlock();
+    port_unlock();
 }
 
 /**
@@ -385,9 +384,9 @@ static inline void chSysUnlock(void) {
  */
 static inline void chSysLockFromISR(void) {
 
-  port_lock_from_isr();
-  _stats_start_measure_crit_isr();
-  _dbg_check_lock_from_isr();
+    port_lock_from_isr();
+    _stats_start_measure_crit_isr();
+    _dbg_check_lock_from_isr();
 }
 
 /**
@@ -405,9 +404,9 @@ static inline void chSysLockFromISR(void) {
  */
 static inline void chSysUnlockFromISR(void) {
 
-  _dbg_check_unlock_from_isr();
-  _stats_stop_measure_crit_isr();
-  port_unlock_from_isr();
+    _dbg_check_unlock_from_isr();
+    _stats_stop_measure_crit_isr();
+    port_unlock_from_isr();
 }
 
 /**
@@ -419,9 +418,9 @@ static inline void chSysUnlockFromISR(void) {
  */
 static inline void chSysUnconditionalLock(void) {
 
-  if (port_irq_enabled(port_get_irq_status())) {
-    chSysLock();
-  }
+    if (port_irq_enabled(port_get_irq_status())) {
+        chSysLock();
+    }
 }
 
 /**
@@ -433,9 +432,9 @@ static inline void chSysUnconditionalLock(void) {
  */
 static inline void chSysUnconditionalUnlock(void) {
 
-  if (!port_irq_enabled(port_get_irq_status())) {
-    chSysUnlock();
-  }
+    if (!port_irq_enabled(port_get_irq_status())) {
+        chSysUnlock();
+    }
 }
 
 #if (CH_CFG_NO_IDLE_THREAD == FALSE) || defined(__DOXYGEN__)
@@ -453,7 +452,7 @@ static inline void chSysUnconditionalUnlock(void) {
  */
 static inline thread_t *chSysGetIdleThreadX(void) {
 
-  return ch.rlist.r_queue.p_prev;
+    return ch.rlist.r_queue.p_prev;
 }
 #endif /* CH_CFG_NO_IDLE_THREAD == FALSE */
 

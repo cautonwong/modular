@@ -50,19 +50,17 @@
 /* Module local functions.                                                   */
 /*===========================================================================*/
 
-static inline void tm_stop(time_measurement_t *tmp,
-                           rtcnt_t now,
-                           rtcnt_t offset) {
+static inline void tm_stop(time_measurement_t *tmp, rtcnt_t now, rtcnt_t offset) {
 
-  tmp->n++;
-  tmp->last = (now - tmp->last) - offset;
-  tmp->cumulative += (rttime_t)tmp->last;
-  if (tmp->last > tmp->worst) {
-    tmp->worst = tmp->last;
-  }
-  if (tmp->last < tmp->best) {
-    tmp->best = tmp->last;
-  }
+    tmp->n++;
+    tmp->last = (now - tmp->last) - offset;
+    tmp->cumulative += (rttime_t)tmp->last;
+    if (tmp->last > tmp->worst) {
+        tmp->worst = tmp->last;
+    }
+    if (tmp->last < tmp->best) {
+        tmp->best = tmp->last;
+    }
 }
 
 /*===========================================================================*/
@@ -75,16 +73,16 @@ static inline void tm_stop(time_measurement_t *tmp,
  * @init
  */
 void _tm_init(void) {
-  time_measurement_t tm;
+    time_measurement_t tm;
 
-  /* Time Measurement subsystem calibration, it does a null measurement
-     and calculates the call overhead which is subtracted to real
-     measurements.*/
-  ch.tm.offset = (rtcnt_t)0;
-  chTMObjectInit(&tm);
-  chTMStartMeasurementX(&tm);
-  chTMStopMeasurementX(&tm);
-  ch.tm.offset = tm.last;
+    /* Time Measurement subsystem calibration, it does a null measurement
+       and calculates the call overhead which is subtracted to real
+       measurements.*/
+    ch.tm.offset = (rtcnt_t)0;
+    chTMObjectInit(&tm);
+    chTMStartMeasurementX(&tm);
+    chTMStopMeasurementX(&tm);
+    ch.tm.offset = tm.last;
 }
 
 /**
@@ -96,11 +94,11 @@ void _tm_init(void) {
  */
 void chTMObjectInit(time_measurement_t *tmp) {
 
-  tmp->best       = (rtcnt_t)-1;
-  tmp->worst      = (rtcnt_t)0;
-  tmp->last       = (rtcnt_t)0;
-  tmp->n          = (ucnt_t)0;
-  tmp->cumulative = (rttime_t)0;
+    tmp->best = (rtcnt_t)-1;
+    tmp->worst = (rtcnt_t)0;
+    tmp->last = (rtcnt_t)0;
+    tmp->n = (ucnt_t)0;
+    tmp->cumulative = (rttime_t)0;
 }
 
 /**
@@ -113,7 +111,7 @@ void chTMObjectInit(time_measurement_t *tmp) {
  */
 NOINLINE void chTMStartMeasurementX(time_measurement_t *tmp) {
 
-  tmp->last = chSysGetRealtimeCounterX();
+    tmp->last = chSysGetRealtimeCounterX();
 }
 
 /**
@@ -126,7 +124,7 @@ NOINLINE void chTMStartMeasurementX(time_measurement_t *tmp) {
  */
 NOINLINE void chTMStopMeasurementX(time_measurement_t *tmp) {
 
-  tm_stop(tmp, chSysGetRealtimeCounterX(), ch.tm.offset);
+    tm_stop(tmp, chSysGetRealtimeCounterX(), ch.tm.offset);
 }
 
 /**
@@ -141,14 +139,13 @@ NOINLINE void chTMStopMeasurementX(time_measurement_t *tmp) {
  *
  * @xclass
  */
-NOINLINE void chTMChainMeasurementToX(time_measurement_t *tmp1,
-                                      time_measurement_t *tmp2) {
+NOINLINE void chTMChainMeasurementToX(time_measurement_t *tmp1, time_measurement_t *tmp2) {
 
-  /* Starts new measurement.*/
-  tmp2->last = chSysGetRealtimeCounterX();
+    /* Starts new measurement.*/
+    tmp2->last = chSysGetRealtimeCounterX();
 
-  /* Stops previous measurement using the same time stamp.*/
-  tm_stop(tmp1, tmp2->last, (rtcnt_t)0);
+    /* Stops previous measurement using the same time stamp.*/
+    tm_stop(tmp1, tmp2->last, (rtcnt_t)0);
 }
 
 #endif /* CH_CFG_USE_TM == TRUE */

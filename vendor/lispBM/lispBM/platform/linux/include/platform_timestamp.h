@@ -18,8 +18,8 @@
 #ifndef PLATFORM_TIMESTAMP_H_
 #define PLATFORM_TIMESTAMP_H_
 
-#include <stdint.h>
 #include <stdatomic.h>
+#include <stdint.h>
 
 // Only on OS where timestamp is expensive
 extern void lbm_timestamp_cacher(void *v);
@@ -34,7 +34,7 @@ extern void *lbm_timestamp_cacher_pthread(void *v);
 extern atomic_uint_least32_t lbm_timestamp_cache;
 
 static inline uint32_t lbm_timestamp(void) {
-  return (uint32_t)atomic_load_explicit(&lbm_timestamp_cache, memory_order_relaxed);
+    return (uint32_t)atomic_load_explicit(&lbm_timestamp_cache, memory_order_relaxed);
 }
 
 #endif

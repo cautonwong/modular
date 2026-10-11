@@ -54,12 +54,12 @@
  * @brief   Type of a kernel statistics structure.
  */
 typedef struct {
-  ucnt_t                n_irq;      /**< @brief Number of IRQs.             */
-  ucnt_t                n_ctxswc;   /**< @brief Number of context switches. */
-  time_measurement_t    m_crit_thd; /**< @brief Measurement of threads
-                                                critical zones duration.    */
-  time_measurement_t    m_crit_isr; /**< @brief Measurement of ISRs critical
-                                                zones duration.             */
+    ucnt_t n_irq;                  /**< @brief Number of IRQs.             */
+    ucnt_t n_ctxswc;               /**< @brief Number of context switches. */
+    time_measurement_t m_crit_thd; /**< @brief Measurement of threads
+                                               critical zones duration.    */
+    time_measurement_t m_crit_isr; /**< @brief Measurement of ISRs critical
+                                               zones duration.             */
 } kernel_stats_t;
 
 /*===========================================================================*/
@@ -73,13 +73,13 @@ typedef struct {
 #ifdef __cplusplus
 extern "C" {
 #endif
-  void _stats_init(void);
-  void _stats_increase_irq(void);
-  void _stats_ctxswc(thread_t *ntp, thread_t *otp);
-  void _stats_start_measure_crit_thd(void);
-  void _stats_stop_measure_crit_thd(void);
-  void _stats_start_measure_crit_isr(void);
-  void _stats_stop_measure_crit_isr(void);
+void _stats_init(void);
+void _stats_increase_irq(void);
+void _stats_ctxswc(thread_t *ntp, thread_t *otp);
+void _stats_start_measure_crit_thd(void);
+void _stats_stop_measure_crit_thd(void);
+void _stats_start_measure_crit_isr(void);
+void _stats_stop_measure_crit_isr(void);
 #ifdef __cplusplus
 }
 #endif

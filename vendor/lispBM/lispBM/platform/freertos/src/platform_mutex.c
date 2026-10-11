@@ -15,20 +15,19 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-
 #include "platform_mutex.h"
 
 bool lbm_mutex_init(lbm_mutex_t *m) {
-  *m = xSemaphoreCreateMutex();
-  if (*m != NULL)
-    return true;
-  return false;
+    *m = xSemaphoreCreateMutex();
+    if (*m != NULL)
+        return true;
+    return false;
 }
 
 void lbm_mutex_lock(lbm_mutex_t *m) {
-  xSemaphoreTake(*m, portMAX_DELAY);
+    xSemaphoreTake(*m, portMAX_DELAY);
 }
 
 void lbm_mutex_unlock(lbm_mutex_t *m) {
-  xSemaphoreGive(*m);
+    xSemaphoreGive(*m);
 }

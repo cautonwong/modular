@@ -20,67 +20,64 @@
 #include <stdint.h>
 
 THD_FUNCTION(platform_chibios_thd_fun, arg) {
-  platform_thread_t *pt = (platform_thread_t*)arg;
-  pt->tfun(pt->arg);
+    platform_thread_t *pt = (platform_thread_t *)arg;
+    pt->tfun(pt->arg);
 }
 
-bool lbm_thread_create(lbm_thread_t *t,
-                       const char *name,
-                       lbm_thread_func_t func,
-                       void *arg,
-                       lbm_thread_prio_t prio,
-                       uint32_t stack_size) {
-  (void)name;
+bool lbm_thread_create(lbm_thread_t *t, const char *name, lbm_thread_func_t func, void *arg,
+                       lbm_thread_prio_t prio, uint32_t stack_size) {
+    (void)name;
 
-  platform_thread_t *thread = (platform_thread_t*)t;
-  if (!thread) return false;
+    platform_thread_t *thread = (platform_thread_t *)t;
+    if (!thread)
+        return false;
 
-  thread->arg = arg;
-  thread->tfun = func;
-  
-  uint32_t wa_size = THD_WORKING_AREA_SIZE(stack_size);
+    thread->arg = arg;
+    thread->tfun = func;
 
-  void *wa = lbm_malloc(wa_size + 8);
-  if (!wa) {
-    return false;
-  }
+    uint32_t wa_size = THD_WORKING_AREA_SIZE(stack_size);
 
-  thread->working_area = wa;
-  thread->wa_size = wa_size;
+    void *wa = lbm_malloc(wa_size + 8);
+    if (!wa) {
+        return false;
+    }
 
-  uintptr_t addr = (uintptr_t)wa;
-  uintptr_t aligned_addr = (addr + 7) & ~7;
-  void *aligned_wa = (void *)aligned_addr;
+    thread->working_area = wa;
+    thread->wa_size = wa_size;
 
-  thread->handle = chThdCreateStatic(aligned_wa, wa_size, prio,
-                                     platform_chibios_thd_fun, (void*)thread);
+    uintptr_t addr = (uintptr_t)wa;
+    uintptr_t aligned_addr = (addr + 7) & ~7;
+    void *aligned_wa = (void *)aligned_addr;
 
-  if (!thread->handle) {
-    lbm_free(wa);
-    return false;
-  }
+    thread->handle =
+        chThdCreateStatic(aligned_wa, wa_size, prio, platform_chibios_thd_fun, (void *)thread);
 
-  return true;
+    if (!thread->handle) {
+        lbm_free(wa);
+        return false;
+    }
+
+    return true;
 }
 
 void lbm_thread_sleep_us(uint32_t microseconds) {
-  chThdSleepMicroseconds(microseconds);
+    chThdSleepMicroseconds(microseconds);
 }
 
 void lbm_thread_yield(void) {
-  chThdYield();
+    chThdYield();
 }
 
 void lbm_thread_destroy(lbm_thread_t *t) {
-  if (t) {
-    platform_thread_t *thread = t;
+    if (t) {
+        platform_thread_t *thread = t;
 
-    if (thread->handle) {
-      chThdWait(thread->handle);
-    }
+        if (thread->handle) {
+            chThdWait(thread->handle);
+        }
 
-    if (thread->working_area) {
-      lbm_free(thread->working_area);
+        if (thread->working_area) {
+            lbm_free(thread->working_area);
+        }
     }
-  }
 }

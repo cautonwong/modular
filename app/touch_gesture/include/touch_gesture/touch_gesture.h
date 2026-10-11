@@ -4,6 +4,10 @@
 #include "edge/module.h"
 #include "ports.h"
 
+#ifndef TOUCH_GESTURE_MODULE_ID
+#define TOUCH_GESTURE_MODULE_ID 0x1600u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

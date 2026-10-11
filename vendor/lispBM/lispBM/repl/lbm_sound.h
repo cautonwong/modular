@@ -28,7 +28,6 @@ bool lbm_sound_init(void);
 // Stop sample generation thread and cleanup ALSA sound system
 void lbm_sound_cleanup(void);
 
-
 // interface
 snd_pcm_t *lbm_sound_pcm_handle(void);
 

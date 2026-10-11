@@ -8,6 +8,10 @@
 #include "edge/module.h"
 #include "edge/modules.h"
 
+#ifndef BALANCE_MODULE_ID
+#define BALANCE_MODULE_ID 0x5300u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

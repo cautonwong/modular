@@ -21,8 +21,8 @@
 #define EXTENSIONS_H_
 
 #include "heap.h"
-#include "lbm_types.h"
 #include "lbm_constants.h"
+#include "lbm_types.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -33,20 +33,20 @@ extern "C" {
  * \param Number of arguments.
  * \return Result value.
  */
-typedef lbm_value (*extension_fptr)(lbm_value*,lbm_uint);
+typedef lbm_value (*extension_fptr)(lbm_value *, lbm_uint);
 
 /** Type representing an entry in the extension table
  */
 typedef struct {
-  extension_fptr fptr;
-  const char *name;
+    extension_fptr fptr;
+    const char *name;
 } lbm_extension_t;
-
 
 extern lbm_extension_t *extension_table;
 
-#define LBM_EXTENSION(name, argv, argn)                                 \
-  __attribute__((aligned(LBM_STORABLE_ADDRESS_ALIGNMENT))) lbm_value name(lbm_value *(argv), lbm_uint (argn))
+#define LBM_EXTENSION(name, argv, argn)                                                            \
+    __attribute__((aligned(LBM_STORABLE_ADDRESS_ALIGNMENT))) lbm_value name(lbm_value *(argv),     \
+                                                                            lbm_uint(argn))
 
 /** Initialize the extensions subsystem. Extension storage is allocated on lbm_memory.
  *
@@ -98,8 +98,8 @@ bool lbm_add_extension(const char *sym_str, extension_fptr ext);
  * \return true if the lbm_value respresents an extension otherwise false.
  */
 static inline bool lbm_is_extension(lbm_value exp) {
-  return ((lbm_type_of(exp) == LBM_TYPE_SYMBOL) &&
-          ((lbm_dec_sym(exp) - EXTENSION_SYMBOLS_START) < lbm_get_num_extensions()));
+    return ((lbm_type_of(exp) == LBM_TYPE_SYMBOL) &&
+            ((lbm_dec_sym(exp) - EXTENSION_SYMBOLS_START) < lbm_get_num_extensions()));
 }
 
 /** Check if all arguments are numbers. Sets error-reason if result is false.
@@ -114,17 +114,24 @@ bool lbm_check_number_all(lbm_value *args, lbm_uint argn);
  * \return true if the number of arguments is correct. false otherwise
  */
 bool lbm_check_argn(lbm_uint argn, lbm_uint n);
-/** Check if all arguments are numbers and that there is n of them. Sets error-reason if result is false.
- * \param args The argument array.
- * \param argn The number of arguments.
- * \param n The expected number of arguments.
- * \return true or false.
+/** Check if all arguments are numbers and that there is n of them. Sets error-reason if result is
+ * false. \param args The argument array. \param argn The number of arguments. \param n The expected
+ * number of arguments. \return true or false.
  */
 bool lbm_check_argn_number(lbm_value *args, lbm_uint argn, lbm_uint n);
 
-#define LBM_CHECK_NUMBER_ALL() if (!lbm_check_number_all(args, argn)) {return ENC_SYM_EERROR;}
-#define LBM_CHECK_ARGN(n) if (!lbm_check_argn(argn, n)) {return ENC_SYM_EERROR;}
-#define LBM_CHECK_ARGN_NUMBER(n) if (!lbm_check_argn_number(args, argn, n)) {return ENC_SYM_EERROR;}
+#define LBM_CHECK_NUMBER_ALL()                                                                     \
+    if (!lbm_check_number_all(args, argn)) {                                                       \
+        return ENC_SYM_EERROR;                                                                     \
+    }
+#define LBM_CHECK_ARGN(n)                                                                          \
+    if (!lbm_check_argn(argn, n)) {                                                                \
+        return ENC_SYM_EERROR;                                                                     \
+    }
+#define LBM_CHECK_ARGN_NUMBER(n)                                                                   \
+    if (!lbm_check_argn_number(args, argn, n)) {                                                   \
+        return ENC_SYM_EERROR;                                                                     \
+    }
 
 lbm_value lbm_extensions_default(lbm_value *args, lbm_uint argn);
 
@@ -147,7 +154,6 @@ extern lbm_value make_list(int num, ...);
  */
 extern size_t strlen_max(const char *s, size_t maxlen);
 
-  
 /** Compare strings for equality
  *  Compares two strings up to the length of the first of string arguments.
  *
@@ -166,8 +172,8 @@ extern bool strmatch(const char *str1, const char *str2);
  * \param out Output: the decoded (or default) value.
  * \return true on success, false if the argument was supplied but not a number.
  */
-extern bool dec_opt_uint(lbm_value *args, lbm_uint argn, lbm_uint idx,
-                          size_t default_val, size_t *out);
+extern bool dec_opt_uint(lbm_value *args, lbm_uint argn, lbm_uint idx, size_t default_val,
+                         size_t *out);
 
 /** Build a new LBM string by copying
  *  `len` bytes out of a raw C buffer and end with \0.
@@ -186,7 +192,7 @@ extern lbm_value span_to_lbm(const char *data, size_t len);
  * \return Lambda or MERROR.
  */
 static inline lbm_value mk_lam(lbm_value args, lbm_value body) {
-  return make_list(3, ENC_SYM_LAMBDA, args, body);
+    return make_list(3, ENC_SYM_LAMBDA, args, body);
 }
 
 /** Create a call-cc given a body expression. The body should
@@ -198,7 +204,7 @@ static inline lbm_value mk_lam(lbm_value args, lbm_value body) {
  * \return Call-cc expression or MERROR.
  */
 static inline lbm_value mk_call_cc(lbm_value body) {
-  return make_list(2, ENC_SYM_CALL_CC_UNSAFE, body);
+    return make_list(2, ENC_SYM_CALL_CC_UNSAFE, body);
 }
 
 /** Create a let expression given bindings list and body
@@ -210,7 +216,7 @@ static inline lbm_value mk_call_cc(lbm_value body) {
  * \return Let expression or MERROR.
  */
 static inline lbm_value mk_let(lbm_value bindings, lbm_value body) {
-  return make_list(3, ENC_SYM_LET, bindings, body);
+    return make_list(3, ENC_SYM_LET, bindings, body);
 }
 
 /** Create an if expression given condition, then-branch and else-branch
@@ -223,7 +229,7 @@ static inline lbm_value mk_let(lbm_value bindings, lbm_value body) {
  * \return If expression or MERROR.
  */
 static inline lbm_value mk_if(lbm_value cond, lbm_value tb, lbm_value fb) {
-  return make_list(4, ENC_SYM_IF, cond, tb, fb);
+    return make_list(4, ENC_SYM_IF, cond, tb, fb);
 }
 
 /** Create an expression that adds one to a value.
@@ -234,7 +240,7 @@ static inline lbm_value mk_if(lbm_value cond, lbm_value tb, lbm_value fb) {
  * \return increment expression or MERROR.
  */
 static inline lbm_value mk_inc(lbm_value v) {
-  return make_list(3, ENC_SYM_ADD, v, lbm_enc_i(1));
+    return make_list(3, ENC_SYM_ADD, v, lbm_enc_i(1));
 }
 
 /** Create an expression that compares less-than
@@ -246,7 +252,7 @@ static inline lbm_value mk_inc(lbm_value v) {
  * \return less-than comparison expression or MERROR.
  */
 static inline lbm_value mk_lt(lbm_value a, lbm_value b) {
-  return make_list(3, ENC_SYM_LT, a, b);
+    return make_list(3, ENC_SYM_LT, a, b);
 }
 
 /** Create an expression that compares equality
@@ -258,7 +264,7 @@ static inline lbm_value mk_lt(lbm_value a, lbm_value b) {
  * \return equality comparison expression or MERROR.
  */
 static inline lbm_value mk_eq(lbm_value a, lbm_value b) {
-  return make_list(3, ENC_SYM_EQ, a, b);
+    return make_list(3, ENC_SYM_EQ, a, b);
 }
 
 /** Create an expression that takes the car of an expression
@@ -269,7 +275,7 @@ static inline lbm_value mk_eq(lbm_value a, lbm_value b) {
  * \return Expression that takes the car or the value.
  */
 static inline lbm_value mk_car(lbm_value a) {
-  return make_list(2, ENC_SYM_CAR, a);
+    return make_list(2, ENC_SYM_CAR, a);
 }
 
 /** Create an expression that takes the cdr of an expression
@@ -280,7 +286,7 @@ static inline lbm_value mk_car(lbm_value a) {
  * \return Expression that takes the cdr or the value.
  */
 static inline lbm_value mk_cdr(lbm_value a) {
-  return make_list(2, ENC_SYM_CDR, a);
+    return make_list(2, ENC_SYM_CDR, a);
 }
 
 #ifdef __cplusplus

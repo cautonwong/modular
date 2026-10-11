@@ -60,26 +60,26 @@
  */
 /*lint -save -e9075 [8.4] All symbols are invoked from asm context.*/
 void SVC_Handler(void) {
-/*lint -restore*/
-  struct port_extctx *ctxp;
+    /*lint -restore*/
+    struct port_extctx *ctxp;
 
 #if CORTEX_USE_FPU
-  /* Enforcing unstacking of the FP part of the context.*/
-  FPU->FPCCR &= ~FPU_FPCCR_LSPACT_Msk;
+    /* Enforcing unstacking of the FP part of the context.*/
+    FPU->FPCCR &= ~FPU_FPCCR_LSPACT_Msk;
 #endif
 
-  /* The port_extctx structure is pointed by the PSP register.*/
-  ctxp = (struct port_extctx *)__get_PSP();
+    /* The port_extctx structure is pointed by the PSP register.*/
+    ctxp = (struct port_extctx *)__get_PSP();
 
-  /* Discarding the current exception context and positioning the stack to
-     point to the real one.*/
-  ctxp++;
+    /* Discarding the current exception context and positioning the stack to
+       point to the real one.*/
+    ctxp++;
 
-  /* Restoring real position of the original stack frame.*/
-  __set_PSP((uint32_t)ctxp);
+    /* Restoring real position of the original stack frame.*/
+    __set_PSP((uint32_t)ctxp);
 
-  /* Restoring the normal interrupts status.*/
-  port_unlock_from_isr();
+    /* Restoring the normal interrupts status.*/
+    port_unlock_from_isr();
 }
 #endif /* CORTEX_SIMPLIFIED_PRIORITY == FALSE */
 
@@ -92,23 +92,23 @@ void SVC_Handler(void) {
  */
 /*lint -save -e9075 [8.4] All symbols are invoked from asm context.*/
 void PendSV_Handler(void) {
-/*lint -restore*/
-  struct port_extctx *ctxp;
+    /*lint -restore*/
+    struct port_extctx *ctxp;
 
 #if CORTEX_USE_FPU
-  /* Enforcing unstacking of the FP part of the context.*/
-  FPU->FPCCR &= ~FPU_FPCCR_LSPACT_Msk;
+    /* Enforcing unstacking of the FP part of the context.*/
+    FPU->FPCCR &= ~FPU_FPCCR_LSPACT_Msk;
 #endif
 
-  /* The port_extctx structure is pointed by the PSP register.*/
-  ctxp = (struct port_extctx *)__get_PSP();
+    /* The port_extctx structure is pointed by the PSP register.*/
+    ctxp = (struct port_extctx *)__get_PSP();
 
-  /* Discarding the current exception context and positioning the stack to
-     point to the real one.*/
-  ctxp++;
+    /* Discarding the current exception context and positioning the stack to
+       point to the real one.*/
+    ctxp++;
 
-  /* Writing back the modified PSP value.*/
-  __set_PSP((uint32_t)ctxp);
+    /* Writing back the modified PSP value.*/
+    __set_PSP((uint32_t)ctxp);
 }
 #endif /* CORTEX_SIMPLIFIED_PRIORITY == TRUE */
 
@@ -121,48 +121,47 @@ void PendSV_Handler(void) {
  */
 void _port_irq_epilogue(void) {
 
-  port_lock_from_isr();
-  if ((SCB->ICSR & SCB_ICSR_RETTOBASE_Msk) != 0U) {
-    struct port_extctx *ctxp;
+    port_lock_from_isr();
+    if ((SCB->ICSR & SCB_ICSR_RETTOBASE_Msk) != 0U) {
+        struct port_extctx *ctxp;
 
 #if CORTEX_USE_FPU == TRUE
-      /* Enforcing a lazy FPU state save by accessing the FPCSR register.*/
-      (void) __get_FPSCR();
+        /* Enforcing a lazy FPU state save by accessing the FPCSR register.*/
+        (void)__get_FPSCR();
 #endif
 
-    /* The port_extctx structure is pointed by the PSP register.*/
-    ctxp = (struct port_extctx *)__get_PSP();
+        /* The port_extctx structure is pointed by the PSP register.*/
+        ctxp = (struct port_extctx *)__get_PSP();
 
-    /* Adding an artificial exception return context, there is no need to
-       populate it fully.*/
-    ctxp--;
+        /* Adding an artificial exception return context, there is no need to
+           populate it fully.*/
+        ctxp--;
 
-    /* Setting up a fake XPSR register value.*/
-    ctxp->xpsr = (regarm_t)0x01000000;
+        /* Setting up a fake XPSR register value.*/
+        ctxp->xpsr = (regarm_t)0x01000000;
 #if CORTEX_USE_FPU == TRUE
-    ctxp->fpscr = (regarm_t)FPU->FPDSCR;
+        ctxp->fpscr = (regarm_t)FPU->FPDSCR;
 #endif
 
-    /* Writing back the modified PSP value.*/
-    __set_PSP((uint32_t)ctxp);
+        /* Writing back the modified PSP value.*/
+        __set_PSP((uint32_t)ctxp);
 
-    /* The exit sequence is different depending on if a preemption is
-       required or not.*/
-    if (chSchIsPreemptionRequired()) {
-      /* Preemption is required we need to enforce a context switch.*/
-      ctxp->pc = (regarm_t)_port_switch_from_isr;
-    }
-    else {
-      /* Preemption not required, we just need to exit the exception
-         atomically.*/
-      ctxp->pc = (regarm_t)_port_exit_from_isr;
-    }
+        /* The exit sequence is different depending on if a preemption is
+           required or not.*/
+        if (chSchIsPreemptionRequired()) {
+            /* Preemption is required we need to enforce a context switch.*/
+            ctxp->pc = (regarm_t)_port_switch_from_isr;
+        } else {
+            /* Preemption not required, we just need to exit the exception
+               atomically.*/
+            ctxp->pc = (regarm_t)_port_exit_from_isr;
+        }
 
-    /* Note, returning without unlocking is intentional, this is done in
-       order to keep the rest of the context switch atomic.*/
-    return;
-  }
-  port_unlock_from_isr();
+        /* Note, returning without unlocking is intentional, this is done in
+           order to keep the rest of the context switch atomic.*/
+        return;
+    }
+    port_unlock_from_isr();
 }
 
 /** @} */

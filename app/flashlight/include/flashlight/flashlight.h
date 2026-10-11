@@ -8,6 +8,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#ifndef FLASHLIGHT_MODULE_ID
+#define FLASHLIGHT_MODULE_ID 0x3C00u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

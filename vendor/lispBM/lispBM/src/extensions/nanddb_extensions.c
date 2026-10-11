@@ -15,9 +15,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-
 #include "nanddb_extensions.h"
-
 
 /* Database for NAND flash
 
@@ -35,9 +33,8 @@
    - Store key-value pairs where key is a string and value is a bytearray.
    - Look up value based on key.
    - Store values that are larger than a page.
-   
+
 
 */
 void lbm_nanddb_extensions_init(lbm_nanddb_fal_t *fal) {
-
 }

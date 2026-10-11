@@ -5,7 +5,7 @@
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
  * copyright notice and this permission notice appear in all copies.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
  * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
  * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
@@ -19,24 +19,23 @@
 #ifndef SCHRIFT_H
 #define SCHRIFT_H 1
 
+#include "ttf_backend.h"
+#include <extensions/display_extensions.h>
 #include <stddef.h> /* size_t */
 #include <stdint.h> /* uint_fast32_t, uint_least32_t */
-#include <extensions/display_extensions.h>
-#include "ttf_backend.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-struct SFT_Font
-{
-	const uint8_t *memory;
-	uint_fast32_t  size;
-	uint_least16_t unitsPerEm;
-	int_least16_t  locaFormat;
-	uint_least16_t numLongHmtx;
-        int            pairAdjustCoverageOffset;
-        int            pairAdjustOffset;
+struct SFT_Font {
+    const uint8_t *memory;
+    uint_fast32_t size;
+    uint_least16_t unitsPerEm;
+    int_least16_t locaFormat;
+    uint_least16_t numLongHmtx;
+    int pairAdjustCoverageOffset;
+    int pairAdjustOffset;
 };
 
 #ifdef __cplusplus
@@ -44,4 +43,3 @@ struct SFT_Font
 #endif
 
 #endif
-

@@ -19,82 +19,81 @@
 #ifndef LBM_CHANNEL_H_
 #define LBM_CHANNEL_H_
 
-#include <stdint.h>
-#include <stdbool.h>
-#include <platform_mutex.h>
 #include <lbm_types.h>
+#include <platform_mutex.h>
+#include <stdbool.h>
+#include <stdint.h>
 
 #define TOKENIZER_BUFFER_SIZE 257
 
-#define CHANNEL_SUCCESS    1
-#define CHANNEL_MORE       2
-#define CHANNEL_END        3
-#define CHANNEL_FULL       4
+#define CHANNEL_SUCCESS 1
+#define CHANNEL_MORE 2
+#define CHANNEL_END 3
+#define CHANNEL_FULL 4
 
 #define CHANNEL_READER_CLOSED 1000
 
 /** Struct holding the state for a buffered character channel
  */
 typedef struct {
-  char buffer[TOKENIZER_BUFFER_SIZE];
-  unsigned int write_pos;
-  unsigned int read_pos;
-  bool more;
-  bool comment;
-  bool reader_closed;
-  lbm_mutex_t lock;
-  bool mutex_initialized;
-  // statistics
-  unsigned int row;
-  unsigned int column;
+    char buffer[TOKENIZER_BUFFER_SIZE];
+    unsigned int write_pos;
+    unsigned int read_pos;
+    bool more;
+    bool comment;
+    bool reader_closed;
+    lbm_mutex_t lock;
+    bool mutex_initialized;
+    // statistics
+    unsigned int row;
+    unsigned int column;
 } lbm_buffered_channel_state_t;
 
 /** Struct holding the state of a character channel
  *  backed by a string.
  */
 typedef struct {
-  char *str;
-  unsigned int length;
-  unsigned int read_pos;
-  unsigned int write_pos;
-  bool more;
-  bool comment;
-  bool reader_closed;
-  unsigned int row;
-  unsigned int column;
+    char *str;
+    unsigned int length;
+    unsigned int read_pos;
+    unsigned int write_pos;
+    bool more;
+    bool comment;
+    bool reader_closed;
+    unsigned int row;
+    unsigned int column;
 } lbm_string_channel_state_t;
 
 /** Struct describing the interface to a character channel.
  */
 typedef struct lbm_char_channel_s {
 
-  lbm_value dependency;
-  void *state;
-  bool (*more)(struct lbm_char_channel_s *chan);
-  int  (*peek)(struct lbm_char_channel_s *chan, unsigned int n, char *res);
-  bool (*read)(struct lbm_char_channel_s *chan, char *res);
-  bool (*drop)(struct lbm_char_channel_s *chan, unsigned int n);
-  bool (*comment)(struct lbm_char_channel_s *chan);
-  void (*set_comment)(struct lbm_char_channel_s *chan, bool comment);
-  void (*reader_close)(struct lbm_char_channel_s *chan);
+    lbm_value dependency;
+    void *state;
+    bool (*more)(struct lbm_char_channel_s *chan);
+    int (*peek)(struct lbm_char_channel_s *chan, unsigned int n, char *res);
+    bool (*read)(struct lbm_char_channel_s *chan, char *res);
+    bool (*drop)(struct lbm_char_channel_s *chan, unsigned int n);
+    bool (*comment)(struct lbm_char_channel_s *chan);
+    void (*set_comment)(struct lbm_char_channel_s *chan, bool comment);
+    void (*reader_close)(struct lbm_char_channel_s *chan);
 
-  /* Either side */
-  bool (*channel_is_empty)(struct lbm_char_channel_s *chan);
-  bool (*channel_is_full)(struct lbm_char_channel_s *chan);
-  bool (*reader_is_closed)(struct lbm_char_channel_s *chan);
+    /* Either side */
+    bool (*channel_is_empty)(struct lbm_char_channel_s *chan);
+    bool (*channel_is_full)(struct lbm_char_channel_s *chan);
+    bool (*reader_is_closed)(struct lbm_char_channel_s *chan);
 
-  /* Write side */
-  int (*write)(struct lbm_char_channel_s *chan, char c);
-  void (*writer_close)(struct lbm_char_channel_s *chan);
+    /* Write side */
+    int (*write)(struct lbm_char_channel_s *chan, char c);
+    void (*writer_close)(struct lbm_char_channel_s *chan);
 
-  /* Statistics */
-  unsigned int (*row)(struct lbm_char_channel_s *chan);
-  unsigned int (*column)(struct lbm_char_channel_s *chan);
+    /* Statistics */
+    unsigned int (*row)(struct lbm_char_channel_s *chan);
+    unsigned int (*column)(struct lbm_char_channel_s *chan);
 
-  bool (*may_block)(struct lbm_char_channel_s *chan);
+    bool (*may_block)(struct lbm_char_channel_s *chan);
 
 } lbm_char_channel_t;
-
 
 /* Read side */
 /** Check if there are more characters comming on a character channel.
@@ -177,7 +176,7 @@ bool lbm_channel_is_full(lbm_char_channel_t *chan);
  *       - CHANNEL_READER_CLOSED: The reader end is closed, you should abort writing.
  *       - CHANNEL_FULL: The channel is full and cannot accept the character. Try again later.
  */
-int  lbm_channel_write(lbm_char_channel_t *chan, char c);
+int lbm_channel_write(lbm_char_channel_t *chan, char c);
 
 /** Close the writer side of a channel.
  * \ param chan The channel to close the writer side of.
@@ -209,22 +208,17 @@ bool lbm_channel_may_block(lbm_char_channel_t *chan);
  *  \param chan Pointer to lbm_char_channel_t.
  *  \param str The string to base the channel contents upon.
  */
-void lbm_create_string_char_channel(lbm_string_channel_state_t *st,
-                                    lbm_char_channel_t *chan,
+void lbm_create_string_char_channel(lbm_string_channel_state_t *st, lbm_char_channel_t *chan,
                                     char *str);
 
-void lbm_create_string_char_channel_size(lbm_string_channel_state_t *st,
-                                         lbm_char_channel_t *chan,
-                                         char *str,
-                                         unsigned int size);
-
+void lbm_create_string_char_channel_size(lbm_string_channel_state_t *st, lbm_char_channel_t *chan,
+                                         char *str, unsigned int size);
 
 /** Create a buffered channel that can be read from and written to.
  * \param st Pointer to lbm_buffered_channel_state_t.
  * \param chan Pointer to lbm_char_channel_t.
  */
-void lbm_create_buffered_char_channel(lbm_buffered_channel_state_t *st,
-                                      lbm_char_channel_t *chan);
+void lbm_create_buffered_char_channel(lbm_buffered_channel_state_t *st, lbm_char_channel_t *chan);
 
 /** Set the dependency field of a channel.
  * Garbage collection will ensure that the dependency is alive for

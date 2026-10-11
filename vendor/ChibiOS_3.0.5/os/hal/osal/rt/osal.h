@@ -25,9 +25,9 @@
 #ifndef _OSAL_H_
 #define _OSAL_H_
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdbool.h>
 
 #include "ch.h"
 
@@ -40,15 +40,15 @@
  * @{
  */
 #if !defined(FALSE) || defined(__DOXYGEN__)
-#define FALSE                               0
+#define FALSE 0
 #endif
 
 #if !defined(TRUE) || defined(__DOXYGEN__)
-#define TRUE                                (!FALSE)
+#define TRUE (!FALSE)
 #endif
 
-#define OSAL_SUCCESS                        FALSE
-#define OSAL_FAILED                         TRUE
+#define OSAL_SUCCESS FALSE
+#define OSAL_FAILED TRUE
 /** @} */
 
 #if 0
@@ -56,9 +56,9 @@
  * @name    Messages
  * @{
  */
-#define MSG_OK                              RDY_OK
-#define MSG_RESET                           RDY_RESET
-#define MSG_TIMEOUT                         RDY_TIMEOUT
+#define MSG_OK RDY_OK
+#define MSG_RESET RDY_RESET
+#define MSG_TIMEOUT RDY_TIMEOUT
 /** @} */
 #endif
 
@@ -67,8 +67,8 @@
  * @name    Special time constants
  * @{
  */
-#define TIME_IMMEDIATE                      ((systime_t)0)
-#define TIME_INFINITE                       ((systime_t)-1)
+#define TIME_IMMEDIATE ((systime_t)0)
+#define TIME_INFINITE ((systime_t)-1)
 /** @} */
 #endif
 
@@ -76,9 +76,9 @@
  * @name    Systick modes.
  * @{
  */
-#define OSAL_ST_MODE_NONE                   0
-#define OSAL_ST_MODE_PERIODIC               1
-#define OSAL_ST_MODE_FREERUNNING            2
+#define OSAL_ST_MODE_NONE 0
+#define OSAL_ST_MODE_PERIODIC 1
+#define OSAL_ST_MODE_FREERUNNING 2
 /** @} */
 
 /**
@@ -88,20 +88,20 @@
 /**
  * @brief   Size in bits of the @p systick_t type.
  */
-#define OSAL_ST_RESOLUTION                  CH_CFG_ST_RESOLUTION
+#define OSAL_ST_RESOLUTION CH_CFG_ST_RESOLUTION
 
 /**
  * @brief   Required systick frequency or resolution.
  */
-#define OSAL_ST_FREQUENCY                   CH_CFG_ST_FREQUENCY
+#define OSAL_ST_FREQUENCY CH_CFG_ST_FREQUENCY
 
 /**
  * @brief   Systick mode required by the underlying OS.
  */
 #if (CH_CFG_ST_TIMEDELTA == 0) || defined(__DOXYGEN__)
-#define OSAL_ST_MODE                        OSAL_ST_MODE_PERIODIC
+#define OSAL_ST_MODE OSAL_ST_MODE_PERIODIC
 #else
-#define OSAL_ST_MODE                        OSAL_ST_MODE_FREERUNNING
+#define OSAL_ST_MODE OSAL_ST_MODE_FREERUNNING
 #endif
 /** @} */
 
@@ -113,8 +113,7 @@
 /* Derived constants and error checks.                                       */
 /*===========================================================================*/
 
-#if !(OSAL_ST_MODE == OSAL_ST_MODE_NONE) &&                                 \
-    !(OSAL_ST_MODE == OSAL_ST_MODE_PERIODIC) &&                             \
+#if !(OSAL_ST_MODE == OSAL_ST_MODE_NONE) && !(OSAL_ST_MODE == OSAL_ST_MODE_PERIODIC) &&            \
     !(OSAL_ST_MODE == OSAL_ST_MODE_FREERUNNING)
 #error "invalid OSAL_ST_MODE setting in osal.h"
 #endif
@@ -179,8 +178,8 @@ typedef uint32_t eventflags_t;
  *          API and are implementation-dependent.
  */
 typedef struct {
-  volatile eventflags_t flags;      /**< @brief Flags stored into the
-                                                object.                     */
+    volatile eventflags_t flags; /**< @brief Flags stored into the
+                                             object.                     */
 } event_source_t;
 #endif
 
@@ -447,7 +446,6 @@ extern "C" {
  * @api
  */
 static inline void osalInit(void) {
-
 }
 
 /**
@@ -459,7 +457,7 @@ static inline void osalInit(void) {
  */
 static inline void osalSysHalt(const char *reason) {
 
-  chSysHalt(reason);
+    chSysHalt(reason);
 }
 
 /**
@@ -469,7 +467,7 @@ static inline void osalSysHalt(const char *reason) {
  */
 static inline void osalSysDisable(void) {
 
-  chSysDisable();
+    chSysDisable();
 }
 
 /**
@@ -479,7 +477,7 @@ static inline void osalSysDisable(void) {
  */
 static inline void osalSysEnable(void) {
 
-  chSysEnable();
+    chSysEnable();
 }
 
 /**
@@ -490,7 +488,7 @@ static inline void osalSysEnable(void) {
  */
 static inline void osalSysLock(void) {
 
-  chSysLock();
+    chSysLock();
 }
 
 /**
@@ -501,7 +499,7 @@ static inline void osalSysLock(void) {
  */
 static inline void osalSysUnlock(void) {
 
-  chSysUnlock();
+    chSysUnlock();
 }
 
 /**
@@ -512,7 +510,7 @@ static inline void osalSysUnlock(void) {
  */
 static inline void osalSysLockFromISR(void) {
 
-  chSysLockFromISR();
+    chSysLockFromISR();
 }
 
 /**
@@ -523,7 +521,7 @@ static inline void osalSysLockFromISR(void) {
  */
 static inline void osalSysUnlockFromISR(void) {
 
-  chSysUnlockFromISR();
+    chSysUnlockFromISR();
 }
 
 /**
@@ -541,7 +539,7 @@ static inline void osalSysUnlockFromISR(void) {
  */
 static inline syssts_t osalSysGetStatusAndLockX(void) {
 
-  return chSysGetStatusAndLockX();
+    return chSysGetStatusAndLockX();
 }
 
 /**
@@ -555,7 +553,7 @@ static inline syssts_t osalSysGetStatusAndLockX(void) {
  */
 static inline void osalSysRestoreStatusX(syssts_t sts) {
 
-  chSysRestoreStatusX(sts);
+    chSysRestoreStatusX(sts);
 }
 
 /**
@@ -570,7 +568,7 @@ static inline void osalSysRestoreStatusX(syssts_t sts) {
 #if PORT_SUPPORTS_RT || defined(__DOXYGEN__)
 static inline void osalSysPolledDelayX(rtcnt_t cycles) {
 
-  chSysPolledDelayX(cycles);
+    chSysPolledDelayX(cycles);
 }
 #endif
 
@@ -582,7 +580,7 @@ static inline void osalSysPolledDelayX(rtcnt_t cycles) {
 #if (OSAL_ST_MODE != OSAL_ST_MODE_NONE) || defined(__DOXYGEN__)
 static inline void osalOsTimerHandlerI(void) {
 
-  chSysTimerHandlerI();
+    chSysTimerHandlerI();
 }
 #endif
 
@@ -597,7 +595,7 @@ static inline void osalOsTimerHandlerI(void) {
  */
 static inline void osalOsRescheduleS(void) {
 
-  chSchRescheduleS();
+    chSchRescheduleS();
 }
 
 /**
@@ -615,7 +613,7 @@ static inline void osalOsRescheduleS(void) {
  */
 static inline systime_t osalOsGetSystemTimeX(void) {
 
-  return chVTGetSystemTimeX();
+    return chVTGetSystemTimeX();
 }
 
 /**
@@ -632,11 +630,9 @@ static inline systime_t osalOsGetSystemTimeX(void) {
  *
  * @xclass
  */
-static inline bool osalOsIsTimeWithinX(systime_t time,
-                                       systime_t start,
-                                       systime_t end) {
+static inline bool osalOsIsTimeWithinX(systime_t time, systime_t start, systime_t end) {
 
-  return chVTIsTimeWithinX(time, start, end);
+    return chVTIsTimeWithinX(time, start, end);
 }
 
 /**
@@ -653,7 +649,7 @@ static inline bool osalOsIsTimeWithinX(systime_t time,
  */
 static inline void osalThreadSleepS(systime_t time) {
 
-  chThdSleepS(time);
+    chThdSleepS(time);
 }
 
 /**
@@ -670,7 +666,7 @@ static inline void osalThreadSleepS(systime_t time) {
  */
 static inline void osalThreadSleep(systime_t time) {
 
-  chThdSleep(time);
+    chThdSleep(time);
 }
 
 /**
@@ -685,7 +681,7 @@ static inline void osalThreadSleep(systime_t time) {
  */
 static inline msg_t osalThreadSuspendS(thread_reference_t *trp) {
 
-  return chThdSuspendS(trp);
+    return chThdSuspendS(trp);
 }
 
 /**
@@ -707,10 +703,9 @@ static inline msg_t osalThreadSuspendS(thread_reference_t *trp) {
  *
  * @sclass
  */
-static inline msg_t osalThreadSuspendTimeoutS(thread_reference_t *trp,
-                                              systime_t timeout) {
+static inline msg_t osalThreadSuspendTimeoutS(thread_reference_t *trp, systime_t timeout) {
 
-  return chThdSuspendTimeoutS(trp, timeout);
+    return chThdSuspendTimeoutS(trp, timeout);
 }
 
 /**
@@ -725,7 +720,7 @@ static inline msg_t osalThreadSuspendTimeoutS(thread_reference_t *trp,
  */
 static inline void osalThreadResumeI(thread_reference_t *trp, msg_t msg) {
 
-  chThdResumeI(trp, msg);
+    chThdResumeI(trp, msg);
 }
 
 /**
@@ -740,7 +735,7 @@ static inline void osalThreadResumeI(thread_reference_t *trp, msg_t msg) {
  */
 static inline void osalThreadResumeS(thread_reference_t *trp, msg_t msg) {
 
-  chThdResumeS(trp, msg);
+    chThdResumeS(trp, msg);
 }
 
 /**
@@ -752,7 +747,7 @@ static inline void osalThreadResumeS(thread_reference_t *trp, msg_t msg) {
  */
 static inline void osalThreadQueueObjectInit(threads_queue_t *tqp) {
 
-  chThdQueueObjectInit(tqp);
+    chThdQueueObjectInit(tqp);
 }
 
 /**
@@ -778,10 +773,9 @@ static inline void osalThreadQueueObjectInit(threads_queue_t *tqp) {
  *
  * @sclass
  */
-static inline msg_t osalThreadEnqueueTimeoutS(threads_queue_t *tqp,
-                                              systime_t time) {
+static inline msg_t osalThreadEnqueueTimeoutS(threads_queue_t *tqp, systime_t time) {
 
-  return chThdEnqueueTimeoutS(tqp, time);
+    return chThdEnqueueTimeoutS(tqp, time);
 }
 
 /**
@@ -794,7 +788,7 @@ static inline msg_t osalThreadEnqueueTimeoutS(threads_queue_t *tqp,
  */
 static inline void osalThreadDequeueNextI(threads_queue_t *tqp, msg_t msg) {
 
-  chThdDequeueNextI(tqp, msg);
+    chThdDequeueNextI(tqp, msg);
 }
 
 /**
@@ -807,7 +801,7 @@ static inline void osalThreadDequeueNextI(threads_queue_t *tqp, msg_t msg) {
  */
 static inline void osalThreadDequeueAllI(threads_queue_t *tqp, msg_t msg) {
 
-  chThdDequeueAllI(tqp, msg);
+    chThdDequeueAllI(tqp, msg);
 }
 
 #if CH_CFG_USE_EVENTS || defined(__DOXYGEN__)
@@ -820,12 +814,12 @@ static inline void osalThreadDequeueAllI(threads_queue_t *tqp, msg_t msg) {
  */
 static inline void osalEventObjectInit(event_source_t *esp) {
 
-  chEvtObjectInit(esp);
+    chEvtObjectInit(esp);
 }
 #else
 static inline void osalEventObjectInit(event_source_t *esp) {
 
-  esp->flags = 0;
+    esp->flags = 0;
 }
 #endif
 
@@ -838,16 +832,14 @@ static inline void osalEventObjectInit(event_source_t *esp) {
  *
  * @iclass
  */
-static inline void osalEventBroadcastFlagsI(event_source_t *esp,
-                                            eventflags_t flags) {
+static inline void osalEventBroadcastFlagsI(event_source_t *esp, eventflags_t flags) {
 
-  chEvtBroadcastFlagsI(esp, flags);
+    chEvtBroadcastFlagsI(esp, flags);
 }
 #else
-static inline void osalEventBroadcastFlagsI(event_source_t *esp,
-                                            eventflags_t flags) {
+static inline void osalEventBroadcastFlagsI(event_source_t *esp, eventflags_t flags) {
 
-  esp->flags |= flags;
+    esp->flags |= flags;
 }
 #endif
 
@@ -860,17 +852,15 @@ static inline void osalEventBroadcastFlagsI(event_source_t *esp,
  *
  * @iclass
  */
-static inline void osalEventBroadcastFlags(event_source_t *esp,
-                                           eventflags_t flags) {
+static inline void osalEventBroadcastFlags(event_source_t *esp, eventflags_t flags) {
 
-  chEvtBroadcastFlags(esp, flags);
+    chEvtBroadcastFlags(esp, flags);
 }
 #else
-static inline void osalEventBroadcastFlags(event_source_t *esp,
-                                            eventflags_t flags) {
-  osalSysLock();
-  esp->flags |= flags;
-  osalSysUnlock();
+static inline void osalEventBroadcastFlags(event_source_t *esp, eventflags_t flags) {
+    osalSysLock();
+    esp->flags |= flags;
+    osalSysUnlock();
 }
 #endif
 
@@ -884,11 +874,11 @@ static inline void osalEventBroadcastFlags(event_source_t *esp,
 static inline void osalMutexObjectInit(mutex_t *mp) {
 
 #if CH_CFG_USE_MUTEXES
-  chMtxObjectInit(mp);
+    chMtxObjectInit(mp);
 #elif CH_CFG_USE_SEMAPHORES
-  chSemObjectInit((semaphore_t *)mp, 1);
+    chSemObjectInit((semaphore_t *)mp, 1);
 #else
- *mp = 0;
+    *mp = 0;
 #endif
 }
 
@@ -904,11 +894,11 @@ static inline void osalMutexObjectInit(mutex_t *mp) {
 static inline void osalMutexLock(mutex_t *mp) {
 
 #if CH_CFG_USE_MUTEXES
-  chMtxLock(mp);
+    chMtxLock(mp);
 #elif CH_CFG_USE_SEMAPHORES
-  chSemWait((semaphore_t *)mp);
+    chSemWait((semaphore_t *)mp);
 #else
-  *mp = 1;
+    *mp = 1;
 #endif
 }
 
@@ -928,11 +918,11 @@ static inline void osalMutexLock(mutex_t *mp) {
 static inline void osalMutexUnlock(mutex_t *mp) {
 
 #if CH_CFG_USE_MUTEXES
-  chMtxUnlock(mp);
+    chMtxUnlock(mp);
 #elif CH_CFG_USE_SEMAPHORES
-  chSemSignal((semaphore_t *)mp);
+    chSemSignal((semaphore_t *)mp);
 #else
-  *mp = 0;
+    *mp = 0;
 #endif
 }
 

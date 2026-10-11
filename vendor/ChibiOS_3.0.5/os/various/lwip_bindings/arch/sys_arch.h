@@ -53,14 +53,14 @@
 #ifndef __SYS_ARCH_H__
 #define __SYS_ARCH_H__
 
-typedef semaphore_t *   sys_sem_t;
-typedef mailbox_t *     sys_mbox_t;
-typedef thread_t *      sys_thread_t;
-typedef syssts_t        sys_prot_t;
+typedef semaphore_t *sys_sem_t;
+typedef mailbox_t *sys_mbox_t;
+typedef thread_t *sys_thread_t;
+typedef syssts_t sys_prot_t;
 
-#define SYS_MBOX_NULL   (mailbox_t *)0
+#define SYS_MBOX_NULL (mailbox_t *)0
 #define SYS_THREAD_NULL (thread_t *)0
-#define SYS_SEM_NULL    (semaphore_t *)0
+#define SYS_SEM_NULL (semaphore_t *)0
 
 /* let sys.h use binary semaphores for mutexes */
 #define LWIP_COMPAT_MUTEX 1

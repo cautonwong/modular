@@ -28,8 +28,8 @@
 #ifndef _NILCORE_H_
 #define _NILCORE_H_
 
-#include <avr/io.h>
 #include <avr/interrupt.h>
+#include <avr/io.h>
 
 /*===========================================================================*/
 /* Module constants.                                                         */
@@ -47,18 +47,18 @@
 /**
  * @brief   Name of the implemented architecture.
  */
-#define PORT_ARCHITECTURE_NAME          "AVR"
+#define PORT_ARCHITECTURE_NAME "AVR"
 
 /**
  * @brief   Name of the architecture variant.
  */
-#define PORT_CORE_VARIANT_NAME          "MegaAVR"
+#define PORT_CORE_VARIANT_NAME "MegaAVR"
 
 /**
  * @brief   Compiler name and version.
  */
 #if defined(__GNUC__) || defined(__DOXYGEN__)
-#define PORT_COMPILER_NAME              "GCC " __VERSION__
+#define PORT_COMPILER_NAME "GCC " __VERSION__
 
 #else
 #error "unsupported compiler"
@@ -67,12 +67,12 @@
 /**
  * @brief   Port-specific information string.
  */
-#define PORT_INFO                       "16 bits code addressing"
+#define PORT_INFO "16 bits code addressing"
 
 /**
  * @brief   This port supports a realtime counter.
  */
-#define PORT_SUPPORTS_RT                FALSE
+#define PORT_SUPPORTS_RT FALSE
 /** @} */
 
 /*===========================================================================*/
@@ -87,7 +87,7 @@
  * @note    In this port it is set to 8.
  */
 #if !defined(PORT_IDLE_THREAD_STACK_SIZE) || defined(__DOXYGEN__)
-#define PORT_IDLE_THREAD_STACK_SIZE     8
+#define PORT_IDLE_THREAD_STACK_SIZE 8
 #endif
 
 /**
@@ -97,7 +97,7 @@
  * @note    In this port the default is 32 bytes per thread.
  */
 #if !defined(PORT_INT_REQUIRED_STACK) || defined(__DOXYGEN__)
-#define PORT_INT_REQUIRED_STACK         32
+#define PORT_INT_REQUIRED_STACK 32
 #endif
 
 /**
@@ -107,7 +107,7 @@
  *          @p nilcore_timer_alt.h is included instead.
  */
 #if !defined(PORT_USE_ALT_TIMER)
-#define PORT_USE_ALT_TIMER              FALSE
+#define PORT_USE_ALT_TIMER FALSE
 #endif
 
 /*===========================================================================*/
@@ -133,30 +133,30 @@ typedef uint8_t stkalign_t;
  *          switching.
  */
 struct port_intctx {
-  uint8_t       _next;
-  uint8_t       r29;
-  uint8_t       r28;
-  uint8_t       r17;
-  uint8_t       r16;
-  uint8_t       r15;
-  uint8_t       r14;
-  uint8_t       r13;
-  uint8_t       r12;
-  uint8_t       r11;
-  uint8_t       r10;
-  uint8_t       r9;
-  uint8_t       r8;
-  uint8_t       r7;
-  uint8_t       r6;
-  uint8_t       r5;
-  uint8_t       r4;
-  uint8_t       r3;
-  uint8_t       r2;
+    uint8_t _next;
+    uint8_t r29;
+    uint8_t r28;
+    uint8_t r17;
+    uint8_t r16;
+    uint8_t r15;
+    uint8_t r14;
+    uint8_t r13;
+    uint8_t r12;
+    uint8_t r11;
+    uint8_t r10;
+    uint8_t r9;
+    uint8_t r8;
+    uint8_t r7;
+    uint8_t r6;
+    uint8_t r5;
+    uint8_t r4;
+    uint8_t r3;
+    uint8_t r2;
 #ifdef __AVR_3_BYTE_PC__
-  uint8_t       pcx;
+    uint8_t pcx;
 #endif
-  uint8_t       pcl;
-  uint8_t       pch;
+    uint8_t pcl;
+    uint8_t pch;
 };
 
 #endif /* !defined(_FROM_ASM_) */
@@ -171,35 +171,34 @@ struct port_intctx {
  *          by an @p port_intctx structure.
  */
 #ifdef __AVR_3_BYTE_PC__
-#define PORT_SETUP_CONTEXT(tp, wend, pf, arg) {                             \
-    (tp)->ctxp = (struct port_intctx*)(((uint8_t *)(wend)) -                \
-                                         sizeof(struct port_intctx));       \
-    (tp)->ctxp->r2  = (int)pf;                                              \
-    (tp)->ctxp->r3  = (int)pf >> 8;                                         \
-    (tp)->ctxp->r4  = (int)arg;                                             \
-    (tp)->ctxp->r5  = (int)arg >> 8;                                        \
-    (tp)->ctxp->pcx = (int)_port_thread_start >> 16;                        \
-    (tp)->ctxp->pcl = (int)_port_thread_start >> 8;                         \
-    (tp)->ctxp->pch = (int)_port_thread_start;                              \
-}
+#define PORT_SETUP_CONTEXT(tp, wend, pf, arg)                                                      \
+    {                                                                                              \
+        (tp)->ctxp = (struct port_intctx *)(((uint8_t *)(wend)) - sizeof(struct port_intctx));     \
+        (tp)->ctxp->r2 = (int)pf;                                                                  \
+        (tp)->ctxp->r3 = (int)pf >> 8;                                                             \
+        (tp)->ctxp->r4 = (int)arg;                                                                 \
+        (tp)->ctxp->r5 = (int)arg >> 8;                                                            \
+        (tp)->ctxp->pcx = (int)_port_thread_start >> 16;                                           \
+        (tp)->ctxp->pcl = (int)_port_thread_start >> 8;                                            \
+        (tp)->ctxp->pch = (int)_port_thread_start;                                                 \
+    }
 #else /* __AVR_3_BYTE_PC__ */
-#define PORT_SETUP_CONTEXT(tp, wend, pf, arg) {                             \
-    (tp)->ctxp = (struct port_intctx*)(((uint8_t *)(wend)) -                \
-                                         sizeof(struct port_intctx));       \
-    (tp)->ctxp->r2  = (int)pf;                                              \
-    (tp)->ctxp->r3  = (int)pf >> 8;                                         \
-    (tp)->ctxp->r4  = (int)arg;                                             \
-    (tp)->ctxp->r5  = (int)arg >> 8;                                        \
-    (tp)->ctxp->pcl = (int)_port_thread_start >> 8;                         \
-    (tp)->ctxp->pch = (int)_port_thread_start;                              \
-}
+#define PORT_SETUP_CONTEXT(tp, wend, pf, arg)                                                      \
+    {                                                                                              \
+        (tp)->ctxp = (struct port_intctx *)(((uint8_t *)(wend)) - sizeof(struct port_intctx));     \
+        (tp)->ctxp->r2 = (int)pf;                                                                  \
+        (tp)->ctxp->r3 = (int)pf >> 8;                                                             \
+        (tp)->ctxp->r4 = (int)arg;                                                                 \
+        (tp)->ctxp->r5 = (int)arg >> 8;                                                            \
+        (tp)->ctxp->pcl = (int)_port_thread_start >> 8;                                            \
+        (tp)->ctxp->pch = (int)_port_thread_start;                                                 \
+    }
 #endif /* __AVR_3_BYTE_PC__ */
 /**
  * @brief   Computes the thread working area global size.
  * @note    There is no need to perform alignments in this macro.
  */
-#define PORT_WA_SIZE(n) ((sizeof(struct port_intctx) - 1) +                 \
-                         (n) + (PORT_INT_REQUIRED_STACK))
+#define PORT_WA_SIZE(n) ((sizeof(struct port_intctx) - 1) + (n) + (PORT_INT_REQUIRED_STACK))
 
 /**
  * @brief   IRQ prologue code.
@@ -208,10 +207,13 @@ struct port_intctx {
  * @note    This code tricks the compiler to save all the specified registers
  *          by "touching" them.
  */
-#define PORT_IRQ_PROLOGUE() {                                               \
-  asm ("" : : : "r18", "r19", "r20", "r21", "r22", "r23", "r24",            \
-                "r25", "r26", "r27", "r30", "r31");                         \
-}
+#define PORT_IRQ_PROLOGUE()                                                                        \
+    {                                                                                              \
+        asm(""                                                                                     \
+            :                                                                                      \
+            :                                                                                      \
+            : "r18", "r19", "r20", "r21", "r22", "r23", "r24", "r25", "r26", "r27", "r30", "r31"); \
+    }
 
 /**
  * @brief   IRQ epilogue code.
@@ -257,9 +259,9 @@ struct port_intctx {
 #ifdef __cplusplus
 extern "C" {
 #endif
-  void _port_irq_epilogue(void);
-  void _port_switch(thread_t *ntp, thread_t *otp);
-  void _port_thread_start(void);
+void _port_irq_epilogue(void);
+void _port_switch(thread_t *ntp, thread_t *otp);
+void _port_thread_start(void);
 #ifdef __cplusplus
 }
 #endif
@@ -278,7 +280,6 @@ extern "C" {
  * @brief   Port-related initialization code.
  */
 static inline void port_init(void) {
-
 }
 
 /**
@@ -288,7 +289,7 @@ static inline void port_init(void) {
  */
 static inline syssts_t port_get_irq_status(void) {
 
-  return 0;
+    return 0;
 }
 
 /**
@@ -302,7 +303,7 @@ static inline syssts_t port_get_irq_status(void) {
  */
 static inline bool port_irq_enabled(syssts_t sts) {
 
-  return false;
+    return false;
 }
 
 /**
@@ -314,7 +315,7 @@ static inline bool port_irq_enabled(syssts_t sts) {
  */
 static inline bool port_is_isr_context(void) {
 
-  return false;
+    return false;
 }
 
 /**
@@ -322,7 +323,7 @@ static inline bool port_is_isr_context(void) {
  */
 static inline void port_lock(void) {
 
-  asm volatile ("cli" : : : "memory");
+    asm volatile("cli" : : : "memory");
 }
 
 /**
@@ -330,7 +331,7 @@ static inline void port_lock(void) {
  */
 static inline void port_unlock(void) {
 
-  asm volatile ("sei" : : : "memory");
+    asm volatile("sei" : : : "memory");
 }
 
 /**
@@ -338,7 +339,6 @@ static inline void port_unlock(void) {
  * @note    This function is empty in this port.
  */
 static inline void port_lock_from_isr(void) {
-
 }
 
 /**
@@ -346,7 +346,6 @@ static inline void port_lock_from_isr(void) {
  * @note    This function is empty in this port.
  */
 static inline void port_unlock_from_isr(void) {
-
 }
 
 /**
@@ -354,7 +353,7 @@ static inline void port_unlock_from_isr(void) {
  */
 static inline void port_disable(void) {
 
-  asm volatile ("cli" : : : "memory");
+    asm volatile("cli" : : : "memory");
 }
 
 /**
@@ -362,7 +361,7 @@ static inline void port_disable(void) {
  */
 static inline void port_suspend(void) {
 
-  asm volatile ("cli" : : : "memory");
+    asm volatile("cli" : : : "memory");
 }
 
 /**
@@ -370,7 +369,7 @@ static inline void port_suspend(void) {
  */
 static inline void port_enable(void) {
 
-  asm volatile ("sei" : : : "memory");
+    asm volatile("sei" : : : "memory");
 }
 
 /**
@@ -382,7 +381,7 @@ static inline void port_enable(void) {
  */
 static inline void port_wait_for_interrupt(void) {
 
-  asm volatile ("sleep" : : : "memory");
+    asm volatile("sleep" : : : "memory");
 }
 
 /**
@@ -392,7 +391,7 @@ static inline void port_wait_for_interrupt(void) {
  */
 static inline rtcnt_t port_rt_get_counter_value(void) {
 
-  return 0;
+    return 0;
 }
 
 #endif /* !defined(_FROM_ASM_) */

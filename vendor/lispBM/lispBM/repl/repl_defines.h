@@ -15,10 +15,8 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-
 #ifndef REPL_DEFINES_H_
 #define REPL_DEFINES_H_
-
 
 #define REPL_EXIT_SUCCESS 0
 #define REPL_EXIT_ERROR 1
@@ -48,34 +46,32 @@
 #define REPL_EXIT_INVALID_EXPRESSION 25
 #define REPL_EXIT_UNABLE_TO_PAUSE_EVALUATOR 26
 
-const char *repl_exit_message[27] =
-  {"Goodbye.",
-   "ERROR",
-   "ERROR: Out of memory while flattening a value.",
-   "ERROR: Maximum cons depth reached while flattening value.",
-   "ERROR: Possibly circular value found while flattening.",
-   "ERROR: Fatal error while flattening value.",
-   "ERROR: Buffer for flat value is too small.",
-   "ERROR: Value cannot be flattened.",
-   "ERROR: An invalid key was found in the environment.",
-   "ERROR: The event queue is full.",
-   "ERROR: Invalid value found in environment file.",
-   "ERROR: Out of memory while processing environment file.",
-   "ERROR: Invalid value size found in environment file.",
-   "ERROR: Invalid key found in environment file.",
-   "ERROR: Zero length key found in environment file.",
-   "ERROR: Invalid environment file.",
-   "ERROR: Unable to open environment file.",
-   "ERROR: Unable to initialize the LispBM runtime system.",
-   "ERROR: Unable to allocate memory for flat value creation.",
-   "ERROR: Unable to create a symbol.",
-   "ERROR: Invalid source file.",
-   "ERROR: Unable to access symbol string representation.",
-   "ERROR: Critical Error",
-   "ERROR: Symbol table too large",
-   "ERROR: Populating the environment from an env file timed out",
-   "ERROR: Invalid expression.",
-   "ERROR: Unable to pause the evaluator"
-  };
+const char *repl_exit_message[27] = {"Goodbye.",
+                                     "ERROR",
+                                     "ERROR: Out of memory while flattening a value.",
+                                     "ERROR: Maximum cons depth reached while flattening value.",
+                                     "ERROR: Possibly circular value found while flattening.",
+                                     "ERROR: Fatal error while flattening value.",
+                                     "ERROR: Buffer for flat value is too small.",
+                                     "ERROR: Value cannot be flattened.",
+                                     "ERROR: An invalid key was found in the environment.",
+                                     "ERROR: The event queue is full.",
+                                     "ERROR: Invalid value found in environment file.",
+                                     "ERROR: Out of memory while processing environment file.",
+                                     "ERROR: Invalid value size found in environment file.",
+                                     "ERROR: Invalid key found in environment file.",
+                                     "ERROR: Zero length key found in environment file.",
+                                     "ERROR: Invalid environment file.",
+                                     "ERROR: Unable to open environment file.",
+                                     "ERROR: Unable to initialize the LispBM runtime system.",
+                                     "ERROR: Unable to allocate memory for flat value creation.",
+                                     "ERROR: Unable to create a symbol.",
+                                     "ERROR: Invalid source file.",
+                                     "ERROR: Unable to access symbol string representation.",
+                                     "ERROR: Critical Error",
+                                     "ERROR: Symbol table too large",
+                                     "ERROR: Populating the environment from an env file timed out",
+                                     "ERROR: Invalid expression.",
+                                     "ERROR: Unable to pause the evaluator"};
 
 #endif

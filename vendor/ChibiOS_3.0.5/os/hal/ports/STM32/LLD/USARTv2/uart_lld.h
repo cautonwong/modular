@@ -45,7 +45,7 @@
  * @note    The default is @p FALSE.
  */
 #if !defined(STM32_UART_USE_USART1) || defined(__DOXYGEN__)
-#define STM32_UART_USE_USART1               FALSE
+#define STM32_UART_USE_USART1 FALSE
 #endif
 
 /**
@@ -54,7 +54,7 @@
  * @note    The default is @p FALSE.
  */
 #if !defined(STM32_UART_USE_USART2) || defined(__DOXYGEN__)
-#define STM32_UART_USE_USART2               FALSE
+#define STM32_UART_USE_USART2 FALSE
 #endif
 
 /**
@@ -63,28 +63,28 @@
  * @note    The default is @p FALSE.
  */
 #if !defined(STM32_UART_USE_USART3) || defined(__DOXYGEN__)
-#define STM32_UART_USE_USART3               FALSE
+#define STM32_UART_USE_USART3 FALSE
 #endif
 
 /**
  * @brief   USART1 interrupt priority level setting.
  */
 #if !defined(STM32_UART_USART1_IRQ_PRIORITY) || defined(__DOXYGEN__)
-#define STM32_UART_USART1_IRQ_PRIORITY      12
+#define STM32_UART_USART1_IRQ_PRIORITY 12
 #endif
 
 /**
  * @brief   USART2 interrupt priority level setting.
  */
 #if !defined(STM32_UART_USART2_IRQ_PRIORITY) || defined(__DOXYGEN__)
-#define STM32_UART_USART2_IRQ_PRIORITY      12
+#define STM32_UART_USART2_IRQ_PRIORITY 12
 #endif
 
 /**
  * @brief   USART3 interrupt priority level setting.
  */
 #if !defined(STM32_UART_USART3_IRQ_PRIORITY) || defined(__DOXYGEN__)
-#define STM32_UART_USART3_IRQ_PRIORITY      12
+#define STM32_UART_USART3_IRQ_PRIORITY 12
 #endif
 
 /**
@@ -94,7 +94,7 @@
  *          over the TX channel.
  */
 #if !defined(STM32_UART_USART1_DMA_PRIORITY) || defined(__DOXYGEN__)
-#define STM32_UART_USART1_DMA_PRIORITY      0
+#define STM32_UART_USART1_DMA_PRIORITY 0
 #endif
 
 /**
@@ -104,7 +104,7 @@
  *          over the TX channel.
  */
 #if !defined(STM32_UART_USART2_DMA_PRIORITY) || defined(__DOXYGEN__)
-#define STM32_UART_USART2_DMA_PRIORITY      0
+#define STM32_UART_USART2_DMA_PRIORITY 0
 #endif
 
 /**
@@ -114,7 +114,7 @@
  *          over the TX channel.
  */
 #if !defined(STM32_UART_USART3_DMA_PRIORITY) || defined(__DOXYGEN__)
-#define STM32_UART_USART3_DMA_PRIORITY      0
+#define STM32_UART_USART3_DMA_PRIORITY 0
 #endif
 
 /**
@@ -123,7 +123,7 @@
  *          error can only happen because programming errors.
  */
 #if !defined(STM32_UART_DMA_ERROR_HOOK) || defined(__DOXYGEN__)
-#define STM32_UART_DMA_ERROR_HOOK(uartp)    osalSysHalt("DMA failure")
+#define STM32_UART_DMA_ERROR_HOOK(uartp) osalSysHalt("DMA failure")
 #endif
 /** @} */
 
@@ -143,38 +143,31 @@
 #error "USART3 not present in the selected device"
 #endif
 
-#if !STM32_UART_USE_USART1 && !STM32_UART_USE_USART2 &&                     \
-    !STM32_UART_USE_USART3
+#if !STM32_UART_USE_USART1 && !STM32_UART_USE_USART2 && !STM32_UART_USE_USART3
 #error "UART driver activated but no USART/UART peripheral assigned"
 #endif
 
-#if STM32_UART_USE_USART1 &&                                                \
-    !OSAL_IRQ_IS_VALID_PRIORITY(STM32_UART_USART1_IRQ_PRIORITY)
+#if STM32_UART_USE_USART1 && !OSAL_IRQ_IS_VALID_PRIORITY(STM32_UART_USART1_IRQ_PRIORITY)
 #error "Invalid IRQ priority assigned to USART1"
 #endif
 
-#if STM32_UART_USE_USART2 &&                                                \
-    !OSAL_IRQ_IS_VALID_PRIORITY(STM32_UART_USART2_IRQ_PRIORITY)
+#if STM32_UART_USE_USART2 && !OSAL_IRQ_IS_VALID_PRIORITY(STM32_UART_USART2_IRQ_PRIORITY)
 #error "Invalid IRQ priority assigned to USART2"
 #endif
 
-#if STM32_UART_USE_USART3 &&                                                \
-    !OSAL_IRQ_IS_VALID_PRIORITY(STM32_UART_USART3_IRQ_PRIORITY)
+#if STM32_UART_USE_USART3 && !OSAL_IRQ_IS_VALID_PRIORITY(STM32_UART_USART3_IRQ_PRIORITY)
 #error "Invalid IRQ priority assigned to USART3"
 #endif
 
-#if STM32_UART_USE_USART1 &&                                                \
-    !STM32_DMA_IS_VALID_PRIORITY(STM32_UART_USART1_DMA_PRIORITY)
+#if STM32_UART_USE_USART1 && !STM32_DMA_IS_VALID_PRIORITY(STM32_UART_USART1_DMA_PRIORITY)
 #error "Invalid DMA priority assigned to USART1"
 #endif
 
-#if STM32_UART_USE_USART2 &&                                                \
-    !STM32_DMA_IS_VALID_PRIORITY(STM32_UART_USART2_DMA_PRIORITY)
+#if STM32_UART_USE_USART2 && !STM32_DMA_IS_VALID_PRIORITY(STM32_UART_USART2_DMA_PRIORITY)
 #error "Invalid DMA priority assigned to USART2"
 #endif
 
-#if STM32_UART_USE_USART3 &&                                                \
-    !STM32_DMA_IS_VALID_PRIORITY(STM32_UART_USART3_DMA_PRIORITY)
+#if STM32_UART_USE_USART3 && !STM32_DMA_IS_VALID_PRIORITY(STM32_UART_USART3_DMA_PRIORITY)
 #error "Invalid DMA priority assigned to USART3"
 #endif
 
@@ -182,55 +175,49 @@
    reassign streams to different channels.*/
 #if STM32_ADVANCED_DMA
 /* Check on the presence of the DMA streams settings in mcuconf.h.*/
-#if STM32_UART_USE_USART1 && (!defined(STM32_UART_USART1_RX_DMA_STREAM) ||  \
-                              !defined(STM32_UART_USART1_TX_DMA_STREAM))
+#if STM32_UART_USE_USART1 &&                                                                       \
+    (!defined(STM32_UART_USART1_RX_DMA_STREAM) || !defined(STM32_UART_USART1_TX_DMA_STREAM))
 #error "USART1 DMA streams not defined"
 #endif
 
-#if STM32_UART_USE_USART2 && (!defined(STM32_UART_USART2_RX_DMA_STREAM) ||  \
-                              !defined(STM32_UART_USART2_TX_DMA_STREAM))
+#if STM32_UART_USE_USART2 &&                                                                       \
+    (!defined(STM32_UART_USART2_RX_DMA_STREAM) || !defined(STM32_UART_USART2_TX_DMA_STREAM))
 #error "USART2 DMA streams not defined"
 #endif
 
-#if STM32_UART_USE_USART3 && (!defined(STM32_UART_USART3_RX_DMA_STREAM) ||  \
-                              !defined(STM32_UART_USART3_TX_DMA_STREAM))
+#if STM32_UART_USE_USART3 &&                                                                       \
+    (!defined(STM32_UART_USART3_RX_DMA_STREAM) || !defined(STM32_UART_USART3_TX_DMA_STREAM))
 #error "USART3 DMA streams not defined"
 #endif
 
 /* Check on the validity of the assigned DMA channels.*/
-#if STM32_UART_USE_USART1 &&                                                \
-    !STM32_DMA_IS_VALID_ID(STM32_UART_USART1_RX_DMA_STREAM,                 \
-                           STM32_USART1_RX_DMA_MSK)
+#if STM32_UART_USE_USART1 &&                                                                       \
+    !STM32_DMA_IS_VALID_ID(STM32_UART_USART1_RX_DMA_STREAM, STM32_USART1_RX_DMA_MSK)
 #error "invalid DMA stream associated to USART1 RX"
 #endif
 
-#if STM32_UART_USE_USART1 &&                                                \
-    !STM32_DMA_IS_VALID_ID(STM32_UART_USART1_TX_DMA_STREAM,                 \
-                           STM32_USART1_TX_DMA_MSK)
+#if STM32_UART_USE_USART1 &&                                                                       \
+    !STM32_DMA_IS_VALID_ID(STM32_UART_USART1_TX_DMA_STREAM, STM32_USART1_TX_DMA_MSK)
 #error "invalid DMA stream associated to USART1 TX"
 #endif
 
-#if STM32_UART_USE_USART2 &&                                                \
-    !STM32_DMA_IS_VALID_ID(STM32_UART_USART2_RX_DMA_STREAM,                 \
-                           STM32_USART2_RX_DMA_MSK)
+#if STM32_UART_USE_USART2 &&                                                                       \
+    !STM32_DMA_IS_VALID_ID(STM32_UART_USART2_RX_DMA_STREAM, STM32_USART2_RX_DMA_MSK)
 #error "invalid DMA stream associated to USART2 RX"
 #endif
 
-#if STM32_UART_USE_USART2 &&                                                \
-    !STM32_DMA_IS_VALID_ID(STM32_UART_USART2_TX_DMA_STREAM,                 \
-                           STM32_USART2_TX_DMA_MSK)
+#if STM32_UART_USE_USART2 &&                                                                       \
+    !STM32_DMA_IS_VALID_ID(STM32_UART_USART2_TX_DMA_STREAM, STM32_USART2_TX_DMA_MSK)
 #error "invalid DMA stream associated to USART2 TX"
 #endif
 
-#if STM32_UART_USE_USART3 &&                                                \
-    !STM32_DMA_IS_VALID_ID(STM32_UART_USART3_RX_DMA_STREAM,                 \
-                           STM32_USART3_RX_DMA_MSK)
+#if STM32_UART_USE_USART3 &&                                                                       \
+    !STM32_DMA_IS_VALID_ID(STM32_UART_USART3_RX_DMA_STREAM, STM32_USART3_RX_DMA_MSK)
 #error "invalid DMA stream associated to USART3 RX"
 #endif
 
-#if STM32_UART_USE_USART3 &&                                                \
-    !STM32_DMA_IS_VALID_ID(STM32_UART_USART3_TX_DMA_STREAM,                 \
-                           STM32_USART3_TX_DMA_MSK)
+#if STM32_UART_USE_USART3 &&                                                                       \
+    !STM32_DMA_IS_VALID_ID(STM32_UART_USART3_TX_DMA_STREAM, STM32_USART3_TX_DMA_MSK)
 #error "invalid DMA stream associated to USART3 TX"
 #endif
 #endif /* STM32_ADVANCED_DMA */
@@ -281,89 +268,89 @@ typedef void (*uartecb_t)(UARTDriver *uartp, uartflags_t e);
  * @note    It could be empty on some architectures.
  */
 typedef struct {
-  /**
-   * @brief End of transmission buffer callback.
-   */
-  uartcb_t                  txend1_cb;
-  /**
-   * @brief Physical end of transmission callback.
-   */
-  uartcb_t                  txend2_cb;
-  /**
-   * @brief Receive buffer filled callback.
-   */
-  uartcb_t                  rxend_cb;
-  /**
-   * @brief Character received while out if the @p UART_RECEIVE state.
-   */
-  uartccb_t                 rxchar_cb;
-  /**
-   * @brief Receive error callback.
-   */
-  uartecb_t                 rxerr_cb;
-  /* End of the mandatory fields.*/
-  /**
-   * @brief Bit rate.
-   */
-  uint32_t                  speed;
-  /**
-   * @brief Initialization value for the CR1 register.
-   */
-  uint32_t                  cr1;
-  /**
-   * @brief Initialization value for the CR2 register.
-   */
-  uint32_t                  cr2;
-  /**
-   * @brief Initialization value for the CR3 register.
-   */
-  uint32_t                  cr3;
+    /**
+     * @brief End of transmission buffer callback.
+     */
+    uartcb_t txend1_cb;
+    /**
+     * @brief Physical end of transmission callback.
+     */
+    uartcb_t txend2_cb;
+    /**
+     * @brief Receive buffer filled callback.
+     */
+    uartcb_t rxend_cb;
+    /**
+     * @brief Character received while out if the @p UART_RECEIVE state.
+     */
+    uartccb_t rxchar_cb;
+    /**
+     * @brief Receive error callback.
+     */
+    uartecb_t rxerr_cb;
+    /* End of the mandatory fields.*/
+    /**
+     * @brief Bit rate.
+     */
+    uint32_t speed;
+    /**
+     * @brief Initialization value for the CR1 register.
+     */
+    uint32_t cr1;
+    /**
+     * @brief Initialization value for the CR2 register.
+     */
+    uint32_t cr2;
+    /**
+     * @brief Initialization value for the CR3 register.
+     */
+    uint32_t cr3;
 } UARTConfig;
 
 /**
  * @brief   Structure representing an UART driver.
  */
 struct UARTDriver {
-  /**
-   * @brief Driver state.
-   */
-  uartstate_t               state;
-  /**
-   * @brief Transmitter state.
-   */
-  uarttxstate_t             txstate;
-  /**
-   * @brief Receiver state.
-   */
-  uartrxstate_t             rxstate;
-  /**
-   * @brief Current configuration data.
-   */
-  const UARTConfig          *config;
+    /**
+     * @brief Driver state.
+     */
+    uartstate_t state;
+    /**
+     * @brief Transmitter state.
+     */
+    uarttxstate_t txstate;
+    /**
+     * @brief Receiver state.
+     */
+    uartrxstate_t rxstate;
+    /**
+     * @brief Current configuration data.
+     */
+    const UARTConfig *config;
 #if defined(UART_DRIVER_EXT_FIELDS)
-  UART_DRIVER_EXT_FIELDS
+    UART_DRIVER_EXT_FIELDS
 #endif
-  /* End of the mandatory fields.*/
-  /**
-   * @brief Pointer to the USART registers block.
-   */
-  USART_TypeDef             *usart;
-  /**
-   * @brief DMA mode bit mask.
-   */
-  uint32_t                  dmamode;
-  /**
-   * @brief Receive DMA channel.
-   */
-  const stm32_dma_stream_t  *dmarx;
-  /**
-   * @brief Transmit DMA channel.
-   */
-  const stm32_dma_stream_t  *dmatx;
-  /**
-   * @brief Default receive buffer while into @p UART_RX_IDLE state.
-   */
-  volatile uint16_t         rxbuf;
+    /* End of the mandatory fields.*/
+    /**
+     * @brief Pointer to the USART registers block.
+     */
+    USART_TypeDef *usart;
+    /**
+     * @brief DMA mode bit mask.
+     */
+    uint32_t dmamode;
+    /**
+     * @brief Receive DMA channel.
+     */
+    const stm32_dma_stream_t *dmarx;
+    /**
+     * @brief Transmit DMA channel.
+     */
+    const stm32_dma_stream_t *dmatx;
+    /**
+     * @brief Default receive buffer while into @p UART_RX_IDLE state.
+     */
+    volatile uint16_t rxbuf;
 };
 
 /*===========================================================================*/
@@ -389,13 +376,13 @@ extern UARTDriver UARTD3;
 #ifdef __cplusplus
 extern "C" {
 #endif
-  void uart_lld_init(void);
-  void uart_lld_start(UARTDriver *uartp);
-  void uart_lld_stop(UARTDriver *uartp);
-  void uart_lld_start_send(UARTDriver *uartp, size_t n, const void *txbuf);
-  size_t uart_lld_stop_send(UARTDriver *uartp);
-  void uart_lld_start_receive(UARTDriver *uartp, size_t n, void *rxbuf);
-  size_t uart_lld_stop_receive(UARTDriver *uartp);
+void uart_lld_init(void);
+void uart_lld_start(UARTDriver *uartp);
+void uart_lld_stop(UARTDriver *uartp);
+void uart_lld_start_send(UARTDriver *uartp, size_t n, const void *txbuf);
+size_t uart_lld_stop_send(UARTDriver *uartp);
+void uart_lld_start_receive(UARTDriver *uartp, size_t n, void *rxbuf);
+size_t uart_lld_stop_receive(UARTDriver *uartp);
 #ifdef __cplusplus
 }
 #endif

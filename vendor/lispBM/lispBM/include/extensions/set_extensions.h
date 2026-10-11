@@ -15,9 +15,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-
 /* The set extensions adds a set datatype based upon lists.  */
-
 
 #ifndef SET_EXTENSIONS_H_
 #define SET_EXTENSIONS_H_

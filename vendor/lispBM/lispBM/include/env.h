@@ -28,9 +28,9 @@ extern "C" {
 /** Global environment hashtable size */
 #define GLOBAL_ENV_ROOTS 32
 /** Symbol to hashtable entry hashfunction */
-#define GLOBAL_ENV_MASK  0x1F
+#define GLOBAL_ENV_MASK 0x1F
 
-//environment interface
+// environment interface
 /** Initialize the global environment. This sets the global environment to NIL
  *
  * \return true on success and false on failure.
@@ -87,7 +87,8 @@ lbm_value lbm_env_set(lbm_value env, lbm_value key, lbm_value val);
  * \param env The environment to modify.
  * \param key The key.
  * \param val The new value to associate with the key.
- * \return The modified environment of Success and lbm_enc_sym(SYM_NOT_FOUND) if the key does not exist.
+ * \return The modified environment of Success and lbm_enc_sym(SYM_NOT_FOUND) if the key does not
+ * exist.
  */
 lbm_value lbm_env_modify_binding(lbm_value env, lbm_value key, lbm_value val);
 /** Removes a binding (destructively) from the input environment.

@@ -1,19 +1,19 @@
- /*
-    Copyright 2018, 2021, 2022 Joel Svensson   svenssonjoel@yahoo.se
-                          2022 Benjamin Vedder
+/*
+   Copyright 2018, 2021, 2022 Joel Svensson   svenssonjoel@yahoo.se
+                         2022 Benjamin Vedder
 
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
+   This program is free software: you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation, either version 3 of the License, or
+   (at your option) any later version.
 
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
 
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+   You should have received a copy of the GNU General Public License
+   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
 /** \file symrepr.h
@@ -28,11 +28,11 @@
 #ifndef SYMTAB_H_
 #define SYMTAB_H_
 
-#include <stdint.h>
 #include <stdbool.h>
+#include <stdint.h>
 
-#include "lbm_types.h"
 #include "lbm_defines.h"
+#include "lbm_types.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -95,7 +95,7 @@ int lbm_str_to_symbol(const char *name, lbm_uint *sym_id);
  * \param link If The variable assigned the ID is restored upon an image-boot.
  * \return 1 for success and 0 for failure.
  */
-int lbm_add_symbol_const_base(const char *name, lbm_uint* id, bool link);
+int lbm_add_symbol_const_base(const char *name, lbm_uint *id, bool link);
 /** Add a symbol to the symbol table. The name is assumed to be a statically allocated string.
  *
  * \param name Statically allocated name string.
@@ -121,7 +121,7 @@ int lbm_get_symbol_by_name(const char *name, lbm_uint *id);
  * \param id The id to look up in the symbol table.
  * \return pointer to the name string if success otherwise NULL.
  */
-const char* lbm_get_name_by_symbol(lbm_uint id);
+const char *lbm_get_name_by_symbol(lbm_uint id);
 
 /**
  *
@@ -152,7 +152,6 @@ bool lbm_symbol_in_flash(char *str);
  * \return True if symbol name/id mapping list entry is stored in flash, otherwise False.
  */
 bool lbm_symbol_list_entry_in_flash(char *str);
-
 
 extern lbm_value symbol_x;
 extern lbm_value symbol_y;

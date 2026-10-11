@@ -8,6 +8,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef BLE_PASSKEY_MODULE_ID
+#define BLE_PASSKEY_MODULE_ID 0x3B00u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

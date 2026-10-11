@@ -57,8 +57,8 @@
  * @brief   condition_variable_t structure.
  */
 typedef struct condition_variable {
-  threads_queue_t       c_queue;            /**< @brief Condition variable
-                                                 threads queue.             */
+    threads_queue_t c_queue; /**< @brief Condition variable
+                                  threads queue.             */
 } condition_variable_t;
 
 /*===========================================================================*/
@@ -72,7 +72,8 @@ typedef struct condition_variable {
  *
  * @param[in] name      the name of the condition variable
  */
-#define _CONDVAR_DATA(name) {_THREADS_QUEUE_DATA(name.c_queue)}
+#define _CONDVAR_DATA(name)                                                                        \
+    { _THREADS_QUEUE_DATA(name.c_queue) }
 
 /**
  * @brief Static condition variable initializer.
@@ -90,16 +91,16 @@ typedef struct condition_variable {
 #ifdef __cplusplus
 extern "C" {
 #endif
-  void chCondObjectInit(condition_variable_t *cp);
-  void chCondSignal(condition_variable_t *cp);
-  void chCondSignalI(condition_variable_t *cp);
-  void chCondBroadcast(condition_variable_t *cp);
-  void chCondBroadcastI(condition_variable_t *cp);
-  msg_t chCondWait(condition_variable_t *cp);
-  msg_t chCondWaitS(condition_variable_t *cp);
+void chCondObjectInit(condition_variable_t *cp);
+void chCondSignal(condition_variable_t *cp);
+void chCondSignalI(condition_variable_t *cp);
+void chCondBroadcast(condition_variable_t *cp);
+void chCondBroadcastI(condition_variable_t *cp);
+msg_t chCondWait(condition_variable_t *cp);
+msg_t chCondWaitS(condition_variable_t *cp);
 #if CH_CFG_USE_CONDVARS_TIMEOUT == TRUE
-  msg_t chCondWaitTimeout(condition_variable_t *cp, systime_t time);
-  msg_t chCondWaitTimeoutS(condition_variable_t *cp, systime_t time);
+msg_t chCondWaitTimeout(condition_variable_t *cp, systime_t time);
+msg_t chCondWaitTimeoutS(condition_variable_t *cp, systime_t time);
 #endif
 #ifdef __cplusplus
 }

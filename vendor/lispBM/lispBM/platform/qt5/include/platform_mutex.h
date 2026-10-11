@@ -21,7 +21,7 @@
 #include <stdbool.h>
 
 typedef struct {
-  void *handle;
+    void *handle;
 } lbm_mutex_t;
 
 #ifdef __cplusplus

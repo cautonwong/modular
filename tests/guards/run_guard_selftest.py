@@ -132,6 +132,10 @@ CASES = [
     ("check_consumer_ports.py", "tests/guards/consumer_ports_bad_no_self", False),
     ("check_consumer_ports.py", "tests/guards/consumer_ports_bad_opaque_storage", False),
     ("check_consumer_ports.py", "tests/guards/consumer_ports_bad_malloc", False),
+    ("check_isr_rules.py", "tests/guards/isr_good", True),
+    ("check_isr_rules.py", "tests/guards/isr_bad", False),
+    ("check_module_dependencies.py", "tests/guards/module_deps_good", True),
+    ("check_module_dependencies.py", "tests/guards/module_deps_bad", False),
 ]
 
 

@@ -34,23 +34,23 @@
  * @name    BUCSR registers definitions
  * @{
  */
-#define BUCSR_BPEN              0x00000001
-#define BUCSR_BALLOC_BFI        0x00000200
+#define BUCSR_BPEN 0x00000001
+#define BUCSR_BALLOC_BFI 0x00000200
 /** @} */
 
 /**
  * @name   MSR register definitions
  * @{
  */
-#define MSR_WE                  0x00040000
-#define MSR_CE                  0x00020000
-#define MSR_EE                  0x00008000
-#define MSR_PR                  0x00004000
-#define MSR_ME                  0x00001000
-#define MSR_DE                  0x00000200
-#define MSR_IS                  0x00000020
-#define MSR_DS                  0x00000010
-#define MSR_RI                  0x00000002
+#define MSR_WE 0x00040000
+#define MSR_CE 0x00020000
+#define MSR_EE 0x00008000
+#define MSR_PR 0x00004000
+#define MSR_ME 0x00001000
+#define MSR_DE 0x00000200
+#define MSR_IS 0x00000020
+#define MSR_DS 0x00000010
+#define MSR_RI 0x00000002
 /** @} */
 
 /*===========================================================================*/
@@ -61,35 +61,35 @@
  * BUCSR default settings.
  */
 #if !defined(BOOT_BUCSR_DEFAULT) || defined(__DOXYGEN__)
-#define BOOT_BUCSR_DEFAULT      (BUCSR_BPEN | BUCSR_BALLOC_BFI)
+#define BOOT_BUCSR_DEFAULT (BUCSR_BPEN | BUCSR_BALLOC_BFI)
 #endif
 
 /*
  * MSR default settings.
  */
 #if !defined(BOOT_MSR_DEFAULT) || defined(__DOXYGEN__)
-#define BOOT_MSR_DEFAULT        (MSR_WE | MSR_CE | MSR_ME)
+#define BOOT_MSR_DEFAULT (MSR_WE | MSR_CE | MSR_ME)
 #endif
 
 /*
  * Boot default settings.
  */
 #if !defined(BOOT_PERFORM_CORE_INIT) || defined(__DOXYGEN__)
-#define BOOT_PERFORM_CORE_INIT  1
+#define BOOT_PERFORM_CORE_INIT 1
 #endif
 
 /*
  * VLE mode default settings.
  */
 #if !defined(BOOT_USE_VLE) || defined(__DOXYGEN__)
-#define BOOT_USE_VLE            1
+#define BOOT_USE_VLE 1
 #endif
 
 /*
  * RAM relocation flag.
  */
 #if !defined(BOOT_RELOCATE_IN_RAM) || defined(__DOXYGEN__)
-#define BOOT_RELOCATE_IN_RAM    0
+#define BOOT_RELOCATE_IN_RAM 0
 #endif
 
 /*===========================================================================*/

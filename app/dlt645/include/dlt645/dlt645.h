@@ -1,9 +1,14 @@
 #ifndef APP_DLT645_H
 #define APP_DLT645_H
 
+#include "edge/desc.h"
 #include "edge/module.h"
 #include <stddef.h>
 #include <stdint.h>
+
+#ifndef DLT645_MODULE_ID
+#define DLT645_MODULE_ID 0x1000u
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -31,6 +36,7 @@ void dlt645_construct(dlt645_t *self, uint32_t module_id, uint32_t priority,
  * be called before the module is handed to sys.
  */
 edge_status_t dlt645_init(dlt645_t *self);
+const edge_module_desc_t *dlt645_descriptor(void);
 edge_status_t dlt645_deinit(dlt645_t *self);
 edge_module_t *dlt645_module(dlt645_t *self);
 

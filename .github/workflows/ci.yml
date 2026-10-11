@@ -442,6 +442,10 @@ jobs:
         run: python3 .github/scripts/check_event_ids.py
       - name: Central module ID uniqueness
         run: python3 .github/scripts/check_module_ids.py
+      - name: ISR delivery and safety rules
+        run: python3 .github/scripts/check_isr_rules.py
+      - name: Module dependency and cycle detection
+        run: python3 .github/scripts/check_module_dependencies.py
       - name: Product-to-board binding (D86)
         run: python3 .github/scripts/check_product_board_binding.py
       - name: Central error ID uniqueness

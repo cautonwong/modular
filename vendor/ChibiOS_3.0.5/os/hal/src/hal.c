@@ -55,86 +55,86 @@
  */
 void halInit(void) {
 
-  /* Initializes the OS Abstraction Layer.*/
-  osalInit();
+    /* Initializes the OS Abstraction Layer.*/
+    osalInit();
 
-  /* Platform low level initializations.*/
-  hal_lld_init();
+    /* Platform low level initializations.*/
+    hal_lld_init();
 
 #if (HAL_USE_PAL == TRUE) || defined(__DOXYGEN__)
-  palInit(&pal_default_config);
+    palInit(&pal_default_config);
 #endif
 #if (HAL_USE_ADC == TRUE) || defined(__DOXYGEN__)
-  adcInit();
+    adcInit();
 #endif
 #if (HAL_USE_CAN == TRUE) || defined(__DOXYGEN__)
-  canInit();
+    canInit();
 #endif
 #if (HAL_USE_DAC == TRUE) || defined(__DOXYGEN__)
-  dacInit();
+    dacInit();
 #endif
 #if (HAL_USE_EXT == TRUE) || defined(__DOXYGEN__)
-  extInit();
+    extInit();
 #endif
 #if (HAL_USE_GPT == TRUE) || defined(__DOXYGEN__)
-  gptInit();
+    gptInit();
 #endif
 #if (HAL_USE_I2C == TRUE) || defined(__DOXYGEN__)
-  i2cInit();
+    i2cInit();
 #endif
 #if (HAL_USE_I2S == TRUE) || defined(__DOXYGEN__)
-  i2sInit();
+    i2sInit();
 #endif
 #if (HAL_USE_ICU == TRUE) || defined(__DOXYGEN__)
-  icuInit();
+    icuInit();
 #endif
 #if (HAL_USE_MAC == TRUE) || defined(__DOXYGEN__)
-  macInit();
+    macInit();
 #endif
 #if (HAL_USE_PWM == TRUE) || defined(__DOXYGEN__)
-  pwmInit();
+    pwmInit();
 #endif
 #if (HAL_USE_SERIAL == TRUE) || defined(__DOXYGEN__)
-  sdInit();
+    sdInit();
 #endif
 #if (HAL_USE_SDC == TRUE) || defined(__DOXYGEN__)
-  sdcInit();
+    sdcInit();
 #endif
 #if (HAL_USE_SPI == TRUE) || defined(__DOXYGEN__)
-  spiInit();
+    spiInit();
 #endif
 #if (HAL_USE_UART == TRUE) || defined(__DOXYGEN__)
-  uartInit();
+    uartInit();
 #endif
 #if (HAL_USE_USB == TRUE) || defined(__DOXYGEN__)
-  usbInit();
+    usbInit();
 #endif
 #if (HAL_USE_MMC_SPI == TRUE) || defined(__DOXYGEN__)
-  mmcInit();
+    mmcInit();
 #endif
 #if (HAL_USE_SERIAL_USB == TRUE) || defined(__DOXYGEN__)
-  sduInit();
+    sduInit();
 #endif
 #if (HAL_USE_RTC == TRUE) || defined(__DOXYGEN__)
-  rtcInit();
+    rtcInit();
 #endif
 
-  /* Community driver overlay initialization.*/
+    /* Community driver overlay initialization.*/
 #if defined(HAL_USE_COMMUNITY) || defined(__DOXYGEN__)
 #if (HAL_USE_COMMUNITY == TRUE) || defined(__DOXYGEN__)
-  halCommunityInit();
+    halCommunityInit();
 #endif
 #endif
 
-  /* Board specific initialization.*/
-  boardInit();
+    /* Board specific initialization.*/
+    boardInit();
 
 /*
  *  The ST driver is a special case, it is only initialized if the OSAL is
  *  configured to require it.
  */
 #if OSAL_ST_MODE != OSAL_ST_MODE_NONE
-  stInit();
+    stInit();
 #endif
 }
 

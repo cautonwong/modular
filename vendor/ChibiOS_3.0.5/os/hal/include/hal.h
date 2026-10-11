@@ -25,24 +25,23 @@
 #ifndef _HAL_H_
 #define _HAL_H_
 
-#include "osal.h"
 #include "board.h"
 #include "halconf.h"
+#include "osal.h"
 
 #include "hal_lld.h"
 
 /* Abstract interfaces.*/
-#include "hal_streams.h"
 #include "hal_channels.h"
 #include "hal_files.h"
 #include "hal_ioblock.h"
 #include "hal_mmcsd.h"
+#include "hal_streams.h"
 
 /* Shared headers.*/
 #include "hal_queues.h"
 
 /* Normal drivers.*/
-#include "pal.h"
 #include "adc.h"
 #include "can.h"
 #include "dac.h"
@@ -53,10 +52,11 @@
 #include "icu.h"
 #include "mac.h"
 #include "mii.h"
+#include "pal.h"
 #include "pwm.h"
 #include "rtc.h"
-#include "serial.h"
 #include "sdc.h"
+#include "serial.h"
 #include "spi.h"
 #include "uart.h"
 #include "usb.h"
@@ -92,7 +92,7 @@
 /**
  * @brief   Stable release flag.
  */
-#define CH_HAL_STABLE           1
+#define CH_HAL_STABLE 1
 
 /**
  * @name    ChibiOS/HAL version identification
@@ -101,30 +101,30 @@
 /**
  * @brief   HAL version string.
  */
-#define HAL_VERSION             "3.0.2"
+#define HAL_VERSION "3.0.2"
 
 /**
  * @brief   HAL version major number.
  */
-#define CH_HAL_MAJOR            3
+#define CH_HAL_MAJOR 3
 
 /**
  * @brief   HAL version minor number.
  */
-#define CH_HAL_MINOR            0
+#define CH_HAL_MINOR 0
 
 /**
  * @brief   HAL version patch number.
  */
-#define CH_HAL_PATCH            2
+#define CH_HAL_PATCH 2
 /** @} */
 
 /**
  * @name    Return codes
  * @{
  */
-#define HAL_SUCCESS             false
-#define HAL_FAILED              true
+#define HAL_SUCCESS false
+#define HAL_FAILED true
 /** @} */
 
 /*===========================================================================*/
@@ -150,7 +150,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-  void halInit(void);
+void halInit(void);
 #ifdef __cplusplus
 }
 #endif

@@ -57,26 +57,25 @@
  * @iclass
  */
 void osalThreadDequeueNextI(threads_queue_t *tqp, msg_t msg) {
-  semaphore_t *sp = &tqp->sem;
+    semaphore_t *sp = &tqp->sem;
 
-  if (chSemGetCounterI(&tqp->sem) < (cnt_t)0) {
-    thread_reference_t tr = nil.threads;
-    while (true) {
-      /* Is this thread waiting on this semaphore?*/
-      if (tr->u1.semp == sp) {
-        sp->cnt++;
+    if (chSemGetCounterI(&tqp->sem) < (cnt_t)0) {
+        thread_reference_t tr = nil.threads;
+        while (true) {
+            /* Is this thread waiting on this semaphore?*/
+            if (tr->u1.semp == sp) {
+                sp->cnt++;
 
-        chDbgAssert(NIL_THD_IS_WTSEM(tr), "not waiting");
+                chDbgAssert(NIL_THD_IS_WTSEM(tr), "not waiting");
 
-        (void) chSchReadyI(tr, msg);
-        return;
-      }
-      tr++;
+                (void)chSchReadyI(tr, msg);
+                return;
+            }
+            tr++;
 
-      chDbgAssert(tr < &nil.threads[NIL_CFG_NUM_THREADS],
-                  "pointer out of range");
+            chDbgAssert(tr < &nil.threads[NIL_CFG_NUM_THREADS], "pointer out of range");
+        }
     }
-  }
 }
 
 /**
@@ -88,28 +87,27 @@ void osalThreadDequeueNextI(threads_queue_t *tqp, msg_t msg) {
  * @iclass
  */
 void osalThreadDequeueAllI(threads_queue_t *tqp, msg_t msg) {
-  semaphore_t *sp = &tqp->sem;
-  thread_reference_t tr;
-  cnt_t cnt;
+    semaphore_t *sp = &tqp->sem;
+    thread_reference_t tr;
+    cnt_t cnt;
 
-  cnt = sp->cnt;
-  sp->cnt = (cnt_t)0;
-  tr = nil.threads;
-  while (cnt < (cnt_t)0) {
+    cnt = sp->cnt;
+    sp->cnt = (cnt_t)0;
+    tr = nil.threads;
+    while (cnt < (cnt_t)0) {
 
-    chDbgAssert(tr < &nil.threads[NIL_CFG_NUM_THREADS],
-                "pointer out of range");
+        chDbgAssert(tr < &nil.threads[NIL_CFG_NUM_THREADS], "pointer out of range");
 
-    /* Is this thread waiting on this semaphore?*/
-    if (tr->u1.semp == sp) {
+        /* Is this thread waiting on this semaphore?*/
+        if (tr->u1.semp == sp) {
 
-      chDbgAssert(NIL_THD_IS_WTSEM(tr), "not waiting");
+            chDbgAssert(NIL_THD_IS_WTSEM(tr), "not waiting");
 
-      cnt++;
-      (void) chSchReadyI(tr, msg);
+            cnt++;
+            (void)chSchReadyI(tr, msg);
+        }
+        tr++;
     }
-    tr++;
-  }
 }
 
 /** @} */

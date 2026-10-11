@@ -9,6 +9,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef STEP_COUNTER_MODULE_ID
+#define STEP_COUNTER_MODULE_ID 0x1800u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

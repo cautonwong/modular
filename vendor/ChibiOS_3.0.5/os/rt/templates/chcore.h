@@ -51,13 +51,13 @@
 /**
  * @brief   Name of the implemented architecture.
  */
-#define PORT_ARCHITECTURE_NAME          "XXX Architecture"
+#define PORT_ARCHITECTURE_NAME "XXX Architecture"
 
 /**
  * @brief   Compiler name and version.
  */
 #if defined(__GNUC__) || defined(__DOXYGEN__)
-#define PORT_COMPILER_NAME              "GCC " __VERSION__
+#define PORT_COMPILER_NAME "GCC " __VERSION__
 
 #else
 #error "unsupported compiler"
@@ -66,12 +66,12 @@
 /**
  * @brief   This port supports a realtime counter.
  */
-#define PORT_SUPPORTS_RT                FALSE
+#define PORT_SUPPORTS_RT FALSE
 
 /**
  * @brief   Port-specific information string.
  */
-#define PORT_INFO                       "no info"
+#define PORT_INFO "no info"
 /** @} */
 
 /*===========================================================================*/
@@ -85,7 +85,7 @@
  *          by @p PORT_INT_REQUIRED_STACK.
  */
 #if !defined(PORT_IDLE_THREAD_STACK_SIZE) || defined(__DOXYGEN__)
-#define PORT_IDLE_THREAD_STACK_SIZE     32
+#define PORT_IDLE_THREAD_STACK_SIZE 32
 #endif
 
 /**
@@ -94,7 +94,7 @@
  *          area size.
  */
 #if !defined(PORT_INT_REQUIRED_STACK) || defined(__DOXYGEN__)
-#define PORT_INT_REQUIRED_STACK         256
+#define PORT_INT_REQUIRED_STACK 256
 #endif
 
 /**
@@ -104,7 +104,7 @@
  *          @p chcore_timer_alt.h is included instead.
  */
 #if !defined(PORT_USE_ALT_TIMER)
-#define PORT_USE_ALT_TIMER              FALSE
+#define PORT_USE_ALT_TIMER FALSE
 #endif
 
 /*===========================================================================*/
@@ -114,7 +114,6 @@
 /*===========================================================================*/
 /* Module data structures and types.                                         */
 /*===========================================================================*/
-
 
 /* The following code is not processed when the file is included from an
    asm module.*/
@@ -133,8 +132,7 @@ typedef uint64_t stkalign_t;
  * @note    R2 and R13 are not saved because those are assumed to be immutable
  *          during the system life cycle.
  */
-struct port_extctx {
- };
+struct port_extctx {};
 
 /**
  * @brief   System saved context.
@@ -145,8 +143,7 @@ struct port_extctx {
  * @note    LR is stored in the caller context so it is not present in this
  *          structure.
  */
-struct port_intctx {
-};
+struct port_intctx {};
 
 /**
  * @brief   Platform dependent part of the @p thread_t structure.
@@ -154,7 +151,7 @@ struct port_intctx {
  *          defined as a pointer to a @p port_intctx structure.
  */
 struct context {
-  struct port_intctx *sp;
+    struct port_intctx *sp;
 };
 
 #endif /* !defined(_FROM_ASM_) */
@@ -168,16 +165,16 @@ struct context {
  * @details This code usually setup the context switching frame represented
  *          by an @p port_intctx structure.
  */
-#define PORT_SETUP_CONTEXT(tp, workspace, wsize, pf, arg) {                 \
-}
+#define PORT_SETUP_CONTEXT(tp, workspace, wsize, pf, arg)                                          \
+    {}
 
 /**
  * @brief   Computes the thread working area global size.
  * @note    There is no need to perform alignments in this macro.
  */
-#define PORT_WA_SIZE(n) (sizeof(struct port_intctx) +                       \
-                         sizeof(struct port_extctx) +                       \
-                         ((size_t)(n)) + ((size_t)(PORT_INT_REQUIRED_STACK)))
+#define PORT_WA_SIZE(n)                                                                            \
+    (sizeof(struct port_intctx) + sizeof(struct port_extctx) + ((size_t)(n)) +                     \
+     ((size_t)(PORT_INT_REQUIRED_STACK)))
 
 /**
  * @brief   Priority level verification macro.
@@ -230,12 +227,13 @@ struct context {
 #if !CH_DBG_ENABLE_STACK_CHECK || defined(__DOXYGEN__)
 #define port_switch(ntp, otp) _port_switch(ntp, otp)
 #else
-#define port_switch(ntp, otp) {                                             \
-  register struct port_intctx *sp asm ("%r1");                              \
-  if ((stkalign_t *)(sp - 1) < otp->p_stklimit)                             \
-    chSysHalt("stack overflow");                                            \
-  _port_switch(ntp, otp);                                                   \
-}
+#define port_switch(ntp, otp)                                                                      \
+    {                                                                                              \
+        register struct port_intctx *sp asm("%r1");                                                \
+        if ((stkalign_t *)(sp - 1) < otp->p_stklimit)                                              \
+            chSysHalt("stack overflow");                                                           \
+        _port_switch(ntp, otp);                                                                    \
+    }
 #endif
 
 /*===========================================================================*/
@@ -249,8 +247,8 @@ struct context {
 #ifdef __cplusplus
 extern "C" {
 #endif
-  void _port_init(void);
-  void _port_switch(thread_t *ntp, thread_t *otp);
+void _port_init(void);
+void _port_switch(thread_t *ntp, thread_t *otp);
 #ifdef __cplusplus
 }
 #endif
@@ -272,7 +270,7 @@ extern "C" {
  */
 static inline syssts_t port_get_irq_status(void) {
 
-  return 0;
+    return 0;
 }
 
 /**
@@ -286,9 +284,9 @@ static inline syssts_t port_get_irq_status(void) {
  */
 static inline bool port_irq_enabled(syssts_t sts) {
 
-  (void)sts;
+    (void)sts;
 
-  return false;
+    return false;
 }
 
 /**
@@ -300,7 +298,7 @@ static inline bool port_irq_enabled(syssts_t sts) {
  */
 static inline bool port_is_isr_context(void) {
 
-  return false;
+    return false;
 }
 
 /**
@@ -309,7 +307,6 @@ static inline bool port_is_isr_context(void) {
  *          actions.
  */
 static inline void port_lock(void) {
-
 }
 
 /**
@@ -318,7 +315,6 @@ static inline void port_lock(void) {
  *          actions.
  */
 static inline void port_unlock(void) {
-
 }
 
 /**
@@ -328,7 +324,6 @@ static inline void port_unlock(void) {
  *          in its simplest form it is void.
  */
 static inline void port_lock_from_isr(void) {
-
 }
 
 /**
@@ -338,7 +333,6 @@ static inline void port_lock_from_isr(void) {
  *          simplest form it is void.
  */
 static inline void port_unlock_from_isr(void) {
-
 }
 
 /**
@@ -346,7 +340,6 @@ static inline void port_unlock_from_isr(void) {
  * @note    Of course non-maskable interrupt sources are not included.
  */
 static inline void port_disable(void) {
-
 }
 
 /**
@@ -354,14 +347,12 @@ static inline void port_disable(void) {
  * @note    Interrupt sources above kernel level remains enabled.
  */
 static inline void port_suspend(void) {
-
 }
 
 /**
  * @brief   Enables all the interrupt sources.
  */
 static inline void port_enable(void) {
-
 }
 
 /**
@@ -384,7 +375,7 @@ static inline void port_wait_for_interrupt(void) {
  */
 static inline rtcnt_t port_rt_get_counter_value(void) {
 
-  return 0;
+    return 0;
 }
 
 #endif /* !defined(_FROM_ASM_) */

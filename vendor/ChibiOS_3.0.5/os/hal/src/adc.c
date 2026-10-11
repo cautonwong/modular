@@ -55,7 +55,7 @@
  */
 void adcInit(void) {
 
-  adc_lld_init();
+    adc_lld_init();
 }
 
 /**
@@ -67,19 +67,19 @@ void adcInit(void) {
  */
 void adcObjectInit(ADCDriver *adcp) {
 
-  adcp->state    = ADC_STOP;
-  adcp->config   = NULL;
-  adcp->samples  = NULL;
-  adcp->depth    = 0;
-  adcp->grpp     = NULL;
+    adcp->state = ADC_STOP;
+    adcp->config = NULL;
+    adcp->samples = NULL;
+    adcp->depth = 0;
+    adcp->grpp = NULL;
 #if ADC_USE_WAIT == TRUE
-  adcp->thread   = NULL;
+    adcp->thread = NULL;
 #endif
 #if ADC_USE_MUTUAL_EXCLUSION == TRUE
-  osalMutexObjectInit(&adcp->mutex);
+    osalMutexObjectInit(&adcp->mutex);
 #endif
 #if defined(ADC_DRIVER_EXT_INIT_HOOK)
-  ADC_DRIVER_EXT_INIT_HOOK(adcp);
+    ADC_DRIVER_EXT_INIT_HOOK(adcp);
 #endif
 }
 
@@ -94,15 +94,14 @@ void adcObjectInit(ADCDriver *adcp) {
  */
 void adcStart(ADCDriver *adcp, const ADCConfig *config) {
 
-  osalDbgCheck(adcp != NULL);
+    osalDbgCheck(adcp != NULL);
 
-  osalSysLock();
-  osalDbgAssert((adcp->state == ADC_STOP) || (adcp->state == ADC_READY),
-                "invalid state");
-  adcp->config = config;
-  adc_lld_start(adcp);
-  adcp->state = ADC_READY;
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert((adcp->state == ADC_STOP) || (adcp->state == ADC_READY), "invalid state");
+    adcp->config = config;
+    adc_lld_start(adcp);
+    adcp->state = ADC_READY;
+    osalSysUnlock();
 }
 
 /**
@@ -114,14 +113,13 @@ void adcStart(ADCDriver *adcp, const ADCConfig *config) {
  */
 void adcStop(ADCDriver *adcp) {
 
-  osalDbgCheck(adcp != NULL);
+    osalDbgCheck(adcp != NULL);
 
-  osalSysLock();
-  osalDbgAssert((adcp->state == ADC_STOP) || (adcp->state == ADC_READY),
-                "invalid state");
-  adc_lld_stop(adcp);
-  adcp->state = ADC_STOP;
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert((adcp->state == ADC_STOP) || (adcp->state == ADC_READY), "invalid state");
+    adc_lld_stop(adcp);
+    adcp->state = ADC_STOP;
+    osalSysUnlock();
 }
 
 /**
@@ -140,14 +138,12 @@ void adcStop(ADCDriver *adcp) {
  *
  * @api
  */
-void adcStartConversion(ADCDriver *adcp,
-                        const ADCConversionGroup *grpp,
-                        adcsample_t *samples,
+void adcStartConversion(ADCDriver *adcp, const ADCConversionGroup *grpp, adcsample_t *samples,
                         size_t depth) {
 
-  osalSysLock();
-  adcStartConversionI(adcp, grpp, samples, depth);
-  osalSysUnlock();
+    osalSysLock();
+    adcStartConversionI(adcp, grpp, samples, depth);
+    osalSysUnlock();
 }
 
 /**
@@ -168,24 +164,21 @@ void adcStartConversion(ADCDriver *adcp,
  *
  * @iclass
  */
-void adcStartConversionI(ADCDriver *adcp,
-                         const ADCConversionGroup *grpp,
-                         adcsample_t *samples,
+void adcStartConversionI(ADCDriver *adcp, const ADCConversionGroup *grpp, adcsample_t *samples,
                          size_t depth) {
 
-  osalDbgCheckClassI();
-  osalDbgCheck((adcp != NULL) && (grpp != NULL) && (samples != NULL) &&
-               ((depth == 1U) || ((depth & 1U) == 0U)));
-  osalDbgAssert((adcp->state == ADC_READY) ||
-                (adcp->state == ADC_COMPLETE) ||
-                (adcp->state == ADC_ERROR),
-                "not ready");
+    osalDbgCheckClassI();
+    osalDbgCheck((adcp != NULL) && (grpp != NULL) && (samples != NULL) &&
+                 ((depth == 1U) || ((depth & 1U) == 0U)));
+    osalDbgAssert((adcp->state == ADC_READY) || (adcp->state == ADC_COMPLETE) ||
+                      (adcp->state == ADC_ERROR),
+                  "not ready");
 
-  adcp->samples  = samples;
-  adcp->depth    = depth;
-  adcp->grpp     = grpp;
-  adcp->state    = ADC_ACTIVE;
-  adc_lld_start_conversion(adcp);
+    adcp->samples = samples;
+    adcp->depth = depth;
+    adcp->grpp = grpp;
+    adcp->state = ADC_ACTIVE;
+    adc_lld_start_conversion(adcp);
 }
 
 /**
@@ -200,18 +193,17 @@ void adcStartConversionI(ADCDriver *adcp,
  */
 void adcStopConversion(ADCDriver *adcp) {
 
-  osalDbgCheck(adcp != NULL);
+    osalDbgCheck(adcp != NULL);
 
-  osalSysLock();
-  osalDbgAssert((adcp->state == ADC_READY) || (adcp->state == ADC_ACTIVE),
-                "invalid state");
-  if (adcp->state != ADC_READY) {
-    adc_lld_stop_conversion(adcp);
-    adcp->grpp  = NULL;
-    adcp->state = ADC_READY;
-    _adc_reset_s(adcp);
-  }
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert((adcp->state == ADC_READY) || (adcp->state == ADC_ACTIVE), "invalid state");
+    if (adcp->state != ADC_READY) {
+        adc_lld_stop_conversion(adcp);
+        adcp->grpp = NULL;
+        adcp->state = ADC_READY;
+        _adc_reset_s(adcp);
+    }
+    osalSysUnlock();
 }
 
 /**
@@ -226,19 +218,18 @@ void adcStopConversion(ADCDriver *adcp) {
  */
 void adcStopConversionI(ADCDriver *adcp) {
 
-  osalDbgCheckClassI();
-  osalDbgCheck(adcp != NULL);
-  osalDbgAssert((adcp->state == ADC_READY) ||
-                (adcp->state == ADC_ACTIVE) ||
-                (adcp->state == ADC_COMPLETE),
-                "invalid state");
+    osalDbgCheckClassI();
+    osalDbgCheck(adcp != NULL);
+    osalDbgAssert((adcp->state == ADC_READY) || (adcp->state == ADC_ACTIVE) ||
+                      (adcp->state == ADC_COMPLETE),
+                  "invalid state");
 
-  if (adcp->state != ADC_READY) {
-    adc_lld_stop_conversion(adcp);
-    adcp->grpp  = NULL;
-    adcp->state = ADC_READY;
-    _adc_reset_i(adcp);
-  }
+    if (adcp->state != ADC_READY) {
+        adc_lld_stop_conversion(adcp);
+        adcp->grpp = NULL;
+        adcp->state = ADC_READY;
+        _adc_reset_i(adcp);
+    }
 }
 
 #if (ADC_USE_WAIT == TRUE) || defined(__DOXYGEN__)
@@ -265,18 +256,16 @@ void adcStopConversionI(ADCDriver *adcp) {
  *
  * @api
  */
-msg_t adcConvert(ADCDriver *adcp,
-                 const ADCConversionGroup *grpp,
-                 adcsample_t *samples,
+msg_t adcConvert(ADCDriver *adcp, const ADCConversionGroup *grpp, adcsample_t *samples,
                  size_t depth) {
-  msg_t msg;
+    msg_t msg;
 
-  osalSysLock();
-  osalDbgAssert(adcp->thread == NULL, "already waiting");
-  adcStartConversionI(adcp, grpp, samples, depth);
-  msg = osalThreadSuspendS(&adcp->thread);
-  osalSysUnlock();
-  return msg;
+    osalSysLock();
+    osalDbgAssert(adcp->thread == NULL, "already waiting");
+    adcStartConversionI(adcp, grpp, samples, depth);
+    msg = osalThreadSuspendS(&adcp->thread);
+    osalSysUnlock();
+    return msg;
 }
 #endif /* ADC_USE_WAIT == TRUE */
 
@@ -294,9 +283,9 @@ msg_t adcConvert(ADCDriver *adcp,
  */
 void adcAcquireBus(ADCDriver *adcp) {
 
-  osalDbgCheck(adcp != NULL);
+    osalDbgCheck(adcp != NULL);
 
-  osalMutexLock(&adcp->mutex);
+    osalMutexLock(&adcp->mutex);
 }
 
 /**
@@ -310,9 +299,9 @@ void adcAcquireBus(ADCDriver *adcp) {
  */
 void adcReleaseBus(ADCDriver *adcp) {
 
-  osalDbgCheck(adcp != NULL);
+    osalDbgCheck(adcp != NULL);
 
-  osalMutexUnlock(&adcp->mutex);
+    osalMutexUnlock(&adcp->mutex);
 }
 #endif /* ADC_USE_MUTUAL_EXCLUSION == TRUE */
 

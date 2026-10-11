@@ -17,7 +17,7 @@
 /**
  * @file    memstreams.h
  * @brief   Memory streams structures and macros.
- 
+
  * @addtogroup memory_streams
  * @{
  */
@@ -44,22 +44,21 @@
 /**
  * @brief   @p MemStream specific data.
  */
-#define _memory_stream_data                                                 \
-  _base_sequential_stream_data                                              \
-  /* Pointer to the stream buffer.*/                                        \
-  uint8_t               *buffer;                                            \
-  /* Size of the stream.*/                                                  \
-  size_t                size;                                               \
-  /* Current end of stream.*/                                               \
-  size_t                eos;                                                \
-  /* Current read offset.*/                                                 \
-  size_t                offset;
+#define _memory_stream_data                                                                        \
+    _base_sequential_stream_data /* Pointer to the stream buffer.*/                                \
+        uint8_t *buffer;                                                                           \
+    /* Size of the stream.*/                                                                       \
+    size_t size;                                                                                   \
+    /* Current end of stream.*/                                                                    \
+    size_t eos;                                                                                    \
+    /* Current read offset.*/                                                                      \
+    size_t offset;
 
 /**
  * @brief   @p MemStream virtual methods table.
  */
 struct MemStreamVMT {
-  _base_sequential_stream_methods
+    _base_sequential_stream_methods
 };
 
 /**
@@ -68,9 +67,9 @@ struct MemStreamVMT {
  * @brief Memory stream object.
  */
 typedef struct {
-  /** @brief Virtual Methods Table.*/
-  const struct MemStreamVMT *vmt;
-  _memory_stream_data
+    /** @brief Virtual Methods Table.*/
+    const struct MemStreamVMT *vmt;
+    _memory_stream_data
 } MemoryStream;
 
 /*===========================================================================*/
@@ -84,8 +83,7 @@ typedef struct {
 #ifdef __cplusplus
 extern "C" {
 #endif
-  void msObjectInit(MemoryStream *msp, uint8_t *buffer,
-                    size_t size, size_t eos);
+void msObjectInit(MemoryStream *msp, uint8_t *buffer, size_t size, size_t eos);
 #ifdef __cplusplus
 }
 #endif

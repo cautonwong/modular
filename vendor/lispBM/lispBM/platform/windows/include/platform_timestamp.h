@@ -28,5 +28,4 @@ extern void lbm_timestamp_cacher_stop(void);
 // timestamp interface
 extern uint32_t lbm_timestamp(void);
 
-
 #endif

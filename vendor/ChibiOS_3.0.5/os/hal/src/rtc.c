@@ -45,9 +45,7 @@
 /*
  * Lookup table with months' length
  */
-static const uint8_t month_len[12] = {
-  31, 30, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31
-};
+static const uint8_t month_len[12] = {31, 30, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
 /*===========================================================================*/
 /* Driver local functions.                                                   */
@@ -66,7 +64,7 @@ static const uint8_t month_len[12] = {
  */
 void rtcInit(void) {
 
-  rtc_lld_init();
+    rtc_lld_init();
 }
 
 /**
@@ -81,9 +79,9 @@ void rtcInit(void) {
 void rtcObjectInit(RTCDriver *rtcp) {
 
 #if RTC_HAS_STORAGE == TRUE
-  rtcp->vmt = &_rtc_lld_vmt;
+    rtcp->vmt = &_rtc_lld_vmt;
 #else
-  (void)rtcp;
+    (void)rtcp;
 #endif
 }
 
@@ -103,9 +101,9 @@ void rtcObjectInit(RTCDriver *rtcp) {
  */
 void rtcSetTime(RTCDriver *rtcp, const RTCDateTime *timespec) {
 
-  osalDbgCheck((rtcp != NULL) && (timespec != NULL));
+    osalDbgCheck((rtcp != NULL) && (timespec != NULL));
 
-  rtc_lld_set_time(rtcp, timespec);
+    rtc_lld_set_time(rtcp, timespec);
 }
 
 /**
@@ -124,9 +122,9 @@ void rtcSetTime(RTCDriver *rtcp, const RTCDateTime *timespec) {
  */
 void rtcGetTime(RTCDriver *rtcp, RTCDateTime *timespec) {
 
-  osalDbgCheck((rtcp != NULL) && (timespec != NULL));
+    osalDbgCheck((rtcp != NULL) && (timespec != NULL));
 
-  rtc_lld_get_time(rtcp, timespec);
+    rtc_lld_get_time(rtcp, timespec);
 }
 
 #if (RTC_ALARMS > 0) || defined(__DOXYGEN__)
@@ -145,13 +143,11 @@ void rtcGetTime(RTCDriver *rtcp, RTCDateTime *timespec) {
  *
  * @special
  */
-void rtcSetAlarm(RTCDriver *rtcp,
-                 rtcalarm_t alarm,
-                 const RTCAlarm *alarmspec) {
+void rtcSetAlarm(RTCDriver *rtcp, rtcalarm_t alarm, const RTCAlarm *alarmspec) {
 
-  osalDbgCheck((rtcp != NULL) && (alarm < (rtcalarm_t)RTC_ALARMS));
+    osalDbgCheck((rtcp != NULL) && (alarm < (rtcalarm_t)RTC_ALARMS));
 
-  rtc_lld_set_alarm(rtcp, alarm, alarmspec);
+    rtc_lld_set_alarm(rtcp, alarm, alarmspec);
 }
 
 /**
@@ -171,15 +167,11 @@ void rtcSetAlarm(RTCDriver *rtcp,
  *
  * @special
  */
-void rtcGetAlarm(RTCDriver *rtcp,
-                 rtcalarm_t alarm,
-                 RTCAlarm *alarmspec) {
+void rtcGetAlarm(RTCDriver *rtcp, rtcalarm_t alarm, RTCAlarm *alarmspec) {
 
-  osalDbgCheck((rtcp != NULL) &&
-               (alarm < (rtcalarm_t)RTC_ALARMS) &&
-               (alarmspec != NULL));
+    osalDbgCheck((rtcp != NULL) && (alarm < (rtcalarm_t)RTC_ALARMS) && (alarmspec != NULL));
 
-  rtc_lld_get_alarm(rtcp, alarm, alarmspec);
+    rtc_lld_get_alarm(rtcp, alarm, alarmspec);
 }
 #endif /* RTC_ALARMS > 0 */
 
@@ -202,9 +194,9 @@ void rtcGetAlarm(RTCDriver *rtcp,
  */
 void rtcSetCallback(RTCDriver *rtcp, rtccb_t callback) {
 
-  osalDbgCheck(rtcp != NULL);
+    osalDbgCheck(rtcp != NULL);
 
-  rtc_lld_set_callback(rtcp, callback);
+    rtc_lld_set_callback(rtcp, callback);
 }
 #endif /* RTC_SUPPORTS_CALLBACKS == TRUE */
 
@@ -217,26 +209,24 @@ void rtcSetCallback(RTCDriver *rtcp, rtccb_t callback) {
  *
  * @api
  */
-void rtcConvertDateTimeToStructTm(const RTCDateTime *timespec,
-                                  struct tm *timp,
-                                  uint32_t *tv_msec) {
-  int sec;
+void rtcConvertDateTimeToStructTm(const RTCDateTime *timespec, struct tm *timp, uint32_t *tv_msec) {
+    int sec;
 
-  timp->tm_year  = (int)timespec->year + (1980 - 1900);
-  timp->tm_mon   = (int)timespec->month - 1;
-  timp->tm_mday  = (int)timespec->day;
-  timp->tm_isdst = (int)timespec->dstflag;
-  timp->tm_wday  = (int)timespec->dayofweek - 1;
+    timp->tm_year = (int)timespec->year + (1980 - 1900);
+    timp->tm_mon = (int)timespec->month - 1;
+    timp->tm_mday = (int)timespec->day;
+    timp->tm_isdst = (int)timespec->dstflag;
+    timp->tm_wday = (int)timespec->dayofweek - 1;
 
-  sec = (int)timespec->millisecond / 1000;
-  timp->tm_hour = sec / 3600;
-  sec %= 3600;
-  timp->tm_min = sec / 60;
-  timp->tm_sec = sec % 60;
+    sec = (int)timespec->millisecond / 1000;
+    timp->tm_hour = sec / 3600;
+    sec %= 3600;
+    timp->tm_min = sec / 60;
+    timp->tm_sec = sec % 60;
 
-  if (NULL != tv_msec) {
-    *tv_msec = (uint32_t)timespec->millisecond % 1000U;
-  }
+    if (NULL != tv_msec) {
+        *tv_msec = (uint32_t)timespec->millisecond % 1000U;
+    }
 }
 
 /**
@@ -248,27 +238,23 @@ void rtcConvertDateTimeToStructTm(const RTCDateTime *timespec,
  *
  * @api
  */
-void rtcConvertStructTmToDateTime(const struct tm *timp,
-                                  uint32_t tv_msec,
-                                  RTCDateTime *timespec) {
+void rtcConvertStructTmToDateTime(const struct tm *timp, uint32_t tv_msec, RTCDateTime *timespec) {
 
-  /*lint -save -e9034 [10.4] Verified assignments to bit fields.*/
-  timespec->year      = (uint32_t)timp->tm_year - (1980U - 1900U);
-  timespec->month     = (uint32_t)timp->tm_mon + 1U;
-  timespec->day       = (uint32_t)timp->tm_mday;
-  timespec->dayofweek = (uint32_t)timp->tm_wday + 1U;
-  if (-1 == timp->tm_isdst) {
-    timespec->dstflag = 0U;  /* set zero if dst is unknown */
-  }
-  else {
-    timespec->dstflag = (uint32_t)timp->tm_isdst;
-  }
-  /*lint -restore*/
-  /*lint -save -e9033 [10.8] Verified assignments to bit fields.*/
-  timespec->millisecond = tv_msec + (uint32_t)(((timp->tm_hour * 3600) +
-                                                (timp->tm_min * 60) +
-                                                 timp->tm_sec) * 1000);
-  /*lint -restore*/
+    /*lint -save -e9034 [10.4] Verified assignments to bit fields.*/
+    timespec->year = (uint32_t)timp->tm_year - (1980U - 1900U);
+    timespec->month = (uint32_t)timp->tm_mon + 1U;
+    timespec->day = (uint32_t)timp->tm_mday;
+    timespec->dayofweek = (uint32_t)timp->tm_wday + 1U;
+    if (-1 == timp->tm_isdst) {
+        timespec->dstflag = 0U; /* set zero if dst is unknown */
+    } else {
+        timespec->dstflag = (uint32_t)timp->tm_isdst;
+    }
+    /*lint -restore*/
+    /*lint -save -e9033 [10.8] Verified assignments to bit fields.*/
+    timespec->millisecond =
+        tv_msec + (uint32_t)(((timp->tm_hour * 3600) + (timp->tm_min * 60) + timp->tm_sec) * 1000);
+    /*lint -restore*/
 }
 
 /**
@@ -282,38 +268,38 @@ void rtcConvertStructTmToDateTime(const struct tm *timp,
  * @api
  */
 uint32_t rtcConvertDateTimeToFAT(const RTCDateTime *timespec) {
-  uint32_t fattime;
-  uint32_t sec, min, hour, day, month;
+    uint32_t fattime;
+    uint32_t sec, min, hour, day, month;
 
-  sec   = timespec->millisecond / 1000U;
-  hour  = sec / 3600U;
-  sec  %= 3600U;
-  min   = sec / 60U;
-  sec  %= 60U;
-  day   = timespec->day;
-  month = timespec->month;
+    sec = timespec->millisecond / 1000U;
+    hour = sec / 3600U;
+    sec %= 3600U;
+    min = sec / 60U;
+    sec %= 60U;
+    day = timespec->day;
+    month = timespec->month;
 
-  /* handle DST flag */
-  if (1U == timespec->dstflag) {
-    hour += 1U;
-    if (hour == 24U) {
-      hour = 0U;
-      day += 1U;
-      if (day > month_len[month - 1U]) {
-        day = 1U;
-        month += 1U;
-      }
+    /* handle DST flag */
+    if (1U == timespec->dstflag) {
+        hour += 1U;
+        if (hour == 24U) {
+            hour = 0U;
+            day += 1U;
+            if (day > month_len[month - 1U]) {
+                day = 1U;
+                month += 1U;
+            }
+        }
     }
-  }
 
-  fattime  = sec   >> 1U;
-  fattime |= min   << 5U;
-  fattime |= hour  << 11U;
-  fattime |= day   << 16U;
-  fattime |= month << 21U;
-  fattime |= (uint32_t)timespec->year << 25U;
+    fattime = sec >> 1U;
+    fattime |= min << 5U;
+    fattime |= hour << 11U;
+    fattime |= day << 16U;
+    fattime |= month << 21U;
+    fattime |= (uint32_t)timespec->year << 25U;
 
-  return fattime;
+    return fattime;
 }
 
 #endif /* HAL_USE_RTC == TRUE */

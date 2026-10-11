@@ -29,8 +29,8 @@
 
 // timestamp interface
 static inline uint32_t lbm_timestamp(void) {
-  TickType_t t = xTaskGetTickCount();
-  return (uint32_t) ((1000 / portTICK_PERIOD_MS) * t);
+    TickType_t t = xTaskGetTickCount();
+    return (uint32_t)((1000 / portTICK_PERIOD_MS) * t);
 }
 
 #endif

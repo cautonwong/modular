@@ -19,57 +19,52 @@
 #include <SDL2/SDL_image.h>
 #include <SDL2/SDL_timer.h>
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <unistd.h>
-#include <stdbool.h>
 
-#include <lispbm.h>
-#include <lbm_custom_type.h>
 #include <extensions/display_extensions.h>
-
+#include <lbm_custom_type.h>
+#include <lispbm.h>
 
 typedef struct {
-  uint32_t sdl_id;
-  char *name;
-  lbm_uint sym_id;
+    uint32_t sdl_id;
+    char *name;
+    lbm_uint sym_id;
 } sdl_symbol_t;
 
-sdl_symbol_t lbm_sdl_events[] = {
-  {0       , "sdl-no-event", 0},
-  {SDL_QUIT, "sdl-quit-event", 0},
-  {SDL_KEYDOWN, "sdl-key-down-event", 0},
-  {SDL_KEYUP, "sdl-key-up-event", 0}
-};
-
+sdl_symbol_t lbm_sdl_events[] = {{0, "sdl-no-event", 0},
+                                 {SDL_QUIT, "sdl-quit-event", 0},
+                                 {SDL_KEYDOWN, "sdl-key-down-event", 0},
+                                 {SDL_KEYUP, "sdl-key-up-event", 0}};
 
 static int register_sdl_event_symbols(void) {
-  for (size_t i = 0; i < (sizeof(lbm_sdl_events) / sizeof(sdl_symbol_t)); i ++) {
-    if (!lbm_add_symbol(lbm_sdl_events[i].name, &lbm_sdl_events[i].sym_id))
-      return 0;
-  }
-  return 1;
+    for (size_t i = 0; i < (sizeof(lbm_sdl_events) / sizeof(sdl_symbol_t)); i++) {
+        if (!lbm_add_symbol(lbm_sdl_events[i].name, &lbm_sdl_events[i].sym_id))
+            return 0;
+    }
+    return 1;
 }
 
 static lbm_uint lookup_sdl_event_symbol(uint32_t sdl_event) {
-  for (size_t i = 0; i < (sizeof(lbm_sdl_events) / sizeof(sdl_symbol_t)); i ++) {
-    if (sdl_event == lbm_sdl_events[i].sdl_id) {
-      return lbm_sdl_events[i].sym_id;
+    for (size_t i = 0; i < (sizeof(lbm_sdl_events) / sizeof(sdl_symbol_t)); i++) {
+        if (sdl_event == lbm_sdl_events[i].sdl_id) {
+            return lbm_sdl_events[i].sym_id;
+        }
     }
-  }
-  return lbm_sdl_events[0].sym_id;
+    return lbm_sdl_events[0].sym_id;
 }
 
 static lbm_value ext_sdl_init(lbm_value *args, lbm_uint argn) {
-  (void) args;
-  (void) argn;
-  // TODO init differently depending on args
-  lbm_value res = lbm_enc_sym(SYM_NIL);
+    (void)args;
+    (void)argn;
+    // TODO init differently depending on args
+    lbm_value res = lbm_enc_sym(SYM_NIL);
 
-  if ((SDL_Init(SDL_INIT_EVERYTHING) == 0) &&
-      (IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG))) {
-    res = lbm_enc_sym(SYM_TRUE);
-  }
-  return res;
+    if ((SDL_Init(SDL_INIT_EVERYTHING) == 0) && (IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG))) {
+        res = lbm_enc_sym(SYM_TRUE);
+    }
+    return res;
 }
 
 // active_rend is defined below, but both window-destruction paths need to
@@ -87,504 +82,492 @@ extern SDL_Renderer *active_rend;
 // examples only ever use one).
 static inline bool sdl_renderer_owns_window(SDL_Renderer *rend, SDL_Window *win) {
 #if SDL_VERSION_ATLEAST(2, 0, 22)
-  return rend && SDL_RenderGetWindow(rend) == win;
+    return rend && SDL_RenderGetWindow(rend) == win;
 #else
-  (void)rend; (void)win;
-  return true;
+    (void)rend;
+    (void)win;
+    return true;
 #endif
 }
 
 static bool sdl_window_destructor(lbm_uint value) {
-  if (value) {
-    SDL_Window *win = (SDL_Window*)value;
-    if (active_rend && sdl_renderer_owns_window(active_rend, win)) {
-      active_rend = NULL;
+    if (value) {
+        SDL_Window *win = (SDL_Window *)value;
+        if (active_rend && sdl_renderer_owns_window(active_rend, win)) {
+            active_rend = NULL;
+        }
+        SDL_DestroyWindow(win);
     }
-    SDL_DestroyWindow(win);
-  }
-  return true;
+    return true;
 }
 
 static lbm_value ext_sdl_destroy_window(lbm_value *args, lbm_uint argn) {
-  if (argn == 1 && lbm_type_of(args[0]) == LBM_TYPE_CUSTOM) {
-    lbm_uint *m = (lbm_uint *)lbm_dec_custom(args[0]);
-    SDL_Window *win = (SDL_Window*)m[CUSTOM_TYPE_VALUE];
-    if (active_rend && sdl_renderer_owns_window(active_rend, win)) {
-      active_rend = NULL;
+    if (argn == 1 && lbm_type_of(args[0]) == LBM_TYPE_CUSTOM) {
+        lbm_uint *m = (lbm_uint *)lbm_dec_custom(args[0]);
+        SDL_Window *win = (SDL_Window *)m[CUSTOM_TYPE_VALUE];
+        if (active_rend && sdl_renderer_owns_window(active_rend, win)) {
+            active_rend = NULL;
+        }
+        SDL_DestroyWindow(win);
+        m[CUSTOM_TYPE_VALUE] = 0;
     }
-    SDL_DestroyWindow(win);
-    m[CUSTOM_TYPE_VALUE] = 0;
-  }
-  return ENC_SYM_TRUE;
+    return ENC_SYM_TRUE;
 }
 
 static lbm_value ext_sdl_create_window(lbm_value *args, lbm_uint argn) {
 
-  lbm_value res = lbm_enc_sym(SYM_NIL);
+    lbm_value res = lbm_enc_sym(SYM_NIL);
 
-  if (argn == 3) {
+    if (argn == 3) {
 
-    char *title = lbm_dec_str(args[0]);
+        char *title = lbm_dec_str(args[0]);
 
-    if (title) {
+        if (title) {
 
-      int32_t w = lbm_dec_as_i32(args[1]);
-      int32_t h = lbm_dec_as_i32(args[2]);
+            int32_t w = lbm_dec_as_i32(args[1]);
+            int32_t h = lbm_dec_as_i32(args[2]);
 
-      SDL_Window* win = SDL_CreateWindow(title,
-                                         SDL_WINDOWPOS_CENTERED,
-                                         SDL_WINDOWPOS_CENTERED,
-                                         w, h, 0);
+            SDL_Window *win =
+                SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, w, h, 0);
 
-      if (win && !lbm_custom_type_create((lbm_uint)win, sdl_window_destructor, "SDLWindow", &res)) {
-        SDL_DestroyWindow(win);
-      }
+            if (win &&
+                !lbm_custom_type_create((lbm_uint)win, sdl_window_destructor, "SDLWindow", &res)) {
+                SDL_DestroyWindow(win);
+            }
+        }
     }
-  }
-  return res;
+    return res;
 }
 
 SDL_Renderer *active_rend = NULL;
 
 static bool sdl_renderer_destructor(lbm_uint value) {
-  if (value) {
-    if ((SDL_Renderer*)value == active_rend) active_rend = NULL;
-    SDL_DestroyRenderer((SDL_Renderer*)value);
-  }
-  return true;
+    if (value) {
+        if ((SDL_Renderer *)value == active_rend)
+            active_rend = NULL;
+        SDL_DestroyRenderer((SDL_Renderer *)value);
+    }
+    return true;
 }
 
 static lbm_value ext_sdl_destroy_renderer(lbm_value *args, lbm_uint argn) {
-  if (argn == 1 && lbm_type_of(args[0]) == LBM_TYPE_CUSTOM) {
-    lbm_uint *m = (lbm_uint *)lbm_dec_custom(args[0]);
-    SDL_Renderer *rend = (SDL_Renderer*)m[CUSTOM_TYPE_VALUE];
-    if (rend == active_rend) active_rend = NULL;
-    SDL_DestroyRenderer(rend);
-    m[CUSTOM_TYPE_VALUE] = 0;
-  }
-  return ENC_SYM_TRUE;
+    if (argn == 1 && lbm_type_of(args[0]) == LBM_TYPE_CUSTOM) {
+        lbm_uint *m = (lbm_uint *)lbm_dec_custom(args[0]);
+        SDL_Renderer *rend = (SDL_Renderer *)m[CUSTOM_TYPE_VALUE];
+        if (rend == active_rend)
+            active_rend = NULL;
+        SDL_DestroyRenderer(rend);
+        m[CUSTOM_TYPE_VALUE] = 0;
+    }
+    return ENC_SYM_TRUE;
 }
 
 static lbm_value ext_sdl_create_soft_renderer(lbm_value *args, lbm_uint argn) {
 
-  lbm_value res = lbm_enc_sym(SYM_NIL);
+    lbm_value res = lbm_enc_sym(SYM_NIL);
 
-  if (argn == 1 && lbm_type_of(args[0]) == LBM_TYPE_CUSTOM) {
+    if (argn == 1 && lbm_type_of(args[0]) == LBM_TYPE_CUSTOM) {
 
-    lbm_uint *m = (lbm_uint *)lbm_dec_custom(args[0]);
+        lbm_uint *m = (lbm_uint *)lbm_dec_custom(args[0]);
 
-    SDL_Renderer* rend = SDL_CreateRenderer((SDL_Window *)m[CUSTOM_TYPE_VALUE],
-                                            -1,SDL_RENDERER_SOFTWARE);
-    if (rend && !lbm_custom_type_create((lbm_uint)rend, sdl_renderer_destructor, "SDLRenderer", &res)) {
-      SDL_DestroyRenderer(rend);
+        SDL_Renderer *rend =
+            SDL_CreateRenderer((SDL_Window *)m[CUSTOM_TYPE_VALUE], -1, SDL_RENDERER_SOFTWARE);
+        if (rend &&
+            !lbm_custom_type_create((lbm_uint)rend, sdl_renderer_destructor, "SDLRenderer", &res)) {
+            SDL_DestroyRenderer(rend);
+        }
     }
-  }
-  return res;
+    return res;
 }
 
 static lbm_value ext_sdl_renderer_set_color(lbm_value *args, lbm_uint argn) {
 
-  lbm_value res = lbm_enc_sym(SYM_TRUE);
+    lbm_value res = lbm_enc_sym(SYM_TRUE);
 
-  if (argn == 4 && lbm_type_of(args[0]) == LBM_TYPE_CUSTOM) {
-    lbm_uint *m = (lbm_uint *)lbm_dec_custom(args[0]);
-    SDL_Renderer *rend = (SDL_Renderer *)m[CUSTOM_TYPE_VALUE];
+    if (argn == 4 && lbm_type_of(args[0]) == LBM_TYPE_CUSTOM) {
+        lbm_uint *m = (lbm_uint *)lbm_dec_custom(args[0]);
+        SDL_Renderer *rend = (SDL_Renderer *)m[CUSTOM_TYPE_VALUE];
 
-    uint8_t r = lbm_dec_as_char(args[1]);
-    uint8_t g = lbm_dec_as_char(args[2]);
-    uint8_t b = lbm_dec_as_char(args[3]);
+        uint8_t r = lbm_dec_as_char(args[1]);
+        uint8_t g = lbm_dec_as_char(args[2]);
+        uint8_t b = lbm_dec_as_char(args[3]);
 
-    /* SDL functions are 0 on success */
-    if (SDL_SetRenderDrawColor(rend, r, g, b, SDL_ALPHA_OPAQUE)) {
-      res = lbm_enc_sym(SYM_NIL);
+        /* SDL functions are 0 on success */
+        if (SDL_SetRenderDrawColor(rend, r, g, b, SDL_ALPHA_OPAQUE)) {
+            res = lbm_enc_sym(SYM_NIL);
+        }
     }
-  }
-  return res;
+    return res;
 }
-
 
 static lbm_value ext_sdl_draw_line(lbm_value *args, lbm_uint argn) {
 
-  lbm_value res = lbm_enc_sym(SYM_TRUE);
+    lbm_value res = lbm_enc_sym(SYM_TRUE);
 
-  if (argn == 5 && lbm_type_of(args[0]) == LBM_TYPE_CUSTOM) {
-    lbm_uint *m = (lbm_uint *)lbm_dec_custom(args[0]);
-    SDL_Renderer *rend = (SDL_Renderer*)m[CUSTOM_TYPE_VALUE];
+    if (argn == 5 && lbm_type_of(args[0]) == LBM_TYPE_CUSTOM) {
+        lbm_uint *m = (lbm_uint *)lbm_dec_custom(args[0]);
+        SDL_Renderer *rend = (SDL_Renderer *)m[CUSTOM_TYPE_VALUE];
 
-    int32_t x1 = lbm_dec_as_i32(args[1]);
-    int32_t y1 = lbm_dec_as_i32(args[2]);
-    int32_t x2 = lbm_dec_as_i32(args[3]);
-    int32_t y2 = lbm_dec_as_i32(args[4]);
+        int32_t x1 = lbm_dec_as_i32(args[1]);
+        int32_t y1 = lbm_dec_as_i32(args[2]);
+        int32_t x2 = lbm_dec_as_i32(args[3]);
+        int32_t y2 = lbm_dec_as_i32(args[4]);
 
-    if (SDL_RenderDrawLine(rend, x1, y1, x2, y2)) {
-      res = lbm_enc_sym(SYM_NIL);
+        if (SDL_RenderDrawLine(rend, x1, y1, x2, y2)) {
+            res = lbm_enc_sym(SYM_NIL);
+        }
     }
-  }
-  return res;
+    return res;
 }
 
 static lbm_value ext_sdl_draw_point(lbm_value *args, lbm_uint argn) {
 
-  lbm_value res = ENC_SYM_EERROR;
+    lbm_value res = ENC_SYM_EERROR;
 
-  if (argn == 3 && lbm_type_of(args[0]) == LBM_TYPE_CUSTOM) {
-    lbm_uint *m = (lbm_uint *)lbm_dec_custom(args[0]);
-    SDL_Renderer *rend = (SDL_Renderer*)m[CUSTOM_TYPE_VALUE];
+    if (argn == 3 && lbm_type_of(args[0]) == LBM_TYPE_CUSTOM) {
+        lbm_uint *m = (lbm_uint *)lbm_dec_custom(args[0]);
+        SDL_Renderer *rend = (SDL_Renderer *)m[CUSTOM_TYPE_VALUE];
 
-    int32_t x1 = lbm_dec_as_i32(args[1]);
-    int32_t y1 = lbm_dec_as_i32(args[2]);
-    res = ENC_SYM_TRUE;
-    if (SDL_RenderDrawPoint(rend, x1, y1)) {
-      res = ENC_SYM_NIL;
+        int32_t x1 = lbm_dec_as_i32(args[1]);
+        int32_t y1 = lbm_dec_as_i32(args[2]);
+        res = ENC_SYM_TRUE;
+        if (SDL_RenderDrawPoint(rend, x1, y1)) {
+            res = ENC_SYM_NIL;
+        }
     }
-  }
-  return res;
+    return res;
 }
-
 
 static lbm_value ext_sdl_clear(lbm_value *args, lbm_uint argn) {
 
-  lbm_value res = lbm_enc_sym(SYM_TRUE);
+    lbm_value res = lbm_enc_sym(SYM_TRUE);
 
-  if (argn == 1 && lbm_type_of(args[0]) == LBM_TYPE_CUSTOM) {
-    lbm_uint *m = (lbm_uint *)lbm_dec_custom(args[0]);
-    SDL_Renderer *rend = (SDL_Renderer*)m[CUSTOM_TYPE_VALUE];
+    if (argn == 1 && lbm_type_of(args[0]) == LBM_TYPE_CUSTOM) {
+        lbm_uint *m = (lbm_uint *)lbm_dec_custom(args[0]);
+        SDL_Renderer *rend = (SDL_Renderer *)m[CUSTOM_TYPE_VALUE];
 
-    if (SDL_RenderClear(rend)) {
-      res = lbm_enc_sym(SYM_NIL);
+        if (SDL_RenderClear(rend)) {
+            res = lbm_enc_sym(SYM_NIL);
+        }
     }
-  }
-  return res;
+    return res;
 }
 
 static lbm_value ext_sdl_present(lbm_value *args, lbm_uint argn) {
 
-  lbm_value res = lbm_enc_sym(SYM_TRUE);
+    lbm_value res = lbm_enc_sym(SYM_TRUE);
 
-  if (argn == 1 && lbm_type_of(args[0]) == LBM_TYPE_CUSTOM) {
-    lbm_uint *m = (lbm_uint *)lbm_dec_custom(args[0]);
-    SDL_Renderer *rend = (SDL_Renderer*)m[CUSTOM_TYPE_VALUE];
+    if (argn == 1 && lbm_type_of(args[0]) == LBM_TYPE_CUSTOM) {
+        lbm_uint *m = (lbm_uint *)lbm_dec_custom(args[0]);
+        SDL_Renderer *rend = (SDL_Renderer *)m[CUSTOM_TYPE_VALUE];
 
-    SDL_RenderPresent(rend);
-  }
-  return res;
+        SDL_RenderPresent(rend);
+    }
+    return res;
 }
-
 
 static lbm_value ext_sdl_poll_event(lbm_value *args, lbm_uint argn) {
-  (void) args;
-  (void) argn;
+    (void)args;
+    (void)argn;
 
-  SDL_Event event;
-  lbm_value r = lbm_enc_sym(lookup_sdl_event_symbol(0));
+    SDL_Event event;
+    lbm_value r = lbm_enc_sym(lookup_sdl_event_symbol(0));
 
-  SDL_PumpEvents();
+    SDL_PumpEvents();
 
-  if (SDL_PeepEvents(&event, 1, SDL_PEEKEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT) > 0) {
+    if (SDL_PeepEvents(&event, 1, SDL_PEEKEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT) > 0) {
 
-    if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) {
-      lbm_value key = lbm_enc_i(event.key.keysym.sym);
-      lbm_value sym = lbm_enc_sym(lookup_sdl_event_symbol(event.type));
+        if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) {
+            lbm_value key = lbm_enc_i(event.key.keysym.sym);
+            lbm_value sym = lbm_enc_sym(lookup_sdl_event_symbol(event.type));
 
-      lbm_value res_pair = lbm_cons(sym,key);
-      if (res_pair == ENC_SYM_MERROR) goto poll_event_exit;
-      r = res_pair;
-    } else {
-      r = lbm_enc_sym(lookup_sdl_event_symbol(event.type));
+            lbm_value res_pair = lbm_cons(sym, key);
+            if (res_pair == ENC_SYM_MERROR)
+                goto poll_event_exit;
+            r = res_pair;
+        } else {
+            r = lbm_enc_sym(lookup_sdl_event_symbol(event.type));
+        }
+        // This just drops the event from the queue.
+        SDL_PeepEvents(&event, 1, SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT);
     }
-    // This just drops the event from the queue.
-    SDL_PeepEvents(&event, 1, SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT);
-  }
- poll_event_exit:
-  return r;
+poll_event_exit:
+    return r;
 }
-
 
 ////////////////////////////////////////////////////////////
 // Images and Textures
 
 static bool sdl_texture_destructor(lbm_uint value) {
-  SDL_DestroyTexture((SDL_Texture*)value);
-  return true;
+    SDL_DestroyTexture((SDL_Texture *)value);
+    return true;
 }
 
 static lbm_value ext_sdl_load_texture(lbm_value *args, lbm_uint argn) {
-  lbm_value res = lbm_enc_sym(SYM_NIL);
-  if (argn == 2 &&
-      (lbm_type_of(args[0]) == LBM_TYPE_CUSTOM) &&
-      (lbm_type_of(args[1]) == LBM_TYPE_ARRAY)) {
-    lbm_uint *m = (lbm_uint *)lbm_dec_custom(args[0]);
-    SDL_Renderer *rend = (SDL_Renderer*)m[CUSTOM_TYPE_VALUE];
-    char *filename = lbm_dec_str(args[1]);
-    if (rend &&
-        filename) {
+    lbm_value res = lbm_enc_sym(SYM_NIL);
+    if (argn == 2 && (lbm_type_of(args[0]) == LBM_TYPE_CUSTOM) &&
+        (lbm_type_of(args[1]) == LBM_TYPE_ARRAY)) {
+        lbm_uint *m = (lbm_uint *)lbm_dec_custom(args[0]);
+        SDL_Renderer *rend = (SDL_Renderer *)m[CUSTOM_TYPE_VALUE];
+        char *filename = lbm_dec_str(args[1]);
+        if (rend && filename) {
 
-      SDL_Texture *texture = IMG_LoadTexture(rend, filename);
-      if (texture &&
-          !lbm_custom_type_create((lbm_uint)texture, sdl_texture_destructor, "SDLTexture", &res))
-        SDL_DestroyTexture(texture);
+            SDL_Texture *texture = IMG_LoadTexture(rend, filename);
+            if (texture && !lbm_custom_type_create((lbm_uint)texture, sdl_texture_destructor,
+                                                   "SDLTexture", &res))
+                SDL_DestroyTexture(texture);
+        }
     }
-  }
-  return res;
+    return res;
 }
 
 static lbm_value ext_sdl_blit(lbm_value *args, lbm_uint argn) {
-  lbm_value res = lbm_enc_sym(SYM_NIL);
-  if (argn == 6 &&
-      (lbm_type_of(args[0]) == LBM_TYPE_CUSTOM) &&
-      (lbm_type_of(args[1]) == LBM_TYPE_CUSTOM) &&
-      lbm_is_number(args[2]) && lbm_is_number(args[3]) &&
-      lbm_is_number(args[4]) && lbm_is_number(args[5])) {
+    lbm_value res = lbm_enc_sym(SYM_NIL);
+    if (argn == 6 && (lbm_type_of(args[0]) == LBM_TYPE_CUSTOM) &&
+        (lbm_type_of(args[1]) == LBM_TYPE_CUSTOM) && lbm_is_number(args[2]) &&
+        lbm_is_number(args[3]) && lbm_is_number(args[4]) && lbm_is_number(args[5])) {
 
-    int32_t x = lbm_dec_as_i32(args[2]);
-    int32_t y = lbm_dec_as_i32(args[3]);
-    int32_t w = lbm_dec_as_i32(args[4]);
-    int32_t h = lbm_dec_as_i32(args[5]);
+        int32_t x = lbm_dec_as_i32(args[2]);
+        int32_t y = lbm_dec_as_i32(args[3]);
+        int32_t w = lbm_dec_as_i32(args[4]);
+        int32_t h = lbm_dec_as_i32(args[5]);
 
-    lbm_uint *m = (lbm_uint *)lbm_dec_custom(args[0]);
-    SDL_Renderer *rend = (SDL_Renderer*)m[CUSTOM_TYPE_VALUE];
-    lbm_uint *t = (lbm_uint *)lbm_dec_custom(args[1]);
-    SDL_Texture *texture = (SDL_Texture*)t[CUSTOM_TYPE_VALUE];
+        lbm_uint *m = (lbm_uint *)lbm_dec_custom(args[0]);
+        SDL_Renderer *rend = (SDL_Renderer *)m[CUSTOM_TYPE_VALUE];
+        lbm_uint *t = (lbm_uint *)lbm_dec_custom(args[1]);
+        SDL_Texture *texture = (SDL_Texture *)t[CUSTOM_TYPE_VALUE];
 
-    if (rend && texture) {
-      SDL_Rect dest = { x, y, w, h };
+        if (rend && texture) {
+            SDL_Rect dest = {x, y, w, h};
 
-      SDL_RenderCopy(rend, texture, NULL, &dest);
-      res = lbm_enc_sym(SYM_TRUE);
+            SDL_RenderCopy(rend, texture, NULL, &dest);
+            res = lbm_enc_sym(SYM_TRUE);
+        }
     }
-  }
-  return res;
+    return res;
 }
 
 // Display interface
 
 static lbm_value ext_sdl_set_active_renderer(lbm_value *args, lbm_uint argn) {
-  lbm_value res = lbm_enc_sym(SYM_NIL);
-  if (argn == 1 &&
-      (lbm_type_of(args[0]) == LBM_TYPE_CUSTOM)) {
+    lbm_value res = lbm_enc_sym(SYM_NIL);
+    if (argn == 1 && (lbm_type_of(args[0]) == LBM_TYPE_CUSTOM)) {
 
-    lbm_uint *m = (lbm_uint *)lbm_dec_custom(args[0]);
-    SDL_Renderer *rend = (SDL_Renderer*)m[CUSTOM_TYPE_VALUE];
+        lbm_uint *m = (lbm_uint *)lbm_dec_custom(args[0]);
+        SDL_Renderer *rend = (SDL_Renderer *)m[CUSTOM_TYPE_VALUE];
 
-    active_rend = rend;
-    res = ENC_SYM_TRUE;
-  }
-  return res;
+        active_rend = rend;
+        res = ENC_SYM_TRUE;
+    }
+    return res;
 }
 
 // hacky
 static void blast_indexed2(uint8_t *dest, int dest_pitch, image_buffer_t *img, color_t *colors) {
-  (void) dest_pitch;
+    (void)dest_pitch;
 
-  uint8_t *data = img->data;
-  uint16_t w    = img->width;
-  uint16_t h    = img->height;
-  int num_pix = w * h;
+    uint8_t *data = img->data;
+    uint16_t w = img->width;
+    uint16_t h = img->height;
+    int num_pix = w * h;
 
-  uint32_t *w_dest = (uint32_t *)dest;
-  for (int i = 0; i < num_pix; i ++) {
-    int byte = i >> 3;
-    int bit  = 7 - (i & 0x7);
-    int color_ind = (data[byte] & (1 << bit)) >> bit;
+    uint32_t *w_dest = (uint32_t *)dest;
+    for (int i = 0; i < num_pix; i++) {
+        int byte = i >> 3;
+        int bit = 7 - (i & 0x7);
+        int color_ind = (data[byte] & (1 << bit)) >> bit;
 
-    uint32_t color = COLOR_TO_RGB888(colors[color_ind],
-                                     i % w, i / w);
-    w_dest[i] = color;
-  }
+        uint32_t color = COLOR_TO_RGB888(colors[color_ind], i % w, i / w);
+        w_dest[i] = color;
+    }
 }
 
 static void blast_indexed4(uint8_t *dest, int dest_pitch, image_buffer_t *img, color_t *colors) {
-  (void) dest_pitch;
+    (void)dest_pitch;
 
-  uint8_t *data = img->data;
-  uint16_t w    = img->width;
-  uint16_t h    = img->height;
-  int num_pix = w * h;
+    uint8_t *data = img->data;
+    uint16_t w = img->width;
+    uint16_t h = img->height;
+    int num_pix = w * h;
 
-  uint32_t *w_dest = (uint32_t *)dest;
-  for (int i = 0; i < num_pix; i ++) {
-    int byte = i >> 2;
-    int bit = (3 - (i & 0x03)) * 2;
-    int color_ind = (data[byte] & (0x03 << bit)) >> bit;
+    uint32_t *w_dest = (uint32_t *)dest;
+    for (int i = 0; i < num_pix; i++) {
+        int byte = i >> 2;
+        int bit = (3 - (i & 0x03)) * 2;
+        int color_ind = (data[byte] & (0x03 << bit)) >> bit;
 
-    uint32_t color = COLOR_TO_RGB888(colors[color_ind],
-                                     i % w, i / w);
-    w_dest[i] = color;
-  }
+        uint32_t color = COLOR_TO_RGB888(colors[color_ind], i % w, i / w);
+        w_dest[i] = color;
+    }
 }
 
-static void blast_indexed16(uint8_t *dest, int dest_pitch,image_buffer_t *img, color_t *colors) {
-  (void) dest_pitch;
+static void blast_indexed16(uint8_t *dest, int dest_pitch, image_buffer_t *img, color_t *colors) {
+    (void)dest_pitch;
 
-  uint8_t *data = img->data;
-  uint16_t w    = img->width;
-  uint16_t h    = img->height;
-  int num_pix = w * h;
+    uint8_t *data = img->data;
+    uint16_t w = img->width;
+    uint16_t h = img->height;
+    int num_pix = w * h;
 
-  uint32_t *w_dest = (uint32_t *)dest;
-  for (int i = 0; i < num_pix; i ++) {
-    int byte = i >> 1;    // byte to access is pix / 2
-    int bit = (1 - (i & 0x01)) * 4; // bit position to access within byte
-    int color_ind = (data[byte] & (0x0F << bit)) >> bit; // extract 4 bit value.
+    uint32_t *w_dest = (uint32_t *)dest;
+    for (int i = 0; i < num_pix; i++) {
+        int byte = i >> 1;                                   // byte to access is pix / 2
+        int bit = (1 - (i & 0x01)) * 4;                      // bit position to access within byte
+        int color_ind = (data[byte] & (0x0F << bit)) >> bit; // extract 4 bit value.
 
-    uint32_t color = COLOR_TO_RGB888(colors[color_ind],
-                                     i % w, i / w);
-    w_dest[i] = color;
-  }
+        uint32_t color = COLOR_TO_RGB888(colors[color_ind], i % w, i / w);
+        w_dest[i] = color;
+    }
 }
 
-static void blast_rgb332(uint8_t *dest, int dest_pitch,image_buffer_t *img) {
-  (void) dest_pitch;
+static void blast_rgb332(uint8_t *dest, int dest_pitch, image_buffer_t *img) {
+    (void)dest_pitch;
 
-  uint8_t *data = img->data;
-  uint16_t w    = img->width;
-  uint16_t h    = img->height;
-  int num_pix = w * h;
+    uint8_t *data = img->data;
+    uint16_t w = img->width;
+    uint16_t h = img->height;
+    int num_pix = w * h;
 
-  uint32_t *w_dest = (uint32_t *)dest;
-  for (int i = 0; i < num_pix; i ++) {
-    uint8_t pix = data[i];
-    uint32_t r = (uint32_t)((pix >> 5) & 0x7);
-    uint32_t g = (uint32_t)((pix >> 2) & 0x7);
-    uint32_t b = (uint32_t)(pix & 0x3);
-    b = (b > 0) ? 2 * b + 1 : 0;
-    r = (r == 7) ? 255 : r * 36;
-    g = (g == 7) ? 255 : g * 36;
-    b = (b == 7) ? 255 : b * 36;
-    uint32_t c = r << 16 | g << 8| b;
-    w_dest[i] = c;
-  }
+    uint32_t *w_dest = (uint32_t *)dest;
+    for (int i = 0; i < num_pix; i++) {
+        uint8_t pix = data[i];
+        uint32_t r = (uint32_t)((pix >> 5) & 0x7);
+        uint32_t g = (uint32_t)((pix >> 2) & 0x7);
+        uint32_t b = (uint32_t)(pix & 0x3);
+        b = (b > 0) ? 2 * b + 1 : 0;
+        r = (r == 7) ? 255 : r * 36;
+        g = (g == 7) ? 255 : g * 36;
+        b = (b == 7) ? 255 : b * 36;
+        uint32_t c = r << 16 | g << 8 | b;
+        w_dest[i] = c;
+    }
 }
 
 static void blast_rgb565(uint8_t *dest, int dest_pitch, image_buffer_t *img) {
-  (void) dest_pitch;
+    (void)dest_pitch;
 
-  uint8_t *data = img->data;
-  uint16_t w    = img->width;
-  uint16_t h    = img->height;
-  int num_pix = w * h;
+    uint8_t *data = img->data;
+    uint16_t w = img->width;
+    uint16_t h = img->height;
+    int num_pix = w * h;
 
-  uint32_t *w_dest = (uint32_t *)dest;
-  for (int i = 0; i < num_pix; i ++) {
-    uint16_t pix = (uint16_t)((data[2 * i] << 8) | data[2 * i + 1]);
-    uint32_t r = (uint32_t)(pix >> 11);
-    uint32_t g = (uint32_t)((pix >> 5) & 0x3F);
-    uint32_t b = (uint32_t)(pix & 0x1F);
-    uint32_t c = r << (16 + 3) | g << (8 + 2) | b << 3;
-    w_dest[i] = c;
-  }
+    uint32_t *w_dest = (uint32_t *)dest;
+    for (int i = 0; i < num_pix; i++) {
+        uint16_t pix = (uint16_t)((data[2 * i] << 8) | data[2 * i + 1]);
+        uint32_t r = (uint32_t)(pix >> 11);
+        uint32_t g = (uint32_t)((pix >> 5) & 0x3F);
+        uint32_t b = (uint32_t)(pix & 0x1F);
+        uint32_t c = r << (16 + 3) | g << (8 + 2) | b << 3;
+        w_dest[i] = c;
+    }
 }
 
 static void blast_rgb888(uint8_t *dest, int dest_pitch, image_buffer_t *img) {
-  (void) dest_pitch;
+    (void)dest_pitch;
 
-  uint8_t *data = img->data;
-  uint16_t w    = img->width;
-  uint16_t h    = img->height;
-  int num_pix = w * h;
+    uint8_t *data = img->data;
+    uint16_t w = img->width;
+    uint16_t h = img->height;
+    int num_pix = w * h;
 
-  uint32_t *w_dest = (uint32_t *)dest;
-  for (int i = 0; i < num_pix; i ++) {
-    uint32_t r = data[3 * i];
-    uint32_t g = data[3 * i + 1];
-    uint32_t b = data[3 * i + 2];
+    uint32_t *w_dest = (uint32_t *)dest;
+    for (int i = 0; i < num_pix; i++) {
+        uint32_t r = data[3 * i];
+        uint32_t g = data[3 * i + 1];
+        uint32_t b = data[3 * i + 2];
 
-    uint32_t c = r << 16 | g << 8 | b;
-    w_dest[i] = c;
-  }
+        uint32_t c = r << 16 | g << 8 | b;
+        w_dest[i] = c;
+    }
 }
-
 
 bool sdl_render_image(image_buffer_t *img, uint16_t x, uint16_t y, color_t *colors) {
 
-  if (active_rend) {
+    if (active_rend) {
 
-    uint16_t w = img->width;
-    uint16_t h = img->height;
-    uint8_t  bpp = img->fmt;
+        uint16_t w = img->width;
+        uint16_t h = img->height;
+        uint8_t bpp = img->fmt;
 
-    SDL_Texture* tex = SDL_CreateTexture(active_rend, SDL_PIXELFORMAT_RGB888,SDL_TEXTUREACCESS_STREAMING, w, h);
-    if (!tex) {
-      printf("lbm_sdl: Failed allocating texture\n");
-      return false;
+        SDL_Texture *tex = SDL_CreateTexture(active_rend, SDL_PIXELFORMAT_RGB888,
+                                             SDL_TEXTUREACCESS_STREAMING, w, h);
+        if (!tex) {
+            printf("lbm_sdl: Failed allocating texture\n");
+            return false;
+        }
+        int pitch = 0;
+
+        uint8_t *p = NULL;
+        SDL_LockTexture(tex, NULL, (void **)&p, &pitch);
+        switch (bpp) {
+        case indexed2:
+            blast_indexed2(p, pitch, img, colors);
+            break;
+        case indexed4:
+            blast_indexed4(p, pitch, img, colors);
+            break;
+        case indexed16:
+            blast_indexed16(p, pitch, img, colors);
+            break;
+        case rgb332:
+            blast_rgb332(p, pitch, img);
+            break;
+        case rgb565:
+            blast_rgb565(p, pitch, img);
+            break;
+        case rgb888:
+            blast_rgb888(p, pitch, img);
+            break;
+        default:
+            break;
+        }
+
+        SDL_UnlockTexture(tex);
+
+        SDL_Rect dest = {x, y, w, h};
+        SDL_RenderCopy(active_rend, tex, NULL, &dest);
+        SDL_RenderPresent(active_rend);
+        SDL_DestroyTexture(tex);
     }
-    int pitch = 0;
-
-    uint8_t* p = NULL;
-    SDL_LockTexture(tex, NULL, (void**)&p, &pitch);
-    switch(bpp) {
-    case indexed2:
-      blast_indexed2(p, pitch, img, colors);
-      break;
-    case indexed4:
-      blast_indexed4(p, pitch, img, colors);
-      break;
-    case indexed16:
-      blast_indexed16(p, pitch, img, colors);
-      break;
-    case rgb332:
-      blast_rgb332(p, pitch, img);
-      break;
-    case rgb565:
-      blast_rgb565(p, pitch, img);
-      break;
-    case rgb888:
-      blast_rgb888(p, pitch, img);
-      break;
-    default:
-      break;
-    }
-
-    SDL_UnlockTexture(tex);
-
-    SDL_Rect dest = { x, y, w, h };
-    SDL_RenderCopy(active_rend, tex, NULL, &dest);
-    SDL_RenderPresent(active_rend);
-    SDL_DestroyTexture(tex);
-  }
-  return true;
+    return true;
 }
 
-
 void sdl_clear(uint32_t color) {
-  (void) color;
-  if (active_rend) {
-    SDL_RenderClear(active_rend);
-    SDL_RenderPresent(active_rend);
-  }
+    (void)color;
+    if (active_rend) {
+        SDL_RenderClear(active_rend);
+        SDL_RenderPresent(active_rend);
+    }
 }
 
 void sdl_reset(void) {
-  return;
+    return;
 }
-
 
 ////////////////////////////////////////////////////////////
 // Active LBM SDL extensions
 bool lbm_sdl_init(void) {
 
-  register_sdl_event_symbols();
+    register_sdl_event_symbols();
 
-  lbm_add_extension("sdl-init", ext_sdl_init);
-  lbm_add_extension("sdl-create-window",ext_sdl_create_window);
-  lbm_add_extension("sdl-destroy-window", ext_sdl_destroy_window);
-  lbm_add_extension("sdl-create-soft-renderer", ext_sdl_create_soft_renderer);
-  lbm_add_extension("sdl-destroy-renderer", ext_sdl_destroy_renderer);
-  lbm_add_extension("sdl-renderer-set-color", ext_sdl_renderer_set_color);
-  lbm_add_extension("sdl-draw-point", ext_sdl_draw_point);
-  lbm_add_extension("sdl-draw-line", ext_sdl_draw_line);
-  lbm_add_extension("sdl-clear", ext_sdl_clear);
-  lbm_add_extension("sdl-present", ext_sdl_present);
-  lbm_add_extension("sdl-poll-event", ext_sdl_poll_event);
+    lbm_add_extension("sdl-init", ext_sdl_init);
+    lbm_add_extension("sdl-create-window", ext_sdl_create_window);
+    lbm_add_extension("sdl-destroy-window", ext_sdl_destroy_window);
+    lbm_add_extension("sdl-create-soft-renderer", ext_sdl_create_soft_renderer);
+    lbm_add_extension("sdl-destroy-renderer", ext_sdl_destroy_renderer);
+    lbm_add_extension("sdl-renderer-set-color", ext_sdl_renderer_set_color);
+    lbm_add_extension("sdl-draw-point", ext_sdl_draw_point);
+    lbm_add_extension("sdl-draw-line", ext_sdl_draw_line);
+    lbm_add_extension("sdl-clear", ext_sdl_clear);
+    lbm_add_extension("sdl-present", ext_sdl_present);
+    lbm_add_extension("sdl-poll-event", ext_sdl_poll_event);
 
-  lbm_add_extension("sdl-load-texture", ext_sdl_load_texture);
-  lbm_add_extension("sdl-blit", ext_sdl_blit);
+    lbm_add_extension("sdl-load-texture", ext_sdl_load_texture);
+    lbm_add_extension("sdl-blit", ext_sdl_blit);
 
-  lbm_add_extension("sdl-set-active-renderer", ext_sdl_set_active_renderer);
-  lbm_display_extensions_init();
-  lbm_display_extensions_set_callbacks(sdl_render_image,
-                                       sdl_clear,
-                                       sdl_reset);
+    lbm_add_extension("sdl-set-active-renderer", ext_sdl_set_active_renderer);
+    lbm_display_extensions_init();
+    lbm_display_extensions_set_callbacks(sdl_render_image, sdl_clear, sdl_reset);
 
-  return lbm_get_num_extensions() < lbm_get_max_extensions();
+    return lbm_get_num_extensions() < lbm_get_max_extensions();
 }

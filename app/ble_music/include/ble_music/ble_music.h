@@ -9,6 +9,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef BLE_MUSIC_MODULE_ID
+#define BLE_MUSIC_MODULE_ID 0x3100u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

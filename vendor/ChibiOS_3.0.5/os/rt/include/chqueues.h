@@ -38,11 +38,11 @@
  * @name    Queue functions returned status value
  * @{
  */
-#define Q_OK            MSG_OK      /**< @brief Operation successful.       */
-#define Q_TIMEOUT       MSG_TIMEOUT /**< @brief Timeout condition.          */
-#define Q_RESET         MSG_RESET   /**< @brief Queue has been reset.       */
-#define Q_EMPTY         (msg_t)-3   /**< @brief Queue empty.                */
-#define Q_FULL          (msg_t)-4   /**< @brief Queue full,                 */
+#define Q_OK MSG_OK           /**< @brief Operation successful.       */
+#define Q_TIMEOUT MSG_TIMEOUT /**< @brief Timeout condition.          */
+#define Q_RESET MSG_RESET     /**< @brief Queue has been reset.       */
+#define Q_EMPTY (msg_t) - 3   /**< @brief Queue empty.                */
+#define Q_FULL (msg_t) - 4    /**< @brief Queue full,                 */
 /** @} */
 
 /*===========================================================================*/
@@ -75,15 +75,15 @@ typedef void (*qnotify_t)(io_queue_t *qp);
  *          @ref system_states) and is non-blocking.
  */
 struct io_queue {
-  threads_queue_t       q_waiting;  /**< @brief Queue of waiting threads.   */
-  volatile size_t       q_counter;  /**< @brief Resources counter.          */
-  uint8_t               *q_buffer;  /**< @brief Pointer to the queue buffer.*/
-  uint8_t               *q_top;     /**< @brief Pointer to the first location
-                                                after the buffer.           */
-  uint8_t               *q_wrptr;   /**< @brief Write pointer.              */
-  uint8_t               *q_rdptr;   /**< @brief Read pointer.               */
-  qnotify_t             q_notify;   /**< @brief Data notification callback. */
-  void                  *q_link;    /**< @brief Application defined field.  */
+    threads_queue_t q_waiting; /**< @brief Queue of waiting threads.   */
+    volatile size_t q_counter; /**< @brief Resources counter.          */
+    uint8_t *q_buffer;         /**< @brief Pointer to the queue buffer.*/
+    uint8_t *q_top;            /**< @brief Pointer to the first location
+                                           after the buffer.           */
+    uint8_t *q_wrptr;          /**< @brief Write pointer.              */
+    uint8_t *q_rdptr;          /**< @brief Read pointer.               */
+    qnotify_t q_notify;        /**< @brief Data notification callback. */
+    void *q_link;              /**< @brief Application defined field.  */
 };
 
 /**
@@ -127,16 +127,11 @@ typedef io_queue_t output_queue_t;
  * @param[in] inotify   input notification callback pointer
  * @param[in] link      application defined pointer
  */
-#define _INPUTQUEUE_DATA(name, buffer, size, inotify, link) {               \
-  _THREADS_QUEUE_DATA(name),                                                \
-  0U,                                                                       \
-  (uint8_t *)(buffer),                                                      \
-  (uint8_t *)(buffer) + (size),                                             \
-  (uint8_t *)(buffer),                                                      \
-  (uint8_t *)(buffer),                                                      \
-  (inotify),                                                                \
-  (link)                                                                    \
-}
+#define _INPUTQUEUE_DATA(name, buffer, size, inotify, link)                                        \
+    {                                                                                              \
+        _THREADS_QUEUE_DATA(name), 0U, (uint8_t *)(buffer), (uint8_t *)(buffer) + (size),          \
+            (uint8_t *)(buffer), (uint8_t *)(buffer), (inotify), (link)                            \
+    }
 
 /**
  * @brief   Static input queue initializer.
@@ -149,8 +144,8 @@ typedef io_queue_t output_queue_t;
  * @param[in] inotify   input notification callback pointer
  * @param[in] link      application defined pointer
  */
-#define INPUTQUEUE_DECL(name, buffer, size, inotify, link)                  \
-  input_queue_t name = _INPUTQUEUE_DATA(name, buffer, size, inotify, link)
+#define INPUTQUEUE_DECL(name, buffer, size, inotify, link)                                         \
+    input_queue_t name = _INPUTQUEUE_DATA(name, buffer, size, inotify, link)
 
 /**
  * @brief   Data part of a static output queue initializer.
@@ -163,16 +158,11 @@ typedef io_queue_t output_queue_t;
  * @param[in] onotify   output notification callback pointer
  * @param[in] link      application defined pointer
  */
-#define _OUTPUTQUEUE_DATA(name, buffer, size, onotify, link) {              \
-  _THREADS_QUEUE_DATA(name),                                                \
-  (size),                                                                   \
-  (uint8_t *)(buffer),                                                      \
-  (uint8_t *)(buffer) + (size),                                             \
-  (uint8_t *)(buffer),                                                      \
-  (uint8_t *)(buffer),                                                      \
-  (onotify),                                                                \
-  (link)                                                                    \
-}
+#define _OUTPUTQUEUE_DATA(name, buffer, size, onotify, link)                                       \
+    {                                                                                              \
+        _THREADS_QUEUE_DATA(name), (size), (uint8_t *)(buffer), (uint8_t *)(buffer) + (size),      \
+            (uint8_t *)(buffer), (uint8_t *)(buffer), (onotify), (link)                            \
+    }
 
 /**
  * @brief   Static output queue initializer.
@@ -185,8 +175,8 @@ typedef io_queue_t output_queue_t;
  * @param[in] onotify   output notification callback pointer
  * @param[in] link      application defined pointer
  */
-#define OUTPUTQUEUE_DECL(name, buffer, size, onotify, link)                 \
-  output_queue_t name = _OUTPUTQUEUE_DATA(name, buffer, size, onotify, link)
+#define OUTPUTQUEUE_DECL(name, buffer, size, onotify, link)                                        \
+    output_queue_t name = _OUTPUTQUEUE_DATA(name, buffer, size, onotify, link)
 
 /**
  * @name    Macro Functions
@@ -200,10 +190,9 @@ typedef io_queue_t output_queue_t;
  *
  * @xclass
  */
-#define chQSizeX(qp)                                                        \
-  /*lint -save -e9033 [10.8] The cast is safe.*/                            \
-  ((size_t)((qp)->q_top - (qp)->q_buffer))                                  \
-  /*lint -restore*/
+#define chQSizeX(qp)                                                                               \
+    /*lint -save -e9033 [10.8] The cast is safe.*/                                                 \
+    ((size_t)((qp)->q_top - (qp)->q_buffer)) /*lint -restore*/
 
 /**
  * @brief   Queue space.
@@ -235,21 +224,17 @@ typedef io_queue_t output_queue_t;
 #ifdef __cplusplus
 extern "C" {
 #endif
-  void chIQObjectInit(input_queue_t *iqp, uint8_t *bp, size_t size,
-                      qnotify_t infy, void *link);
-  void chIQResetI(input_queue_t *iqp);
-  msg_t chIQPutI(input_queue_t *iqp, uint8_t b);
-  msg_t chIQGetTimeout(input_queue_t *iqp, systime_t timeout);
-  size_t chIQReadTimeout(input_queue_t *iqp, uint8_t *bp,
-                         size_t n, systime_t timeout);
+void chIQObjectInit(input_queue_t *iqp, uint8_t *bp, size_t size, qnotify_t infy, void *link);
+void chIQResetI(input_queue_t *iqp);
+msg_t chIQPutI(input_queue_t *iqp, uint8_t b);
+msg_t chIQGetTimeout(input_queue_t *iqp, systime_t timeout);
+size_t chIQReadTimeout(input_queue_t *iqp, uint8_t *bp, size_t n, systime_t timeout);
 
-  void chOQObjectInit(output_queue_t *oqp, uint8_t *bp, size_t size,
-                      qnotify_t onfy, void *link);
-  void chOQResetI(output_queue_t *oqp);
-  msg_t chOQPutTimeout(output_queue_t *oqp, uint8_t b, systime_t timeout);
-  msg_t chOQGetI(output_queue_t *oqp);
-  size_t chOQWriteTimeout(output_queue_t *oqp, const uint8_t *bp,
-                          size_t n, systime_t timeout);
+void chOQObjectInit(output_queue_t *oqp, uint8_t *bp, size_t size, qnotify_t onfy, void *link);
+void chOQResetI(output_queue_t *oqp);
+msg_t chOQPutTimeout(output_queue_t *oqp, uint8_t b, systime_t timeout);
+msg_t chOQGetI(output_queue_t *oqp);
+size_t chOQWriteTimeout(output_queue_t *oqp, const uint8_t *bp, size_t n, systime_t timeout);
 #ifdef __cplusplus
 }
 #endif
@@ -269,9 +254,9 @@ extern "C" {
  */
 static inline size_t chIQGetFullI(input_queue_t *iqp) {
 
-  chDbgCheckClassI();
+    chDbgCheckClassI();
 
-  return (size_t)chQSpaceI(iqp);
+    return (size_t)chQSpaceI(iqp);
 }
 
 /**
@@ -285,9 +270,9 @@ static inline size_t chIQGetFullI(input_queue_t *iqp) {
  */
 static inline size_t chIQGetEmptyI(input_queue_t *iqp) {
 
-  chDbgCheckClassI();
+    chDbgCheckClassI();
 
-  return (size_t)(chQSizeX(iqp) - chQSpaceI(iqp));
+    return (size_t)(chQSizeX(iqp) - chQSpaceI(iqp));
 }
 
 /**
@@ -302,9 +287,9 @@ static inline size_t chIQGetEmptyI(input_queue_t *iqp) {
  */
 static inline bool chIQIsEmptyI(input_queue_t *iqp) {
 
-  chDbgCheckClassI();
+    chDbgCheckClassI();
 
-  return (bool)(chQSpaceI(iqp) == 0U);
+    return (bool)(chQSpaceI(iqp) == 0U);
 }
 
 /**
@@ -319,9 +304,9 @@ static inline bool chIQIsEmptyI(input_queue_t *iqp) {
  */
 static inline bool chIQIsFullI(input_queue_t *iqp) {
 
-  chDbgCheckClassI();
+    chDbgCheckClassI();
 
-  return (bool)((iqp->q_wrptr == iqp->q_rdptr) && (iqp->q_counter != 0U));
+    return (bool)((iqp->q_wrptr == iqp->q_rdptr) && (iqp->q_counter != 0U));
 }
 
 /**
@@ -338,7 +323,7 @@ static inline bool chIQIsFullI(input_queue_t *iqp) {
  */
 static inline msg_t chIQGet(input_queue_t *iqp) {
 
-  return chIQGetTimeout(iqp, TIME_INFINITE);
+    return chIQGetTimeout(iqp, TIME_INFINITE);
 }
 
 /**
@@ -352,9 +337,9 @@ static inline msg_t chIQGet(input_queue_t *iqp) {
  */
 static inline size_t chOQGetFullI(output_queue_t *oqp) {
 
-  chDbgCheckClassI();
+    chDbgCheckClassI();
 
-  return (size_t)(chQSizeX(oqp) - chQSpaceI(oqp));
+    return (size_t)(chQSizeX(oqp) - chQSpaceI(oqp));
 }
 
 /**
@@ -368,9 +353,9 @@ static inline size_t chOQGetFullI(output_queue_t *oqp) {
  */
 static inline size_t chOQGetEmptyI(output_queue_t *oqp) {
 
-  chDbgCheckClassI();
+    chDbgCheckClassI();
 
-  return (size_t)chQSpaceI(oqp);
+    return (size_t)chQSpaceI(oqp);
 }
 
 /**
@@ -385,9 +370,9 @@ static inline size_t chOQGetEmptyI(output_queue_t *oqp) {
  */
 static inline bool chOQIsEmptyI(output_queue_t *oqp) {
 
-  chDbgCheckClassI();
+    chDbgCheckClassI();
 
-  return (bool)((oqp->q_wrptr == oqp->q_rdptr) && (oqp->q_counter != 0U));
+    return (bool)((oqp->q_wrptr == oqp->q_rdptr) && (oqp->q_counter != 0U));
 }
 
 /**
@@ -402,9 +387,9 @@ static inline bool chOQIsEmptyI(output_queue_t *oqp) {
  */
 static inline bool chOQIsFullI(output_queue_t *oqp) {
 
-  chDbgCheckClassI();
+    chDbgCheckClassI();
 
-  return (bool)(chQSpaceI(oqp) == 0U);
+    return (bool)(chQSpaceI(oqp) == 0U);
 }
 
 /**
@@ -423,7 +408,7 @@ static inline bool chOQIsFullI(output_queue_t *oqp) {
  */
 static inline msg_t chOQPut(output_queue_t *oqp, uint8_t b) {
 
-  return chOQPutTimeout(oqp, b, TIME_INFINITE);
+    return chOQPutTimeout(oqp, b, TIME_INFINITE);
 }
 
 #endif /* CH_CFG_USE_QUEUES == TRUE */

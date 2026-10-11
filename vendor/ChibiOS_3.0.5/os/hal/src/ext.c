@@ -55,7 +55,7 @@
  */
 void extInit(void) {
 
-  ext_lld_init();
+    ext_lld_init();
 }
 
 /**
@@ -67,8 +67,8 @@ void extInit(void) {
  */
 void extObjectInit(EXTDriver *extp) {
 
-  extp->state  = EXT_STOP;
-  extp->config = NULL;
+    extp->state = EXT_STOP;
+    extp->config = NULL;
 }
 
 /**
@@ -83,15 +83,14 @@ void extObjectInit(EXTDriver *extp) {
  */
 void extStart(EXTDriver *extp, const EXTConfig *config) {
 
-  osalDbgCheck((extp != NULL) && (config != NULL));
+    osalDbgCheck((extp != NULL) && (config != NULL));
 
-  osalSysLock();
-  osalDbgAssert((extp->state == EXT_STOP) || (extp->state == EXT_ACTIVE),
-                "invalid state");
-  extp->config = config;
-  ext_lld_start(extp);
-  extp->state = EXT_ACTIVE;
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert((extp->state == EXT_STOP) || (extp->state == EXT_ACTIVE), "invalid state");
+    extp->config = config;
+    ext_lld_start(extp);
+    extp->state = EXT_ACTIVE;
+    osalSysUnlock();
 }
 
 /**
@@ -103,14 +102,13 @@ void extStart(EXTDriver *extp, const EXTConfig *config) {
  */
 void extStop(EXTDriver *extp) {
 
-  osalDbgCheck(extp != NULL);
+    osalDbgCheck(extp != NULL);
 
-  osalSysLock();
-  osalDbgAssert((extp->state == EXT_STOP) || (extp->state == EXT_ACTIVE),
-                "invalid state");
-  ext_lld_stop(extp);
-  extp->state = EXT_STOP;
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert((extp->state == EXT_STOP) || (extp->state == EXT_ACTIVE), "invalid state");
+    ext_lld_stop(extp);
+    extp->state = EXT_STOP;
+    osalSysUnlock();
 }
 
 /**
@@ -124,15 +122,14 @@ void extStop(EXTDriver *extp) {
  */
 void extChannelEnable(EXTDriver *extp, expchannel_t channel) {
 
-  osalDbgCheck((extp != NULL) && (channel < (expchannel_t)EXT_MAX_CHANNELS));
+    osalDbgCheck((extp != NULL) && (channel < (expchannel_t)EXT_MAX_CHANNELS));
 
-  osalSysLock();
-  osalDbgAssert((extp->state == EXT_ACTIVE) &&
-                ((extp->config->channels[channel].mode &
-                  EXT_CH_MODE_EDGES_MASK) != EXT_CH_MODE_DISABLED),
-                "invalid state");
-  extChannelEnableI(extp, channel);
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert((extp->state == EXT_ACTIVE) && ((extp->config->channels[channel].mode &
+                                                   EXT_CH_MODE_EDGES_MASK) != EXT_CH_MODE_DISABLED),
+                  "invalid state");
+    extChannelEnableI(extp, channel);
+    osalSysUnlock();
 }
 
 /**
@@ -146,15 +143,14 @@ void extChannelEnable(EXTDriver *extp, expchannel_t channel) {
  */
 void extChannelDisable(EXTDriver *extp, expchannel_t channel) {
 
-  osalDbgCheck((extp != NULL) && (channel < (expchannel_t)EXT_MAX_CHANNELS));
+    osalDbgCheck((extp != NULL) && (channel < (expchannel_t)EXT_MAX_CHANNELS));
 
-  osalSysLock();
-  osalDbgAssert((extp->state == EXT_ACTIVE) &&
-                ((extp->config->channels[channel].mode &
-                  EXT_CH_MODE_EDGES_MASK) != EXT_CH_MODE_DISABLED),
-                "invalid state");
-  extChannelDisableI(extp, channel);
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert((extp->state == EXT_ACTIVE) && ((extp->config->channels[channel].mode &
+                                                   EXT_CH_MODE_EDGES_MASK) != EXT_CH_MODE_DISABLED),
+                  "invalid state");
+    extChannelDisableI(extp, channel);
+    osalSysUnlock();
 }
 
 /**
@@ -174,27 +170,23 @@ void extChannelDisable(EXTDriver *extp, expchannel_t channel) {
  *
  * @iclass
  */
-void extSetChannelModeI(EXTDriver *extp,
-                        expchannel_t channel,
-                        const EXTChannelConfig *extcp) {
-  EXTChannelConfig *oldcp;
+void extSetChannelModeI(EXTDriver *extp, expchannel_t channel, const EXTChannelConfig *extcp) {
+    EXTChannelConfig *oldcp;
 
-  osalDbgCheck((extp != NULL) &&
-               (channel < (expchannel_t)EXT_MAX_CHANNELS) &&
-               (extcp != NULL));
+    osalDbgCheck((extp != NULL) && (channel < (expchannel_t)EXT_MAX_CHANNELS) && (extcp != NULL));
 
-  osalDbgAssert(extp->state == EXT_ACTIVE, "invalid state");
+    osalDbgAssert(extp->state == EXT_ACTIVE, "invalid state");
 
-  /* Note that here the access is enforced as non-const, known access
-     violation.*/
-  /*lint -save -e9005 [11.8] Known issue, the driver needs rework here.*/
-  oldcp = (EXTChannelConfig *)&extp->config->channels[channel];
-  /*lint -restore*/
+    /* Note that here the access is enforced as non-const, known access
+       violation.*/
+    /*lint -save -e9005 [11.8] Known issue, the driver needs rework here.*/
+    oldcp = (EXTChannelConfig *)&extp->config->channels[channel];
+    /*lint -restore*/
 
-  /* Overwriting the old channels configuration then the channel is
-     reconfigured by the low level driver.*/
-  *oldcp = *extcp;
-  ext_lld_channel_enable(extp, channel);
+    /* Overwriting the old channels configuration then the channel is
+       reconfigured by the low level driver.*/
+    *oldcp = *extcp;
+    ext_lld_channel_enable(extp, channel);
 }
 
 #endif /* HAL_USE_EXT == TRUE */

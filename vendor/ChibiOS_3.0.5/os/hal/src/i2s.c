@@ -55,7 +55,7 @@
  */
 void i2sInit(void) {
 
-  i2s_lld_init();
+    i2s_lld_init();
 }
 
 /**
@@ -67,8 +67,8 @@ void i2sInit(void) {
  */
 void i2sObjectInit(I2SDriver *i2sp) {
 
-  i2sp->state  = I2S_STOP;
-  i2sp->config = NULL;
+    i2sp->state = I2S_STOP;
+    i2sp->config = NULL;
 }
 
 /**
@@ -81,15 +81,14 @@ void i2sObjectInit(I2SDriver *i2sp) {
  */
 void i2sStart(I2SDriver *i2sp, const I2SConfig *config) {
 
-  osalDbgCheck((i2sp != NULL) && (config != NULL));
+    osalDbgCheck((i2sp != NULL) && (config != NULL));
 
-  osalSysLock();
-  osalDbgAssert((i2sp->state == I2S_STOP) || (i2sp->state == I2S_READY),
-                "invalid state");
-  i2sp->config = config;
-  i2s_lld_start(i2sp);
-  i2sp->state = I2S_READY;
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert((i2sp->state == I2S_STOP) || (i2sp->state == I2S_READY), "invalid state");
+    i2sp->config = config;
+    i2s_lld_start(i2sp);
+    i2sp->state = I2S_READY;
+    osalSysUnlock();
 }
 
 /**
@@ -101,14 +100,13 @@ void i2sStart(I2SDriver *i2sp, const I2SConfig *config) {
  */
 void i2sStop(I2SDriver *i2sp) {
 
-  osalDbgCheck(i2sp != NULL);
+    osalDbgCheck(i2sp != NULL);
 
-  osalSysLock();
-  osalDbgAssert((i2sp->state == I2S_STOP) || (i2sp->state == I2S_READY),
-                "invalid state");
-  i2s_lld_stop(i2sp);
-  i2sp->state = I2S_STOP;
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert((i2sp->state == I2S_STOP) || (i2sp->state == I2S_READY), "invalid state");
+    i2s_lld_stop(i2sp);
+    i2sp->state = I2S_STOP;
+    osalSysUnlock();
 }
 
 /**
@@ -120,12 +118,12 @@ void i2sStop(I2SDriver *i2sp) {
  */
 void i2sStartExchange(I2SDriver *i2sp) {
 
-  osalDbgCheck(i2sp != NULL);
+    osalDbgCheck(i2sp != NULL);
 
-  osalSysLock();
-  osalDbgAssert(i2sp->state == I2S_READY, "not ready");
-  i2sStartExchangeI(i2sp);
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert(i2sp->state == I2S_READY, "not ready");
+    i2sStartExchangeI(i2sp);
+    osalSysUnlock();
 }
 
 /**
@@ -139,15 +137,14 @@ void i2sStartExchange(I2SDriver *i2sp) {
  */
 void i2sStopExchange(I2SDriver *i2sp) {
 
-  osalDbgCheck((i2sp != NULL));
+    osalDbgCheck((i2sp != NULL));
 
-  osalSysLock();
-  osalDbgAssert((i2sp->state == I2S_READY) ||
-                (i2sp->state == I2S_ACTIVE) ||
-                (i2sp->state == I2S_COMPLETE),
-                "invalid state");
-  i2sStopExchangeI(i2sp);
-  osalSysUnlock();
+    osalSysLock();
+    osalDbgAssert((i2sp->state == I2S_READY) || (i2sp->state == I2S_ACTIVE) ||
+                      (i2sp->state == I2S_COMPLETE),
+                  "invalid state");
+    i2sStopExchangeI(i2sp);
+    osalSysUnlock();
 }
 
 #endif /* HAL_USE_I2S == TRUE */

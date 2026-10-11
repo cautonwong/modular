@@ -1,10 +1,15 @@
 #ifndef APP_RELAY_H
 #define APP_RELAY_H
 
+#include "edge/desc.h"
 #include "edge/module.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
+#ifndef RELAY_MODULE_ID
+#define RELAY_MODULE_ID 0x2000u
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -29,6 +34,7 @@ void relay_construct(relay_t *self, uint32_t module_id, uint32_t priority,
 
 /* D51: init/deinit are called by the composition root, not by the scheduler. */
 edge_status_t relay_init(relay_t *self);
+const edge_module_desc_t *relay_descriptor(void);
 edge_status_t relay_deinit(relay_t *self);
 edge_module_t *relay_module(relay_t *self);
 

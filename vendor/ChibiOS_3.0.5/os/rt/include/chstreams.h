@@ -41,15 +41,15 @@
 /**
  * @brief   BaseSequentialStream specific methods.
  */
-#define _base_sequential_stream_methods                                     \
-  /* Stream write buffer method.*/                                          \
-  size_t (*write)(void *instance, const uint8_t *bp, size_t n);             \
-  /* Stream read buffer method.*/                                           \
-  size_t (*read)(void *instance, uint8_t *bp, size_t n);                    \
-  /* Channel put method, blocking.*/                                        \
-  msg_t (*put)(void *instance, uint8_t b);                                  \
-  /* Channel get method, blocking.*/                                        \
-  msg_t (*get)(void *instance);                                             \
+#define _base_sequential_stream_methods                                                            \
+    /* Stream write buffer method.*/                                                               \
+    size_t (*write)(void *instance, const uint8_t *bp, size_t n);                                  \
+    /* Stream read buffer method.*/                                                                \
+    size_t (*read)(void *instance, uint8_t *bp, size_t n);                                         \
+    /* Channel put method, blocking.*/                                                             \
+    msg_t (*put)(void *instance, uint8_t b);                                                       \
+    /* Channel get method, blocking.*/                                                             \
+    msg_t (*get)(void *instance);
 
 /**
  * @brief   @p BaseSequentialStream specific data.
@@ -62,7 +62,7 @@
  * @brief   @p BaseSequentialStream virtual methods table.
  */
 struct BaseSequentialStreamVMT {
-  _base_sequential_stream_methods
+    _base_sequential_stream_methods
 };
 
 /**
@@ -71,9 +71,9 @@ struct BaseSequentialStreamVMT {
  *          data stream.
  */
 typedef struct {
-  /** @brief Virtual Methods Table.*/
-  const struct BaseSequentialStreamVMT *vmt;
-  _base_sequential_stream_data
+    /** @brief Virtual Methods Table.*/
+    const struct BaseSequentialStreamVMT *vmt;
+    _base_sequential_stream_data
 } BaseSequentialStream;
 
 /**

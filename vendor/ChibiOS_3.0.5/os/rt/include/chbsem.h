@@ -73,7 +73,7 @@
  * @brief   Binary semaphore type.
  */
 typedef struct {
-  semaphore_t           bs_sem;
+    semaphore_t bs_sem;
 } binary_semaphore_t;
 
 /*===========================================================================*/
@@ -88,8 +88,8 @@ typedef struct {
  * @param[in] name      the name of the semaphore variable
  * @param[in] taken     the semaphore initial state
  */
-#define _BSEMAPHORE_DATA(name, taken)                                       \
-  {_SEMAPHORE_DATA(name.bs_sem, ((taken) ? 0 : 1))}
+#define _BSEMAPHORE_DATA(name, taken)                                                              \
+    { _SEMAPHORE_DATA(name.bs_sem, ((taken) ? 0 : 1)) }
 
 /**
  * @brief   Static semaphore initializer.
@@ -99,8 +99,7 @@ typedef struct {
  * @param[in] name      the name of the semaphore variable
  * @param[in] taken     the semaphore initial state
  */
-#define BSEMAPHORE_DECL(name, taken)                                        \
-    binary_semaphore_t name = _BSEMAPHORE_DATA(name, taken)
+#define BSEMAPHORE_DECL(name, taken) binary_semaphore_t name = _BSEMAPHORE_DATA(name, taken)
 
 /*===========================================================================*/
 /* External declarations.                                                    */
@@ -123,7 +122,7 @@ typedef struct {
  */
 static inline void chBSemObjectInit(binary_semaphore_t *bsp, bool taken) {
 
-  chSemObjectInit(&bsp->bs_sem, taken ? (cnt_t)0 : (cnt_t)1);
+    chSemObjectInit(&bsp->bs_sem, taken ? (cnt_t)0 : (cnt_t)1);
 }
 
 /**
@@ -140,7 +139,7 @@ static inline void chBSemObjectInit(binary_semaphore_t *bsp, bool taken) {
  */
 static inline msg_t chBSemWait(binary_semaphore_t *bsp) {
 
-  return chSemWait(&bsp->bs_sem);
+    return chSemWait(&bsp->bs_sem);
 }
 
 /**
@@ -157,9 +156,9 @@ static inline msg_t chBSemWait(binary_semaphore_t *bsp) {
  */
 static inline msg_t chBSemWaitS(binary_semaphore_t *bsp) {
 
-  chDbgCheckClassS();
+    chDbgCheckClassS();
 
-  return chSemWaitS(&bsp->bs_sem);
+    return chSemWaitS(&bsp->bs_sem);
 }
 
 /**
@@ -181,12 +180,11 @@ static inline msg_t chBSemWaitS(binary_semaphore_t *bsp) {
  *
  * @sclass
  */
-static inline msg_t chBSemWaitTimeoutS(binary_semaphore_t *bsp,
-                                       systime_t time) {
+static inline msg_t chBSemWaitTimeoutS(binary_semaphore_t *bsp, systime_t time) {
 
-  chDbgCheckClassS();
+    chDbgCheckClassS();
 
-  return chSemWaitTimeoutS(&bsp->bs_sem, time);
+    return chSemWaitTimeoutS(&bsp->bs_sem, time);
 }
 
 /**
@@ -208,10 +206,9 @@ static inline msg_t chBSemWaitTimeoutS(binary_semaphore_t *bsp,
  *
  * @api
  */
-static inline msg_t chBSemWaitTimeout(binary_semaphore_t *bsp,
-                                      systime_t time) {
+static inline msg_t chBSemWaitTimeout(binary_semaphore_t *bsp, systime_t time) {
 
-  return chSemWaitTimeout(&bsp->bs_sem, time);
+    return chSemWaitTimeout(&bsp->bs_sem, time);
 }
 
 /**
@@ -231,9 +228,9 @@ static inline msg_t chBSemWaitTimeout(binary_semaphore_t *bsp,
  */
 static inline void chBSemResetI(binary_semaphore_t *bsp, bool taken) {
 
-  chDbgCheckClassI();
+    chDbgCheckClassI();
 
-  chSemResetI(&bsp->bs_sem, taken ? (cnt_t)0 : (cnt_t)1);
+    chSemResetI(&bsp->bs_sem, taken ? (cnt_t)0 : (cnt_t)1);
 }
 
 /**
@@ -252,7 +249,7 @@ static inline void chBSemResetI(binary_semaphore_t *bsp, bool taken) {
  */
 static inline void chBSemReset(binary_semaphore_t *bsp, bool taken) {
 
-  chSemReset(&bsp->bs_sem, taken ? (cnt_t)0 : (cnt_t)1);
+    chSemReset(&bsp->bs_sem, taken ? (cnt_t)0 : (cnt_t)1);
 }
 
 /**
@@ -265,11 +262,11 @@ static inline void chBSemReset(binary_semaphore_t *bsp, bool taken) {
  */
 static inline void chBSemSignalI(binary_semaphore_t *bsp) {
 
-  chDbgCheckClassI();
+    chDbgCheckClassI();
 
-  if (bsp->bs_sem.s_cnt < (cnt_t)1) {
-    chSemSignalI(&bsp->bs_sem);
-  }
+    if (bsp->bs_sem.s_cnt < (cnt_t)1) {
+        chSemSignalI(&bsp->bs_sem);
+    }
 }
 
 /**
@@ -281,10 +278,10 @@ static inline void chBSemSignalI(binary_semaphore_t *bsp) {
  */
 static inline void chBSemSignal(binary_semaphore_t *bsp) {
 
-  chSysLock();
-  chBSemSignalI(bsp);
-  chSchRescheduleS();
-  chSysUnlock();
+    chSysLock();
+    chBSemSignalI(bsp);
+    chSchRescheduleS();
+    chSysUnlock();
 }
 
 /**
@@ -299,9 +296,9 @@ static inline void chBSemSignal(binary_semaphore_t *bsp) {
  */
 static inline bool chBSemGetStateI(binary_semaphore_t *bsp) {
 
-  chDbgCheckClassI();
+    chDbgCheckClassI();
 
-  return (bsp->bs_sem.s_cnt > (cnt_t)0) ? false : true;
+    return (bsp->bs_sem.s_cnt > (cnt_t)0) ? false : true;
 }
 
 #endif /* CH_CFG_USE_SEMAPHORES == TRUE */

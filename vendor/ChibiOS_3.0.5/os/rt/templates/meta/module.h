@@ -59,8 +59,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-  void chXxxInit(void);
-  void chXxxObjectInit(xxx_t *xxxp);
+void chXxxInit(void);
+void chXxxObjectInit(xxx_t *xxxp);
 #ifdef __cplusplus
 }
 #endif

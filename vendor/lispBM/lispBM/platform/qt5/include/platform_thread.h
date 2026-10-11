@@ -22,7 +22,7 @@
 #include <stdint.h>
 
 typedef struct {
-  void *handle;
+    void *handle;
 } platform_thread_t;
 
 typedef platform_thread_t lbm_thread_t;
@@ -30,22 +30,18 @@ typedef platform_thread_t lbm_thread_t;
 typedef void (*lbm_thread_func_t)(void *arg);
 
 typedef enum {
-  LBM_THREAD_PRIO_LOW      = 0,
-  LBM_THREAD_PRIO_NORMAL   = 1,
-  LBM_THREAD_PRIO_HIGH     = 2,
-  LBM_THREAD_PRIO_REALTIME = 3
+    LBM_THREAD_PRIO_LOW = 0,
+    LBM_THREAD_PRIO_NORMAL = 1,
+    LBM_THREAD_PRIO_HIGH = 2,
+    LBM_THREAD_PRIO_REALTIME = 3
 } lbm_thread_prio_t;
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-bool lbm_thread_create(lbm_thread_t *t,
-                       const char *name,
-                       lbm_thread_func_t func,
-                       void *arg,
-                       lbm_thread_prio_t prio,
-                       uint32_t stack_size);
+bool lbm_thread_create(lbm_thread_t *t, const char *name, lbm_thread_func_t func, void *arg,
+                       lbm_thread_prio_t prio, uint32_t stack_size);
 void lbm_thread_sleep_us(uint32_t microseconds);
 void lbm_thread_yield(void);
 void lbm_thread_destroy(lbm_thread_t *t);

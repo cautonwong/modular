@@ -8,6 +8,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#ifndef PAINT_MODULE_ID
+#define PAINT_MODULE_ID 0x3F00u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

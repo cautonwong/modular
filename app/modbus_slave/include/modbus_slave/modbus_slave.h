@@ -7,6 +7,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef MODBUS_MODULE_ID
+#define MODBUS_MODULE_ID 0x1300u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

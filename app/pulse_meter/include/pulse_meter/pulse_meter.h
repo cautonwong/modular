@@ -7,6 +7,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#ifndef PULSE_METER_MODULE_ID
+#define PULSE_METER_MODULE_ID 0x1500u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

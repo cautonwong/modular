@@ -8,6 +8,10 @@
 #include "edge/module.h"
 #include "edge/modules.h"
 
+#ifndef VESC_CAN_MODULE_ID
+#define VESC_CAN_MODULE_ID 0x5000u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

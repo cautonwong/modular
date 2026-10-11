@@ -18,16 +18,14 @@
 #ifndef REPL_EXTS_H_
 #define REPL_EXTS_H_
 
-#include "lispbm.h"
 #include "extensions/array_extensions.h"
-#include "extensions/string_extensions.h"
 #include "extensions/math_extensions.h"
 #include "extensions/runtime_extensions.h"
-
+#include "extensions/string_extensions.h"
+#include "lispbm.h"
 
 int init_exts(void);
 
 bool dynamic_loader(const char *str, const char **code);
 void set_allow_print(bool);
 #endif
- 

@@ -57,9 +57,9 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-  msg_t chMsgSend(thread_t *tp, msg_t msg);
-  thread_t * chMsgWait(void);
-  void chMsgRelease(thread_t *tp, msg_t msg);
+msg_t chMsgSend(thread_t *tp, msg_t msg);
+thread_t *chMsgWait(void);
+void chMsgRelease(thread_t *tp, msg_t msg);
 #ifdef __cplusplus
 }
 #endif
@@ -78,9 +78,9 @@ extern "C" {
  */
 static inline bool chMsgIsPendingI(thread_t *tp) {
 
-  chDbgCheckClassI();
+    chDbgCheckClassI();
 
-  return (bool)(tp->p_msgqueue.p_next != (thread_t *)&tp->p_msgqueue);
+    return (bool)(tp->p_msgqueue.p_next != (thread_t *)&tp->p_msgqueue);
 }
 
 /**
@@ -95,7 +95,7 @@ static inline bool chMsgIsPendingI(thread_t *tp) {
  */
 static inline msg_t chMsgGet(thread_t *tp) {
 
-  return tp->p_msg;
+    return tp->p_msg;
 }
 
 /**
@@ -110,9 +110,9 @@ static inline msg_t chMsgGet(thread_t *tp) {
  */
 static inline void chMsgReleaseS(thread_t *tp, msg_t msg) {
 
-  chDbgCheckClassS();
+    chDbgCheckClassS();
 
-  chSchWakeupS(tp, msg);
+    chSchWakeupS(tp, msg);
 }
 
 #endif /* CH_CFG_USE_MESSAGES == TRUE */

@@ -9,6 +9,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef ZMK_PM_MODULE_ID
+#define ZMK_PM_MODULE_ID 0x2900u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

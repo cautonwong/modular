@@ -54,19 +54,19 @@
  * @brief   Memory pool free object header.
  */
 struct pool_header {
-  struct pool_header    *ph_next;       /**< @brief Pointer to the next pool
-                                                    header in the list.     */
+    struct pool_header *ph_next; /**< @brief Pointer to the next pool
+                                             header in the list.     */
 };
 
 /**
  * @brief   Memory pool descriptor.
  */
 typedef struct {
-  struct pool_header    *mp_next;       /**< @brief Pointer to the header.  */
-  size_t                mp_object_size; /**< @brief Memory pool objects
-                                                    size.                   */
-  memgetfunc_t          mp_provider;    /**< @brief Memory blocks provider
-                                                    for this pool.          */
+    struct pool_header *mp_next; /**< @brief Pointer to the header.  */
+    size_t mp_object_size;       /**< @brief Memory pool objects
+                                             size.                   */
+    memgetfunc_t mp_provider;    /**< @brief Memory blocks provider
+                                             for this pool.          */
 } memory_pool_t;
 
 /*===========================================================================*/
@@ -82,8 +82,8 @@ typedef struct {
  * @param[in] size      size of the memory pool contained objects
  * @param[in] provider  memory provider function for the memory pool
  */
-#define _MEMORYPOOL_DATA(name, size, provider)                              \
-  {NULL, size, provider}
+#define _MEMORYPOOL_DATA(name, size, provider)                                                     \
+    { NULL, size, provider }
 
 /**
  * @brief Static memory pool initializer in hungry mode.
@@ -95,8 +95,8 @@ typedef struct {
  * @param[in] provider memory provider function for the memory pool or @p NULL
  *                     if the pool is not allowed to grow automatically
  */
-#define MEMORYPOOL_DECL(name, size, provider)                               \
-  memory_pool_t name = _MEMORYPOOL_DATA(name, size, provider)
+#define MEMORYPOOL_DECL(name, size, provider)                                                      \
+    memory_pool_t name = _MEMORYPOOL_DATA(name, size, provider)
 
 /*===========================================================================*/
 /* External declarations.                                                    */
@@ -105,12 +105,12 @@ typedef struct {
 #ifdef __cplusplus
 extern "C" {
 #endif
-  void chPoolObjectInit(memory_pool_t *mp, size_t size, memgetfunc_t provider);
-  void chPoolLoadArray(memory_pool_t *mp, void *p, size_t n);
-  void *chPoolAllocI(memory_pool_t *mp);
-  void *chPoolAlloc(memory_pool_t *mp);
-  void chPoolFreeI(memory_pool_t *mp, void *objp);
-  void chPoolFree(memory_pool_t *mp, void *objp);
+void chPoolObjectInit(memory_pool_t *mp, size_t size, memgetfunc_t provider);
+void chPoolLoadArray(memory_pool_t *mp, void *p, size_t n);
+void *chPoolAllocI(memory_pool_t *mp);
+void *chPoolAlloc(memory_pool_t *mp);
+void chPoolFreeI(memory_pool_t *mp, void *objp);
+void chPoolFree(memory_pool_t *mp, void *objp);
 #ifdef __cplusplus
 }
 #endif
@@ -136,7 +136,7 @@ extern "C" {
  */
 static inline void chPoolAdd(memory_pool_t *mp, void *objp) {
 
-  chPoolFree(mp, objp);
+    chPoolFree(mp, objp);
 }
 
 /**
@@ -156,9 +156,9 @@ static inline void chPoolAdd(memory_pool_t *mp, void *objp) {
  */
 static inline void chPoolAddI(memory_pool_t *mp, void *objp) {
 
-  chDbgCheckClassI();
+    chDbgCheckClassI();
 
-  chPoolFreeI(mp, objp);
+    chPoolFreeI(mp, objp);
 }
 
 #endif /* CH_CFG_USE_MEMPOOLS == TRUE */

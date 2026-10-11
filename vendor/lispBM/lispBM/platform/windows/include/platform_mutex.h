@@ -15,12 +15,11 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-
 #ifndef PLATFORM_MUTEX_H_
 #define PLATFORM_MUTEX_H_
 
-#include <windows.h>
 #include <stdbool.h>
+#include <windows.h>
 
 typedef HANDLE lbm_mutex_t;
 

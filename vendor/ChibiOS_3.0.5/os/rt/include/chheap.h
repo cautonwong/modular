@@ -63,27 +63,27 @@ typedef struct memory_heap memory_heap_t;
  * @brief   Memory heap block header.
  */
 union heap_header {
-  stkalign_t align;
-  struct {
-    union {
-      union heap_header *next;      /**< @brief Next block in free list.    */
-      memory_heap_t     *heap;      /**< @brief Block owner heap.           */
-    } u;                            /**< @brief Overlapped fields.          */
-    size_t              size;       /**< @brief Size of the memory block.   */
-  } h;
+    stkalign_t align;
+    struct {
+        union {
+            union heap_header *next; /**< @brief Next block in free list.    */
+            memory_heap_t *heap;     /**< @brief Block owner heap.           */
+        } u;                         /**< @brief Overlapped fields.          */
+        size_t size;                 /**< @brief Size of the memory block.   */
+    } h;
 };
 
 /**
  * @brief   Structure describing a memory heap.
  */
 struct memory_heap {
-  memgetfunc_t          h_provider; /**< @brief Memory blocks provider for
-                                                this heap.                  */
-  union heap_header     h_free;     /**< @brief Free blocks list header.    */
+    memgetfunc_t h_provider;  /**< @brief Memory blocks provider for
+                                          this heap.                  */
+    union heap_header h_free; /**< @brief Free blocks list header.    */
 #if CH_CFG_USE_MUTEXES == TRUE
-  mutex_t               h_mtx;      /**< @brief Heap access mutex.          */
+    mutex_t h_mtx; /**< @brief Heap access mutex.          */
 #else
-  semaphore_t           h_sem;      /**< @brief Heap access semaphore.      */
+    semaphore_t h_sem; /**< @brief Heap access semaphore.      */
 #endif
 };
 
@@ -98,11 +98,11 @@ struct memory_heap {
 #ifdef __cplusplus
 extern "C" {
 #endif
-  void _heap_init(void);
-  void chHeapObjectInit(memory_heap_t *heapp, void *buf, size_t size);
-  void *chHeapAlloc(memory_heap_t *heapp, size_t size);
-  void chHeapFree(void *p);
-  size_t chHeapStatus(memory_heap_t *heapp, size_t *sizep);
+void _heap_init(void);
+void chHeapObjectInit(memory_heap_t *heapp, void *buf, size_t size);
+void *chHeapAlloc(memory_heap_t *heapp, size_t size);
+void chHeapFree(void *p);
+size_t chHeapStatus(memory_heap_t *heapp, size_t *sizep);
 #ifdef __cplusplus
 }
 #endif

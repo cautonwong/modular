@@ -52,206 +52,200 @@
 
 #include "hal.h"
 
-#include "lwip/opt.h"
 #include "lwip/mem.h"
-#include "lwip/sys.h"
+#include "lwip/opt.h"
 #include "lwip/stats.h"
+#include "lwip/sys.h"
 
 #include "arch/cc.h"
 #include "arch/sys_arch.h"
 
 void sys_init(void) {
-
 }
 
 err_t sys_sem_new(sys_sem_t *sem, u8_t count) {
 
-  *sem = chHeapAlloc(NULL, sizeof(semaphore_t));
-  if (*sem == 0) {
-    SYS_STATS_INC(sem.err);
-    return ERR_MEM;
-  }
-  else {
-    chSemObjectInit(*sem, (cnt_t)count);
-    SYS_STATS_INC_USED(sem);
-    return ERR_OK;
-  }
+    *sem = chHeapAlloc(NULL, sizeof(semaphore_t));
+    if (*sem == 0) {
+        SYS_STATS_INC(sem.err);
+        return ERR_MEM;
+    } else {
+        chSemObjectInit(*sem, (cnt_t)count);
+        SYS_STATS_INC_USED(sem);
+        return ERR_OK;
+    }
 }
 
 void sys_sem_free(sys_sem_t *sem) {
 
-  chHeapFree(*sem);
-  *sem = SYS_SEM_NULL;
-  SYS_STATS_DEC(sem.used);
+    chHeapFree(*sem);
+    *sem = SYS_SEM_NULL;
+    SYS_STATS_DEC(sem.used);
 }
 
 void sys_sem_signal(sys_sem_t *sem) {
 
-  chSemSignal(*sem);
+    chSemSignal(*sem);
 }
 
 /* CHIBIOS FIX: specific variant of this call to be called from within
    a lock.*/
 void sys_sem_signal_S(sys_sem_t *sem) {
 
-  chSemSignalI(*sem);
-  chSchRescheduleS();
+    chSemSignalI(*sem);
+    chSchRescheduleS();
 }
 
 u32_t sys_arch_sem_wait(sys_sem_t *sem, u32_t timeout) {
-  systime_t tmo;
-  u32_t time;
+    systime_t tmo;
+    u32_t time;
 
-  osalSysLock();
-  tmo = timeout > 0 ? MS2ST((systime_t)timeout) : TIME_INFINITE;
-  time = (u32_t)ST2MS(osalOsGetSystemTimeX());
-  if (chSemWaitTimeoutS(*sem, tmo) != MSG_OK)
-    time = SYS_ARCH_TIMEOUT;
-  else
-    time = (u32_t)ST2MS(osalOsGetSystemTimeX()) - time;
-  osalSysUnlock();
-  return time;
+    osalSysLock();
+    tmo = timeout > 0 ? MS2ST((systime_t)timeout) : TIME_INFINITE;
+    time = (u32_t)ST2MS(osalOsGetSystemTimeX());
+    if (chSemWaitTimeoutS(*sem, tmo) != MSG_OK)
+        time = SYS_ARCH_TIMEOUT;
+    else
+        time = (u32_t)ST2MS(osalOsGetSystemTimeX()) - time;
+    osalSysUnlock();
+    return time;
 }
 
 int sys_sem_valid(sys_sem_t *sem) {
-  return *sem != SYS_SEM_NULL;
+    return *sem != SYS_SEM_NULL;
 }
 
 // typically called within lwIP after freeing a semaphore
 // to make sure the pointer is not left pointing to invalid data
 void sys_sem_set_invalid(sys_sem_t *sem) {
-  *sem = SYS_SEM_NULL;
+    *sem = SYS_SEM_NULL;
 }
 
 err_t sys_mbox_new(sys_mbox_t *mbox, int size) {
-  
-  *mbox = chHeapAlloc(NULL, sizeof(mailbox_t) + sizeof(msg_t) * size);
-  if (*mbox == 0) {
-    SYS_STATS_INC(mbox.err);
-    return ERR_MEM;
-  }
-  else {
-    chMBObjectInit(*mbox, (void *)(((uint8_t *)*mbox) + sizeof(mailbox_t)), size);
-    SYS_STATS_INC(mbox.used);
-    return ERR_OK;
-  }
+
+    *mbox = chHeapAlloc(NULL, sizeof(mailbox_t) + sizeof(msg_t) * size);
+    if (*mbox == 0) {
+        SYS_STATS_INC(mbox.err);
+        return ERR_MEM;
+    } else {
+        chMBObjectInit(*mbox, (void *)(((uint8_t *)*mbox) + sizeof(mailbox_t)), size);
+        SYS_STATS_INC(mbox.used);
+        return ERR_OK;
+    }
 }
 
 void sys_mbox_free(sys_mbox_t *mbox) {
-  cnt_t tmpcnt;
+    cnt_t tmpcnt;
 
-  osalSysLock();
-  tmpcnt = chMBGetUsedCountI(*mbox);
-  osalSysUnlock();
+    osalSysLock();
+    tmpcnt = chMBGetUsedCountI(*mbox);
+    osalSysUnlock();
 
-  if (tmpcnt != 0) {
-    // If there are messages still present in the mailbox when the mailbox
-    // is deallocated, it is an indication of a programming error in lwIP
-    // and the developer should be notified.
-    SYS_STATS_INC(mbox.err);
-    chMBReset(*mbox);
-  }
-  chHeapFree(*mbox);
-  *mbox = SYS_MBOX_NULL;
-  SYS_STATS_DEC(mbox.used);
+    if (tmpcnt != 0) {
+        // If there are messages still present in the mailbox when the mailbox
+        // is deallocated, it is an indication of a programming error in lwIP
+        // and the developer should be notified.
+        SYS_STATS_INC(mbox.err);
+        chMBReset(*mbox);
+    }
+    chHeapFree(*mbox);
+    *mbox = SYS_MBOX_NULL;
+    SYS_STATS_DEC(mbox.used);
 }
 
 void sys_mbox_post(sys_mbox_t *mbox, void *msg) {
 
-  chMBPost(*mbox, (msg_t)msg, TIME_INFINITE);
+    chMBPost(*mbox, (msg_t)msg, TIME_INFINITE);
 }
 
 err_t sys_mbox_trypost(sys_mbox_t *mbox, void *msg) {
 
-  if (chMBPost(*mbox, (msg_t)msg, TIME_IMMEDIATE) == MSG_TIMEOUT) {
-    SYS_STATS_INC(mbox.err);
-    return ERR_MEM;
-  }
-  return ERR_OK;
+    if (chMBPost(*mbox, (msg_t)msg, TIME_IMMEDIATE) == MSG_TIMEOUT) {
+        SYS_STATS_INC(mbox.err);
+        return ERR_MEM;
+    }
+    return ERR_OK;
 }
 
 u32_t sys_arch_mbox_fetch(sys_mbox_t *mbox, void **msg, u32_t timeout) {
-  u32_t time;
-  systime_t tmo;
+    u32_t time;
+    systime_t tmo;
 
-  osalSysLock();
-  tmo = timeout > 0 ? MS2ST((systime_t)timeout) : TIME_INFINITE;
-  time = (u32_t)osalOsGetSystemTimeX();
-  if (chMBFetchS(*mbox, (msg_t *)msg, tmo) != MSG_OK)
-    time = SYS_ARCH_TIMEOUT;
-  else
-    time = (u32_t)ST2MS(osalOsGetSystemTimeX()) - time;
-  osalSysUnlock();
-  return time;
+    osalSysLock();
+    tmo = timeout > 0 ? MS2ST((systime_t)timeout) : TIME_INFINITE;
+    time = (u32_t)osalOsGetSystemTimeX();
+    if (chMBFetchS(*mbox, (msg_t *)msg, tmo) != MSG_OK)
+        time = SYS_ARCH_TIMEOUT;
+    else
+        time = (u32_t)ST2MS(osalOsGetSystemTimeX()) - time;
+    osalSysUnlock();
+    return time;
 }
 
 u32_t sys_arch_mbox_tryfetch(sys_mbox_t *mbox, void **msg) {
 
-  if (chMBFetch(*mbox, (msg_t *)msg, TIME_IMMEDIATE) == MSG_TIMEOUT)
-    return SYS_MBOX_EMPTY;
-  return 0;
+    if (chMBFetch(*mbox, (msg_t *)msg, TIME_IMMEDIATE) == MSG_TIMEOUT)
+        return SYS_MBOX_EMPTY;
+    return 0;
 }
 
 int sys_mbox_valid(sys_mbox_t *mbox) {
-  return *mbox != SYS_MBOX_NULL;
+    return *mbox != SYS_MBOX_NULL;
 }
 
 // typically called within lwIP after freeing an mbox
 // to make sure the pointer is not left pointing to invalid data
 void sys_mbox_set_invalid(sys_mbox_t *mbox) {
-  *mbox = SYS_MBOX_NULL;
+    *mbox = SYS_MBOX_NULL;
 }
 
-sys_thread_t sys_thread_new(const char *name, lwip_thread_fn thread,
-                            void *arg, int stacksize, int prio) {
-  size_t wsz;
-  void *wsp;
-  syssts_t sts;
-  thread_t *tp;
+sys_thread_t sys_thread_new(const char *name, lwip_thread_fn thread, void *arg, int stacksize,
+                            int prio) {
+    size_t wsz;
+    void *wsp;
+    syssts_t sts;
+    thread_t *tp;
 
-  (void)name;
-  wsz = THD_WORKING_AREA_SIZE(stacksize);
-  wsp = chCoreAlloc(wsz);
-  if (wsp == NULL)
-    return NULL;
+    (void)name;
+    wsz = THD_WORKING_AREA_SIZE(stacksize);
+    wsp = chCoreAlloc(wsz);
+    if (wsp == NULL)
+        return NULL;
 
 #if CH_DBG_FILL_THREADS == TRUE
-  _thread_memfill((uint8_t *)wsp,
-                  (uint8_t *)wsp + sizeof(thread_t),
-                  CH_DBG_THREAD_FILL_VALUE);
-  _thread_memfill((uint8_t *)wsp + sizeof(thread_t),
-                  (uint8_t *)wsp + wsz,
-                  CH_DBG_STACK_FILL_VALUE);
+    _thread_memfill((uint8_t *)wsp, (uint8_t *)wsp + sizeof(thread_t), CH_DBG_THREAD_FILL_VALUE);
+    _thread_memfill((uint8_t *)wsp + sizeof(thread_t), (uint8_t *)wsp + wsz,
+                    CH_DBG_STACK_FILL_VALUE);
 #endif
 
-  sts = chSysGetStatusAndLockX();
-  tp = chThdCreateI(wsp, wsz, prio, (tfunc_t)thread, arg);
-  chRegSetThreadNameX(tp, name);
-  chThdStartI(tp);
-  chSysRestoreStatusX(sts);
+    sts = chSysGetStatusAndLockX();
+    tp = chThdCreateI(wsp, wsz, prio, (tfunc_t)thread, arg);
+    chRegSetThreadNameX(tp, name);
+    chThdStartI(tp);
+    chSysRestoreStatusX(sts);
 
-  return (sys_thread_t)tp;
+    return (sys_thread_t)tp;
 }
 
 sys_prot_t sys_arch_protect(void) {
 
-  return chSysGetStatusAndLockX();
+    return chSysGetStatusAndLockX();
 }
 
 void sys_arch_unprotect(sys_prot_t pval) {
 
-  osalSysRestoreStatusX((syssts_t)pval);
+    osalSysRestoreStatusX((syssts_t)pval);
 }
 
 u32_t sys_now(void) {
 
 #if OSAL_ST_FREQUENCY == 1000
-  return (u32_t)osalOsGetSystemTimeX();
+    return (u32_t)osalOsGetSystemTimeX();
 #elif (OSAL_ST_FREQUENCY / 1000) >= 1 && (OSAL_ST_FREQUENCY % 1000) == 0
-  return ((u32_t)osalOsGetSystemTimeX() - 1) / (OSAL_ST_FREQUENCY / 1000) + 1;
+    return ((u32_t)osalOsGetSystemTimeX() - 1) / (OSAL_ST_FREQUENCY / 1000) + 1;
 #elif (1000 / OSAL_ST_FREQUENCY) >= 1 && (1000 % OSAL_ST_FREQUENCY) == 0
-  return ((u32_t)osalOsGetSystemTimeX() - 1) * (1000 / OSAL_ST_FREQUENCY) + 1;
+    return ((u32_t)osalOsGetSystemTimeX() - 1) * (1000 / OSAL_ST_FREQUENCY) + 1;
 #else
-  return (u32_t)(((u64_t)(osalOsGetSystemTimeX() - 1) * 1000) / OSAL_ST_FREQUENCY) + 1;
+    return (u32_t)(((u64_t)(osalOsGetSystemTimeX() - 1) * 1000) / OSAL_ST_FREQUENCY) + 1;
 #endif
 }

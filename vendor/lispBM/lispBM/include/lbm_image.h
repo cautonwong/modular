@@ -114,9 +114,8 @@ char *lbm_image_add_symbol_name(const char *name, size_t len);
 lbm_uint *lbm_image_add_and_link_symbol(char *name, lbm_uint id, lbm_uint symlist, lbm_uint *link);
 
 // startup initialization
-void lbm_image_init(uint32_t *image_mem_addr,
-                    uint32_t  image_size,
-                    lbm_image_write_fun  image_write_fun);
+void lbm_image_init(uint32_t *image_mem_addr, uint32_t image_size,
+                    lbm_image_write_fun image_write_fun);
 
 /**
  * Create an image at the address and of the size given to lbm_image_init.
@@ -145,8 +144,6 @@ bool lbm_image_boot(void);
  */
 char *lbm_image_get_version(void);
 
-
-
 /**
  * Sharing table The sharing table lists addresses that are shared
  * (referenced in more than one place). Additionally the sharing
@@ -154,8 +151,8 @@ char *lbm_image_get_version(void);
  * sharing table is in flash) and read multiple times.
  */
 typedef struct {
-  int32_t start;
-  int32_t num;
+    int32_t start;
+    int32_t num;
 } sharing_table;
 
 int32_t sharing_table_contains(sharing_table *st, lbm_uint addr);

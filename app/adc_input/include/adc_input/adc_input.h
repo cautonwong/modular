@@ -8,6 +8,10 @@
 #include "edge/module.h"
 #include "edge/modules.h"
 
+#ifndef ADC_INPUT_MODULE_ID
+#define ADC_INPUT_MODULE_ID 0x4F00u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

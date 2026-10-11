@@ -40,73 +40,71 @@
 extern "C" {
 #endif
 
-#define LM_MAXCAPTURES   32     /* mirrors Lua's LUA_MAXCAPTURES */
+#define LM_MAXCAPTURES 32 /* mirrors Lua's LUA_MAXCAPTURES */
 
 #ifndef LM_MAXCCALLS
-#define LM_MAXCCALLS     60     /* conservative vs Lua's default 200:
-                                    tuned for small embedded C stacks.
-                                    Bounds match()'s C-stack RECURSION
-                                    DEPTH only (deeply nested patterns) --
-                                    see LM_DEFAULT_MAX_ITERATIONS below for
-                                    the separate, independent guard against
-                                    exponential-time backtracking. */
+#define LM_MAXCCALLS                                                                               \
+    60 /* conservative vs Lua's default 200:                                                       \
+           tuned for small embedded C stacks.                                                      \
+           Bounds match()'s C-stack RECURSION                                                      \
+           DEPTH only (deeply nested patterns) --                                                  \
+           see LM_DEFAULT_MAX_ITERATIONS below for                                                 \
+           the separate, independent guard against                                                 \
+           exponential-time backtracking. */
 #endif
 
 #ifndef LM_DEFAULT_MAX_ITERATIONS
-#define LM_DEFAULT_MAX_ITERATIONS 100000  /* default total-work budget (see
-                                    lm_find's max_iterations parameter):
-                                    caps the total number of lm_match()
-                                    calls across one lm_find() attempt.
-                                    Unlike LM_MAXCCALLS, this guards against
-                                    catastrophic backtracking (e.g. chained
-                                    ".*"/"a*" groups against a long
-                                    non-matching string), which stays at
-                                    roughly constant C-stack depth but does
-                                    exponential total work -- a case
-                                    LM_MAXCCALLS does NOT catch. This
-                                    matters more here than in most
-                                    contexts: an LBM extension call runs to
-                                    completion as one atomic C call and
-                                    cannot be preempted by LBM's scheduler
-                                    mid-call, so a pathological pattern
-                                    would otherwise freeze the whole
-                                    runtime, not just one thread. */
+#define LM_DEFAULT_MAX_ITERATIONS                                                                  \
+    100000 /* default total-work budget (see                                                       \
+     lm_find's max_iterations parameter):                                                          \
+     caps the total number of lm_match()                                                           \
+     calls across one lm_find() attempt.                                                           \
+     Unlike LM_MAXCCALLS, this guards against                                                      \
+     catastrophic backtracking (e.g. chained                                                       \
+     ".*"/"a*" groups against a long                                                               \
+     non-matching string), which stays at                                                          \
+     roughly constant C-stack depth but does                                                       \
+     exponential total work -- a case                                                              \
+     LM_MAXCCALLS does NOT catch. This                                                             \
+     matters more here than in most                                                                \
+     contexts: an LBM extension call runs to                                                       \
+     completion as one atomic C call and                                                           \
+     cannot be preempted by LBM's scheduler                                                        \
+     mid-call, so a pathological pattern                                                           \
+     would otherwise freeze the whole                                                              \
+     runtime, not just one thread. */
 #endif
 
 #define LM_CAP_UNFINISHED (-1)
-#define LM_CAP_POSITION   (-2)
+#define LM_CAP_POSITION (-2)
 
 typedef struct {
-  const char *init;
-  ptrdiff_t   len;      /* >=0 length, or LM_CAP_UNFINISHED / LM_CAP_POSITION */
+    const char *init;
+    ptrdiff_t len; /* >=0 length, or LM_CAP_UNFINISHED / LM_CAP_POSITION */
 } lm_capture_t;
 
-typedef enum {
-  LM_NOMATCH = 0,
-  LM_MATCH   = 1,
-  LM_ERROR   = 2
-} lm_status_t;
+typedef enum { LM_NOMATCH = 0, LM_MATCH = 1, LM_ERROR = 2 } lm_status_t;
 
 typedef enum {
-  LM_ERR_NONE = 0,
-  LM_ERR_MALFORMED_PCT,           /* pattern ends with '%' */
-  LM_ERR_MALFORMED_SET,           /* missing ']' in a [...] class */
-  LM_ERR_MALFORMED_BALANCE,       /* missing args to '%b' */
-  LM_ERR_MALFORMED_FRONTIER,      /* missing '[' after '%f' */
-  LM_ERR_TOO_MANY_CAPTURES,
-  LM_ERR_INVALID_PATTERN_CAPTURE, /* unmatched ')' */
-  LM_ERR_INVALID_CAPTURE_INDEX,   /* bad or unfinished %N backreference */
-  LM_ERR_TOO_COMPLEX,             /* matchdepth (recursion depth) exhausted */
-  LM_ERR_ITERATION_LIMIT          /* max_iterations (total work) exhausted */
+    LM_ERR_NONE = 0,
+    LM_ERR_MALFORMED_PCT,      /* pattern ends with '%' */
+    LM_ERR_MALFORMED_SET,      /* missing ']' in a [...] class */
+    LM_ERR_MALFORMED_BALANCE,  /* missing args to '%b' */
+    LM_ERR_MALFORMED_FRONTIER, /* missing '[' after '%f' */
+    LM_ERR_TOO_MANY_CAPTURES,
+    LM_ERR_INVALID_PATTERN_CAPTURE, /* unmatched ')' */
+    LM_ERR_INVALID_CAPTURE_INDEX,   /* bad or unfinished %N backreference */
+    LM_ERR_TOO_COMPLEX,             /* matchdepth (recursion depth) exhausted */
+    LM_ERR_ITERATION_LIMIT          /* max_iterations (total work) exhausted */
 } lm_error_t;
 
 typedef struct {
-  const char   *src_init, *src_end, *p_end;
-  int           matchdepth;
-  size_t        iterations_left;            /* total-work budget, see lm_find */
-  int           level;                      /* number of captures */
-  lm_capture_t  capture[LM_MAXCAPTURES];
-  lm_error_t    error;
+    const char *src_init, *src_end, *p_end;
+    int matchdepth;
+    size_t iterations_left; /* total-work budget, see lm_find */
+    int level;              /* number of captures */
+    lm_capture_t capture[LM_MAXCAPTURES];
+    lm_error_t error;
 } lm_match_state_t;
 
 /*
@@ -136,11 +134,9 @@ typedef struct {
 ** Returns LM_NOMATCH immediately (without touching ms) if
 ** start_offset > text_len.
 */
-lm_status_t lm_find(const char *text, size_t text_len,
-                     const char *pattern, size_t pattern_len,
-                     size_t start_offset, size_t max_iterations,
-                     lm_match_state_t *ms,
-                     size_t *out_start, size_t *out_end);
+lm_status_t lm_find(const char *text, size_t text_len, const char *pattern, size_t pattern_len,
+                    size_t start_offset, size_t max_iterations, lm_match_state_t *ms,
+                    size_t *out_start, size_t *out_end);
 
 #ifdef __cplusplus
 }

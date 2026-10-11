@@ -34,24 +34,24 @@
 /**
  * @brief   Cortex core model.
  */
-#define CORTEX_MODEL            0
+#define CORTEX_MODEL 0
 
 /**
  * @brief   Floating Point unit presence.
  */
-#define CORTEX_HAS_FPU          0
+#define CORTEX_HAS_FPU 0
 
 /**
  * @brief   Number of bits in priority masks.
  */
-#define CORTEX_PRIORITY_BITS    4
+#define CORTEX_PRIORITY_BITS 4
 
 /**
  * @brief   Number of interrupt vectors.
  * @note    This number does not include the 16 system vectors and must be
  *          rounded to a multiple of 8.
  */
-#define CORTEX_NUM_VECTORS      32
+#define CORTEX_NUM_VECTORS 32
 
 /* The following code is not processed when the file is included from an
    asm module.*/
@@ -60,9 +60,8 @@
 /* If the device type is not externally defined, for example from the Makefile,
    then a file named board.h is included. This file must contain a device
    definition compatible with the vendor include file.*/
-#if !defined(STM32L051xx) && !defined(STM32L052xx) &&                       \
-    !defined(STM32L053xx) && !defined(STM32L062xx) &&                       \
-    !defined(STM32L063xx) && !defined(STM32L061xx)
+#if !defined(STM32L051xx) && !defined(STM32L052xx) && !defined(STM32L053xx) &&                     \
+    !defined(STM32L062xx) && !defined(STM32L063xx) && !defined(STM32L061xx)
 #include "board.h"
 #endif
 

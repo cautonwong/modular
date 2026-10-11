@@ -44,56 +44,56 @@ __attribute__((naked, weak))
 #endif
 void port_switch(thread_t *ntp, thread_t *otp) {
 
-  asm volatile ("push    r2");
-  asm volatile ("push    r3");
-  asm volatile ("push    r4");
-  asm volatile ("push    r5");
-  asm volatile ("push    r6");
-  asm volatile ("push    r7");
-  asm volatile ("push    r8");
-  asm volatile ("push    r9");
-  asm volatile ("push    r10");
-  asm volatile ("push    r11");
-  asm volatile ("push    r12");
-  asm volatile ("push    r13");
-  asm volatile ("push    r14");
-  asm volatile ("push    r15");
-  asm volatile ("push    r16");
-  asm volatile ("push    r17");
-  asm volatile ("push    r28");
-  asm volatile ("push    r29");
+    asm volatile("push    r2");
+    asm volatile("push    r3");
+    asm volatile("push    r4");
+    asm volatile("push    r5");
+    asm volatile("push    r6");
+    asm volatile("push    r7");
+    asm volatile("push    r8");
+    asm volatile("push    r9");
+    asm volatile("push    r10");
+    asm volatile("push    r11");
+    asm volatile("push    r12");
+    asm volatile("push    r13");
+    asm volatile("push    r14");
+    asm volatile("push    r15");
+    asm volatile("push    r16");
+    asm volatile("push    r17");
+    asm volatile("push    r28");
+    asm volatile("push    r29");
 
-  asm volatile ("movw    r30, r22");
-  asm volatile ("in      r0, 0x3d");
-  asm volatile ("std     Z+5, r0");
-  asm volatile ("in      r0, 0x3e");
-  asm volatile ("std     Z+6, r0");
+    asm volatile("movw    r30, r22");
+    asm volatile("in      r0, 0x3d");
+    asm volatile("std     Z+5, r0");
+    asm volatile("in      r0, 0x3e");
+    asm volatile("std     Z+6, r0");
 
-  asm volatile ("movw    r30, r24");
-  asm volatile ("ldd     r0, Z+5");
-  asm volatile ("out     0x3d, r0");
-  asm volatile ("ldd     r0, Z+6");
-  asm volatile ("out     0x3e, r0");
+    asm volatile("movw    r30, r24");
+    asm volatile("ldd     r0, Z+5");
+    asm volatile("out     0x3d, r0");
+    asm volatile("ldd     r0, Z+6");
+    asm volatile("out     0x3e, r0");
 
-  asm volatile ("pop     r29");
-  asm volatile ("pop     r28");
-  asm volatile ("pop     r17");
-  asm volatile ("pop     r16");
-  asm volatile ("pop     r15");
-  asm volatile ("pop     r14");
-  asm volatile ("pop     r13");
-  asm volatile ("pop     r12");
-  asm volatile ("pop     r11");
-  asm volatile ("pop     r10");
-  asm volatile ("pop     r9");
-  asm volatile ("pop     r8");
-  asm volatile ("pop     r7");
-  asm volatile ("pop     r6");
-  asm volatile ("pop     r5");
-  asm volatile ("pop     r4");
-  asm volatile ("pop     r3");
-  asm volatile ("pop     r2");
-  asm volatile ("ret");
+    asm volatile("pop     r29");
+    asm volatile("pop     r28");
+    asm volatile("pop     r17");
+    asm volatile("pop     r16");
+    asm volatile("pop     r15");
+    asm volatile("pop     r14");
+    asm volatile("pop     r13");
+    asm volatile("pop     r12");
+    asm volatile("pop     r11");
+    asm volatile("pop     r10");
+    asm volatile("pop     r9");
+    asm volatile("pop     r8");
+    asm volatile("pop     r7");
+    asm volatile("pop     r6");
+    asm volatile("pop     r5");
+    asm volatile("pop     r4");
+    asm volatile("pop     r3");
+    asm volatile("pop     r2");
+    asm volatile("ret");
 }
 
 /**
@@ -110,9 +110,9 @@ __attribute__((weak))
 #endif
 void port_halt(void) {
 
-  port_disable();
-  while (TRUE) {
-  }
+    port_disable();
+    while (TRUE) {
+    }
 }
 
 /**
@@ -122,11 +122,11 @@ void port_halt(void) {
  */
 void _port_thread_start(void) {
 
-  chSysUnlock();
-  asm volatile ("movw    r24, r4");
-  asm volatile ("movw    r30, r2");
-  asm volatile ("icall");
-  asm volatile ("call    chThdExit");
+    chSysUnlock();
+    asm volatile("movw    r24, r4");
+    asm volatile("movw    r30, r2");
+    asm volatile("icall");
+    asm volatile("call    chThdExit");
 }
 
 /** @} */

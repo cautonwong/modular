@@ -70,7 +70,7 @@
  */
 static inline void port_timer_start_alarm(systime_t time) {
 
-  stStartAlarm(time);
+    stStartAlarm(time);
 }
 
 /**
@@ -80,7 +80,7 @@ static inline void port_timer_start_alarm(systime_t time) {
  */
 static inline void port_timer_stop_alarm(void) {
 
-  stStopAlarm();
+    stStopAlarm();
 }
 
 /**
@@ -92,7 +92,7 @@ static inline void port_timer_stop_alarm(void) {
  */
 static inline void port_timer_set_alarm(systime_t time) {
 
-  stSetAlarm(time);
+    stSetAlarm(time);
 }
 
 /**
@@ -104,7 +104,7 @@ static inline void port_timer_set_alarm(systime_t time) {
  */
 static inline systime_t port_timer_get_time(void) {
 
-  return stGetCounter();
+    return stGetCounter();
 }
 
 /**
@@ -116,7 +116,7 @@ static inline systime_t port_timer_get_time(void) {
  */
 static inline systime_t port_timer_get_alarm(void) {
 
-  return stGetAlarm();
+    return stGetAlarm();
 }
 
 #endif /* _CHCORE_TIMER_H_ */

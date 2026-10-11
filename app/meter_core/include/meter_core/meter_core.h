@@ -6,6 +6,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#ifndef METER_MODULE_ID
+#define METER_MODULE_ID 0x1400u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

@@ -28,5 +28,4 @@ void lbm_ecc_extensions_init(void);
 }
 #endif
 
-
 #endif

@@ -38,29 +38,29 @@
 /**
  * @brief   Errors rate warning.
  */
-#define CAN_LIMIT_WARNING           1
+#define CAN_LIMIT_WARNING 1
 /**
  * @brief   Errors rate error.
  */
-#define CAN_LIMIT_ERROR             2
+#define CAN_LIMIT_ERROR 2
 /**
  * @brief   Bus off condition reached.
  */
-#define CAN_BUS_OFF_ERROR           4
+#define CAN_BUS_OFF_ERROR 4
 /**
  * @brief   Framing error of some kind on the CAN bus.
  */
-#define CAN_FRAMING_ERROR           8
+#define CAN_FRAMING_ERROR 8
 /**
  * @brief   Overflow in receive queue.
  */
-#define CAN_OVERFLOW_ERROR          16
+#define CAN_OVERFLOW_ERROR 16
 /** @} */
 
 /**
  * @brief   Special mailbox identifier.
  */
-#define CAN_ANY_MAILBOX             0
+#define CAN_ANY_MAILBOX 0
 
 /*===========================================================================*/
 /* Driver pre-compile time settings.                                         */
@@ -77,7 +77,7 @@
  *          the underlying implementation.
  */
 #if !defined(CAN_USE_SLEEP_MODE) || defined(__DOXYGEN__)
-#define CAN_USE_SLEEP_MODE          TRUE
+#define CAN_USE_SLEEP_MODE TRUE
 #endif
 /** @} */
 
@@ -93,11 +93,11 @@
  * @brief   Driver state machine possible states.
  */
 typedef enum {
-  CAN_UNINIT = 0,                           /**< Not initialized.           */
-  CAN_STOP = 1,                             /**< Stopped.                   */
-  CAN_STARTING = 2,                         /**< Starting.                  */
-  CAN_READY = 3,                            /**< Ready.                     */
-  CAN_SLEEP = 4                             /**< Sleep state.               */
+    CAN_UNINIT = 0,   /**< Not initialized.           */
+    CAN_STOP = 1,     /**< Stopped.                   */
+    CAN_STARTING = 2, /**< Starting.                  */
+    CAN_READY = 3,    /**< Ready.                     */
+    CAN_SLEEP = 4     /**< Sleep state.               */
 } canstate_t;
 
 #include "can_lld.h"
@@ -113,7 +113,7 @@ typedef enum {
 /**
  * @brief   Converts a mailbox index to a bit mask.
  */
-#define CAN_MAILBOX_TO_MASK(mbx) (1 << ((mbx) - 1))
+#define CAN_MAILBOX_TO_MASK(mbx) (1 << ((mbx)-1))
 /** @} */
 
 /*===========================================================================*/
@@ -123,21 +123,15 @@ typedef enum {
 #ifdef __cplusplus
 extern "C" {
 #endif
-  void canInit(void);
-  void canObjectInit(CANDriver *canp);
-  void canStart(CANDriver *canp, const CANConfig *config);
-  void canStop(CANDriver *canp);
-  msg_t canTransmit(CANDriver *canp,
-                    canmbx_t mailbox,
-                    const CANTxFrame *ctfp,
-                    systime_t timeout);
-  msg_t canReceive(CANDriver *canp,
-                   canmbx_t mailbox,
-                   CANRxFrame *crfp,
-                   systime_t timeout);
+void canInit(void);
+void canObjectInit(CANDriver *canp);
+void canStart(CANDriver *canp, const CANConfig *config);
+void canStop(CANDriver *canp);
+msg_t canTransmit(CANDriver *canp, canmbx_t mailbox, const CANTxFrame *ctfp, systime_t timeout);
+msg_t canReceive(CANDriver *canp, canmbx_t mailbox, CANRxFrame *crfp, systime_t timeout);
 #if CAN_USE_SLEEP_MODE
-  void canSleep(CANDriver *canp);
-  void canWakeup(CANDriver *canp);
+void canSleep(CANDriver *canp);
+void canWakeup(CANDriver *canp);
 #endif
 #ifdef __cplusplus
 }

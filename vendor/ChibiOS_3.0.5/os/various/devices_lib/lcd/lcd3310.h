@@ -29,14 +29,14 @@
 /* Driver constants.                                                         */
 /*===========================================================================*/
 
-#define LCD3310_X_RES                  84
-#define LCD3310_Y_RES                  48
+#define LCD3310_X_RES 84
+#define LCD3310_Y_RES 48
 
-#define LCD3310_FONT_X_SIZE             5
-#define LCD3310_FONT_Y_SIZE             8
+#define LCD3310_FONT_X_SIZE 5
+#define LCD3310_FONT_Y_SIZE 8
 
-#define LCD3310_SEND_CMD                0
-#define LCD3310_SEND_DATA               1
+#define LCD3310_SEND_CMD 0
+#define LCD3310_SEND_DATA 1
 
 /*===========================================================================*/
 /* Driver pre-compile time settings.                                         */
@@ -58,7 +58,7 @@
 #error "LCD3310_DC_PIN not defined!!!"
 #endif
 
-#if!defined(LCD3310_DC_PORT)
+#if !defined(LCD3310_DC_PORT)
 #error "LCD3310_DC_PORT not defined!!!"
 #endif
 
@@ -77,14 +77,14 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-  void lcd3310Init(SPIDriver *spip);
-  void lcd3310WriteByte(SPIDriver *spip, uint8_t data, uint8_t cd);
-  void lcd3310Contrast(SPIDriver *spip, uint8_t contrast);
-  void lcd3310Clear(SPIDriver *spip);
-  void lcd3310SetPosXY(SPIDriver *spip, uint8_t x, uint8_t y);
-  void lcd3310WriteChar (SPIDriver *spip, uint8_t ch);
-  void lcd3310WriteText(SPIDriver *spip, const uint8_t * strp);
-  void lcd3310RotateText(SPIDriver *spip, const uint8_t * strp, uint8_t offset);
+void lcd3310Init(SPIDriver *spip);
+void lcd3310WriteByte(SPIDriver *spip, uint8_t data, uint8_t cd);
+void lcd3310Contrast(SPIDriver *spip, uint8_t contrast);
+void lcd3310Clear(SPIDriver *spip);
+void lcd3310SetPosXY(SPIDriver *spip, uint8_t x, uint8_t y);
+void lcd3310WriteChar(SPIDriver *spip, uint8_t ch);
+void lcd3310WriteText(SPIDriver *spip, const uint8_t *strp);
+void lcd3310RotateText(SPIDriver *spip, const uint8_t *strp, uint8_t offset);
 #ifdef __cplusplus
 }
 #endif

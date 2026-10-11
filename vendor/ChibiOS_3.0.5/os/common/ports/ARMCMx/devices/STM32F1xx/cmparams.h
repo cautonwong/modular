@@ -34,24 +34,23 @@
 /**
  * @brief   Cortex core model.
  */
-#define CORTEX_MODEL            3
+#define CORTEX_MODEL 3
 
 /**
  * @brief   Floating Point unit presence.
  */
-#define CORTEX_HAS_FPU          0
+#define CORTEX_HAS_FPU 0
 
 /**
  * @brief   Number of bits in priority masks.
  */
-#define CORTEX_PRIORITY_BITS    4
+#define CORTEX_PRIORITY_BITS 4
 
 /* If the device type is not externally defined, for example from the Makefile,
    then a file named board.h is included. This file must contain a device
    definition compatible with the vendor include file.*/
-#if !defined(STM32F10X_LD) && !defined(STM32F10X_LD_VL) &&                  \
-    !defined(STM32F10X_MD) && !defined(STM32F10X_MD_VL) &&                  \
-    !defined(STM32F10X_HD) && !defined(STM32F10X_HD_VL) &&                  \
+#if !defined(STM32F10X_LD) && !defined(STM32F10X_LD_VL) && !defined(STM32F10X_MD) &&               \
+    !defined(STM32F10X_MD_VL) && !defined(STM32F10X_HD) && !defined(STM32F10X_HD_VL) &&            \
     !defined(STM32F10X_XL) && !defined(STM32F10X_CL)
 #include "board.h"
 #endif
@@ -76,17 +75,13 @@
 #endif /* !defined(_FROM_ASM_) */
 
 #if defined(STM32F10X_CL)
-#define __NVECTORS              72
+#define __NVECTORS 72
 #elif defined(STM32F10X_XL)
-#define __NVECTORS              64
-#elif defined(STM32F10X_LD_VL) ||                                           \
-      defined(STM32F10X_MD_VL) ||                                           \
-      defined(STM32F10X_HD_VL)
-#define __NVECTORS              64
-#elif defined(STM32F10X_LD) ||                                              \
-      defined(STM32F10X_MD) ||                                              \
-      defined(STM32F10X_HD)
-#define __NVECTORS              64
+#define __NVECTORS 64
+#elif defined(STM32F10X_LD_VL) || defined(STM32F10X_MD_VL) || defined(STM32F10X_HD_VL)
+#define __NVECTORS 64
+#elif defined(STM32F10X_LD) || defined(STM32F10X_MD) || defined(STM32F10X_HD)
+#define __NVECTORS 64
 #else
 #error "STM32F1xx device not defined or not recognized"
 #endif
@@ -96,7 +91,7 @@
  * @note    This number does not include the 16 system vectors and must be
  *          rounded to a multiple of 8.
  */
-#define CORTEX_NUM_VECTORS      __NVECTORS
+#define CORTEX_NUM_VECTORS __NVECTORS
 
 #endif /* _CMPARAMS_H_ */
 
