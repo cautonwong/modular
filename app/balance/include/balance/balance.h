@@ -6,7 +6,13 @@
 
 #include "edge/errors.h"
 #include "edge/module.h"
-#include "edge/modules.h"
+#ifndef BALANCE_MODULE_ID
+#define BALANCE_MODULE_ID 0x5300u
+#endif
+
+#ifndef EDGE_MOD_BALANCE
+#define EDGE_MOD_BALANCE BALANCE_MODULE_ID
+#endif
 
 #ifdef __cplusplus
 extern "C" {

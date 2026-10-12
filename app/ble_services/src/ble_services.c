@@ -1,5 +1,12 @@
 #include "ble_services/ble_services.h"
-#include "edge/events.h"
+
+/* Local event fact constants (D31, EVT-013) */
+#ifndef EDGE_EVT_WATCH_HEART_RATE
+#define EDGE_EVT_WATCH_HEART_RATE 0x1605u
+#endif
+#ifndef EDGE_EVT_WATCH_BATTERY
+#define EDGE_EVT_WATCH_BATTERY 0x1606u
+#endif
 
 edge_status_t cts_decode_datetime(const uint8_t *buf, size_t len, cts_datetime_t *out_dt) {
     if (buf == NULL || out_dt == NULL || len < 10u) {

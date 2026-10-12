@@ -23,6 +23,10 @@ FORBIDDEN_RTOS = re.compile(
 FORBIDDEN_SOC = re.compile(
     r'^\s*#\s*include\s*[<"](?:soc/|cmsis|core_cm|stm32|gd32|nrf|rn8|mps2|hal/)', re.M
 )
+# Apps must never include central module or event registries (D55, MOD-013, EVT-013).
+FORBIDDEN_FRAMEWORK_REGISTRIES = re.compile(
+    r'^\s*#\s*include\s*[<"]edge/(?:modules\.h|events\.h)[">]', re.M
+)
 # Direct register access: a volatile pointer cast on a literal address (N3).
 REGISTER_ACCESS = re.compile(
     r'\(\s*volatile\s+[A-Za-z_][A-Za-z0-9_]*\s*\*\s*\)\s*\(?\s*0[xX][0-9A-Fa-f]+'
@@ -54,6 +58,18 @@ def check(root: Path) -> list:
     app_names = {p.name for p in app_root.iterdir() if p.is_dir()}
     forbidden_roots = collect_public_roots(root)
 
+    product_root = root / "product"
+    if product_root.is_dir():
+        for path in sorted(product_root.rglob("*")):
+            if path.suffix not in {".c", ".h", ".cc", ".cpp"}:
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace")
+            rel = path.relative_to(root)
+            if FORBIDDEN_FRAMEWORK_REGISTRIES.search(text):
+                violations.append(
+                    f"{rel}: includes central edge/modules.h or edge/events.h (products must use domain headers)"
+                )
+
     for path in sorted(app_root.rglob("*")):
         if path.suffix not in {".c", ".h", ".cc", ".cpp"}:
             continue
@@ -66,6 +82,10 @@ def check(root: Path) -> list:
             violations.append(f"{rel}: includes a forbidden RTOS header")
         if FORBIDDEN_SOC.search(text):
             violations.append(f"{rel}: includes a SoC/vendor header")
+        if FORBIDDEN_FRAMEWORK_REGISTRIES.search(text):
+            violations.append(
+                f"{rel}: includes central edge/modules.h or edge/events.h (apps must define their own IDs)"
+            )
         for lineno, line in enumerate(text.splitlines(), 1):
             if "N5-allow" in line:
                 continue

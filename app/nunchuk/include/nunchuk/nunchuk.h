@@ -6,7 +6,13 @@
 
 #include "edge/errors.h"
 #include "edge/module.h"
-#include "edge/modules.h"
+#ifndef NUNCHUK_MODULE_ID
+#define NUNCHUK_MODULE_ID 0x5100u
+#endif
+
+#ifndef EDGE_MOD_NUNCHUK
+#define EDGE_MOD_NUNCHUK NUNCHUK_MODULE_ID
+#endif
 
 #ifdef __cplusplus
 extern "C" {

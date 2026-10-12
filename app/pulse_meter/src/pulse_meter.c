@@ -1,7 +1,5 @@
 #include "pulse_meter/pulse_meter.h"
 #include "edge/event.h"
-#include "edge/events.h"
-
 #include <stddef.h>
 
 static edge_status_t pulse_meter_poll(edge_module_t *module) {

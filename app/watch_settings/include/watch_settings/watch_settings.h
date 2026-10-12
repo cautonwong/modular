@@ -9,6 +9,21 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef WATCH_SETTINGS_MODULE_ID
+#define WATCH_SETTINGS_MODULE_ID 0x2F00u
+#endif
+
+#ifndef EDGE_MOD_WATCH_SETTINGS
+#define EDGE_MOD_WATCH_SETTINGS WATCH_SETTINGS_MODULE_ID
+#endif
+
+#ifndef SETTINGS_EVT_CHANGED
+#define SETTINGS_EVT_CHANGED 0x160Eu
+#endif
+#ifndef EDGE_EVT_WATCH_SETTINGS_CHANGED
+#define EDGE_EVT_WATCH_SETTINGS_CHANGED SETTINGS_EVT_CHANGED
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

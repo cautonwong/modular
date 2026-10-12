@@ -9,6 +9,30 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef BLE_SERVICES_MODULE_ID
+#define BLE_SERVICES_MODULE_ID 0x1D00u
+#endif
+
+#ifndef EDGE_MOD_BLE_SERVICES
+#define EDGE_MOD_BLE_SERVICES BLE_SERVICES_MODULE_ID
+#endif
+
+#ifndef EDGE_EVT_WATCH_BLE_CONNECTED
+#define EDGE_EVT_WATCH_BLE_CONNECTED 0x160Au
+#endif
+
+#ifndef EDGE_EVT_WATCH_BLE_DISCONNECTED
+#define EDGE_EVT_WATCH_BLE_DISCONNECTED 0x160Bu
+#endif
+
+#ifndef EDGE_EVT_WATCH_HEART_RATE
+#define EDGE_EVT_WATCH_HEART_RATE 0x1605u
+#endif
+
+#ifndef EDGE_EVT_WATCH_BATTERY
+#define EDGE_EVT_WATCH_BATTERY 0x1606u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

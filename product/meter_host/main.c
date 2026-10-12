@@ -1,8 +1,7 @@
 #include "dlt645/dlt645.h"
 #include "edge/clock.h"
 #include "edge/event.h"
-#include "edge/events.h"
-#include "edge/modules.h"
+#include "edge/product.h"
 #include "example/board.h"
 #include "meter/sys.h"
 #include "relay/relay.h"
@@ -39,9 +38,28 @@ int main(void) {
 
     product_meter_host_make_storage(&storage, flash_state);
     product_meter_host_make_relay_out(&relay_out, gpio_state);
-    dlt645_construct(&dlt645, EDGE_MOD_DLT645, 100u, &storage);
-    relay_construct(&relay, EDGE_MOD_RELAY, 110u, &relay_out);
-    if (dlt645_init(&dlt645) < 0 || relay_init(&relay) < 0)
+    dlt645_construct(&dlt645, DLT645_MODULE_ID, 100u, &storage);
+    relay_construct(&relay, RELAY_MODULE_ID, 110u, &relay_out);
+
+    const edge_product_module_t product_modules[2] = {
+        {.desc = dlt645_descriptor(),
+         .instance = &dlt645,
+         .module = dlt645_module(&dlt645),
+         .deps = NULL},
+        {.desc = relay_descriptor(),
+         .instance = &relay,
+         .module = relay_module(&relay),
+         .deps = NULL},
+    };
+    const edge_product_t product = {
+        .name = "meter_host",
+        .modules = product_modules,
+        .module_count = 2u,
+        .platform_init = NULL,
+        .platform_deinit = NULL,
+    };
+
+    if (edge_product_init(&product) != EDGE_OK)
         return 10; /* D51/D53: assembly-time init belongs to the composition root */
     apps[0] = dlt645_module(&dlt645);
     apps[1] = relay_module(&relay);
@@ -70,8 +88,7 @@ int main(void) {
     }
 
     (void)edge_sys_power_off(&sys);
-    (void)relay_deinit(&relay);
-    (void)dlt645_deinit(&dlt645);
     (void)edge_sys_deinit(&sys);
+    edge_product_shutdown(&product);
     return 0;
 }

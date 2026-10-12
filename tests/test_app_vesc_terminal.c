@@ -7,6 +7,7 @@
 #include <cmocka.h>
 /* clang-format on */
 
+#include "edge/modules.h"
 #include "vesc_terminal/vesc_terminal.h"
 
 typedef struct mock_terminal_hw {

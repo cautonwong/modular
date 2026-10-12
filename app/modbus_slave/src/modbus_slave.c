@@ -1,8 +1,6 @@
 #include "modbus_slave/modbus_slave.h"
 
 #include "edge/event.h"
-#include "edge/events.h"
-
 #define MODBUS_FC_READ_COILS 0x01u
 #define MODBUS_FC_READ_HOLDING 0x03u
 #define MODBUS_FC_WRITE_SINGLE_COIL 0x05u

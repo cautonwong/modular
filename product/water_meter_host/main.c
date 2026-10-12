@@ -1,7 +1,5 @@
 #include "edge/clock.h"
 #include "edge/event.h"
-#include "edge/events.h"
-#include "edge/modules.h"
 #include "edge/pal.h"
 #include "example/board.h"
 #include "meter/sys.h"

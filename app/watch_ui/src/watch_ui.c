@@ -1,5 +1,30 @@
 #include "watch_ui/watch_ui.h"
-#include "edge/events.h"
+
+/* Local event fact constants (D31, EVT-013) */
+#ifndef EDGE_EVT_WATCH_TOUCH
+#define EDGE_EVT_WATCH_TOUCH 0x1601u
+#endif
+#ifndef EDGE_EVT_WATCH_BUTTON
+#define EDGE_EVT_WATCH_BUTTON 0x1602u
+#endif
+#ifndef EDGE_EVT_WATCH_WRIST_WAKE
+#define EDGE_EVT_WATCH_WRIST_WAKE 0x1603u
+#endif
+#ifndef EDGE_EVT_WATCH_TIME_TICK
+#define EDGE_EVT_WATCH_TIME_TICK 0x1607u
+#endif
+#ifndef EDGE_EVT_WATCH_WEATHER_UPDATED
+#define EDGE_EVT_WATCH_WEATHER_UPDATED 0x160Fu
+#endif
+#ifndef EDGE_EVT_WATCH_MUSIC_UPDATED
+#define EDGE_EVT_WATCH_MUSIC_UPDATED 0x1610u
+#endif
+#ifndef EDGE_EVT_WATCH_NAV_UPDATED
+#define EDGE_EVT_WATCH_NAV_UPDATED 0x1611u
+#endif
+#ifndef EDGE_EVT_WATCH_NOTIF_NEW
+#define EDGE_EVT_WATCH_NOTIF_NEW 0x1612u
+#endif
 
 static edge_status_t watch_ui_poll(edge_module_t *module) {
     watch_ui_t *self = (watch_ui_t *)module->private_data;

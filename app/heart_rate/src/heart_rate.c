@@ -1,6 +1,4 @@
 #include "heart_rate/heart_rate.h"
-
-#include "edge/events.h"
 #define PPG_DELTA_T_MS 100u
 #define PPG_SAMPLE_FREQ (1000.0f / (float)PPG_DELTA_T_MS)       /* 10.0 Hz */
 #define PPG_FREQ_RES (PPG_SAMPLE_FREQ / (float)PPG_DATA_LENGTH) /* 0.15625 Hz */

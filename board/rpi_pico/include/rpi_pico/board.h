@@ -10,6 +10,10 @@
 extern "C" {
 #endif
 
+#ifndef EDGE_EVT_ZMK_POSITION_STATE_CHANGED
+#define EDGE_EVT_ZMK_POSITION_STATE_CHANGED 0x2101u
+#endif
+
 /* Raspberry Pi Pico Pinout */
 #define RPI_PICO_PIN_LED 25u
 #define RPI_PICO_PIN_SPI0_SCK 18u

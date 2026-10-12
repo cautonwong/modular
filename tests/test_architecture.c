@@ -66,18 +66,16 @@ static void test_module_contract_size(void **state) {
 
 static void test_error_segment_allocation(void **state) {
     (void)state;
-    assert_true(EDGE_ERR(EDGE_MOD_DLT645, 1u) < EDGE_EINVAL);
-    assert_int_equal(EDGE_ERR(EDGE_MOD_DLT645, 1u), -(int32_t)0x1001);
+    assert_true(EDGE_ERR(0x1000u, 1u) < EDGE_EINVAL);
+    assert_int_equal(EDGE_ERR(0x1000u, 1u), -(int32_t)0x1001);
     assert_int_equal(EDGE_ERR(0xFFFFu, 0u), -(int32_t)0xFF00);
 }
 
 static void test_module_id_segments(void **state) {
     (void)state;
-    assert_int_equal(EDGE_MODULE_SEGMENT(EDGE_MOD_DLT645), EDGE_MOD_DLT645);
-    assert_int_equal(EDGE_MODULE_SEGMENT(EDGE_MOD_DLMS), EDGE_MOD_DLMS);
-    assert_int_equal(EDGE_MODULE_SEGMENT(EDGE_MOD_RELAY), EDGE_MOD_RELAY);
-    assert_true(EDGE_MOD_DLT645 != EDGE_MOD_DLMS);
-    assert_true(EDGE_MOD_DLMS != EDGE_MOD_RELAY);
+    assert_int_equal(EDGE_MODULE_SEGMENT(0x1000u), 0x1000u);
+    assert_int_equal(EDGE_MODULE_SEGMENT(0x1100u), 0x1100u);
+    assert_int_equal(EDGE_MODULE_SEGMENT(0x2000u), 0x2000u);
 }
 
 static void test_narrow_ports(void **state) {

@@ -1,5 +1,9 @@
 #include "alarm/alarm.h"
-#include "edge/events.h"
+
+/* Local event fact constants (D31, EVT-013) */
+#ifndef EDGE_EVT_WATCH_TIME_TICK
+#define EDGE_EVT_WATCH_TIME_TICK 0x1607u
+#endif
 
 static edge_status_t alarm_poll(edge_module_t *module) {
     (void)module;

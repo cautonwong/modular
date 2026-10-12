@@ -8,6 +8,14 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#ifndef GAME_TWOS_MODULE_ID
+#define GAME_TWOS_MODULE_ID 0x3E00u
+#endif
+
+#ifndef EDGE_MOD_GAME_TWOS
+#define EDGE_MOD_GAME_TWOS GAME_TWOS_MODULE_ID
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

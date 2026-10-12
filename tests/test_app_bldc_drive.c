@@ -20,6 +20,7 @@
 #include "bldc_drive/bldc_drive.h"
 #include "edge/errors.h"
 #include "edge/event.h"
+#include "edge/modules.h"
 
 /* The double literal the reference uses, as app/foc_core's header and the app itself define it. */
 #define M_PI 3.14159265358979323846

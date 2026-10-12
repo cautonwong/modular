@@ -7,6 +7,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef FOC_CORE_MODULE_ID
+#define FOC_CORE_MODULE_ID 0x4800u
+#endif
+
+#ifndef EDGE_MOD_FOC_CORE
+#define EDGE_MOD_FOC_CORE FOC_CORE_MODULE_ID
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

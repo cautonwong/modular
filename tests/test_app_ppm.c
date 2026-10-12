@@ -7,6 +7,7 @@
 #include <cmocka.h>
 /* clang-format on */
 
+#include "edge/modules.h"
 #include "ppm/ppm.h"
 
 typedef struct mock_ppm_rcv {

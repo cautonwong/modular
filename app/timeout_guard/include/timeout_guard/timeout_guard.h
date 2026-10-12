@@ -8,6 +8,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef TIMEOUT_GUARD_MODULE_ID
+#define TIMEOUT_GUARD_MODULE_ID 0x4B00u
+#endif
+
+#ifndef EDGE_MOD_TIMEOUT_GUARD
+#define EDGE_MOD_TIMEOUT_GUARD TIMEOUT_GUARD_MODULE_ID
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

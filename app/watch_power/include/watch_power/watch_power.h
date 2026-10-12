@@ -4,6 +4,22 @@
 #include "edge/module.h"
 #include "ports.h"
 
+#ifndef WATCH_POWER_MODULE_ID
+#define WATCH_POWER_MODULE_ID 0x1700u
+#endif
+
+#ifndef EDGE_MOD_WATCH_POWER
+#define EDGE_MOD_WATCH_POWER WATCH_POWER_MODULE_ID
+#endif
+
+#ifndef EDGE_EVT_WATCH_BATTERY
+#define EDGE_EVT_WATCH_BATTERY 0x1606u
+#endif
+
+#ifndef EDGE_EVT_WATCH_TOUCH
+#define EDGE_EVT_WATCH_TOUCH 0x1601u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

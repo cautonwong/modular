@@ -13,6 +13,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef MOTOR_CONFIG_MODULE_ID
+#define MOTOR_CONFIG_MODULE_ID 0x4A00u
+#endif
+
+#ifndef EDGE_MOD_MOTOR_CONFIG
+#define EDGE_MOD_MOTOR_CONFIG MOTOR_CONFIG_MODULE_ID
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

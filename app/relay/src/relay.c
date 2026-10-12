@@ -1,8 +1,6 @@
 #include "relay/relay.h"
 
 #include "edge/event.h"
-#include "edge/events.h"
-
 edge_status_t relay_init(relay_t *self) {
     if (self == NULL || self->out == NULL || self->out->set == NULL)
         return EDGE_EINVAL;

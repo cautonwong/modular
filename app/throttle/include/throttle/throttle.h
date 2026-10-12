@@ -7,6 +7,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef THROTTLE_MODULE_ID
+#define THROTTLE_MODULE_ID 0x4C00u
+#endif
+
+#ifndef EDGE_MOD_THROTTLE
+#define EDGE_MOD_THROTTLE THROTTLE_MODULE_ID
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

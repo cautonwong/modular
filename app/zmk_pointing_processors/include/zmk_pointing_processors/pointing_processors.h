@@ -8,6 +8,14 @@
 #include "edge/errors.h"
 #include "edge/module.h"
 
+#ifndef ZMK_POINTING_PROC_MODULE_ID
+#define ZMK_POINTING_PROC_MODULE_ID 0x4200u
+#endif
+
+#ifndef EDGE_MOD_ZMK_POINTING_PROC
+#define EDGE_MOD_ZMK_POINTING_PROC ZMK_POINTING_PROC_MODULE_ID
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

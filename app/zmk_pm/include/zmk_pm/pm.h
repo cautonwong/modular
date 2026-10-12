@@ -9,6 +9,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef ZMK_PM_MODULE_ID
+#define ZMK_PM_MODULE_ID 0x2900u
+#endif
+
+#ifndef EDGE_MOD_ZMK_PM
+#define EDGE_MOD_ZMK_PM ZMK_PM_MODULE_ID
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

@@ -8,8 +8,6 @@ static void copy_bytes(void *dst, const void *src, size_t n) {
     }
 }
 #include "ble_fs/ble_fs.h"
-#include "edge/events.h"
-
 static void ble_fs_emit_event(ble_fs_t *self, uint32_t event_id, uint32_t arg0) {
     if (self->event_sink != NULL) {
         edge_event_t ev = {

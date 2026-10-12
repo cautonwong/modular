@@ -1,7 +1,6 @@
 #include "foc_core/foc_core.h"
 #include "edge/errors.h"
 #include "edge/module.h"
-#include "edge/modules.h"
 #include <math.h>
 #include <string.h>
 

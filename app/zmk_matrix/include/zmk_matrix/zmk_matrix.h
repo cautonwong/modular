@@ -9,6 +9,18 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef ZMK_MATRIX_MODULE_ID
+#define ZMK_MATRIX_MODULE_ID 0x2100u
+#endif
+
+#ifndef EDGE_MOD_ZMK_MATRIX
+#define EDGE_MOD_ZMK_MATRIX ZMK_MATRIX_MODULE_ID
+#endif
+
+#ifndef EDGE_EVT_ZMK_POSITION_STATE_CHANGED
+#define EDGE_EVT_ZMK_POSITION_STATE_CHANGED 0x2101u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

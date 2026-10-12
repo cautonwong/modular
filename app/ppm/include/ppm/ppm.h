@@ -6,7 +6,13 @@
 
 #include "edge/errors.h"
 #include "edge/module.h"
-#include "edge/modules.h"
+#ifndef PPM_MODULE_ID
+#define PPM_MODULE_ID 0x4E00u
+#endif
+
+#ifndef EDGE_MOD_PPM
+#define EDGE_MOD_PPM PPM_MODULE_ID
+#endif
 
 #ifdef __cplusplus
 extern "C" {
