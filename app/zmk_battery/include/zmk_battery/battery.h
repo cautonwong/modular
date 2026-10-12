@@ -12,6 +12,10 @@
 #define ZMK_BATTERY_MODULE_ID 0x4600u
 #endif
 
+#ifndef EDGE_MOD_ZMK_BATTERY
+#define EDGE_MOD_ZMK_BATTERY ZMK_BATTERY_MODULE_ID
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

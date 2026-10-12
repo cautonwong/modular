@@ -13,6 +13,17 @@
 #define BLE_WEATHER_MODULE_ID 0x3000u
 #endif
 
+#ifndef EDGE_MOD_BLE_WEATHER
+#define EDGE_MOD_BLE_WEATHER BLE_WEATHER_MODULE_ID
+#endif
+
+#ifndef WEATHER_EVT_UPDATED
+#define WEATHER_EVT_UPDATED 0x160Fu
+#endif
+#ifndef EDGE_EVT_WATCH_WEATHER_UPDATED
+#define EDGE_EVT_WATCH_WEATHER_UPDATED WEATHER_EVT_UPDATED
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

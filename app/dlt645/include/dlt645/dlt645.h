@@ -10,6 +10,17 @@
 #define DLT645_MODULE_ID 0x1000u
 #endif
 
+#ifndef EDGE_MOD_DLT645
+#define EDGE_MOD_DLT645 DLT645_MODULE_ID
+#endif
+
+#ifndef DLT645_EVT_RX
+#define DLT645_EVT_RX 0x1001u
+#endif
+#ifndef EDGE_EVT_DLT645_RX
+#define EDGE_EVT_DLT645_RX DLT645_EVT_RX
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

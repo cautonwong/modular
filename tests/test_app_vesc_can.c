@@ -7,6 +7,7 @@
 #include <cmocka.h>
 /* clang-format on */
 
+#include "edge/modules.h"
 #include "vesc_can/vesc_can.h"
 #include "vesc_comm/vesc_comm.h" /* vesc_crc16, for the cross-check */
 

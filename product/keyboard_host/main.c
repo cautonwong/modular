@@ -1,7 +1,5 @@
 #include "edge/clock.h"
 #include "edge/event.h"
-#include "edge/events.h"
-#include "edge/modules.h"
 #include "example/sys.h"
 #include "glue.h"
 #include "hid_report/hid_report.h"

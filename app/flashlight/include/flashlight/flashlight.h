@@ -12,6 +12,10 @@
 #define FLASHLIGHT_MODULE_ID 0x3C00u
 #endif
 
+#ifndef EDGE_MOD_FLASHLIGHT
+#define EDGE_MOD_FLASHLIGHT FLASHLIGHT_MODULE_ID
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

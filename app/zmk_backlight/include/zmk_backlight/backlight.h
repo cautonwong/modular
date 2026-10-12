@@ -12,6 +12,10 @@
 #define ZMK_BACKLIGHT_MODULE_ID 0x4500u
 #endif
 
+#ifndef EDGE_MOD_ZMK_BACKLIGHT
+#define EDGE_MOD_ZMK_BACKLIGHT ZMK_BACKLIGHT_MODULE_ID
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

@@ -24,6 +24,13 @@ static inline void riscv_virt_deadline(uint32_t now_lo, uint32_t now_hi, uint32_
 extern "C" {
 #endif
 
+#ifndef EDGE_EVT_UART0_RX
+#define EDGE_EVT_UART0_RX (0x0100u + 0x01u)
+#endif
+#ifndef EDGE_EVT_BOARD_TIMER0
+#define EDGE_EVT_BOARD_TIMER0 (0x0100u + 0x03u)
+#endif
+
 /*
  * Board: QEMU RISC-V `virt` (RV32, machine mode).
  *

@@ -13,6 +13,10 @@
 #define STOPWATCH_MODULE_ID 0x1F00u
 #endif
 
+#ifndef EDGE_MOD_STOPWATCH
+#define EDGE_MOD_STOPWATCH STOPWATCH_MODULE_ID
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

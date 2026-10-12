@@ -13,6 +13,10 @@
 #define DICE_MODULE_ID 0x3A00u
 #endif
 
+#ifndef EDGE_MOD_DICE
+#define EDGE_MOD_DICE DICE_MODULE_ID
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

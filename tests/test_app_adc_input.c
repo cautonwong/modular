@@ -8,6 +8,7 @@
 /* clang-format on */
 
 #include "adc_input/adc_input.h"
+#include "edge/modules.h"
 
 typedef struct mock_adc {
     float v_throttle;

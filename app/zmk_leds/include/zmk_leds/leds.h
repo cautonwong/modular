@@ -12,6 +12,10 @@
 #define ZMK_LEDS_MODULE_ID 0x4100u
 #endif
 
+#ifndef EDGE_MOD_ZMK_LEDS
+#define EDGE_MOD_ZMK_LEDS ZMK_LEDS_MODULE_ID
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

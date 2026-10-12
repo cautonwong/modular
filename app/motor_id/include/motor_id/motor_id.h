@@ -6,10 +6,12 @@
 
 #include "edge/errors.h"
 #include "edge/module.h"
-#include "edge/modules.h"
-
 #ifndef MOTOR_ID_MODULE_ID
 #define MOTOR_ID_MODULE_ID 0x4D00u
+#endif
+
+#ifndef EDGE_MOD_MOTOR_ID
+#define EDGE_MOD_MOTOR_ID MOTOR_ID_MODULE_ID
 #endif
 
 #ifdef __cplusplus

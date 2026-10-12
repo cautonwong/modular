@@ -13,6 +13,17 @@
 #define BLE_NAV_MODULE_ID 0x3200u
 #endif
 
+#ifndef EDGE_MOD_BLE_NAV
+#define EDGE_MOD_BLE_NAV BLE_NAV_MODULE_ID
+#endif
+
+#ifndef NAV_EVT_UPDATED
+#define NAV_EVT_UPDATED 0x1611u
+#endif
+#ifndef EDGE_EVT_WATCH_NAV_UPDATED
+#define EDGE_EVT_WATCH_NAV_UPDATED NAV_EVT_UPDATED
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

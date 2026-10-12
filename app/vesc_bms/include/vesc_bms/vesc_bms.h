@@ -10,6 +10,10 @@
 #define VESC_BMS_MODULE_ID 0x5500u
 #endif
 
+#ifndef EDGE_MOD_VESC_BMS
+#define EDGE_MOD_VESC_BMS VESC_BMS_MODULE_ID
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

@@ -13,6 +13,17 @@
 #define HEART_RATE_MODULE_ID 0x1900u
 #endif
 
+#ifndef EDGE_MOD_HEART_RATE
+#define EDGE_MOD_HEART_RATE HEART_RATE_MODULE_ID
+#endif
+
+#ifndef HR_EVT_BPM
+#define HR_EVT_BPM 0x1605u
+#endif
+#ifndef EDGE_EVT_WATCH_HEART_RATE
+#define EDGE_EVT_WATCH_HEART_RATE HR_EVT_BPM
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

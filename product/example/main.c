@@ -1,8 +1,6 @@
 #include "dlt645/dlt645.h"
 #include "edge/clock.h"
 #include "edge/event.h"
-#include "edge/events.h"
-#include "edge/modules.h"
 #include "example/board.h"
 #include "example/sys.h"
 

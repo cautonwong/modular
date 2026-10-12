@@ -4,8 +4,6 @@
 #include "bldc_drive/bldc_drive.h"
 #include "edge/clock.h"
 #include "edge/event.h"
-#include "edge/events.h"
-#include "edge/modules.h"
 #include "example/board.h"
 #include "flash/flash.h"
 #include "foc_core/foc_core.h"

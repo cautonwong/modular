@@ -8,9 +8,6 @@ static void copy_bytes(void *dst, const void *src, size_t n) {
     }
 }
 #include "ble_weather/ble_weather.h"
-#include "edge/events.h"
-#include "edge/modules.h"
-
 #define BLE_WEATHER_MSG_CURRENT 0u
 #define BLE_WEATHER_MSG_FORECAST 1u
 
@@ -49,7 +46,7 @@ static edge_status_t weather_poll(edge_module_t *module) {
 
 void ble_weather_init(ble_weather_t *self, const ble_weather_time_port_t *time_port,
                       edge_event_sink_t *event_sink) {
-    ble_weather_construct(self, EDGE_MOD_BLE_WEATHER, 2u, time_port, event_sink);
+    ble_weather_construct(self, BLE_WEATHER_MODULE_ID, 2u, time_port, event_sink);
 }
 
 void ble_weather_construct(ble_weather_t *self, uint32_t module_id, uint32_t priority,
@@ -113,7 +110,7 @@ edge_status_t ble_weather_process_packet(ble_weather_t *self, const uint8_t *dat
         if (self->event_sink != NULL) {
             edge_event_t ev = {
                 .id = EDGE_EVT_WATCH_WEATHER_UPDATED,
-                .source = EDGE_MOD_BLE_WEATHER,
+                .source = BLE_WEATHER_MODULE_ID,
                 .arg0 = (uint32_t)(uint16_t)self->current.temp_raw,
                 .arg1 = 0u,
                 .timestamp = 0u,
@@ -153,7 +150,7 @@ edge_status_t ble_weather_process_packet(ble_weather_t *self, const uint8_t *dat
         if (self->event_sink != NULL) {
             edge_event_t ev = {
                 .id = EDGE_EVT_WATCH_WEATHER_UPDATED,
-                .source = EDGE_MOD_BLE_WEATHER,
+                .source = BLE_WEATHER_MODULE_ID,
                 .arg0 = (uint32_t)nb_days,
                 .arg1 = 0u,
                 .timestamp = 0u,

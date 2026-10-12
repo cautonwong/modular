@@ -1,6 +1,9 @@
 #include "ble_motion/ble_motion.h"
-#include "edge/events.h"
-#include "edge/modules.h"
+
+/* Local event fact constants (D31, EVT-013) */
+#ifndef EDGE_EVT_WATCH_STEP_COUNT
+#define EDGE_EVT_WATCH_STEP_COUNT 0x1604u
+#endif
 
 static edge_status_t motion_poll(edge_module_t *module) {
     (void)module;
@@ -20,7 +23,7 @@ static edge_status_t motion_on_event(edge_module_t *module, const edge_event_t *
 
 void ble_motion_init(ble_motion_t *self, const ble_motion_notify_port_t *notify_port,
                      edge_event_sink_t *event_sink) {
-    ble_motion_construct(self, EDGE_MOD_BLE_MOTION, 2u, notify_port, event_sink);
+    ble_motion_construct(self, BLE_MOTION_MODULE_ID, 2u, notify_port, event_sink);
 }
 
 void ble_motion_construct(ble_motion_t *self, uint32_t module_id, uint32_t priority,
@@ -83,7 +86,7 @@ edge_status_t ble_motion_on_motion_values(ble_motion_t *self, int16_t x, int16_t
     if (self->event_sink != NULL) {
         edge_event_t ev = {
             .id = EDGE_EVT_WATCH_MOTION_STREAM,
-            .source = EDGE_MOD_BLE_MOTION,
+            .source = BLE_MOTION_MODULE_ID,
             .arg0 = (uint32_t)(uint16_t)x | ((uint32_t)(uint16_t)y << 16u),
             .arg1 = (uint32_t)(uint16_t)z,
             .timestamp = 0u,

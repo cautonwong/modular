@@ -7,6 +7,7 @@
 #include <cmocka.h>
 /* clang-format on */
 
+#include "edge/modules.h"
 #include "pas/pas.h"
 
 /*

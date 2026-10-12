@@ -6,10 +6,12 @@
 
 #include "edge/errors.h"
 #include "edge/module.h"
-#include "edge/modules.h"
-
 #ifndef ADC_INPUT_MODULE_ID
 #define ADC_INPUT_MODULE_ID 0x4F00u
+#endif
+
+#ifndef EDGE_MOD_ADC_INPUT
+#define EDGE_MOD_ADC_INPUT ADC_INPUT_MODULE_ID
 #endif
 
 #ifdef __cplusplus

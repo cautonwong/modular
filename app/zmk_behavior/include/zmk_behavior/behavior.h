@@ -4,6 +4,7 @@
 #include "edge/errors.h"
 #include "edge/event.h"
 #include "edge/module.h"
+#include "zmk_behavior/events.h"
 #include "zmk_behavior/ports.h"
 #include <stdbool.h>
 #include <stddef.h>
@@ -11,6 +12,10 @@
 
 #ifndef ZMK_BEHAVIOR_MODULE_ID
 #define ZMK_BEHAVIOR_MODULE_ID 0x2300u
+#endif
+
+#ifndef EDGE_MOD_ZMK_BEHAVIOR
+#define EDGE_MOD_ZMK_BEHAVIOR ZMK_BEHAVIOR_MODULE_ID
 #endif
 
 #ifdef __cplusplus

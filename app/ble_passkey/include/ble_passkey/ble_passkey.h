@@ -12,6 +12,10 @@
 #define BLE_PASSKEY_MODULE_ID 0x3B00u
 #endif
 
+#ifndef EDGE_MOD_BLE_PASSKEY
+#define EDGE_MOD_BLE_PASSKEY BLE_PASSKEY_MODULE_ID
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

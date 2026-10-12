@@ -12,6 +12,10 @@
 #define ZMK_EXT_POWER_MODULE_ID 0x4000u
 #endif
 
+#ifndef EDGE_MOD_ZMK_EXT_POWER
+#define EDGE_MOD_ZMK_EXT_POWER ZMK_EXT_POWER_MODULE_ID
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

@@ -8,6 +8,14 @@
 #define TOUCH_GESTURE_MODULE_ID 0x1600u
 #endif
 
+#ifndef EDGE_MOD_TOUCH_GESTURE
+#define EDGE_MOD_TOUCH_GESTURE TOUCH_GESTURE_MODULE_ID
+#endif
+
+#ifndef EDGE_EVT_WATCH_TOUCH
+#define EDGE_EVT_WATCH_TOUCH 0x1601u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

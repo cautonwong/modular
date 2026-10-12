@@ -11,6 +11,10 @@
 #define VESC_COMM_MODULE_ID 0x4900u
 #endif
 
+#ifndef EDGE_MOD_VESC_COMM
+#define EDGE_MOD_VESC_COMM VESC_COMM_MODULE_ID
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

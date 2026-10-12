@@ -11,6 +11,17 @@
 #define RELAY_MODULE_ID 0x2000u
 #endif
 
+#ifndef EDGE_MOD_RELAY
+#define EDGE_MOD_RELAY RELAY_MODULE_ID
+#endif
+
+#ifndef RELAY_EVT_CHANGED
+#define RELAY_EVT_CHANGED 0x1201u
+#endif
+#ifndef EDGE_EVT_RELAY_CHANGED
+#define EDGE_EVT_RELAY_CHANGED RELAY_EVT_CHANGED
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

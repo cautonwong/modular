@@ -1,6 +1,5 @@
 #include "bldc/sys.h"
 #include "edge/event.h"
-#include "edge/modules.h"
 #include "foc_core/foc_core.h"
 #include "glue.h"
 #include "motor_config/motor_config.h"

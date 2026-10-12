@@ -13,6 +13,10 @@
 #define ZMK_PM_MODULE_ID 0x2900u
 #endif
 
+#ifndef EDGE_MOD_ZMK_PM
+#define EDGE_MOD_ZMK_PM ZMK_PM_MODULE_ID
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

@@ -11,6 +11,24 @@
 #define PULSE_METER_MODULE_ID 0x1500u
 #endif
 
+#ifndef EDGE_MOD_PULSE_METER
+#define EDGE_MOD_PULSE_METER PULSE_METER_MODULE_ID
+#endif
+
+#ifndef PULSE_EVT_COUNT
+#define PULSE_EVT_COUNT 0x1501u
+#endif
+#ifndef EDGE_EVT_PULSE_COUNT
+#define EDGE_EVT_PULSE_COUNT PULSE_EVT_COUNT
+#endif
+
+#ifndef PULSE_EVT_TAMPER
+#define PULSE_EVT_TAMPER 0x1502u
+#endif
+#ifndef EDGE_EVT_TAMPER_DETECTED
+#define EDGE_EVT_TAMPER_DETECTED PULSE_EVT_TAMPER
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

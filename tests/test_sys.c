@@ -13,6 +13,8 @@
 #include "meter/sys.h"
 #include "watch/sys.h"
 
+#define TEST_EVENT_EXTRA 0x1001u
+
 typedef struct fake_app {
     edge_module_t module;
     int poll_count;
@@ -386,7 +388,7 @@ static void test_argument_and_state_guards(void **state) {
     assert_int_equal(edge_sys_subscribe(&sys, EDGE_EVT_UART0_RX, NULL), EDGE_EINVAL);
     assert_int_equal(edge_sys_subscribe(&sys, EDGE_EVT_UART0_RX, &a.module), EDGE_OK);
     assert_int_equal(edge_sys_subscribe(&sys, EDGE_EVT_UART0_TX_DONE, &a.module), EDGE_OK);
-    assert_int_equal(edge_sys_subscribe(&sys, EDGE_EVT_DLT645_RX, &a.module), EDGE_ENOSPC);
+    assert_int_equal(edge_sys_subscribe(&sys, TEST_EVENT_EXTRA, &a.module), EDGE_ENOSPC);
     assert_int_equal(edge_sys_dispatch_events(&sys), EDGE_ESTATE);
     assert_int_equal(edge_sys_power_off(&sys), EDGE_ESTATE);
     assert_int_equal(edge_sys_start(&sys), EDGE_OK);
@@ -394,7 +396,7 @@ static void test_argument_and_state_guards(void **state) {
     assert_int_equal(edge_sys_set_clock(&sys, &clock), EDGE_ESTATE);
     assert_int_equal(edge_sys_set_event_budget(&sys, 2u), EDGE_ESTATE);
     assert_int_equal(edge_sys_bind_event_queue(&sys, &queue, subs, 2u), EDGE_ESTATE);
-    assert_int_equal(edge_sys_subscribe(&sys, EDGE_EVT_DLT645_RX, &a.module), EDGE_ESTATE);
+    assert_int_equal(edge_sys_subscribe(&sys, TEST_EVENT_EXTRA, &a.module), EDGE_ESTATE);
     assert_int_equal(edge_sys_dispatch_events(NULL), EDGE_EINVAL);
     assert_int_equal(edge_sys_init(&fresh, apps, 1u), EDGE_OK);
     assert_int_equal(edge_sys_run_once(NULL), EDGE_ESTATE);

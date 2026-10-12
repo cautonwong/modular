@@ -9,6 +9,7 @@
 
 #include "nunchuk/nunchuk.h"
 
+#include "edge/modules.h"
 #include <math.h>
 
 typedef struct mock_chuk {

@@ -1,6 +1,4 @@
 #include "ble_dfu/ble_dfu.h"
-#include "edge/events.h"
-
 uint16_t ble_dfu_compute_crc16(const uint8_t *data, size_t size, uint16_t init_crc) {
     uint16_t crc = init_crc;
     for (size_t i = 0; i < size; i++) {

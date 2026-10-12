@@ -10,6 +10,10 @@
 #define METER_MODULE_ID 0x1400u
 #endif
 
+#ifndef EDGE_MOD_METER
+#define EDGE_MOD_METER METER_MODULE_ID
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

@@ -13,6 +13,17 @@
 #define BLE_MUSIC_MODULE_ID 0x3100u
 #endif
 
+#ifndef EDGE_MOD_BLE_MUSIC
+#define EDGE_MOD_BLE_MUSIC BLE_MUSIC_MODULE_ID
+#endif
+
+#ifndef MUSIC_EVT_UPDATED
+#define MUSIC_EVT_UPDATED 0x1610u
+#endif
+#ifndef EDGE_EVT_WATCH_MUSIC_UPDATED
+#define EDGE_EVT_WATCH_MUSIC_UPDATED MUSIC_EVT_UPDATED
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

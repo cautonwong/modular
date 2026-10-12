@@ -12,6 +12,10 @@
 #define ZMK_DISPLAY_MODULE_ID 0x4300u
 #endif
 
+#ifndef EDGE_MOD_ZMK_DISPLAY
+#define EDGE_MOD_ZMK_DISPLAY ZMK_DISPLAY_MODULE_ID
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

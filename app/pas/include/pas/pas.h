@@ -6,10 +6,12 @@
 
 #include "edge/errors.h"
 #include "edge/module.h"
-#include "edge/modules.h"
-
 #ifndef PAS_MODULE_ID
 #define PAS_MODULE_ID 0x5200u
+#endif
+
+#ifndef EDGE_MOD_PAS
+#define EDGE_MOD_PAS PAS_MODULE_ID
 #endif
 
 #ifdef __cplusplus

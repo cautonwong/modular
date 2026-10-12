@@ -18,6 +18,8 @@ def check(root: Path) -> tuple:
     text = header.read_text(encoding="utf-8")
     values = {}
     for name, value in re.findall(r"^#define\s+(EDGE_EVT_[A-Z0-9_]+)\s+(.+)$", text, re.M):
+        if name.endswith("_BASE"):
+            continue
         value = value.split("/*", 1)[0].strip()
         direct = re.fullmatch(r"\(?\s*(0x[0-9A-Fa-f]+|[0-9]+)u?\s*\)?", value)
         if direct:
@@ -37,7 +39,7 @@ def check(root: Path) -> tuple:
         for h_path in p_dir.glob("**/include/**/*.h"):
             scanned_headers += 1
             h_text = h_path.read_text(encoding="utf-8", errors="replace")
-            for name, val_expr in re.findall(r"^#define\s+([A-Z0-9_]+_EVT_[A-Z0-9_]+|EDGE_EVT_[A-Z0-9_]+)\s+(.+)$", h_text, re.M):
+            for name, val_expr in re.findall(r"^#define\s+(EDGE_EVT_[A-Z0-9_]+)\s+(.+)$", h_text, re.M):
                 if name.endswith("_BASE"):
                     continue
                 val_expr = val_expr.split("/*", 1)[0].strip()
@@ -48,6 +50,9 @@ def check(root: Path) -> tuple:
                         values[name] = val
                         domain_event_count += 1
                 else:
+                    alias_match = re.fullmatch(r"\(?([A-Z0-9_]+)\)?", val_expr)
+                    if alias_match and alias_match.group(1) in values:
+                        continue
                     rel = re.fullmatch(r"\(?([A-Z0-9_]+)\s*\+\s*(0x[0-9A-Fa-f]+|[0-9]+)u?\)?", val_expr)
                     if rel and rel.group(1) in values:
                         val = values[rel.group(1)] + int(rel.group(2), 0)

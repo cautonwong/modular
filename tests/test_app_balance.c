@@ -9,6 +9,7 @@
 /* clang-format on */
 
 #include "balance/balance.h"
+#include "edge/modules.h"
 
 typedef struct mock_balance_hw {
     float pitch_deg;

@@ -8,9 +8,6 @@ static void copy_bytes(void *dst, const void *src, size_t n) {
     }
 }
 #include "ble_notifications/ble_notifications.h"
-#include "edge/events.h"
-#include "edge/modules.h"
-
 static edge_status_t notif_poll(edge_module_t *module) {
     (void)module;
     return EDGE_OK;
@@ -19,7 +16,7 @@ static edge_status_t notif_poll(edge_module_t *module) {
 void ble_notifications_init(ble_notifications_t *self,
                             const ble_notifications_call_port_t *call_port,
                             edge_event_sink_t *event_sink) {
-    ble_notifications_construct(self, EDGE_MOD_BLE_NOTIFICATIONS, 2u, call_port, event_sink);
+    ble_notifications_construct(self, BLE_NOTIFICATIONS_MODULE_ID, 2u, call_port, event_sink);
 }
 
 void ble_notifications_construct(ble_notifications_t *self, uint32_t module_id, uint32_t priority,
@@ -85,7 +82,7 @@ uint8_t ble_notifications_push(ble_notifications_t *self, uint8_t category, cons
     if (self->event_sink != NULL) {
         edge_event_t ev = {
             .id = EDGE_EVT_WATCH_NOTIF_NEW,
-            .source = EDGE_MOD_BLE_NOTIFICATIONS,
+            .source = BLE_NOTIFICATIONS_MODULE_ID,
             .arg0 = ((uint32_t)category << 8u) | (uint32_t)id,
             .arg1 = 0u,
             .timestamp = 0u,
@@ -197,7 +194,7 @@ bool ble_notifications_dismiss(ble_notifications_t *self, uint8_t id) {
             if (self->event_sink != NULL) {
                 edge_event_t ev = {
                     .id = EDGE_EVT_WATCH_NOTIF_DISMISSED,
-                    .source = EDGE_MOD_BLE_NOTIFICATIONS,
+                    .source = BLE_NOTIFICATIONS_MODULE_ID,
                     .arg0 = (uint32_t)id,
                     .arg1 = 0u,
                     .timestamp = 0u,

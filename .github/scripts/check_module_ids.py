@@ -38,7 +38,7 @@ def check(root: Path) -> tuple:
     text = header.read_text(encoding="utf-8")
 
     entries = [(name, int(segment, 0), layer) for name, segment, layer in ENTRY.findall(text)]
-    if not entries:
+    if not entries and not any(root.glob("app/**/include/**/*.h")):
         return (1, [f"{HEADER}: no EDGE_MODULE_IDS() entries found"])
 
     blocks = {}

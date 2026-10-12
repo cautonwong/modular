@@ -12,6 +12,10 @@
 #define ZMK_ENDPOINTS_MODULE_ID 0x2500u
 #endif
 
+#ifndef EDGE_MOD_ZMK_ENDPOINTS
+#define EDGE_MOD_ZMK_ENDPOINTS ZMK_ENDPOINTS_MODULE_ID
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

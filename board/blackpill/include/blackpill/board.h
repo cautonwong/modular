@@ -10,6 +10,13 @@
 extern "C" {
 #endif
 
+#ifndef EDGE_EVT_WATCH_BUTTON
+#define EDGE_EVT_WATCH_BUTTON 0x1602u
+#endif
+#ifndef EDGE_EVT_ZMK_POSITION_STATE_CHANGED
+#define EDGE_EVT_ZMK_POSITION_STATE_CHANGED 0x2101u
+#endif
+
 /* WeAct BlackPill Pinout */
 #define BLACKPILL_PIN_LED 13u      /* PC13 */
 #define BLACKPILL_PIN_KEY 0u       /* PA0 */

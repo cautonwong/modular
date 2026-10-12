@@ -4,6 +4,7 @@
 #include "edge/errors.h"
 #include "edge/event.h"
 #include "edge/module.h"
+#include "events.h"
 #include "ports.h"
 #include <stdbool.h>
 #include <stddef.h>
@@ -11,6 +12,10 @@
 
 #ifndef WATCH_UI_MODULE_ID
 #define WATCH_UI_MODULE_ID 0x1B00u
+#endif
+
+#ifndef EDGE_MOD_WATCH_UI
+#define EDGE_MOD_WATCH_UI WATCH_UI_MODULE_ID
 #endif
 
 #ifdef __cplusplus

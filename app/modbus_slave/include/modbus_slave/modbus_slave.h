@@ -11,6 +11,17 @@
 #define MODBUS_MODULE_ID 0x1300u
 #endif
 
+#ifndef EDGE_MOD_MODBUS
+#define EDGE_MOD_MODBUS MODBUS_MODULE_ID
+#endif
+
+#ifndef MODBUS_EVT_RX
+#define MODBUS_EVT_RX 0x1301u
+#endif
+#ifndef EDGE_EVT_MODBUS_RX
+#define EDGE_EVT_MODBUS_RX MODBUS_EVT_RX
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

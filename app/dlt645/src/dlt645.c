@@ -1,7 +1,5 @@
 #include "dlt645/dlt645.h"
 #include "edge/event.h"
-#include "edge/events.h"
-
 edge_status_t dlt645_init(dlt645_t *self) {
     if (self == NULL || self->storage == NULL || self->storage->read == NULL)
         return EDGE_EINVAL;

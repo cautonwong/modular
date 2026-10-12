@@ -7,10 +7,12 @@
 #include "bldc_drive/bldc_commutation.h"
 #include "edge/errors.h"
 #include "edge/module.h"
-#include "edge/modules.h"
-
 #ifndef BLDC_DRIVE_MODULE_ID
 #define BLDC_DRIVE_MODULE_ID 0x5600u
+#endif
+
+#ifndef EDGE_MOD_BLDC_DRIVE
+#define EDGE_MOD_BLDC_DRIVE BLDC_DRIVE_MODULE_ID
 #endif
 
 #ifdef __cplusplus

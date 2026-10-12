@@ -13,6 +13,17 @@
 #define BLE_DFU_MODULE_ID 0x3600u
 #endif
 
+#ifndef EDGE_MOD_BLE_DFU
+#define EDGE_MOD_BLE_DFU BLE_DFU_MODULE_ID
+#endif
+
+#ifndef DFU_EVT_STATE
+#define DFU_EVT_STATE 0x1616u
+#endif
+#ifndef EDGE_EVT_WATCH_DFU_STATE
+#define EDGE_EVT_WATCH_DFU_STATE DFU_EVT_STATE
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
