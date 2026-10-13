@@ -10,4 +10,12 @@
 
 #define SQ(x) ((x) * (x))
 
+static inline void utils_truncate_number(float *number, float min, float max) {
+	if (*number > max) {
+		*number = max;
+	} else if (*number < min) {
+		*number = min;
+	}
+}
+
 #endif /* UTILS_MATH_H_ */
