@@ -14,7 +14,7 @@ edge_status_t edge_pm_init(edge_pm_state_t *pm, uint64_t stop_threshold_ticks,
 }
 
 edge_status_t edge_pm_lock(edge_pm_state_t *pm, edge_pm_mode_t mode) {
-    if (pm == NULL || (int)mode < 0 || mode >= EDGE_PM_MODE_COUNT)
+    if (pm == NULL || mode >= EDGE_PM_MODE_COUNT)
         return EDGE_EINVAL;
     if (pm->lock_counts[mode] == UINT32_MAX)
         return EDGE_EOVERFLOW;
@@ -23,7 +23,7 @@ edge_status_t edge_pm_lock(edge_pm_state_t *pm, edge_pm_mode_t mode) {
 }
 
 edge_status_t edge_pm_unlock(edge_pm_state_t *pm, edge_pm_mode_t mode) {
-    if (pm == NULL || (int)mode < 0 || mode >= EDGE_PM_MODE_COUNT)
+    if (pm == NULL || mode >= EDGE_PM_MODE_COUNT)
         return EDGE_EINVAL;
     if (pm->lock_counts[mode] == 0u)
         return EDGE_ESTATE;

@@ -50,7 +50,7 @@ imu_device_t mpu9150_device(imu_transport_t *transport, mpu9150_state_t *state);
 #define MPU9150_ASAX 0x10
 #define MPU9150_ASAY 0x11
 #define MPU9150_ASAZ 0x12
-//#define MPU9150_ASTC    0x13 // ??
+// #define MPU9150_ASTC 0x13 // ??
 
 // Gyroscope/accelerometer registers
 #define MPU9150_SELF_TEST_X 0x0D

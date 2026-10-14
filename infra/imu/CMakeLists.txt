@@ -1,9 +1,11 @@
-# The IMU application layer: the register access and device interfaces, the drivers behind them, and -
-# for the one part that has a vendor driver of its own - that driver as it came.
-
 # Bosch's BMI160 driver, vendored whole from the reference's imu/BMI160_driver. It is not this
 # repository's code and is not linted as if it were: warnings are off for this target alone, so that
 # the port's own warnings-as-errors stay meaningful for everything it wrote itself.
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "riscv32")
+    edge_add_infra(imu HEADERS DEPS edge_module)
+    return()
+endif()
+
 add_library(bmi160_vendor STATIC vendor/bmi160/bmi160.c)
 target_include_directories(bmi160_vendor PUBLIC vendor/bmi160)
 if(NOT MSVC)
