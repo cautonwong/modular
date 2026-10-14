@@ -1636,7 +1636,7 @@ static edge_status_t apply_var_write(void *self, uint16_t index, uint16_t value)
  * back.
  */
 static edge_status_t param_bemf_difference(void *self, float *v_diff, float *ph_now_raw) {
-    vesc_host_glue_state_t *glue = (vesc_host_glue_state_t *)self;
+    const vesc_host_glue_state_t *glue = (const vesc_host_glue_state_t *)self;
     if (glue == (void *)0 || v_diff == (void *)0 || ph_now_raw == (void *)0) {
         return EDGE_EINVAL;
     }
@@ -1647,7 +1647,7 @@ static edge_status_t param_bemf_difference(void *self, float *v_diff, float *ph_
 }
 
 static float param_bemf_v_in(void *self) {
-    vesc_host_glue_state_t *glue = (vesc_host_glue_state_t *)self;
+    const vesc_host_glue_state_t *glue = (const vesc_host_glue_state_t *)self;
     return (glue != (void *)0) ? glue->v_bus : 0.0f;
 }
 

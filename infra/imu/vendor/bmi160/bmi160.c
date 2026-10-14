@@ -1403,7 +1403,7 @@ int8_t bmi160_get_regs(uint8_t reg_addr, uint8_t *data, uint16_t len, const stru
 int8_t bmi160_set_regs(uint8_t reg_addr, uint8_t *data, uint16_t len, const struct bmi160_dev *dev)
 {
     int8_t rslt = BMI160_OK;
-    uint8_t count = 0;
+    uint16_t count = 0;
 
     /* Null-pointer check */
     if ((dev == NULL) || (dev->write == NULL))
@@ -1881,7 +1881,7 @@ int8_t bmi160_aux_read(uint8_t reg_addr, uint8_t *aux_data, uint16_t len, const 
 int8_t bmi160_aux_write(uint8_t reg_addr, uint8_t *aux_data, uint16_t len, const struct bmi160_dev *dev)
 {
     int8_t rslt = BMI160_OK;
-    uint8_t count = 0;
+    uint16_t count = 0;
 
     /* Null-pointer check */
     if ((dev == NULL) || (dev->write == NULL))
@@ -4624,7 +4624,7 @@ static int8_t extract_aux_read(uint16_t map_len,
     int8_t rslt = BMI160_OK;
     uint8_t data[8] = { 0, };
     uint8_t read_addr = BMI160_AUX_DATA_ADDR;
-    uint8_t count = 0;
+    uint16_t count = 0;
     uint8_t read_count;
     uint8_t read_len = (uint8_t)map_len;
 
