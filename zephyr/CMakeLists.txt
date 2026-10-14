@@ -16,6 +16,7 @@ if(CONFIG_MODULAR)
         ../app/meter_core/include
         ../app/modbus_slave/include
         ../app/relay/include
+        ../board/example/include
     )
 
     zephyr_library_sources(
