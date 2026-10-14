@@ -173,7 +173,7 @@ jobs:
             -DEDGE_MODULE_BUILD_EXAMPLE=OFF \
             -DEDGE_MODULE_ENABLE_WERROR=ON
       - name: Build RISC-V ELF and binary
-        run: cmake --build build-rv --parallel
+        run: cmake --build build-rv --target riscv_meter --parallel
       - name: Verify RISC-V ELF
         env:
           SIZE_TOOL: riscv64-unknown-elf-size

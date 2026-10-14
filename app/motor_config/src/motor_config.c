@@ -83,12 +83,7 @@ edge_status_t motor_config_init(motor_config_t *self) {
          * hold it to.
          */
         if (motor_config_load_app(self) != EDGE_OK) {
-            uint8_t app_defaults[512];
-            size_t app_len = 0u;
-            if (motor_config_serialize_app_defaults(app_defaults, sizeof(app_defaults), &app_len) ==
-                EDGE_OK) {
-                (void)motor_config_apply_app_stream_nostore(self, app_defaults, app_len);
-            }
+            motor_config_set_defaults((void *)0, &self->appconf);
         }
     }
 
@@ -383,10 +378,13 @@ edge_status_t motor_config_serialize_app_defaults(uint8_t *out, size_t buf_size,
     }
 
     /* The reference's COMM_GET_APPCONF_DEFAULT: the defaults, nothing carried over. */
-    mc_configuration_t mc;
-    app_configuration_t app;
-    motor_config_set_defaults(&mc, &app);
-    return motor_config_serialize_app(&app, out, buf_size, out_len);
+    static app_configuration_t default_app;
+    static bool default_app_inited = false;
+    if (!default_app_inited) {
+        motor_config_set_defaults((void *)0, &default_app);
+        default_app_inited = true;
+    }
+    return motor_config_serialize_app(&default_app, out, buf_size, out_len);
 }
 
 bool motor_config_is_dirty(const motor_config_t *self) {
