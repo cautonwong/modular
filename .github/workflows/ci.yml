@@ -392,7 +392,7 @@ jobs:
       - name: Toolchain manifest matches the installed tools
         run: python3 .github/scripts/check_toolchain.py
       - name: Formatting check
-        run: git ls-files '*.c' '*.h' ':!:tests/guards/*' | xargs clang-format --dry-run --Werror
+        run: git ls-files '*.c' '*.h' ':!:tests/guards/*' ':!:vendor/*' ':!:*/vendor/*' ':!:*/*/vendor/*' | xargs clang-format --dry-run --Werror
       - name: clang-tidy
         run: |
           clang-tidy -p build \

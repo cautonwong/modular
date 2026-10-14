@@ -274,6 +274,9 @@ edge_status_t vesc_host_apply_ppm(vesc_host_glue_state_t *state) {
         if (cmd.current_mode_brake) {
             return motor_set_current_brake(state->foc, fabsf(cmd.current));
         }
+        if (fabsf(cmd.current) < 1e-4f) {
+            return EDGE_OK;
+        }
         return motor_set_current(state->foc, cmd.current);
     case PPM_CMD_DUTY:
         return motor_set_duty(state->foc, cmd.duty);

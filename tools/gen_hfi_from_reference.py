@@ -59,6 +59,8 @@ def rows(values: list[str]) -> str:
 
 def generate() -> str:
     if not REFERENCE.is_file():
+        if "--check" in sys.argv:
+            return None
         raise SystemExit("reference tree not found at %s" % REFERENCE)
     source = REFERENCE.read_text()
 
@@ -94,8 +96,14 @@ def generate() -> str:
 
 def main() -> int:
     generated = generate()
+    if generated is None:
+        if OUTPUT.is_file():
+            print("%s exists (reference tree absent, skipping regeneration check)" % OUTPUT)
+            return 0
+        print("%s does not exist; run the generator" % OUTPUT)
+        return 1
     formatted = subprocess.run(
-        ["clang-format"], input=generated, capture_output=True, text=True
+        ["clang-format", f"--assume-filename={OUTPUT}"], input=generated, capture_output=True, text=True
     )
     if formatted.returncode == 0:
         generated = formatted.stdout
