@@ -161,8 +161,7 @@ static void test_vesc_can_send_buffer_framing(void **state) {
     assert_int_equal(vesc_can_send_buffer(&app, 3u, short_payload, sizeof(short_payload), 1u),
                      EDGE_OK);
     assert_int_equal(bus.tx_count, 1);
-    assert_int_equal(bus.tx[0].id,
-                     (5u == 5u) ? ((uint32_t)CAN_PACKET_PROCESS_SHORT_BUFFER << 8) | 3u : 0u);
+    assert_int_equal(bus.tx[0].id, ((uint32_t)CAN_PACKET_PROCESS_SHORT_BUFFER << 8) | 3u);
     assert_int_equal(bus.tx[0].len, 6u);
     assert_int_equal(bus.tx[0].data[0], 7u); /* our own controller id */
     assert_int_equal(bus.tx[0].data[1], 1u); /* the send flag, passed through */

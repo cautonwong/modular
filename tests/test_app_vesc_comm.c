@@ -1816,7 +1816,7 @@ static void test_detect_param_is_refused_and_apply_all_forwards(void **state) {
 
     /* The reply is the command id and the run's result, an int16, which is what the reference
      * sends back for this command. */
-    assert_true(tx.tx_count > 0u);
+    assert_true(tx.tx_count != 0u);
     const uint8_t *reply = tx.tx_buf + 2u; /* past the start byte and the length */
     assert_int_equal(reply[0], COMM_DETECT_APPLY_ALL_FOC);
     assert_int_equal((int16_t)(((uint16_t)reply[1] << 8) | (uint16_t)reply[2]), -7);

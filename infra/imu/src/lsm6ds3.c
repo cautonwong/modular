@@ -168,10 +168,6 @@ static bool configure(imu_device_t *dev, imu_filter_t filter, bool use_mag) {
             regv = LSM6DS3TRC_FTYPE_H;
         }
         ok = ok && write_reg(dev, LSM6DS3_ACC_GYRO_CTRL6_G, regv);
-    }
-
-    /* CTRL4_C, whose meaning differs between the two variants. */
-    if (is_trc) {
         regv = LSM6DS3_ACC_GYRO_LPF1_SEL_G_ENABLED;
     } else {
         regv = LSM6DS3_ACC_GYRO_BW_SCAL_ODR_ENABLED;
