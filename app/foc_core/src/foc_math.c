@@ -631,9 +631,6 @@ void foc_hfi_excite_six_vector(foc_hfi_state_t *hfi, const foc_hfi_excite_in_t *
     if (hfi == (void *)0 || in == (void *)0 || v_alpha == (void *)0 || v_beta == (void *)0) {
         return;
     }
-    if (hfi == (void *)0 || in == (void *)0 || v_alpha == (void *)0 || v_beta == (void *)0) {
-        return;
-    }
 
     /*
      * Nothing configured: the reference sets the sample table at boot and on every configuration

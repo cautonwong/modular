@@ -85,7 +85,7 @@ static edge_status_t foc_core_poll(edge_module_t *module) {
 }
 
 static edge_status_t foc_core_on_event(edge_module_t *module, const edge_event_t *event) {
-    foc_core_t *self = (foc_core_t *)edge_module_data(module);
+    const foc_core_t *self = (const foc_core_t *)edge_module_data(module);
     if (self == (void *)0 || event == (void *)0) {
         return EDGE_EINVAL;
     }

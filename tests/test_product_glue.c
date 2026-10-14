@@ -1194,7 +1194,7 @@ typedef struct glue_nor {
 } glue_nor_t;
 
 static edge_status_t glue_nor_read(void *self, uint32_t offset, uint8_t *buf, size_t len) {
-    glue_nor_t *nor = (glue_nor_t *)self;
+    const glue_nor_t *nor = (const glue_nor_t *)self;
     if (offset + len > sizeof(nor->bytes)) {
         return EDGE_EINVAL;
     }

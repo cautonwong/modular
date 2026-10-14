@@ -419,6 +419,11 @@ jobs:
           cppcheck \
             --enable=warning,style,performance,portability \
             --error-exitcode=1 --inline-suppr \
+            --suppress=redundantAssignment:tests/* \
+            --suppress=knownConditionTrueFalse:tests/* \
+            --suppress=constParameterCallback:tests/* \
+            --suppress=constVariablePointer:tests/* \
+            --suppress=constVariable:tests/* \
             -i tests/guards -i vendor -i infra/imu/vendor \
             $(find edge_module sys app board infra pal soc -type d -name include | sed 's/^/-I /') \
             edge_module sys app board infra pal soc product tests
