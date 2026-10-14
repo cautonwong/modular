@@ -4,6 +4,22 @@
 #include "edge/module.h"
 #include "ports.h"
 
+#ifndef BUTTON_HANDLER_MODULE_ID
+#define BUTTON_HANDLER_MODULE_ID 0x1C00u
+#endif
+
+#ifndef EDGE_MOD_BUTTON_HANDLER
+#define EDGE_MOD_BUTTON_HANDLER BUTTON_HANDLER_MODULE_ID
+#endif
+
+#ifndef EDGE_EVT_WATCH_BUTTON
+#define EDGE_EVT_WATCH_BUTTON 0x1602u
+#endif
+
+#ifndef EDGE_EVT_WATCH_WRIST_WAKE
+#define EDGE_EVT_WATCH_WRIST_WAKE 0x1603u
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

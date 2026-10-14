@@ -141,11 +141,13 @@ EDGE_MODULE_SEGMENT(id)
   * [x] owner 合法
   * [x] 新增模块不能偷偷占用其它模块 namespace
 
-* [x] **MOD-010** 删除中央业务 Module ID registry
-
-* [x] **MOD-011** `edge/module.h` 只保留通用 module contract
-
+* [x] **MOD-010** 删除中央业务 Module ID registry（框架层 `edge/modules.h` 只保留框架系统保留段，严禁业务 App/Product 注册）
+* [x] **MOD-011** `edge/module.h` 只保留通用 module contract 与内核生命周期接口
 * [x] **MOD-012** 验证所有日志、错误、诊断等 Module ID 使用点
+* [x] **MOD-013** **【核心架构红线】严禁业务 App 与 Product 修改 `edge/modules.h`**：
+  * **DDD 有界上下文与 Clean Architecture 依赖倒置原则**：所有业务 Module ID（如 `DLT645_MODULE_ID`、`ZMK_BEHAVIOR_MODULE_ID` 等）必须且只能在各自模块头文件（如 `app/*/include/*/*.h`）中声明。
+  * **框架层零业务知晓**：`edge_module/include/edge/modules.h` 仅定义内核保留段与 `EDGE_MODULE_SEGMENT()` 解码宏，禁止登记任何具体业务模块。新增或重构 App/Product 时，修改范围必须严格限制在自身目录下，任何侵入 `edge/modules.h` 的改动均视为架构越界。
+  * **CI 自动化防御**：`.github/scripts/check_module_ids.py` 全仓自动化扫描各模块头文件中的 `*_MODULE_ID`，静态断言段分配合法性与全局唯一性，无需人工修改中央注册表。
 
 ---
 
@@ -175,8 +177,13 @@ edge_module/include/edge/events.h
 * [x] **EVT-008** 检查 Event ID 是否越界
 * [x] **EVT-009** 检查删除/修改已有 Event ID 是否需要显式批准
 * [x] **EVT-010** 保证 Event ID 不因文件排序而自动变化
-* [x] **EVT-011** 删除中央业务 Event 表
+* [x] **EVT-011** 删除中央业务 Event 表（业务事件下沉至各自 App/Board 头文件）
 * [x] **EVT-012** `edge/event.h` 只保留通用 Event contract
+* [x] **EVT-013** **【核心架构红线】严禁业务 App 与 Product 修改 `edge/events.h`**：
+  * **DDD 事实边界隔离**：业务事件（如 `EDGE_EVT_WATCH_*`、`EDGE_EVT_ZMK_*`、`EDGE_EVT_DLT645_*`）属于业务上下文事实，必须定义在各自领域的头文件（如 `app/watch_ui/include/watch_ui/events.h`、`app/zmk_behavior/include/zmk_behavior/events.h`）中。
+  * **框架层纯净化**：`edge_module/include/edge/events.h` 仅保留框架级通用事件（`EDGE_EVT_NONE`、`EDGE_EVT_SYSTEM_START` 等）。
+  * **组合根解耦**：Product（如 `pinetime/main.c`）通过引用各业务领域的公开头文件进行事件订阅（`edge_sys_subscribe`），底层微内核头文件对上层业务事件完全无感知。
+  * **CI 自动化防御**：`.github/scripts/check_event_ids.py` 扫描所有领域头文件校验事件 ID 冲突与段对齐，杜绝通过中央表集中硬编码。
 
 ---
 
@@ -1114,12 +1121,15 @@ Module dependency 是否有环？
 
 12. Product 是 Composition Root，
     不应该包含业务逻辑。
+
+13. 【架构铁律】Product 和 Apps 下的改动绝不能修改 modules.h 和 events.h。
+    业务的扩展自闭包于自身上下文，严禁反向污染微内核公共头文件。
 ```
 
 **其中优先级最高的三个重构，我会定为：**
 
 ```text
-P0  modules.h / events.h 全局耦合消除
+P0  modules.h / events.h 全局耦合消除（业务改动绝对禁止修改 modules.h / events.h）
 P0  xxx_construct() + apps[] → Product Composition + Module Lifecycle
 P0  ISR → EventQueue 单一路径 → 四类 Interrupt Delivery Model
 ```

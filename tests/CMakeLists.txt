@@ -45,7 +45,7 @@ edge_add_contract_violation_test(test_contract_violation_board contract_violatio
 edge_add_contract_violation_test(test_contract_violation_rtos contract_violations/rtos.c)
 
 edge_add_host_test(test_event SOURCES test_event.c DEPS edge_module)
-edge_add_host_test(test_sys SOURCES test_sys.c DEPS edge_module sys_example sys_meter sys_watch sys_keyboard)
+edge_add_host_test(test_sys SOURCES test_sys.c DEPS edge_module sys_example sys_meter sys_watch sys_keyboard sys_bldc)
 edge_add_host_test(test_architecture SOURCES test_architecture.c DEPS edge_module)
 edge_add_host_test(test_app_dlt645 SOURCES test_app_dlt645.c DEPS app_dlt645 edge_test_contract)
 edge_add_host_test(test_app_relay SOURCES test_app_relay.c DEPS app_relay edge_test_contract)
@@ -73,9 +73,11 @@ edge_add_host_test(test_riscv_deadline SOURCES test_riscv_deadline.c DEPS edge_m
 # rest of the board is not.
 target_include_directories(test_riscv_deadline PRIVATE ${EDGE_ROOT}/board/riscv_virt/include)
 edge_add_host_test(test_runner_threads SOURCES test_runner_threads.c DEPS sys_example)
+edge_add_host_test(test_infra_flash_emul SOURCES test_infra_flash_emul.c DEPS infra_flash)
 edge_add_host_test(test_flash_glue SOURCES test_flash_glue.c ../product/example/glue.c
     DEPS app_dlt645 infra_flash)
 
+# InfiniTime Watch test suites
 edge_add_host_test(test_infra_battery_adc SOURCES test_infra_battery_adc.c DEPS infra_battery_adc)
 edge_add_host_test(test_infra_cst816s SOURCES test_infra_cst816s.c DEPS infra_cst816s)
 edge_add_host_test(test_app_touch_gesture SOURCES test_app_touch_gesture.c DEPS app_touch_gesture)
@@ -123,6 +125,40 @@ edge_add_host_test(test_app_game_twos SOURCES test_app_game_twos.c DEPS app_game
 edge_add_host_test(test_app_paint SOURCES test_app_paint.c DEPS app_paint)
 edge_add_host_test(test_app_firmware_validator SOURCES test_app_firmware_validator.c DEPS app_firmware_validator)
 
+# BLDC Motor Control test suites
+edge_add_host_test(test_app_pulse_meter SOURCES test_app_pulse_meter.c DEPS app_pulse_meter edge_test_contract)
+edge_add_host_test(test_foc_core SOURCES test_foc_core.c DEPS app_foc_core)
+edge_add_host_test(test_app_vesc_comm SOURCES test_app_vesc_comm.c DEPS app_vesc_comm infra_vesc_buffer)
+edge_add_host_test(test_motor_config SOURCES test_motor_config.c DEPS app_motor_config app_vesc_comm)
+edge_add_host_test(test_app_timeout_guard SOURCES test_app_timeout_guard.c DEPS app_timeout_guard)
+edge_add_host_test(test_app_throttle SOURCES test_app_throttle.c DEPS app_throttle)
+edge_add_host_test(test_app_dpv SOURCES test_app_dpv.c DEPS app_dpv)
+edge_add_host_test(test_app_sten SOURCES test_app_sten.c DEPS app_sten)
+edge_add_host_test(test_app_app_select SOURCES test_app_app_select.c DEPS app_app_select)
+edge_add_host_test(test_app_skypuff SOURCES test_app_skypuff.c DEPS app_skypuff)
+edge_add_host_test(test_infra_drv83xx SOURCES test_infra_drv83xx.c DEPS infra_drv83xx)
+edge_add_host_test(test_infra_encoder SOURCES test_infra_encoder.c DEPS infra_encoder)
+edge_add_host_test(test_infra_imu SOURCES test_infra_imu.c DEPS infra_imu)
+edge_add_host_test(test_board_vesc6 SOURCES test_board_vesc6.c DEPS board_vesc6 soc_stm32f4)
+edge_add_host_test(test_soc_stm32f4_tim SOURCES test_soc_stm32f4_tim.c DEPS soc_stm32f4)
+edge_add_host_test(test_soc_stm32f4_adc SOURCES test_soc_stm32f4_adc.c DEPS soc_stm32f4)
+edge_add_host_test(test_soc_stm32f4_flash SOURCES test_soc_stm32f4_flash.c DEPS soc_stm32f4)
+edge_add_host_test(test_pal_power SOURCES test_pal_power.c DEPS pal_host pal_os)
+edge_add_host_test(test_app_motor_id SOURCES test_app_motor_id.c DEPS app_motor_id)
+edge_add_host_test(test_app_bldc_drive SOURCES test_app_bldc_drive.c DEPS app_bldc_drive)
+edge_add_host_test(test_app_ppm SOURCES test_app_ppm.c DEPS app_ppm)
+edge_add_host_test(test_app_adc_input SOURCES test_app_adc_input.c DEPS app_adc_input)
+edge_add_host_test(test_app_vesc_can SOURCES test_app_vesc_can.c DEPS app_vesc_can app_vesc_comm)
+edge_add_host_test(test_board_vesc4 SOURCES test_board_vesc4.c DEPS board_vesc4 soc_stm32f4)
+edge_add_host_test(test_board_vesc_unity SOURCES test_board_vesc_unity.c DEPS board_vesc_unity soc_stm32f4)
+edge_add_host_test(test_infra_digital_filter SOURCES test_infra_digital_filter.c DEPS infra_digital_filter)
+edge_add_host_test(test_app_nunchuk SOURCES test_app_nunchuk.c DEPS app_nunchuk)
+edge_add_host_test(test_app_pas SOURCES test_app_pas.c DEPS app_pas)
+edge_add_host_test(test_app_balance SOURCES test_app_balance.c DEPS app_balance)
+edge_add_host_test(test_app_vesc_terminal SOURCES test_app_vesc_terminal.c DEPS app_vesc_terminal)
+edge_add_host_test(test_infra_vesc_buffer SOURCES test_infra_vesc_buffer.c DEPS infra_vesc_buffer)
+edge_add_host_test(test_app_vesc_bms SOURCES test_app_vesc_bms.c DEPS app_vesc_bms)
+
 # Every product's glue is in the coverage scope, so every trampoline is exercised
 # here instead of living only inside a product executable.
 edge_add_host_test(test_product_glue SOURCES test_product_glue.c
@@ -134,8 +170,31 @@ edge_add_host_test(test_product_glue SOURCES test_product_glue.c
     ../product/pinetime/glue.c
     ../product/keyboard_host/glue.c
     ../product/corne_split/glue.c
-    DEPS app_dlt645 app_meter_core app_modbus_slave app_relay app_touch_gesture app_button_handler app_watch_power app_heart_rate app_step_counter app_watch_time app_ble_services app_alarm app_stopwatch app_timer app_watch_settings app_ble_weather app_ble_music app_ble_nav app_ble_notifications app_ble_motion app_ble_fs app_ble_dfu app_firmware_validator app_watch_ui app_metronome app_calculator app_dice app_ble_passkey app_flashlight app_game_paddle app_game_twos app_paint infra_battery_adc infra_cst816s infra_hrs3300 infra_bma421 infra_st7789 infra_flash_spi infra_haptic infra_rle infra_flash infra_gpio infra_uart board_pinetime app_zmk_matrix app_zmk_keymap app_zmk_behavior app_zmk_split infra_hid_report)
-target_include_directories(test_product_glue PRIVATE ${EDGE_ROOT}/product ${EDGE_ROOT}/product/meter_gateway_host ${EDGE_ROOT}/product/watch_host ${EDGE_ROOT}/product/pinetime ${EDGE_ROOT}/product/meter_rtems ${EDGE_ROOT}/product/keyboard_host ${EDGE_ROOT}/product/corne_split)
+    ../product/water_meter_host/glue.c
+    ../product/vesc_host/glue.c
+    ../product/vesc6_stm32f4/glue.c
+    DEPS app_dlt645 app_meter_core app_modbus_slave app_pulse_meter app_relay app_touch_gesture app_button_handler app_watch_power app_heart_rate app_step_counter app_watch_time app_ble_services app_alarm app_stopwatch app_timer app_watch_settings app_ble_weather app_ble_music app_ble_nav app_ble_notifications app_ble_motion app_ble_fs app_ble_dfu app_firmware_validator app_watch_ui app_metronome app_calculator app_dice app_ble_passkey app_flashlight app_game_paddle app_game_twos app_paint infra_battery_adc infra_cst816s infra_hrs3300 infra_bma421 infra_st7789 infra_flash_spi infra_haptic infra_rle infra_flash infra_gpio infra_uart board_pinetime app_zmk_matrix app_zmk_keymap app_zmk_behavior app_zmk_split infra_hid_report app_foc_core app_vesc_comm app_motor_config app_ppm app_adc_input app_vesc_can app_motor_id app_nunchuk app_pas app_balance app_vesc_terminal app_vesc_bms app_bldc_drive app_timeout_guard infra_vesc_buffer board_vesc6)
+target_include_directories(test_product_glue PRIVATE ${EDGE_ROOT}/product ${EDGE_ROOT}/product/meter_gateway_host ${EDGE_ROOT}/product/watch_host ${EDGE_ROOT}/product/pinetime ${EDGE_ROOT}/product/meter_rtems ${EDGE_ROOT}/product/keyboard_host ${EDGE_ROOT}/product/corne_split ${EDGE_ROOT}/product/water_meter_host ${EDGE_ROOT}/product/vesc_host)
+
+#
+# The HFI sample tables are generated from the reference and checked in, and the generator has had a
+# --check mode for that purpose from the start - regenerating into memory and comparing - with
+# nothing running it. A drift between the tables and the generator is the kind of difference that
+# reads as a mystery in a measurement's last digits, so it fails the suite instead.
+#
+add_test(NAME generated_hfi_tables_in_sync
+    COMMAND python3 ${EDGE_ROOT}/tools/gen_hfi_from_reference.py --check)
+set_tests_properties(generated_hfi_tables_in_sync PROPERTIES
+    WORKING_DIRECTORY ${EDGE_ROOT})
+
+# The same for the configuration headers, which are the other set of checked-in artifacts taken from
+# the reference. Their check compares against what clang-format would leave on disk, because that is
+# what the write path produces - a check that compared the raw generation would call every formatted
+# file out of date.
+add_test(NAME generated_motor_config_headers_in_sync
+    COMMAND python3 ${EDGE_ROOT}/tools/gen_mcconf_from_reference.py --check)
+set_tests_properties(generated_motor_config_headers_in_sync PROPERTIES
+    WORKING_DIRECTORY ${EDGE_ROOT})
 
 # ZMK Keyboard test suites
 edge_add_host_test(test_infra_hid_report SOURCES test_infra_hid_report.c DEPS infra_hid_report)
@@ -175,5 +234,3 @@ edge_add_host_test(test_board_blackpill SOURCES test_board_blackpill.c DEPS boar
 edge_add_host_test(test_module_desc SOURCES test_module_desc.c DEPS edge_module)
 edge_add_host_test(test_interrupt_model SOURCES test_interrupt_model.c DEPS edge_module)
 edge_add_host_test(test_pm_model SOURCES test_pm_model.c DEPS edge_module)
-
-

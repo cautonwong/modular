@@ -8,6 +8,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef CALCULATOR_MODULE_ID
+#define CALCULATOR_MODULE_ID 0x3900u
+#endif
+
+#ifndef EDGE_MOD_CALCULATOR
+#define EDGE_MOD_CALCULATOR CALCULATOR_MODULE_ID
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

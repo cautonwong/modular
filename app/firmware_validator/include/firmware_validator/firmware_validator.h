@@ -8,6 +8,14 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#ifndef FIRMWARE_VALIDATOR_MODULE_ID
+#define FIRMWARE_VALIDATOR_MODULE_ID 0x3700u
+#endif
+
+#ifndef EDGE_MOD_FIRMWARE_VALIDATOR
+#define EDGE_MOD_FIRMWARE_VALIDATOR FIRMWARE_VALIDATOR_MODULE_ID
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

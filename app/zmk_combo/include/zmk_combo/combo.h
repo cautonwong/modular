@@ -9,6 +9,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef ZMK_COMBO_MODULE_ID
+#define ZMK_COMBO_MODULE_ID 0x2B00u
+#endif
+
+#ifndef EDGE_MOD_ZMK_COMBO
+#define EDGE_MOD_ZMK_COMBO ZMK_COMBO_MODULE_ID
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

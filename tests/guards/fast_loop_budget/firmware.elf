@@ -1,0 +1,3 @@
+Not an ELF. The guard's self-test pairs this path with tests/guards/fast_loop_budget/fake_objdump.sh,
+which ignores the file it is handed and prints a fixed disassembly instead; what is being tested is
+the counting and the threshold, not the parsing of a real image.

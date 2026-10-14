@@ -1,2 +1,2 @@
 # OS model: idle, yield and sleep as seen by sys. No kernel here.
-edge_add_pal(os SOURCES src/idle.c src/tick64.c DEPS edge_module)
+edge_add_pal(os SOURCES src/idle.c src/tick64.c src/power.c DEPS edge_module)

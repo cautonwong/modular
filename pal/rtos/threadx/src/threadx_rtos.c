@@ -9,6 +9,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 /*
  * ThreadX as a `pal_rtos` port (D46/D85, issue #134).
@@ -142,10 +143,8 @@ edge_status_t edge_rtos_task_create(const char *name, edge_rtos_task_fn fn, void
         task->priority = (UINT)priority;
         task->stack_bytes = stack_bytes;
         task->buffered = true;
-        if (name != NULL) {
-            for (size_t c = 0u; c < sizeof(task->name) - 1u && name[c] != '\0'; ++c)
-                task->name[c] = name[c];
-        }
+        if (name != NULL)
+            strncpy(task->name, name, sizeof(task->name) - 1u);
         /* Before the kernel starts it is buffered for tx_application_define(); after it
          * has started the kernel is running and the thread can be created right here -
          * buffering it then would leave a task that never runs. */

@@ -29,7 +29,10 @@ say() {
 }
 
 # --------------------------------------------------------------- formatting
-staged_c=$(git diff --cached --name-only --diff-filter=ACM -- '*.c' '*.h')
+# Vendored third-party sources are left out: they are not this repository's code, reformatting them
+# would churn a diff against upstream, and a gate that covered them would say less about what was
+# written here. Any path whose first component is vendor, or that has one in it, is skipped.
+staged_c=$(git diff --cached --name-only --diff-filter=ACM -- '*.c' '*.h' | grep -vE '(^|/)vendor/')
 if [ -n "$staged_c" ]; then
     if command -v clang-format >/dev/null 2>&1; then
         if ! echo "$staged_c" | xargs clang-format --dry-run --Werror 2>&1; then
@@ -53,6 +56,7 @@ check_event_ids.py
 check_event_payload.py
 check_dependencies.py
 check_exemptions.py
+check_consumer_ports.py
 check_guard_coverage.py
 check_layer_dependencies.py
 check_module_ids.py

@@ -8,16 +8,13 @@ static void copy_bytes(void *dst, const void *src, size_t n) {
     }
 }
 #include "ble_nav/ble_nav.h"
-#include "edge/events.h"
-#include "edge/modules.h"
-
 static edge_status_t nav_poll(edge_module_t *module) {
     (void)module;
     return EDGE_OK;
 }
 
 void ble_nav_init(ble_nav_t *self, edge_event_sink_t *event_sink) {
-    ble_nav_construct(self, EDGE_MOD_BLE_NAV, 2u, event_sink);
+    ble_nav_construct(self, BLE_NAV_MODULE_ID, 2u, event_sink);
 }
 
 void ble_nav_construct(ble_nav_t *self, uint32_t module_id, uint32_t priority,
@@ -44,7 +41,7 @@ static void emit_updated_event(ble_nav_t *self) {
     if (self != NULL && self->event_sink != NULL) {
         edge_event_t ev = {
             .id = EDGE_EVT_WATCH_NAV_UPDATED,
-            .source = EDGE_MOD_BLE_NAV,
+            .source = BLE_NAV_MODULE_ID,
             .arg0 = (uint32_t)self->info.progress,
             .arg1 = 0u,
             .timestamp = 0u,

@@ -1,0 +1,888 @@
+/* clang-format off */
+#include <stdarg.h>
+#include <stddef.h>
+#include <setjmp.h>
+#include <stdint.h>
+#include <math.h>
+#include <string.h>
+
+#include <cmocka.h>
+/* clang-format on */
+
+#include "edge/errors.h"
+#include "edge/modules.h"
+#include "motor_config/motor_config.h"
+#include "vesc_comm/vesc_comm.h" /* vesc_crc16, for the cross-check */
+
+/* A mock variable store: one uint16 per two configuration bytes, which is how the reference
+ * persists a configuration (conf_general.c:436-520). Large enough for both configurations, since
+ * the application one's words follow the motor one's (388 of them) in the same store. */
+#define MOCK_VAR_COUNT 512u
+
+typedef struct mock_var_store {
+    uint16_t values[MOCK_VAR_COUNT];
+    bool present; /* false simulates a variable that was never written */
+    int writes;
+} mock_var_store_t;
+
+static edge_status_t mock_var_read(void *self, uint16_t index, uint16_t *value) {
+    mock_var_store_t *store = (mock_var_store_t *)self;
+    if (!store->present || index >= MOCK_VAR_COUNT) {
+        return EDGE_ENOENT;
+    }
+    *value = store->values[index];
+    return EDGE_OK;
+}
+
+static edge_status_t mock_var_write(void *self, uint16_t index, uint16_t value) {
+    mock_var_store_t *store = (mock_var_store_t *)self;
+    if (index >= MOCK_VAR_COUNT) {
+        return EDGE_EINVAL;
+    }
+    store->values[index] = value;
+    /* The variable exists once it has been written, which is how the reference's store
+     * reports a blank one: by the read failing, not by the value. That distinction is load
+     * bearing - an all-zero image has a CRC of zero, so it would otherwise pass the check
+     * against an unwritten struct's own zero crc field. */
+    store->present = true;
+    store->writes++;
+    return EDGE_OK;
+}
+
+static void test_defaults_and_validation(void **state) {
+    (void)state;
+    mc_configuration_t mc;
+    app_configuration_t app;
+
+    motor_config_set_defaults(&mc, &app);
+    assert_int_equal(motor_config_validate(&mc, &app), EDGE_OK);
+
+    assert_int_equal(mc.motor_type, MOTOR_TYPE_FOC);
+    assert_true(mc.l_current_max > 0.0f);
+    assert_true(mc.l_current_min < 0.0f);
+    assert_true(mc.l_max_vin > mc.l_min_vin);
+
+    /* Test invalid configs */
+    mc.l_current_max = -10.0f;
+    assert_int_equal(motor_config_validate(&mc, &app), EDGE_EINVAL);
+
+    mc.l_current_max = 50.0f;
+    mc.l_max_vin = 5.0f; /* Less than v_in_min */
+    assert_int_equal(motor_config_validate(&mc, &app), EDGE_EINVAL);
+}
+
+/*
+ * Defaults of the fields foc_core consumes are the reference's
+ * (motor/mcconf_default.h). They were absent from the configuration entirely, so
+ * the controller ran on compile-time constants that no configuration could change.
+ */
+static void test_controller_fields_have_reference_defaults(void **state) {
+    (void)state;
+    mc_configuration_t mc;
+    app_configuration_t app;
+    motor_config_set_defaults(&mc, &app);
+
+    assert_float_equal(mc.foc_current_filter_const, 0.1f, 1e-6f);
+    assert_float_equal(mc.foc_pll_kp, 2000.0f, 1e-6f);
+    assert_float_equal(mc.foc_pll_ki, 30000.0f, 1e-6f);
+    assert_float_equal(mc.l_max_duty, 0.95f, 1e-6f);
+    /* mcconf_default.h: MCCONF_FOC_OBSERVER_TYPE is FOC_OBSERVER_MXLEMMING_LAMBDA_COMP,
+     * i.e. 3 - not ORTEGA_ORIGINAL, which this test asserted before the manifest was
+     * generated from the reference's own set_defaults_mcconf(). */
+    assert_int_equal(mc.foc_observer_type, 3u); /* FOC_OBSERVER_MXLEMMING_LAMBDA_COMP */
+    /* Compensation defaults: disabled, factor 0, no saliency difference. */
+    assert_int_equal(mc.foc_sat_comp_mode, 0u); /* SAT_COMP_DISABLED */
+    assert_float_equal(mc.foc_sat_comp, 0.0f, 1e-6f);
+    assert_float_equal(mc.foc_motor_ld_lq_diff, 0.0f, 1e-6f);
+    /* cc_min_current and l_abs_current_max both have global reference defaults; only the
+     * lo_* values are runtime and stay 0. The macro for the absolute limit is
+     * MCCONF_L_MAX_ABS_CURRENT (130 A), not the MCCONF_L_ABS_CURRENT_MAX this file once
+     * assumed and reported as "pending the board". */
+    assert_float_equal(mc.cc_min_current, 0.05f, 1e-6f);
+    assert_float_equal(mc.l_abs_current_max, 130.0f, 1e-6f);
+    assert_float_equal(mc.lo_current_min, 0.0f, 1e-6f);
+
+    /* And the bounds the serialiser enforces on them. */
+    mc.l_max_duty = 1.5f;
+    assert_int_equal(motor_config_validate(&mc, &app), EDGE_EINVAL);
+    mc.l_max_duty = 0.9f;
+
+    mc.foc_current_filter_const = 1.5f;
+    assert_int_equal(motor_config_validate(&mc, &app), EDGE_EINVAL);
+    mc.foc_current_filter_const = 0.1f;
+
+    mc.foc_observer_type = 7u;
+    assert_int_equal(motor_config_validate(&mc, &app), EDGE_EINVAL);
+    mc.foc_observer_type = 4u; /* FOC_OBSERVER_MXV */
+    assert_int_equal(motor_config_validate(&mc, &app), EDGE_OK);
+}
+
+static void test_controller_fields_survive_a_round_trip(void **state) {
+    (void)state;
+    mc_configuration_t mc_orig, mc_restored;
+    app_configuration_t app_orig;
+
+    motor_config_set_defaults(&mc_orig, &app_orig);
+    mc_orig.foc_current_filter_const = 0.25f;
+    mc_orig.foc_pll_kp = 1500.0f;
+    mc_orig.foc_pll_ki = 21000.0f;
+    mc_orig.l_max_duty = 0.9f;
+    mc_orig.foc_observer_type = 6u; /* FOC_OBSERVER_MXV_LAMBDA_COMP_LIN */
+    mc_orig.foc_sat_comp_mode = 3u; /* SAT_COMP_LAMBDA_AND_FACTOR */
+    mc_orig.foc_sat_comp = 0.25f;
+    mc_orig.foc_motor_ld_lq_diff = 2.5e-6f;
+    mc_orig.l_abs_current_max = 130.0f;
+    mc_orig.lo_current_min = -45.5f;
+    mc_orig.cc_min_current = 0.07f;
+
+    uint8_t buffer[MOTOR_CONFIG_BUFFER_SIZE];
+    size_t out_len = 0;
+    assert_int_equal(motor_config_serialize_mc(&mc_orig, buffer, sizeof(buffer), &out_len),
+                     EDGE_OK);
+    /* lo_current_min is a runtime value in the reference and has no place in the byte
+     * stream, so a decode must leave whatever the caller had in it alone. A sentinel
+     * proves that; comparing against a value we happened to encode would not. */
+    mc_restored.lo_current_min = -999.0f;
+    assert_int_equal(motor_config_deserialize_mc(&mc_restored, buffer, out_len), EDGE_OK);
+
+    assert_float_equal(mc_restored.foc_current_filter_const, 0.25f, 1e-4f);
+    assert_float_equal(mc_restored.foc_pll_kp, 1500.0f, 0.5f);
+    assert_float_equal(mc_restored.foc_pll_ki, 21000.0f, 0.5f);
+    assert_float_equal(mc_restored.l_max_duty, 0.9f, 1e-4f);
+    assert_int_equal(mc_restored.foc_observer_type, 6u);
+    assert_int_equal(mc_restored.foc_sat_comp_mode, 3u);
+    assert_float_equal(mc_restored.foc_sat_comp, 0.25f, 1e-4f);
+    assert_float_equal(mc_restored.foc_motor_ld_lq_diff, 2.5e-6f, 1e-10f);
+    assert_float_equal(mc_restored.l_abs_current_max, 130.0f, 1e-2f);
+    assert_float_equal(mc_restored.lo_current_min, -999.0f, 1e-6f); /* runtime, untouched */
+    assert_float_equal(mc_restored.cc_min_current, 0.07f, 1e-4f);
+}
+
+static void test_module_lifecycle_and_variable_store(void **state) {
+    (void)state;
+    mock_var_store_t store;
+    memset(&store, 0, sizeof(store));
+    const motor_config_var_port_t port = {
+        .read = mock_var_read, .write = mock_var_write, .self = &store};
+
+    /* Caller-provided storage: two instances, so two blocks. */
+    static alignas(
+        MOTOR_CONFIG_STORAGE_ALIGN) unsigned char config_storage[MOTOR_CONFIG_STORAGE_SIZE];
+    static alignas(
+        MOTOR_CONFIG_STORAGE_ALIGN) unsigned char config2_storage[MOTOR_CONFIG_STORAGE_SIZE];
+    motor_config_t *config = (motor_config_t *)config_storage;
+    memset(config_storage, 0, sizeof(config_storage));
+    memset(config2_storage, 0, sizeof(config2_storage));
+    motor_config_construct(config, EDGE_MOD_MOTOR_CONFIG, 20u, &port);
+
+    /* An empty store - or one whose image fails its CRC - leaves the defaults in place and
+     * persists them, which is the reference's first-boot behaviour. */
+    assert_int_equal(motor_config_init(config), EDGE_OK);
+    assert_true(store.writes > 0);
+
+    /* Update a parameter, then let the module's poll flush it. */
+    mc_configuration_t new_mc = *motor_config_get_mc(config);
+    new_mc.l_current_max = 90.0f;
+    assert_int_equal(motor_config_update_mc(config, &new_mc), EDGE_OK);
+    assert_true(motor_config_is_dirty(config));
+
+    edge_module_t *mod = motor_config_module(config);
+    assert_non_null(mod);
+    assert_int_equal(mod->poll(mod), EDGE_OK);
+    assert_false(motor_config_is_dirty(config));
+
+    /* A second instance over the same store reads back what the first one saved. */
+    motor_config_t *config2 = (motor_config_t *)config2_storage;
+    motor_config_construct(config2, EDGE_MOD_MOTOR_CONFIG, 20u, &port);
+    assert_int_equal(motor_config_init(config2), EDGE_OK);
+
+    const mc_configuration_t *loaded_mc = motor_config_get_mc(config2);
+    assert_non_null(loaded_mc);
+    assert_float_equal(loaded_mc->l_current_max, 90.0f, 1e-3f);
+}
+
+/*
+ * The reference's own mc_configuration stream, byte for byte: a default configuration
+ * serialised by confgenerator_serialize_mcconf() in the reference tree (harness and the
+ * full vector are in docs/bldc-mcconf-format.md). 488 bytes including the 4-byte
+ * signature. Any field that moves, changes scale or changes encoding fails here, which is
+ * the point: this is the protocol's contract with VESC Tool, not a self-consistency check.
+ */
+static void test_motor_config_golden_bytes(void **state) {
+    (void)state;
+    mc_configuration_t mc;
+    app_configuration_t app;
+    motor_config_set_defaults(&mc, &app);
+
+    static const uint8_t expected[] = {
+        0xBC, 0x09, 0xF8, 0xB0, 0x01, 0x00, 0x02, 0x00, 0x42, 0x70, 0x00, 0x00, 0xC2, 0x70, 0x00,
+        0x00, 0x42, 0xC6, 0x00, 0x00, 0xC2, 0x70, 0x00, 0x00, 0x23, 0x28, 0x00, 0x14, 0x43, 0x02,
+        0x00, 0x00, 0xC7, 0xC3, 0x50, 0x00, 0x47, 0xC3, 0x50, 0x00, 0x1F, 0x40, 0x43, 0x96, 0x00,
+        0x00, 0x44, 0xBB, 0x80, 0x00, 0x00, 0x50, 0x02, 0x3A, 0x00, 0x64, 0x00, 0x50, 0x27, 0x10,
+        0x2A, 0xF8, 0x00, 0x55, 0x64, 0x55, 0x64, 0x05, 0xDC, 0x00, 0x32, 0x25, 0x1C, 0x49, 0xB7,
+        0x1B, 0x00, 0xC9, 0xB7, 0x1B, 0x00, 0x27, 0x10, 0x27, 0x10, 0x27, 0x10, 0x00, 0x43, 0x16,
+        0x00, 0x00, 0x44, 0x89, 0x80, 0x00, 0x41, 0x20, 0x00, 0x00, 0x02, 0x6C, 0x1F, 0x40, 0x47,
+        0x9C, 0x40, 0x00, 0x44, 0x16, 0x00, 0x00, 0xFF, 0x01, 0x03, 0x02, 0x05, 0x06, 0x04, 0xFF,
+        0x44, 0xFA, 0x00, 0x00, 0x3C, 0xF5, 0xC2, 0x8F, 0x42, 0x48, 0x00, 0x00, 0x46, 0xC3, 0x50,
+        0x00, 0x3D, 0xF5, 0xC2, 0x8F, 0x00, 0x43, 0x34, 0x00, 0x00, 0x40, 0xE0, 0x00, 0x00, 0x00,
+        0x44, 0xFA, 0x00, 0x00, 0x46, 0xEA, 0x60, 0x00, 0x36, 0xEA, 0xE1, 0x8B, 0x00, 0x00, 0x00,
+        0x00, 0x3C, 0x75, 0xC2, 0x8F, 0x3B, 0x20, 0x90, 0x2E, 0x49, 0x5B, 0xBA, 0x00, 0x3D, 0x4C,
+        0xCC, 0xCD, 0xFC, 0x18, 0x41, 0xA0, 0x00, 0x00, 0x43, 0xC8, 0x00, 0x00, 0x27, 0x10, 0x45,
+        0x1C, 0x40, 0x00, 0x44, 0xBB, 0x80, 0x00, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x0A,
+        0x00, 0x05, 0x00, 0x00, 0xFF, 0x9C, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x43,
+        0xFA, 0x00, 0x00, 0x45, 0x1C, 0x40, 0x00, 0x45, 0x5A, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x09, 0xC4, 0x03, 0xE8, 0x00, 0x03, 0x00, 0x02, 0x58, 0x0F, 0x00, 0xC8, 0x00,
+        0x28, 0x00, 0x3C, 0x01, 0x2C, 0x01, 0x2C, 0x00, 0x00, 0x45, 0x3B, 0x80, 0x00, 0x43, 0xFA,
+        0x00, 0x00, 0x00, 0x05, 0x3A, 0x83, 0x12, 0x6F, 0x01, 0x01, 0x45, 0x00, 0x00, 0x00, 0x45,
+        0x00, 0x00, 0x00, 0x45, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x45, 0x7A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x1F, 0x40, 0x00, 0x00, 0x01, 0xF4, 0x07, 0xD0, 0x00, 0x00, 0x27, 0x10, 0x26, 0x48, 0x05,
+        0x3B, 0x83, 0x12, 0x6F, 0x3B, 0x83, 0x12, 0x6F, 0x38, 0xD1, 0xB7, 0x17, 0x07, 0xD0, 0x44,
+        0x61, 0x00, 0x00, 0x01, 0x46, 0xC3, 0x50, 0x00, 0x00, 0x3C, 0xCC, 0xCC, 0xCD, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x39, 0xB7, 0x80, 0x34, 0x07, 0xD0, 0x3F, 0x80, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x64, 0x3D, 0x4C, 0xCC, 0xCD, 0x3B, 0x96,
+        0xBB, 0x99, 0x01, 0x90, 0x00, 0x00, 0x01, 0xF4, 0x00, 0xC8, 0x3F, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x20, 0x00, 0x03, 0xE8, 0x03, 0xE8, 0x06, 0x72, 0x06, 0x72, 0x01, 0xF4, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x10, 0x45, 0x3B, 0x80, 0x00, 0x47, 0x08, 0xB8, 0x00, 0x46, 0xC3, 0x50,
+        0x00, 0x45, 0x53, 0x40, 0x00, 0x00, 0x00, 0x3F, 0x1C, 0x28, 0xF6, 0x03, 0xE8, 0x00, 0xFA,
+        0x03, 0x2D, 0x0E, 0x40, 0x40, 0x00, 0x00, 0x3D, 0xA9, 0xFB, 0xE7, 0x00, 0x03, 0x40, 0xC0,
+        0x00, 0x00, 0x3F, 0x80, 0x00, 0x00, 0x01, 0x03, 0x2D, 0x41, 0x00, 0x32, 0x00, 0x00, 0x0B,
+        0x54, 0x09, 0xC4, 0x10, 0x68, 0x10, 0xCC, 0x00};
+
+    uint8_t buf[MOTOR_CONFIG_BUFFER_SIZE];
+    size_t n = 0;
+    assert_int_equal(motor_config_stream_len(), sizeof(expected));
+    assert_int_equal(motor_config_serialize_mc(&mc, buf, sizeof(buf), &n), EDGE_OK);
+    assert_int_equal(n, sizeof(expected));
+    assert_memory_equal(buf, expected, sizeof(expected));
+
+    /* And it reads back into the same values. */
+    mc_configuration_t back;
+    memset(&back, 0, sizeof(back));
+    assert_int_equal(motor_config_deserialize_mc(&back, buf, n), EDGE_OK);
+    assert_float_equal(back.l_current_max, mc.l_current_max, 1e-6f);
+    assert_float_equal(back.foc_pll_kp, mc.foc_pll_kp, 1e-6f);
+    assert_float_equal(back.foc_observer_gain, mc.foc_observer_gain, 1e-3f);
+    assert_int_equal(back.foc_observer_type, mc.foc_observer_type);
+    assert_float_equal(back.foc_motor_l, mc.foc_motor_l, 1e-9f);
+}
+
+/*
+ * The same contract with fields pushed off their defaults, so the encoders are exercised
+ * on values that are neither zero nor the reference's defaults: a negative current, a
+ * small inductance, a large observer gain, a different pole count, a different pwm_mode
+ * and a bms limit. Bytes from the reference's own serialiser, same harness as above.
+ */
+static void test_motor_config_golden_bytes_off_default(void **state) {
+    (void)state;
+    mc_configuration_t mc;
+    app_configuration_t app;
+    motor_config_set_defaults(&mc, &app);
+    mc.l_current_max = 12.5f;
+    mc.l_current_min = -33.25f;
+    mc.foc_motor_l = 1.23e-5f;
+    mc.foc_motor_flux_linkage = 0.001234f;
+    mc.foc_observer_gain = 123456.0f;
+    mc.si_motor_poles = 28;
+    mc.pwm_mode = 1;
+    mc.bms.vmax_limit_start = 4.2f;
+
+    static const uint8_t expected[] = {
+        0xBC, 0x09, 0xF8, 0xB0, 0x01, 0x00, 0x02, 0x00, 0x41, 0x48, 0x00, 0x00, 0xC2, 0x05, 0x00,
+        0x00, 0x42, 0xC6, 0x00, 0x00, 0xC2, 0x70, 0x00, 0x00, 0x23, 0x28, 0x00, 0x14, 0x43, 0x02,
+        0x00, 0x00, 0xC7, 0xC3, 0x50, 0x00, 0x47, 0xC3, 0x50, 0x00, 0x1F, 0x40, 0x43, 0x96, 0x00,
+        0x00, 0x44, 0xBB, 0x80, 0x00, 0x00, 0x50, 0x02, 0x3A, 0x00, 0x64, 0x00, 0x50, 0x27, 0x10,
+        0x2A, 0xF8, 0x00, 0x55, 0x64, 0x55, 0x64, 0x05, 0xDC, 0x00, 0x32, 0x25, 0x1C, 0x49, 0xB7,
+        0x1B, 0x00, 0xC9, 0xB7, 0x1B, 0x00, 0x27, 0x10, 0x27, 0x10, 0x27, 0x10, 0x00, 0x43, 0x16,
+        0x00, 0x00, 0x44, 0x89, 0x80, 0x00, 0x41, 0x20, 0x00, 0x00, 0x02, 0x6C, 0x1F, 0x40, 0x47,
+        0x9C, 0x40, 0x00, 0x44, 0x16, 0x00, 0x00, 0xFF, 0x01, 0x03, 0x02, 0x05, 0x06, 0x04, 0xFF,
+        0x44, 0xFA, 0x00, 0x00, 0x3C, 0xF5, 0xC2, 0x8F, 0x42, 0x48, 0x00, 0x00, 0x46, 0xC3, 0x50,
+        0x00, 0x3D, 0xF5, 0xC2, 0x8F, 0x00, 0x43, 0x34, 0x00, 0x00, 0x40, 0xE0, 0x00, 0x00, 0x00,
+        0x44, 0xFA, 0x00, 0x00, 0x46, 0xEA, 0x60, 0x00, 0x37, 0x4E, 0x5C, 0x19, 0x00, 0x00, 0x00,
+        0x00, 0x3C, 0x75, 0xC2, 0x8F, 0x3A, 0xA1, 0xBE, 0x2B, 0x47, 0xF1, 0x20, 0x00, 0x3D, 0x4C,
+        0xCC, 0xCD, 0xFC, 0x18, 0x41, 0xA0, 0x00, 0x00, 0x43, 0xC8, 0x00, 0x00, 0x27, 0x10, 0x45,
+        0x1C, 0x40, 0x00, 0x44, 0xBB, 0x80, 0x00, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x0A,
+        0x00, 0x05, 0x00, 0x00, 0xFF, 0x9C, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x43,
+        0xFA, 0x00, 0x00, 0x45, 0x1C, 0x40, 0x00, 0x45, 0x5A, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x09, 0xC4, 0x03, 0xE8, 0x00, 0x03, 0x00, 0x02, 0x58, 0x0F, 0x00, 0xC8, 0x00,
+        0x28, 0x00, 0x3C, 0x01, 0x2C, 0x01, 0x2C, 0x00, 0x00, 0x45, 0x3B, 0x80, 0x00, 0x43, 0xFA,
+        0x00, 0x00, 0x00, 0x05, 0x3A, 0x83, 0x12, 0x6F, 0x01, 0x01, 0x45, 0x00, 0x00, 0x00, 0x45,
+        0x00, 0x00, 0x00, 0x45, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x45, 0x7A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x1F, 0x40, 0x00, 0x00, 0x01, 0xF4, 0x07, 0xD0, 0x00, 0x00, 0x27, 0x10, 0x26, 0x48, 0x05,
+        0x3B, 0x83, 0x12, 0x6F, 0x3B, 0x83, 0x12, 0x6F, 0x38, 0xD1, 0xB7, 0x17, 0x07, 0xD0, 0x44,
+        0x61, 0x00, 0x00, 0x01, 0x46, 0xC3, 0x50, 0x00, 0x00, 0x3C, 0xCC, 0xCC, 0xCD, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x39, 0xB7, 0x80, 0x34, 0x07, 0xD0, 0x3F, 0x80, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x64, 0x3D, 0x4C, 0xCC, 0xCD, 0x3B, 0x96,
+        0xBB, 0x99, 0x01, 0x90, 0x00, 0x00, 0x01, 0xF4, 0x00, 0xC8, 0x3F, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x20, 0x00, 0x03, 0xE8, 0x03, 0xE8, 0x06, 0x72, 0x06, 0x72, 0x01, 0xF4, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x10, 0x45, 0x3B, 0x80, 0x00, 0x47, 0x08, 0xB8, 0x00, 0x46, 0xC3, 0x50,
+        0x00, 0x45, 0x53, 0x40, 0x00, 0x00, 0x00, 0x3F, 0x1C, 0x28, 0xF6, 0x03, 0xE8, 0x00, 0xFA,
+        0x03, 0x2D, 0x1C, 0x40, 0x40, 0x00, 0x00, 0x3D, 0xA9, 0xFB, 0xE7, 0x00, 0x03, 0x40, 0xC0,
+        0x00, 0x00, 0x3F, 0x80, 0x00, 0x00, 0x01, 0x03, 0x2D, 0x41, 0x00, 0x32, 0x00, 0x00, 0x0B,
+        0x54, 0x09, 0xC4, 0x10, 0x68, 0x10, 0xCC, 0x00};
+
+    uint8_t buf[MOTOR_CONFIG_BUFFER_SIZE];
+    size_t n = 0;
+    assert_int_equal(motor_config_serialize_mc(&mc, buf, sizeof(buf), &n), EDGE_OK);
+    assert_int_equal(n, sizeof(expected));
+    assert_memory_equal(buf, expected, sizeof(expected));
+
+    mc_configuration_t back;
+    memset(&back, 0, sizeof(back));
+    assert_int_equal(motor_config_deserialize_mc(&back, buf, n), EDGE_OK);
+    assert_float_equal(back.l_current_max, 12.5f, 1e-6f);
+    assert_float_equal(back.l_current_min, -33.25f, 1e-6f);
+    assert_float_equal(back.foc_motor_l, 1.23e-5f, 1e-9f);
+    assert_float_equal(back.foc_observer_gain, 123456.0f, 1e-1f);
+    assert_int_equal(back.si_motor_poles, 28u);
+    assert_int_equal(back.pwm_mode, 1);
+    assert_float_equal(back.bms.vmax_limit_start, 4.2f, 1e-3f);
+}
+
+/*
+ * The app_configuration stream, same contract as the mc one: the reference's own
+ * confgenerator_serialize_appconf() output for a default configuration, 290 bytes
+ * including the signature, from the same harness.
+ */
+static void test_motor_config_app_golden_bytes(void **state) {
+    (void)state;
+    mc_configuration_t mc;
+    app_configuration_t app;
+    motor_config_set_defaults(&mc, &app);
+
+    static const uint8_t expected[] = {
+        0x11, 0xAD, 0xA6, 0xCC, 0x01, 0x00, 0x00, 0x03, 0xE8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x32,
+        0x00, 0x05, 0x00, 0x00, 0x02, 0x00, 0x01, 0x07, 0x00, 0x00, 0x00, 0x47, 0x43, 0x50, 0x00,
+        0x00, 0x00, 0x00, 0x03, 0x00, 0x46, 0x6A, 0x60, 0x00, 0x3E, 0x19, 0x99, 0x9A, 0x3F, 0x80,
+        0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x3F, 0xC0, 0x00, 0x00, 0x01, 0x01, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x3E, 0xCC, 0xCC, 0xCD, 0x3E, 0x4C, 0xCC, 0xCD, 0x01,
+        0x00, 0x45, 0x3B, 0x80, 0x00, 0x0F, 0xA0, 0x3D, 0x8F, 0x5C, 0x29, 0x40, 0x40, 0x00, 0x00,
+        0x00, 0x3E, 0x19, 0x99, 0x9A, 0x03, 0x84, 0x0B, 0xB8, 0x00, 0x00, 0x0D, 0xAC, 0x07, 0xD0,
+        0x03, 0x84, 0x0B, 0xB8, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x02, 0x3E, 0x99, 0x99, 0x9A, 0x3D, 0xCC, 0xCC, 0xCD, 0x01, 0x00, 0x45, 0x3B,
+        0x80, 0x00, 0x01, 0xF4, 0x00, 0x00, 0x3F, 0x80, 0x00, 0x00, 0x00, 0x01, 0xC2, 0x00, 0x00,
+        0x3E, 0x19, 0x99, 0x9A, 0x3E, 0xCC, 0xCC, 0xCD, 0x3E, 0x4C, 0xCC, 0xCD, 0x45, 0x3B, 0x80,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x01, 0x00, 0x45, 0x3B, 0x80,
+        0x00, 0x01, 0x3D, 0x8F, 0x5C, 0x29, 0x40, 0x40, 0x00, 0x00, 0x00, 0x00, 0x3F, 0x80, 0x00,
+        0x00, 0x01, 0x03, 0x01, 0x00, 0x03, 0x4C, 0xC6, 0xC7, 0x00, 0x01, 0x00, 0x00, 0x00, 0x64,
+        0x00, 0x64, 0x07, 0x08, 0x00, 0x00, 0x18, 0x01, 0x00, 0x3C, 0x00, 0x1E, 0x01, 0xF4, 0x01,
+        0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xC8, 0x01, 0x3F, 0x80,
+        0x00, 0x00, 0x3E, 0x99, 0x99, 0x9A, 0x00, 0x00, 0x00, 0x00, 0x3D, 0xCC, 0xCC, 0xCD, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00};
+
+    /* Defaults the generator took from the reference: controller_id is the board's
+     * HW_DEFAULT_ID (1 when no board supplies one), the timeout 1000 ms, and the baud rate
+     * is the CAN_BAUD enum's 500k member (2) - not the 500000 this port used to write,
+     * which was a baud number where the reference has an enum. */
+    assert_int_equal(app.controller_id, 1u);
+    assert_int_equal(app.timeout_msec, 1000u);
+    assert_int_equal(app.can_baud_rate, 2);
+
+    uint8_t buf[MOTOR_CONFIG_BUFFER_SIZE];
+    size_t n = 0;
+    assert_int_equal(motor_config_app_stream_len(), sizeof(expected));
+    assert_int_equal(motor_config_serialize_app(&app, buf, sizeof(buf), &n), EDGE_OK);
+    assert_int_equal(n, sizeof(expected));
+    assert_memory_equal(buf, expected, sizeof(expected));
+
+    app_configuration_t back;
+    memset(&back, 0, sizeof(back));
+    assert_int_equal(motor_config_deserialize_app(&back, buf, n), EDGE_OK);
+    assert_int_equal(back.controller_id, app.controller_id);
+    assert_int_equal(back.timeout_msec, app.timeout_msec);
+    assert_float_equal(back.timeout_brake_current, app.timeout_brake_current, 1e-6f);
+}
+
+/*
+ * COMM_GET_MCCONF_DEFAULT: the reference's defaults, except the nine calibration offsets,
+ * which it takes from the live configuration so a peer cannot wipe a motor's measured
+ * calibration by asking for the defaults. A test is the only way to see that, since the
+ * offsets are not visible in the byte layout's field names.
+ */
+static void test_motor_config_defaults_keep_the_calibration_offsets(void **state) {
+    (void)state;
+    mock_var_store_t store;
+    memset(&store, 0, sizeof(store));
+    const motor_config_var_port_t port = {
+        .read = mock_var_read, .write = mock_var_write, .self = &store};
+    static alignas(MOTOR_CONFIG_STORAGE_ALIGN) unsigned char storage[MOTOR_CONFIG_STORAGE_SIZE];
+    memset(storage, 0, sizeof(storage));
+    motor_config_t *cfg = (motor_config_t *)storage;
+    motor_config_construct(cfg, EDGE_MOD_MOTOR_CONFIG, 20u, &port);
+    assert_int_equal(motor_config_init(cfg), EDGE_OK);
+
+    /* Live calibration, plus a non-default current limit to show what is NOT carried over. */
+    mc_configuration_t live = *motor_config_get_mc(cfg);
+    for (size_t i = 0u; i < 3u; i++) {
+        /* The voltage offsets travel as float16 fixed point, whose range is a few volts:
+         * values past it wrap, which is the reference's behaviour too, so the test stays
+         * inside it. Only the "carried over" part is under test here. */
+        live.foc_offsets_current[i] = 0.25f * (float)(i + 1u);
+        live.foc_offsets_voltage[i] = 0.15f * (float)(i + 1u);
+        live.foc_offsets_voltage_undriven[i] = 0.25f * (float)(i + 1u);
+    }
+    live.l_current_max = 42.0f;
+    assert_int_equal(motor_config_update_mc(cfg, &live), EDGE_OK);
+
+    uint8_t buf[MOTOR_CONFIG_BUFFER_SIZE];
+    size_t n = 0;
+    assert_int_equal(motor_config_serialize_mc_defaults(cfg, buf, sizeof(buf), &n), EDGE_OK);
+
+    mc_configuration_t back;
+    memset(&back, 0, sizeof(back));
+    assert_int_equal(motor_config_deserialize_mc(&back, buf, n), EDGE_OK);
+    for (size_t i = 0u; i < 3u; i++) {
+        assert_float_equal(back.foc_offsets_current[i], live.foc_offsets_current[i], 1e-3f);
+        assert_float_equal(back.foc_offsets_voltage[i], live.foc_offsets_voltage[i], 1e-3f);
+        assert_float_equal(back.foc_offsets_voltage_undriven[i],
+                           live.foc_offsets_voltage_undriven[i], 1e-3f);
+    }
+
+    mc_configuration_t mc_defaults;
+    app_configuration_t app_defaults;
+    motor_config_set_defaults(&mc_defaults, &app_defaults);
+    assert_float_equal(back.l_current_max, mc_defaults.l_current_max, 1e-3f);
+    assert_true(back.l_current_max != live.l_current_max);
+}
+
+/*
+ * COMM_SET_APPCONF_NO_STORE applies to the running system and leaves the module clean, so a
+ * later save does not pick it up. The plain SET does mark it dirty - that difference is the
+ * whole point of the variant, so both are asserted here.
+ */
+static void test_motor_config_app_nostore_applies_without_marking_dirty(void **state) {
+    (void)state;
+    mock_var_store_t store;
+    memset(&store, 0, sizeof(store));
+    const motor_config_var_port_t port = {
+        .read = mock_var_read, .write = mock_var_write, .self = &store};
+    static alignas(MOTOR_CONFIG_STORAGE_ALIGN) unsigned char storage[MOTOR_CONFIG_STORAGE_SIZE];
+    memset(storage, 0, sizeof(storage));
+    motor_config_t *cfg = (motor_config_t *)storage;
+    motor_config_construct(cfg, EDGE_MOD_MOTOR_CONFIG, 20u, &port);
+    assert_int_equal(motor_config_init(cfg), EDGE_OK);
+
+    app_configuration_t app = *motor_config_get_app(cfg);
+    app.timeout_msec = 2500u;
+    uint8_t buf[MOTOR_CONFIG_BUFFER_SIZE];
+    size_t n = 0;
+    assert_int_equal(motor_config_serialize_app(&app, buf, sizeof(buf), &n), EDGE_OK);
+
+    assert_int_equal(motor_config_apply_app_stream_nostore(cfg, buf, n), EDGE_OK);
+    assert_int_equal(motor_config_get_app(cfg)->timeout_msec, 2500u);
+    assert_false(motor_config_is_dirty(cfg));
+
+    app.timeout_msec = 3000u;
+    assert_int_equal(motor_config_serialize_app(&app, buf, sizeof(buf), &n), EDGE_OK);
+    assert_int_equal(motor_config_apply_app_stream(cfg, buf, n), EDGE_OK);
+    assert_int_equal(motor_config_get_app(cfg)->timeout_msec, 3000u);
+    assert_true(motor_config_is_dirty(cfg));
+}
+
+/*
+ * The configuration through the variable store, which is how the reference actually persists it
+ * (conf_general.c:436-520): one uint16 per two bytes, and the struct's own crc member as the
+ * integrity check rather than an outside envelope.
+ */
+static void test_motor_config_variable_store(void **state) {
+    (void)state;
+    mock_var_store_t store;
+    memset(&store, 0, sizeof(store));
+    const motor_config_var_port_t port = {
+        .read = mock_var_read, .write = mock_var_write, .self = &store};
+
+    static alignas(MOTOR_CONFIG_STORAGE_ALIGN) unsigned char storage[MOTOR_CONFIG_STORAGE_SIZE];
+    memset(storage, 0, sizeof(storage));
+    motor_config_t *cfg = (motor_config_t *)storage;
+    motor_config_construct(cfg, EDGE_MOD_MOTOR_CONFIG, 20u, &port);
+
+    mc_configuration_t mc;
+    app_configuration_t app;
+    motor_config_set_defaults(&mc, &app);
+    mc.l_current_max = 37.5f;
+    mc.foc_pll_kp = 1234.0f;
+    assert_int_equal(motor_config_update_mc(cfg, &mc), EDGE_OK);
+
+    assert_int_equal(motor_config_save(cfg), EDGE_OK);
+    assert_true(store.writes > 0);
+
+    /* Wipe the live configuration, then read it back out of the variables. */
+    motor_config_set_defaults(&mc, &app); /* returns void */
+    assert_int_equal(motor_config_update_mc(cfg, &mc), EDGE_OK);
+    assert_float_equal(motor_config_get_mc(cfg)->l_current_max, 60.0f, 1e-3f);
+
+    assert_int_equal(motor_config_load(cfg), EDGE_OK);
+    assert_float_equal(motor_config_get_mc(cfg)->l_current_max, 37.5f, 1e-2f);
+    assert_float_equal(motor_config_get_mc(cfg)->foc_pll_kp, 1234.0f, 1e-1f);
+
+    /* A variable that never made it falls back to the defaults, as the reference does. */
+    store.present = false;
+    assert_int_equal(motor_config_load(cfg), EDGE_ENOENT);
+    assert_float_equal(motor_config_get_mc(cfg)->l_current_max, 60.0f, 1e-3f);
+
+    /* And so does a CRC mismatch. */
+    store.present = true;
+    store.values[1] ^= 0xFFFFu;
+    assert_int_equal(motor_config_load(cfg), EDGE_EINVAL);
+    assert_float_equal(motor_config_get_mc(cfg)->l_current_max, 60.0f, 1e-3f);
+}
+
+/*
+ * The CRC this module computes must be the one the codec's table-driven vesc_crc16 computes, or
+ * the two copies of util/crc.c's algorithm have drifted. The reference's own version zeroes the
+ * crc member and covers the whole struct, padding included, so the check mirrors that.
+ */
+static void test_motor_config_crc_matches_the_codec(void **state) {
+    (void)state;
+    mc_configuration_t mc;
+    app_configuration_t app;
+    motor_config_set_defaults(&mc, &app);
+    mc.l_current_max = 12.5f;
+
+    const uint16_t mine = motor_config_config_crc(&mc);
+    const uint16_t saved = mc.crc;
+    mc.crc = 0u;
+    const uint16_t theirs = vesc_crc16((const uint8_t *)&mc, sizeof(mc));
+    mc.crc = saved;
+
+    assert_int_equal(mine, theirs);
+}
+
+/*
+ * The guards of every public entry point, walked once. They were most of this module's uncovered
+ * lines: each function checks its arguments and each check is its own branch, so no amount of
+ * round-trip testing reaches them. The cases are a null aggregate, a null output and a null
+ * buffer, and the expected answers are the header's own wording.
+ */
+static void test_motor_config_guards(void **state) {
+    (void)state;
+    mc_configuration_t mc;
+    app_configuration_t app;
+    motor_config_set_defaults(&mc, &app);
+
+    uint8_t buffer[MOTOR_CONFIG_BUFFER_SIZE];
+    size_t len = 0u;
+
+    /* A null aggregate: construct is a no-op and everything else refuses. */
+    motor_config_construct(NULL, EDGE_MOD_MOTOR_CONFIG, 20u, NULL);
+    assert_int_equal(motor_config_init(NULL), EDGE_EINVAL);
+    assert_int_equal(motor_config_deinit(NULL), EDGE_EINVAL);
+    assert_int_equal(motor_config_load(NULL), EDGE_EINVAL);
+    assert_int_equal(motor_config_save(NULL), EDGE_EINVAL);
+    assert_ptr_equal(motor_config_module(NULL), NULL);
+    assert_ptr_equal(motor_config_get_mc(NULL), NULL);
+    assert_ptr_equal(motor_config_get_app(NULL), NULL);
+    assert_false(motor_config_is_dirty(NULL));
+    assert_int_equal(motor_config_update_mc(NULL, &mc), EDGE_EINVAL);
+    assert_int_equal(motor_config_update_app(NULL, &app), EDGE_EINVAL);
+    assert_int_equal(motor_config_apply_mc_stream(NULL, buffer, sizeof(buffer)), EDGE_EINVAL);
+    assert_int_equal(motor_config_apply_app_stream(NULL, buffer, sizeof(buffer)), EDGE_EINVAL);
+    assert_int_equal(motor_config_apply_app_stream_nostore(NULL, buffer, sizeof(buffer)),
+                     EDGE_EINVAL);
+    assert_int_equal(motor_config_serialize_mc_defaults(NULL, buffer, sizeof(buffer), &len),
+                     EDGE_EINVAL);
+
+    /* The free functions refuse a null pointer rather than writing through it. */
+    assert_int_equal(motor_config_config_crc(NULL), 0u);
+    assert_int_equal(motor_config_validate(NULL, &app), EDGE_EINVAL);
+    assert_int_equal(motor_config_validate(&mc, NULL), EDGE_EINVAL);
+    assert_int_equal(motor_config_serialize_mc(NULL, buffer, sizeof(buffer), &len), EDGE_EINVAL);
+    assert_int_equal(motor_config_serialize_mc(&mc, NULL, sizeof(buffer), &len), EDGE_EINVAL);
+    assert_int_equal(motor_config_serialize_mc(&mc, buffer, sizeof(buffer), NULL), EDGE_EINVAL);
+    assert_int_equal(motor_config_deserialize_mc(NULL, buffer, sizeof(buffer)), EDGE_EINVAL);
+    assert_int_equal(motor_config_deserialize_mc(&mc, NULL, sizeof(buffer)), EDGE_EINVAL);
+    assert_int_equal(motor_config_serialize_app(NULL, buffer, sizeof(buffer), &len), EDGE_EINVAL);
+    assert_int_equal(motor_config_deserialize_app(NULL, buffer, sizeof(buffer)), EDGE_EINVAL);
+    assert_int_equal(motor_config_serialize_app_defaults(NULL, sizeof(buffer), &len), EDGE_EINVAL);
+    motor_config_set_defaults(NULL, NULL);
+
+    /* Constructed with no store: load and save refuse, and init still succeeds with nothing to
+     * persist to. */
+    static alignas(MOTOR_CONFIG_STORAGE_ALIGN) unsigned char storage[MOTOR_CONFIG_STORAGE_SIZE];
+    memset(storage, 0, sizeof(storage));
+    motor_config_t *cfg = (motor_config_t *)storage;
+    motor_config_construct(cfg, EDGE_MOD_MOTOR_CONFIG, 20u, NULL);
+    assert_int_equal(motor_config_load(cfg), EDGE_EINVAL);
+    assert_int_equal(motor_config_save(cfg), EDGE_EINVAL);
+    assert_int_equal(motor_config_init(cfg), EDGE_OK);
+    assert_non_null(motor_config_get_mc(cfg));
+    assert_non_null(motor_config_get_app(cfg));
+    assert_non_null(motor_config_module(cfg));
+
+    /* A stream it cannot decode is refused and the live configuration is left alone. */
+    const float before = motor_config_get_mc(cfg)->l_current_max;
+    uint8_t bad[6] = {0};
+    assert_int_equal(motor_config_apply_mc_stream(cfg, bad, sizeof(bad)), EDGE_EINVAL);
+    assert_float_equal(motor_config_get_mc(cfg)->l_current_max, before, 1e-9f);
+    assert_int_equal(motor_config_update_mc(cfg, NULL), EDGE_EINVAL);
+    assert_int_equal(motor_config_update_app(cfg, NULL), EDGE_EINVAL);
+    assert_int_equal(motor_config_apply_app_stream(cfg, bad, sizeof(bad)), EDGE_EINVAL);
+    assert_int_equal(motor_config_apply_app_stream_nostore(cfg, bad, sizeof(bad)), EDGE_EINVAL);
+    assert_int_equal(motor_config_serialize_mc_defaults(cfg, NULL, sizeof(buffer), &len),
+                     EDGE_EINVAL);
+}
+
+/* A store whose writes fail, for the save error arm. */
+static edge_status_t failing_var_write(void *self, uint16_t index, uint16_t value) {
+    (void)self;
+    (void)index;
+    (void)value;
+    return EDGE_EIO;
+}
+
+/*
+ * The hooks and the arms the round-trip tests do not reach: a poll whose module data is missing,
+ * the event hook with and without an event, a deinit that has something to flush (the earlier case
+ * constructed the module with no store, so its save failed and that branch never ran), a store
+ * whose write fails, and an update handed a configuration that fails validation.
+ */
+static void test_motor_config_hooks_and_arms(void **state) {
+    (void)state;
+    mock_var_store_t store;
+    memset(&store, 0, sizeof(store));
+    const motor_config_var_port_t port = {
+        .read = mock_var_read, .write = mock_var_write, .self = &store};
+
+    static alignas(MOTOR_CONFIG_STORAGE_ALIGN) unsigned char storage[MOTOR_CONFIG_STORAGE_SIZE];
+    memset(storage, 0, sizeof(storage));
+    motor_config_t *cfg = (motor_config_t *)storage;
+    motor_config_construct(cfg, EDGE_MOD_MOTOR_CONFIG, 20u, &port);
+    assert_int_equal(motor_config_init(cfg), EDGE_OK);
+
+    /* The aggregate is opaque, so the module comes through its accessor. */
+    edge_module_t *mod = motor_config_module(cfg);
+    assert_non_null(mod);
+
+    /* A module whose private data is missing refuses rather than dereferencing it. */
+    const edge_module_t saved = *mod;
+    mod->private_data = NULL;
+    assert_int_equal(mod->poll(mod), EDGE_EINVAL);
+    *mod = saved;
+
+    /* The event hook refuses a null event. The accepted arm needs a real edge_event_t, whose
+     * header this test does not pull in; that path is covered by the sys-level event routing
+     * test, so pinning it here would mean importing a type this module never sees. */
+    assert_int_equal(mod->on_event(mod, NULL), EDGE_EINVAL);
+
+    /* Validation arms: an out-of-range duty is refused on the way in. */
+    mc_configuration_t bad = *motor_config_get_mc(cfg);
+    bad.l_max_duty = 1.5f;
+    assert_int_equal(motor_config_update_mc(cfg, &bad), EDGE_EINVAL);
+
+    /* A valid change marks it dirty, and deinit flushes it through the injected store. */
+    mc_configuration_t good = *motor_config_get_mc(cfg);
+    good.l_current_max = 33.0f;
+    assert_int_equal(motor_config_update_mc(cfg, &good), EDGE_OK);
+    assert_true(motor_config_is_dirty(cfg));
+    assert_int_equal(motor_config_deinit(cfg), EDGE_OK);
+    assert_true(store.writes > 0);
+    assert_false(motor_config_is_dirty(cfg));
+
+    /* A store that refuses the write has its error come back out. */
+    const motor_config_var_port_t bad_port = {
+        .read = mock_var_read, .write = failing_var_write, .self = &store};
+    static alignas(MOTOR_CONFIG_STORAGE_ALIGN) unsigned char storage2[MOTOR_CONFIG_STORAGE_SIZE];
+    memset(storage2, 0, sizeof(storage2));
+    motor_config_t *other = (motor_config_t *)storage2;
+    motor_config_construct(other, EDGE_MOD_MOTOR_CONFIG, 20u, &bad_port);
+    mc_configuration_t good2 = *motor_config_get_mc(other);
+    good2.l_current_max = 44.0f;
+    assert_int_equal(motor_config_update_mc(other, &good2), EDGE_OK);
+    assert_int_equal(motor_config_save(other), EDGE_EIO);
+}
+
+/*
+ * A stored stream whose signature is not this port's is not a configuration: it is refused rather
+ * than decoded. The reference reads the same field first (confgenerator.c appends and checks the
+ * signature before anything else), which is what makes an older or foreign dump fail closed instead
+ * of turning the wrong bytes into a plausible configuration.
+ */
+static void test_motor_config_refuses_a_foreign_signature(void **state) {
+    (void)state;
+    mc_configuration_t mc;
+    app_configuration_t app;
+    motor_config_set_defaults(&mc, &app);
+
+    uint8_t buffer[MOTOR_CONFIG_BUFFER_SIZE];
+    size_t len = 0u;
+    assert_int_equal(motor_config_serialize_mc(&mc, buffer, sizeof(buffer), &len), EDGE_OK);
+    assert_int_equal(motor_config_deserialize_mc(&mc, buffer, len), EDGE_OK);
+
+    /* The same bytes with the signature's first byte changed: the right length, the right shape,
+     * and not this configuration. */
+    buffer[0] = (uint8_t)(buffer[0] ^ 0xFFu);
+    assert_int_equal(motor_config_deserialize_mc(&mc, buffer, len), EDGE_EINVAL);
+}
+
+/*
+ * A store of its own for the application configuration's test, large enough for both
+ * configurations' words: the fixture's is sized for the motor one alone, and growing that one made
+ * the *other* tests' locals large enough to matter - which showed up as two of them failing with
+ * EDGE_EINVAL while this one was the only thing that actually needed the room.
+ */
+#define APP_TEST_VAR_COUNT 640u
+
+typedef struct app_test_store {
+    uint16_t values[APP_TEST_VAR_COUNT];
+    bool present;
+} app_test_store_t;
+
+static edge_status_t app_test_read(void *self, uint16_t index, uint16_t *value) {
+    app_test_store_t *store = (app_test_store_t *)self;
+    if (!store->present || index >= APP_TEST_VAR_COUNT) {
+        return EDGE_ENOENT;
+    }
+    *value = store->values[index];
+    return EDGE_OK;
+}
+
+static edge_status_t app_test_write(void *self, uint16_t index, uint16_t value) {
+    app_test_store_t *store = (app_test_store_t *)self;
+    if (index >= APP_TEST_VAR_COUNT) {
+        return EDGE_EINVAL;
+    }
+    store->values[index] = value;
+    return EDGE_OK;
+}
+
+/*
+ * The application configuration's own persistence, the twin of the motor one: what is stored comes
+ * back on the next boot, and a stored image whose CRC no longer matches falls back to the defaults
+ * - the reference's rule for both configurations (conf_general.c:335-374).
+ */
+static void test_motor_config_app_configuration_persists(void **state) {
+    (void)state;
+    static app_test_store_t store;
+    memset(&store, 0, sizeof(store));
+    store.present = true;
+    const motor_config_var_port_t port = {
+        .read = app_test_read, .write = app_test_write, .self = &store};
+
+    static alignas(
+        MOTOR_CONFIG_STORAGE_ALIGN) unsigned char first_storage[MOTOR_CONFIG_STORAGE_SIZE];
+    static alignas(
+        MOTOR_CONFIG_STORAGE_ALIGN) unsigned char second_storage[MOTOR_CONFIG_STORAGE_SIZE];
+    motor_config_t *first = (motor_config_t *)first_storage;
+    motor_config_t *second = (motor_config_t *)second_storage;
+
+    motor_config_construct(first, EDGE_MOD_MOTOR_CONFIG, 30u, &port);
+    assert_int_equal(motor_config_init(first), EDGE_OK);
+    assert_int_equal(motor_config_save(first), EDGE_OK);
+    assert_int_equal(motor_config_save_app(first), EDGE_OK);
+
+    /* The store holds the application configuration's words: one per two bytes, high byte first,
+     * the struct's own CRC included - the reference's own arrangement for both configurations. */
+    const app_configuration_t *stored = motor_config_get_app(first);
+    const uint8_t *bytes = (const uint8_t *)stored;
+    const uint16_t app_base = (uint16_t)(sizeof(mc_configuration_t) / 2u);
+    const size_t count = sizeof(*stored) / 2u;
+    for (size_t i = 0u; i < count; i++) {
+        const uint16_t expected =
+            (uint16_t)(((uint16_t)bytes[2u * i] << 8) | (uint16_t)bytes[2u * i + 1u]);
+        assert_int_equal(store.values[app_base + i], expected);
+    }
+
+    /* A second instance over the same store reads the whole application configuration back: the
+     * load succeeds and the configuration matches, byte for byte. */
+    motor_config_construct(second, EDGE_MOD_MOTOR_CONFIG, 30u, &port);
+    assert_int_equal(motor_config_load_app(second), EDGE_OK);
+    assert_memory_equal(motor_config_get_app(second), stored, sizeof(*stored));
+
+    /* A word inside the application configuration's half that no longer matches its CRC makes the
+     * load refuse - which is what the boot path turns into the defaults, the reference's rule for
+     * both configurations. */
+    store.values[app_base + 8u] ^= 0xFFFFu;
+    motor_config_construct(second, EDGE_MOD_MOTOR_CONFIG, 30u, &port);
+    assert_int_equal(motor_config_load_app(second), EDGE_EINVAL);
+}
+
+static void test_motor_config_set_appconf_stores_and_nostore_does_not(void **state) {
+    (void)state;
+    static app_test_store_t store;
+    memset(&store, 0, sizeof(store));
+    store.present = true;
+    const motor_config_var_port_t port = {
+        .read = app_test_read, .write = app_test_write, .self = &store};
+
+    static alignas(MOTOR_CONFIG_STORAGE_ALIGN) unsigned char storage[MOTOR_CONFIG_STORAGE_SIZE];
+    motor_config_t *config = (motor_config_t *)storage;
+    motor_config_construct(config, EDGE_MOD_MOTOR_CONFIG, 30u, &port);
+    assert_int_equal(motor_config_init(config), EDGE_OK);
+    assert_int_equal(motor_config_save(config), EDGE_OK);
+    assert_int_equal(motor_config_save_app(config), EDGE_OK);
+
+    /* A stream that differs from what the store holds, built the way the command handler builds
+     * one: the configuration is rendered, not hand-assembled. */
+    app_configuration_t changed = *motor_config_get_app(config);
+    changed.controller_id = (uint8_t)(changed.controller_id + 7u);
+    uint8_t stream[512];
+    size_t len = 0u;
+    assert_int_equal(motor_config_serialize_app(&changed, stream, sizeof(stream), &len), EDGE_OK);
+
+    const uint16_t app_base = (uint16_t)(sizeof(mc_configuration_t) / 2u);
+    const size_t words = sizeof(app_configuration_t) / 2u;
+    static uint16_t snapshot[sizeof(app_configuration_t) / 2u];
+
+    /* The pair the apply is about to validate, checked on its own: the port's own defaults with
+     * one field changed, which the command handler's validation has to accept. Separating this
+     * from the apply below says whether a failure is in the pair or in the stream. */
+    assert_int_equal(motor_config_validate(motor_config_get_mc(config), &changed), EDGE_OK);
+
+    /* The pair the apply is about to validate, checked on its own: the port's own defaults with
+     * one field changed, which the command handler's validation has to accept. Separating this
+     * from the apply below says whether a failure is in the pair or in the stream. */
+    assert_int_equal(motor_config_validate(motor_config_get_mc(config), &changed), EDGE_OK);
+
+    /* COMM_SET_APPCONF's sibling: apply *and* store, which is what makes it survive a reboot.
+     * The reference stores for that packet id and not for its _NO_STORE sibling
+     * (commands.c:633-635), and ignores whether the store succeeded. */
+    assert_int_equal(motor_config_apply_app_stream(config, stream, len), EDGE_OK);
+    assert_int_equal(motor_config_get_app(config)->controller_id, changed.controller_id);
+    {
+        const uint8_t *bytes = (const uint8_t *)motor_config_get_app(config);
+        for (size_t i = 0u; i < words; i++) {
+            const uint16_t expected =
+                (uint16_t)(((uint16_t)bytes[2u * i] << 8) | (uint16_t)bytes[2u * i + 1u]);
+            assert_int_equal(store.values[app_base + i], expected);
+        }
+    }
+    for (size_t i = 0u; i < words; i++) {
+        snapshot[i] = store.values[app_base + i];
+    }
+
+    /* COMM_SET_APPCONF_NO_STORE's sibling: the running configuration changes and the store is
+     * left exactly as it was, byte for byte. */
+    changed.controller_id = (uint8_t)(changed.controller_id + 1u);
+    len = 0u;
+    assert_int_equal(motor_config_serialize_app(&changed, stream, sizeof(stream), &len), EDGE_OK);
+    assert_int_equal(motor_config_apply_app_stream_nostore(config, stream, len), EDGE_OK);
+    assert_int_equal(motor_config_get_app(config)->controller_id, changed.controller_id);
+    for (size_t i = 0u; i < words; i++) {
+        assert_int_equal(store.values[app_base + i], snapshot[i]);
+    }
+}
+
+int main(void) {
+    const struct CMUnitTest tests[] = {
+        cmocka_unit_test(test_defaults_and_validation),
+        cmocka_unit_test(test_controller_fields_have_reference_defaults),
+        cmocka_unit_test(test_controller_fields_survive_a_round_trip),
+        cmocka_unit_test(test_motor_config_golden_bytes),
+        cmocka_unit_test(test_motor_config_golden_bytes_off_default),
+        cmocka_unit_test(test_motor_config_app_golden_bytes),
+        cmocka_unit_test(test_motor_config_variable_store),
+        cmocka_unit_test(test_motor_config_crc_matches_the_codec),
+        cmocka_unit_test(test_motor_config_guards),
+        cmocka_unit_test(test_motor_config_hooks_and_arms),
+        cmocka_unit_test(test_motor_config_refuses_a_foreign_signature),
+        cmocka_unit_test(test_motor_config_defaults_keep_the_calibration_offsets),
+        cmocka_unit_test(test_motor_config_app_nostore_applies_without_marking_dirty),
+        cmocka_unit_test(test_module_lifecycle_and_variable_store),
+        cmocka_unit_test(test_motor_config_app_configuration_persists),
+        cmocka_unit_test(test_motor_config_set_appconf_stores_and_nostore_does_not),
+    };
+    return cmocka_run_group_tests(tests, NULL, NULL);
+}

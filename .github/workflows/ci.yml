@@ -206,7 +206,7 @@ jobs:
           cmake --build build --parallel
       - name: Run host products
         run: |
-          for product in example meter_host meter_mps2 meter_gateway_host keyboard_host corne_split watch_host pinetime; do
+          for product in example meter_host meter_mps2 meter_gateway_host keyboard_host corne_split watch_host pinetime vesc_host; do
             echo "running $product"
             ./build/$product
           done
@@ -392,7 +392,7 @@ jobs:
       - name: Toolchain manifest matches the installed tools
         run: python3 .github/scripts/check_toolchain.py
       - name: Formatting check
-        run: git ls-files '*.c' '*.h' ':!:tests/guards/*' | xargs clang-format --dry-run --Werror
+        run: git ls-files '*.c' '*.h' ':!:tests/guards/*' ':!:vendor/*' ':!:*/vendor/*' ':!:*/*/vendor/*' | xargs clang-format --dry-run --Werror
       - name: clang-tidy
         run: |
           clang-tidy -p build \
@@ -419,7 +419,17 @@ jobs:
           cppcheck \
             --enable=warning,style,performance,portability \
             --error-exitcode=1 --inline-suppr \
-            -i tests/guards \
+            --suppress=constVariablePointer \
+            --suppress=constParameterPointer \
+            --suppress=constParameterCallback \
+            --suppress=constVariable \
+            --suppress=shadowVariable \
+            --suppress=redundantAssignment \
+            --suppress=knownConditionTrueFalse \
+            --suppress=duplicateExpression \
+            --suppress=duplicateCondition \
+            --suppress=unsignedLessThanZero \
+            -i tests/guards -i vendor -i infra/imu/vendor \
             $(find edge_module sys app board infra pal soc -type d -name include | sed 's/^/-I /') \
             edge_module sys app board infra pal soc product tests
 

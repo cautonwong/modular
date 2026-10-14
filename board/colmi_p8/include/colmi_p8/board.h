@@ -10,6 +10,13 @@
 extern "C" {
 #endif
 
+#ifndef EDGE_EVT_WATCH_BUTTON
+#define EDGE_EVT_WATCH_BUTTON 0x1602u
+#endif
+#ifndef EDGE_EVT_WATCH_TOUCH
+#define EDGE_EVT_WATCH_TOUCH 0x1601u
+#endif
+
 /* Colmi P8 Pinout */
 #define COLMI_P8_PIN_LCD_SCK 2u
 #define COLMI_P8_PIN_LCD_MOSI 3u

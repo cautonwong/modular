@@ -1,0 +1,243 @@
+#ifndef PRODUCT_VESC_HOST_GLUE_H
+#define PRODUCT_VESC_HOST_GLUE_H
+
+#include "adc_input/adc_input.h"
+#include "balance/balance.h"
+#include "flash/flash.h"
+#include "foc_core/foc_core.h"
+#include "foc_core/foc_math.h"
+#include "motor_config/motor_config.h"
+#include "motor_id/motor_id.h"
+#include "nunchuk/nunchuk.h"
+#include "pas/pas.h"
+#include "ppm/ppm.h"
+#include "vesc_bms/vesc_bms.h"
+#include "vesc_can/vesc_can.h"
+#include "vesc_comm/vesc_comm.h"
+#include "vesc_terminal/vesc_terminal.h"
+
+/*
+ * The two aggregates the state below reaches through are held as pointers, so their definitions
+ * stay with the product's own sources instead of following this header into every target that
+ * includes it.
+ */
+typedef struct bldc_drive bldc_drive_t;
+typedef struct timeout_guard timeout_guard_t;
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct vesc_host_glue_state {
+    foc_virtual_motor_t vmotor;
+    foc_core_t *foc;
+    /*
+     * What the parameter detection's port reaches through: the aggregate whose configuration it
+     * stages and puts back (conf_general.c:525-534, :634), the six-step drive whose tachometer,
+     * cycle integrator and hall-detection counts the reference reads through mc_interface, and the
+     * timeout guard it switches off for the run (:543-551) and restores on the way out. The
+     * composition root sets all three; a product with none of them leaves those callbacks unable to
+     * answer, which is what the procedure's own port check is for.
+     */
+    motor_config_t *config;
+    bldc_drive_t *bldc;
+    timeout_guard_t *timeout;
+    /*
+     * What the run saves while it holds them: the configuration it staged (the reference edits its
+     * own copy and puts it back) and the timeout's two settings, which it reads before it switches
+     * the timeout off and restores on every way out.
+     */
+    mc_configuration_t saved_mcconf;
+    bool mcconf_saved;
+    uint32_t saved_timeout_ms;
+    float saved_timeout_brake_a;
+    float v_bus;
+    /* The EEPROM emulation's two sectors, one FLASH_EMUL_PAGE_SIZE each: the configuration's
+     * variable table is stored in this image, so the emulation's page size sets its size. */
+    uint8_t flash_mem[2u * FLASH_EMUL_PAGE_SIZE];
+    uint8_t stream_tx_buf[512];
+    size_t stream_tx_len;
+    float ppm_pulse_us;
+    float adc_throttle_v;
+    float adc_brake_v;
+
+    /*
+     * The two NTC readings the host simulation is given, and the filtered values the adapter
+     * makes of them (vesc_host_sample_temperatures). Inputs the composition root sets, like
+     * v_bus and the throttle voltages.
+     */
+    float fet_temp_raw_c;
+    float motor_temp_raw_c;
+    float fet_temp_c;
+    float motor_temp_c;
+    uint32_t last_can_id;
+    uint8_t last_can_data[8];
+    uint8_t last_can_len;
+    char terminal_tx_buf[256];
+
+    /* The decoded-input adapters read through the apps, not through the raw glue
+     * fields; the composition root points these at the constructed apps. */
+    ppm_app_t *ppm;
+    adc_input_app_t *adc;
+    /*
+     * What the PAS application reads: the two pad levels (app_pas.c:136-138), the torque sensor as
+     * a ratio (app_pas.c:243) and the clock its period is measured against (app_pas.c:156). All
+     * three are the product's to keep; the port beside them used to answer a fixed 60 rpm and a
+     * fixed 15 Nm whatever was wired to it.
+     */
+    uint8_t pas_level1;
+    uint8_t pas_level2;
+    float pas_torque_ratio;
+    float now_s;
+    /*
+     * The nunchuk application, for COMM_GET_DECODED_CHUK: the reference reads its decoded value
+     * straight off the application (comm/commands.c:2521), and the state here is what the codec's
+     * own status port hands it through. The tag is used rather than the typedef so that this header
+     * needs no application header, as with the two above it.
+     */
+    struct nunchuk_app *nunchuk;
+
+    /*
+     * The configuration a measurement runs in: the flux-linkage procedure replaces the
+     * aggregate's own configuration and wants it back afterwards, so the product that owns the
+     * aggregate keeps the copy (glue.c, id_enter_measurement_config).
+     */
+    foc_config_t saved_foc_config;
+    bool foc_config_saved;
+    /* The composed R-and-L sequence's own temporary gains, held over its whole run. */
+    float saved_current_kp;
+    float saved_current_ki;
+    bool res_ind_gains_saved;
+
+    /*
+     * A shutdown the running system asked for: the simulation has no reset line and no bootloader
+     * to jump to, so the request is recorded here and the simulation's own run ends where a board
+     * would restart. The backup block's store happens on the way out through the modules'
+     * power_off, which is where this port keeps it for an ordinary shutdown too.
+     */
+    bool reboot_requested;
+    bool bootloader_requested;
+    /*
+     * comm/commands.c:1130-1148, COMM_SHUTDOWN: a restart is the reference's watchdog reset, which
+     * is what its reboot request above already is here, and a shutdown has no host equivalent - so
+     * this records that one was asked for and the product says so and stops.
+     */
+    bool shutdown_requested;
+} vesc_host_glue_state_t;
+
+void vesc_host_make_flash_sector_port(flash_sector_port_t *out, vesc_host_glue_state_t *state);
+void vesc_host_make_stream_tx_port(edge_stream_tx_port_t *out, vesc_host_glue_state_t *state);
+void vesc_host_make_motor_provider_port(vesc_motor_provider_port_t *out, foc_core_t *foc);
+
+/* The CAN app's peer tables, as the port the aggregate reads the bus's other controllers through.
+ */
+void vesc_host_make_peer_port(foc_peer_port_t *out, vesc_can_app_t *can);
+
+/*
+ * COMM_GET/SET_MCCONF and COMM_GET/SET_APPCONF, served from the configuration aggregate.
+ * The streams are the reference's own byte layouts; the aggregate owns the staging copy
+ * that keeps a malformed stream from half-writing the running configuration.
+ */
+void vesc_host_make_config_port(vesc_config_provider_port_t *out, motor_config_t *cfg);
+
+/*
+ * The configuration's variable store, backed by the EEPROM emulation (infra/flash). Keys are the
+ * logical indices motor_config uses; the reference's virtual address base EEPROM_BASE_MCCONF
+ * (conf_general.c:50) is applied here, so the app never sees an address space. The emulation
+ * itself is the product's: it needs a variable table (the reference builds it by enumerating
+ * base + i, conf_general.c:72) and a sector backend.
+ */
+/* conf_general.c:50, and the size of the variable table the emulation walks: the reference
+ * enumerates base + i for every two bytes of the configuration (conf_general.c:72). */
+#define VESC_HOST_MCCONF_BASE 1000u
+#define VESC_HOST_MCCONF_VARS (sizeof(mc_configuration_t) / 2u)
+/* The reference's own base for the backup block (conf_general.c:55), above the configuration's. */
+#define VESC_HOST_BACKUP_BASE 6000u
+#define VESC_HOST_BACKUP_VARS (FOC_BACKUP_BLOCK_BYTES / 2u)
+/* And the application configuration's, at the reference's base for it (EEPROM_BASE_APPCONF,
+ * conf_general.c:51). Its words follow the motor configuration's in the store's index order, which
+ * is what motor_config_load_app/save_app address them by. */
+#define VESC_HOST_APPCONF_BASE 2000u
+#define VESC_HOST_APPCONF_VARS (sizeof(app_configuration_t) / 2u)
+
+/* The motor NTC's filter, hwconf/hw.h:639. Boards that need a faster response override it
+ * (the m600 sets 0.001), so it is a board parameter and belongs here rather than in the app. */
+#define VESC_HOST_MOTOR_TEMP_LPF 0.01
+
+void vesc_host_make_var_port(motor_config_var_port_t *out, flash_emul_t *emul);
+
+/*
+ * Where the aggregate's backup block lands: the same emulated EEPROM, at the reference's own base
+ * for it. One callback, because the block's format is the aggregate's - this only moves its words,
+ * each pair high byte first, which is what the reference does with its packed struct (:181-182).
+ */
+void vesc_host_make_backup_store_port(foc_storage_port_t *out, flash_emul_t *emul);
+
+/*
+ * COMM_TERMINAL_CMD and COMM_FORWARD_CAN run through the product: the terminal, and the
+ * CAN bus. Two callbacks need two targets, so the port carries this small context, which
+ * the product fills in.
+ */
+typedef struct vesc_host_ops_ctx {
+    vesc_terminal_app_t *term;
+    vesc_can_app_t *can;
+    /* The battery's own module, for the commands it answers itself (bms.c:523). */
+    vesc_bms_app_t *bms;
+    /*
+     * The flux-linkage measurement needs both the procedure and the plant: the aggregate it drives,
+     * the virtual motor that answers, and the product state they both live in. The reference's
+     * command thread blocks while its control loop keeps running in an interrupt, so the equivalent
+     * here is to advance the two together.
+     */
+    vesc_host_glue_state_t *glue;
+    motor_id_app_t *motor_id;
+    /*
+     * The motor configuration, because the all-in-one detection does not only report what it
+     * measured: the reference keeps the measured resistance, inductance and linkage in the
+     * configuration along with the gains derived from them (conf_general.c:1738-1810), so the
+     * product's own module is where those land.
+     */
+    motor_config_t *config;
+} vesc_host_ops_ctx_t;
+void vesc_host_make_ops_port(vesc_comm_ops_port_t *out, vesc_host_ops_ctx_t *ctx);
+void vesc_host_make_inverter_port(foc_inverter_port_t *out, vesc_host_glue_state_t *state);
+void vesc_host_make_current_port(foc_current_port_t *out, vesc_host_glue_state_t *state);
+void vesc_host_make_rotor_port(foc_rotor_port_t *out, vesc_host_glue_state_t *state);
+void vesc_host_make_ppm_port(ppm_receiver_port_t *out, vesc_host_glue_state_t *state);
+/*
+ * applications/app_ppm.c:218-440, applied: the PPM application decides and this commands the motor
+ * with that decision, because the motor interface lives here. Call it after the module has polled.
+ */
+edge_status_t vesc_host_apply_ppm(vesc_host_glue_state_t *state);
+void vesc_host_make_adc_port(adc_input_port_t *out, vesc_host_glue_state_t *state);
+void vesc_host_make_app_status_port(vesc_app_status_port_t *out, vesc_host_glue_state_t *state);
+
+/*
+ * One sampling pass over the two NTCs, as the reference's ADC interrupt handler does it
+ * (mc_interface.c:2266 for the FET, :2325-2331 for the motor): the motor reading is replaced
+ * when it is not a plausible number, then each is low-passed - 0.1 for the FET, the board's
+ * MOTOR_TEMP_LPF (0.01) for the motor - and the filtered values are handed to the FOC, which
+ * caches them as the reference's motor state does. Those constants are board defines in the
+ * reference (hwconf/hw.h), which is why the sampler lives in the product and not in the app.
+ */
+void vesc_host_sample_temperatures(vesc_host_glue_state_t *state, foc_core_t *foc);
+void vesc_host_make_can_port(vesc_can_port_t *out, vesc_host_glue_state_t *state);
+/*
+ * Motor identification's port, wired to the FOC aggregate: the procedures drive the motor through
+ * it and read the sample accumulator the control loop fills.
+ */
+void vesc_host_make_motor_id_measure_port(motor_id_measure_port_t *out,
+                                          vesc_host_glue_state_t *state);
+void vesc_host_make_nunchuk_port(nunchuk_port_t *out, vesc_host_glue_state_t *state);
+void vesc_host_make_pas_port(pas_port_t *out, vesc_host_glue_state_t *state);
+void vesc_host_make_balance_port(balance_port_t *out, vesc_host_glue_state_t *state);
+void vesc_host_make_terminal_stream_port(terminal_stream_port_t *out,
+                                         vesc_host_glue_state_t *state);
+void vesc_host_make_terminal_system_port(terminal_system_port_t *out, foc_core_t *foc);
+void vesc_host_make_bms_can_port(bms_can_port_t *out, vesc_host_glue_state_t *state);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* PRODUCT_VESC_HOST_GLUE_H */

@@ -1,8 +1,6 @@
 #include "dlt645/dlt645.h"
 #include "edge/clock.h"
 #include "edge/event.h"
-#include "edge/events.h"
-#include "edge/modules.h"
 #include "meter/sys.h"
 #include "riscv_virt/board.h"
 

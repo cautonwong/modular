@@ -8,6 +8,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef ZMK_RGB_MODULE_ID
+#define ZMK_RGB_MODULE_ID 0x2800u
+#endif
+
+#ifndef EDGE_MOD_ZMK_RGB
+#define EDGE_MOD_ZMK_RGB ZMK_RGB_MODULE_ID
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

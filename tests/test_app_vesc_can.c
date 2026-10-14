@@ -1,0 +1,575 @@
+/* clang-format off */
+#include <stdarg.h>
+#include <stddef.h>
+#include <setjmp.h>
+#include <stdint.h>
+#include <string.h>
+#include <cmocka.h>
+/* clang-format on */
+
+#include "edge/modules.h"
+#include "vesc_can/vesc_can.h"
+#include "vesc_comm/vesc_comm.h" /* vesc_crc16, for the cross-check */
+
+/* The multi-frame path sends a sequence, so the mock keeps one. */
+#define MOCK_CAN_MAX_FRAMES 48
+
+typedef struct mock_can_frame {
+    uint32_t id;
+    uint8_t data[8];
+    uint8_t len;
+} mock_can_frame_t;
+
+typedef struct mock_can_bus {
+    mock_can_frame_t tx[MOCK_CAN_MAX_FRAMES];
+    int tx_count;
+    uint32_t last_tx_id;
+    uint8_t last_tx_data[8];
+    uint8_t last_tx_len;
+    uint32_t rx_id;
+    uint8_t rx_data[8];
+    uint8_t rx_len;
+    bool has_rx;
+} mock_can_bus_t;
+
+static edge_status_t mock_send(void *self, uint32_t can_id, const uint8_t *data, uint8_t len) {
+    mock_can_bus_t *bus = (mock_can_bus_t *)self;
+    if (bus->tx_count < MOCK_CAN_MAX_FRAMES) {
+        bus->tx[bus->tx_count].id = can_id;
+        bus->tx[bus->tx_count].len = len;
+        for (int i = 0; i < len && i < 8; i++) {
+            bus->tx[bus->tx_count].data[i] = data[i];
+        }
+        bus->tx_count++;
+    }
+    bus->last_tx_id = can_id;
+    bus->last_tx_len = len;
+    for (int i = 0; i < len; i++) {
+        bus->last_tx_data[i] = data[i];
+    }
+    return EDGE_OK;
+}
+
+static edge_status_t mock_receive(void *self, uint32_t *can_id, uint8_t *data, uint8_t *len) {
+    mock_can_bus_t *bus = (mock_can_bus_t *)self;
+    if (!bus->has_rx) {
+        return EDGE_ENOENT;
+    }
+    *can_id = bus->rx_id;
+    *len = bus->rx_len;
+    for (int i = 0; i < bus->rx_len; i++) {
+        data[i] = bus->rx_data[i];
+    }
+    bus->has_rx = false;
+    return EDGE_OK;
+}
+
+static void test_vesc_can_init_validation(void **state) {
+    (void)state;
+    vesc_can_app_t app;
+    vesc_can_construct(&app, EDGE_MOD_VESC_CAN, 20u, NULL, NULL);
+    assert_int_equal(vesc_can_init(NULL), EDGE_EINVAL);
+    assert_int_equal(vesc_can_init(&app), EDGE_EINVAL);
+}
+
+static void test_vesc_can_status_broadcast(void **state) {
+    (void)state;
+    vesc_can_app_t app;
+    mock_can_bus_t bus = {0};
+    vesc_can_port_t port = {
+        .self = &bus,
+        .send_frame = mock_send,
+        .receive_frame = mock_receive,
+    };
+    vesc_can_config_t cfg = {
+        .controller_id = 10,
+        .baudrate = 500000,
+    };
+
+    vesc_can_construct(&app, EDGE_MOD_VESC_CAN, 20u, &cfg, &port);
+    assert_int_equal(vesc_can_init(&app), EDGE_OK);
+
+    vesc_can_status_t telem = {
+        .erpm = 12000.0f,
+        .current_motor = 25.5f,
+        .duty_cycle = 0.65f,
+        .temp_fet = 45.2f,
+        .temp_motor = 55.8f,
+        .v_in = 48.2f,
+    };
+    vesc_can_set_telemetry(&app, &telem);
+
+    assert_int_equal(vesc_can_send_status_1(&app), EDGE_OK);
+    assert_int_equal(bus.last_tx_id, (9 << 8) | 10);
+    assert_int_equal(bus.last_tx_len, 8);
+
+    assert_int_equal(vesc_can_send_status_4(&app), EDGE_OK);
+    assert_int_equal(bus.last_tx_id, (16 << 8) | 10);
+
+    assert_int_equal(vesc_can_send_status_5(&app), EDGE_OK);
+    assert_int_equal(bus.last_tx_id, (27 << 8) | 10);
+}
+
+static void test_vesc_can_rx_command(void **state) {
+    (void)state;
+    vesc_can_app_t app;
+    mock_can_bus_t bus = {0};
+    vesc_can_port_t port = {
+        .self = &bus,
+        .send_frame = mock_send,
+        .receive_frame = mock_receive,
+    };
+    vesc_can_config_t cfg = {
+        .controller_id = 5,
+    };
+
+    vesc_can_construct(&app, EDGE_MOD_VESC_CAN, 20u, &cfg, &port);
+    assert_int_equal(vesc_can_init(&app), EDGE_OK);
+
+    bus.rx_id = ((uint32_t)CAN_PACKET_SET_CURRENT << 8) | 5;
+    bus.rx_len = 4;
+    bus.rx_data[0] = 0;
+    bus.rx_data[1] = 0;
+    bus.rx_data[2] = (uint8_t)(15000 >> 8);
+    bus.rx_data[3] = (uint8_t)(15000 & 0xFF);
+    bus.has_rx = true;
+
+    assert_int_equal(vesc_can_process_incoming(&app), EDGE_OK);
+    assert_true(app.new_cmd_received);
+    assert_float_equal(app.last_set_current, 15.0f, 0.01f);
+}
+
+/*
+ * vesc_can_send_buffer is the reference's comm_can_send_buffer, all three branches. The
+ * frames are checked as a sequence (ids, index bytes, the closing frame's length and CRC),
+ * and the CRC is cross-checked against vesc_comm's table-driven implementation so the
+ * bitwise copy here cannot drift from it.
+ */
+static void test_vesc_can_send_buffer_framing(void **state) {
+    (void)state;
+    mock_can_bus_t bus;
+    memset(&bus, 0, sizeof(bus));
+    vesc_can_port_t port = {.send_frame = mock_send, .receive_frame = mock_receive, .self = &bus};
+    vesc_can_config_t cfg = {.controller_id = 7u};
+    vesc_can_app_t app;
+    vesc_can_construct(&app, EDGE_MOD_VESC_CAN, 20u, &cfg, &port);
+    assert_int_equal(vesc_can_init(&app), EDGE_OK);
+
+    /* Six bytes or less: one short-buffer frame carrying the sender and the send flag. */
+    uint8_t short_payload[4] = {1u, 2u, 3u, 4u};
+    bus.tx_count = 0;
+    assert_int_equal(vesc_can_send_buffer(&app, 3u, short_payload, sizeof(short_payload), 1u),
+                     EDGE_OK);
+    assert_int_equal(bus.tx_count, 1);
+    assert_int_equal(bus.tx[0].id, ((uint32_t)CAN_PACKET_PROCESS_SHORT_BUFFER << 8) | 3u);
+    assert_int_equal(bus.tx[0].len, 6u);
+    assert_int_equal(bus.tx[0].data[0], 7u); /* our own controller id */
+    assert_int_equal(bus.tx[0].data[1], 1u); /* the send flag, passed through */
+    assert_int_equal(bus.tx[0].data[2], 1u);
+    assert_int_equal(bus.tx[0].data[5], 4u);
+
+    /* Longer: FILL_RX_BUFFER frames of a one-byte index plus seven bytes, then the closing
+     * PROCESS_RX_BUFFER frame with the length and the CRC. */
+    uint8_t long_payload[21];
+    for (size_t i = 0u; i < sizeof(long_payload); i++) {
+        long_payload[i] = (uint8_t)(i + 1u);
+    }
+    bus.tx_count = 0;
+    assert_int_equal(vesc_can_send_buffer(&app, 9u, long_payload, sizeof(long_payload), 0u),
+                     EDGE_OK);
+    assert_int_equal(bus.tx_count, 4); /* indices 0, 7, 14, then the closing frame */
+    for (int f = 0; f < 3; f++) {
+        assert_int_equal(bus.tx[f].id, ((uint32_t)CAN_PACKET_FILL_RX_BUFFER << 8) | 9u);
+        assert_int_equal(bus.tx[f].data[0], (uint8_t)(f * 7));
+        assert_int_equal(bus.tx[f].len, 8u);
+    }
+    assert_int_equal(bus.tx[2].data[1], 15u); /* index 14 -> payload byte 15 */
+    assert_int_equal(bus.tx[3].id, ((uint32_t)CAN_PACKET_PROCESS_RX_BUFFER << 8) | 9u);
+    assert_int_equal(bus.tx[3].len, 6u);
+    assert_int_equal(bus.tx[3].data[0], 7u);
+    assert_int_equal(bus.tx[3].data[1], 0u);
+    assert_int_equal(bus.tx[3].data[2], 0u);
+    assert_int_equal(bus.tx[3].data[3], (uint8_t)sizeof(long_payload));
+    uint16_t crc = vesc_crc16(long_payload, sizeof(long_payload));
+    assert_int_equal(bus.tx[3].data[4], (uint8_t)(crc >> 8));
+    assert_int_equal(bus.tx[3].data[5], (uint8_t)(crc & 0xFFu));
+
+    /* Past index 255 the remainder goes in FILL_RX_BUFFER_LONG frames with a two-byte
+     * index, which is the branch that is easy to get wrong. */
+    uint8_t very_long[270];
+    for (size_t i = 0u; i < sizeof(very_long); i++) {
+        very_long[i] = (uint8_t)i;
+    }
+    bus.tx_count = 0;
+    assert_int_equal(vesc_can_send_buffer(&app, 5u, very_long, sizeof(very_long), 0u), EDGE_OK);
+    /* indices 0..252 step 7 = 37 frames, then 259 and 265 as LONG frames (two-byte index
+     * plus six payload bytes), then the closing frame: 40 in all. */
+    assert_int_equal(bus.tx_count, 40);
+    assert_int_equal(bus.tx[36].id, ((uint32_t)CAN_PACKET_FILL_RX_BUFFER << 8) | 5u);
+    assert_int_equal(bus.tx[36].data[0], 252u);
+    assert_int_equal(bus.tx[37].id, ((uint32_t)CAN_PACKET_FILL_RX_BUFFER_LONG << 8) | 5u);
+    assert_int_equal(bus.tx[37].data[0], (uint8_t)(259u >> 8));
+    assert_int_equal(bus.tx[37].data[1], (uint8_t)(259u & 0xFFu));
+    assert_int_equal(bus.tx[37].len, 8u);
+    assert_int_equal(bus.tx[38].data[0], (uint8_t)(265u >> 8));
+    assert_int_equal(bus.tx[38].data[1], (uint8_t)(265u & 0xFFu));
+    assert_int_equal(bus.tx[38].len, 7u); /* two index bytes plus the five left over */
+    assert_int_equal(bus.tx[39].id, ((uint32_t)CAN_PACKET_PROCESS_RX_BUFFER << 8) | 5u);
+    assert_int_equal(bus.tx[39].data[2], (uint8_t)(sizeof(very_long) >> 8));
+    assert_int_equal(bus.tx[39].data[3], (uint8_t)sizeof(very_long));
+    uint16_t crc2 = vesc_crc16(very_long, sizeof(very_long));
+    assert_int_equal(bus.tx[39].data[4], (uint8_t)(crc2 >> 8));
+    assert_int_equal(bus.tx[39].data[5], (uint8_t)(crc2 & 0xFFu));
+}
+
+/*
+ * The send paths, whose bodies the existing cases reach only through their guards, plus the
+ * module's own hooks. The ids and payloads are checked against what the reference puts on the bus:
+ * the packet id in the high byte and the target in the low one, with the value as a big-endian
+ * int32 at the scale each command uses - 1e5 for duty, 1e3 for current, whole rpm for speed.
+ */
+static void test_vesc_can_sends_and_guards(void **state) {
+    (void)state;
+    mock_can_bus_t bus;
+    memset(&bus, 0, sizeof(bus));
+    vesc_can_port_t port = {.self = &bus, .send_frame = mock_send, .receive_frame = mock_receive};
+    vesc_can_app_t app;
+    vesc_can_construct(&app, EDGE_MOD_VESC_CAN, 20u, NULL, &port);
+    assert_int_equal(vesc_can_init(&app), EDGE_OK);
+
+    /* Guards: a null app is refused by every send. */
+    assert_int_equal(vesc_can_send_duty(NULL, 1u, 0.5f), EDGE_EINVAL);
+    assert_int_equal(vesc_can_send_current(NULL, 1u, 1.0f), EDGE_EINVAL);
+    assert_int_equal(vesc_can_send_rpm(NULL, 1u, 1000.0f), EDGE_EINVAL);
+    assert_int_equal(vesc_can_send_status_1(NULL), EDGE_EINVAL);
+
+    /* Duty: target id in the low byte, 0.5 * 1e5 = 50000 = 0x0000C350. */
+    assert_int_equal(vesc_can_send_duty(&app, 7u, 0.5f), EDGE_OK);
+    assert_int_equal((int)(bus.last_tx_id & 0xFFu), 7);
+    assert_int_equal(bus.last_tx_len, 4u);
+    assert_int_equal(bus.last_tx_data[0], 0x00u);
+    assert_int_equal(bus.last_tx_data[1], 0x00u);
+    assert_int_equal(bus.last_tx_data[2], 0xC3u);
+    assert_int_equal(bus.last_tx_data[3], 0x50u);
+
+    /* Current: 1.5 * 1e3 = 1500 = 0x000005DC. */
+    assert_int_equal(vesc_can_send_current(&app, 3u, 1.5f), EDGE_OK);
+    assert_int_equal((int)(bus.last_tx_id & 0xFFu), 3);
+    assert_int_equal(bus.last_tx_data[2], 0x05u);
+    assert_int_equal(bus.last_tx_data[3], 0xDCu);
+
+    /* Rpm: already an integer, 3000 = 0x00000BB8. */
+    assert_int_equal(vesc_can_send_rpm(&app, 2u, 3000.0f), EDGE_OK);
+    assert_int_equal((int)(bus.last_tx_id & 0xFFu), 2);
+    assert_int_equal(bus.last_tx_data[2], 0x0Bu);
+    assert_int_equal(bus.last_tx_data[3], 0xB8u);
+
+    /* The three status frames each go out once. */
+    const int before = bus.tx_count;
+    assert_int_equal(vesc_can_send_status_1(&app), EDGE_OK);
+    assert_int_equal(vesc_can_send_status_4(&app), EDGE_OK);
+    assert_int_equal(vesc_can_send_status_5(&app), EDGE_OK);
+    assert_int_equal(bus.tx_count, before + 3);
+
+    /* The module's own hooks: a poll with nothing queued is a no-op, and power-off is the safe
+     * state. */
+    assert_int_equal(app.module.on_event(&app.module, NULL), EDGE_OK);
+    assert_int_equal(app.module.poll(&app.module), EDGE_OK);
+    assert_int_equal(app.module.power_off(&app.module), EDGE_OK);
+}
+
+/*
+ * The dispatch loop's remaining branches: the frames that are not for this controller, the ones
+ * the length guard leaves alone, the two commands the earlier case does not send, the broadcast
+ * id, and the no-receiver guard. The receive mock consumes what it hands out, so each call drains
+ * one frame and the loop then finds nothing queued.
+ */
+static void test_vesc_can_rx_dispatch_branches(void **state) {
+    (void)state;
+
+    /* Without a receiver the call is a no-op rather than a dereference. */
+    assert_int_equal(vesc_can_process_incoming(NULL), EDGE_OK);
+    vesc_can_app_t no_port;
+    vesc_can_construct(&no_port, EDGE_MOD_VESC_CAN, 20u, NULL, NULL);
+    assert_int_equal(vesc_can_process_incoming(&no_port), EDGE_OK);
+
+    mock_can_bus_t bus;
+    memset(&bus, 0, sizeof(bus));
+    vesc_can_port_t port = {.self = &bus, .send_frame = mock_send, .receive_frame = mock_receive};
+    vesc_can_config_t cfg = {.controller_id = 5u};
+    vesc_can_app_t app;
+    vesc_can_construct(&app, EDGE_MOD_VESC_CAN, 20u, &cfg, &port);
+    assert_int_equal(vesc_can_init(&app), EDGE_OK);
+
+    /* Addressed to another controller: filtered, and nothing is marked received. */
+    bus.rx_id = ((uint32_t)CAN_PACKET_SET_DUTY << 8) | 99u;
+    bus.rx_len = 4u;
+    bus.rx_data[2] = 0xC3u;
+    bus.rx_data[3] = 0x50u;
+    bus.has_rx = true;
+    app.new_cmd_received = false;
+    assert_int_equal(vesc_can_process_incoming(&app), EDGE_OK);
+    assert_false(app.new_cmd_received);
+
+    /* Duty: 50000 / 1e5 = 0.5. */
+    bus.rx_id = ((uint32_t)CAN_PACKET_SET_DUTY << 8) | 5u;
+    bus.has_rx = true;
+    assert_int_equal(vesc_can_process_incoming(&app), EDGE_OK);
+    assert_true(app.new_cmd_received);
+    assert_float_equal(app.last_set_duty, 0.5f, 0.0001f);
+
+    /* Rpm is taken whole: 3000 stays 3000. */
+    bus.rx_id = ((uint32_t)CAN_PACKET_SET_RPM << 8) | 5u;
+    bus.rx_data[2] = (uint8_t)(3000 >> 8);
+    bus.rx_data[3] = (uint8_t)(3000 & 0xFF);
+    bus.has_rx = true;
+    assert_int_equal(vesc_can_process_incoming(&app), EDGE_OK);
+    assert_float_equal(app.last_set_rpm, 3000.0f, 0.0001f);
+
+    /* The broadcast id is accepted as well as the controller's own. */
+    bus.rx_id = ((uint32_t)CAN_PACKET_SET_DUTY << 8) | 255u;
+    bus.rx_data[2] = 0x00u;
+    bus.rx_data[3] = 0x64u; /* 100 -> 0.001 */
+    bus.has_rx = true;
+    assert_int_equal(vesc_can_process_incoming(&app), EDGE_OK);
+    assert_float_equal(app.last_set_duty, 0.001f, 0.0001f);
+
+    /* Too short to carry a value: the length guard leaves the command as it was. */
+    bus.rx_id = ((uint32_t)CAN_PACKET_SET_RPM << 8) | 5u;
+    bus.rx_len = 2u;
+    bus.has_rx = true;
+    assert_int_equal(vesc_can_process_incoming(&app), EDGE_OK);
+    assert_float_equal(app.last_set_rpm, 3000.0f, 0.0001f);
+}
+
+/*
+ * The two status senders: the reference runs them from their own threads (comm_can.c:1526-1565),
+ * each with a rate in hertz and a mask of which frames it sends, and this port runs them on the
+ * module's tick. What is asserted here is that the frames actually go out on schedule - which is
+ * what the app never did before, its builders being unreachable except by hand - and that a rate of
+ * zero or a mode other than the VESC one silences a sender, which is the loop the reference spins.
+ */
+static void test_vesc_can_status_scheduling(void **state) {
+    (void)state;
+    mock_can_bus_t bus = {0};
+    vesc_can_port_t port = {.send_frame = mock_send, .receive_frame = mock_receive, .self = &bus};
+    vesc_can_config_t config = {
+        .controller_id = 7,
+        .baudrate = 500000,
+        .can_mode = VESC_CAN_MODE_VESC,
+        .status_rate_1_hz = 50.0f, /* a twenty-millisecond period: one tick each */
+        .status_rate_2_hz = 25.0f, /* forty: one every second tick */
+        .status_msgs_r1 = 0x01u,   /* status 1 */
+        .status_msgs_r2 = 0x08u,   /* status 4 */
+    };
+
+    vesc_can_app_t app;
+    vesc_can_construct(&app, EDGE_MOD_VESC_CAN, 20u, &config, &port);
+    assert_int_equal(vesc_can_init(&app), EDGE_OK);
+
+    vesc_can_status_t telemetry = {.erpm = 6000.0f,
+                                   .current_motor = 12.5f,
+                                   .duty_cycle = 0.5f,
+                                   .amp_hours = 1.25f,
+                                   .amp_hours_charged = 0.5f,
+                                   .watt_hours = 30.0f,
+                                   .watt_hours_charged = 12.0f,
+                                   .v_in = 48.3f,
+                                   .tachometer = 1234};
+    vesc_can_set_telemetry(&app, &telemetry);
+
+    /* One tick: the first sender's period has elapsed and the second's has not. */
+    vesc_can_tick_status(&app, 20.0f);
+    assert_int_equal(bus.tx_count, 1);
+    assert_int_equal(bus.tx[0].id >> 8, CAN_PACKET_STATUS_1);
+    assert_int_equal(bus.tx[0].id & 0xFFu, 7u);
+
+    /* Two ticks: both have, in the order the reference's threads would have sent them. */
+    vesc_can_tick_status(&app, 20.0f);
+    assert_int_equal(bus.tx_count, 3);
+    assert_int_equal(bus.tx[1].id >> 8, CAN_PACKET_STATUS_1);
+    assert_int_equal(bus.tx[2].id >> 8, CAN_PACKET_STATUS_4);
+
+    /* The remainder is kept, so a rate that is not a whole number of ticks still averages out. */
+    assert_true(app.status_1_accum_ms < 20.0f);
+    assert_true(app.status_2_accum_ms < 40.0f);
+
+    /* A mode that is not the VESC one silences both senders. */
+    app.config.can_mode = VESC_CAN_MODE_VESC_UAVCAN;
+    vesc_can_tick_status(&app, 200.0f);
+    assert_int_equal(bus.tx_count, 3);
+
+    /* And so does a rate of zero, which is the reference's other exit. */
+    app.config.can_mode = VESC_CAN_MODE_VESC;
+    app.config.status_rate_1_hz = 0.0f;
+    app.config.status_rate_2_hz = 0.0f;
+    vesc_can_tick_status(&app, 200.0f);
+    assert_int_equal(bus.tx_count, 3);
+
+    /* All five of the frames this port builds, when the mask asks for them. */
+    app.config.status_rate_1_hz = 100.0f;
+    app.config.status_msgs_r1 = 0x1Fu;
+    bus.tx_count = 0;
+    vesc_can_tick_status(&app, 10.0f);
+    assert_int_equal(bus.tx_count, 5);
+    assert_int_equal(bus.tx[0].id >> 8, CAN_PACKET_STATUS_1);
+    assert_int_equal(bus.tx[1].id >> 8, CAN_PACKET_STATUS_2);
+    assert_int_equal(bus.tx[2].id >> 8, CAN_PACKET_STATUS_3);
+    assert_int_equal(bus.tx[3].id >> 8, CAN_PACKET_STATUS_4);
+    assert_int_equal(bus.tx[4].id >> 8, CAN_PACKET_STATUS_5);
+
+    /* Status 5's own layout (comm_can.c:1255-1261): the tachometer whole, then the input voltage at
+     * a tenth and the reference's reserved field, both sixteen bits. */
+    const mock_can_frame_t *s5 = &bus.tx[4];
+    assert_int_equal(s5->len, 8);
+    assert_int_equal((int32_t)((uint32_t)s5->data[0] << 24 | (uint32_t)s5->data[1] << 16 |
+                               (uint32_t)s5->data[2] << 8 | (uint32_t)s5->data[3]),
+                     1234);
+    assert_int_equal((int16_t)((uint16_t)s5->data[4] << 8 | (uint16_t)s5->data[5]), 483);
+    assert_int_equal((int16_t)((uint16_t)s5->data[6] << 8 | (uint16_t)s5->data[7]), 0);
+}
+
+/*
+ * The receiving side's own tables: mc_interface.c:1676-1700 counts every peer whose status frame is
+ * younger than a tenth of a second and adds what its frames carried to the totals, and
+ * comm_can.c:2032-2090 is the side that files them. Two things are asserted that are easy to get
+ * wrong: a status frame carries the *sender's* id, so it must not be dropped by the check that a
+ * command is addressed to this controller; and each kind of frame keeps its own table, so a peer
+ * that sends only status 1 still counts as a controller without contributing hours.
+ */
+static void test_vesc_can_peer_frames_and_totals(void **state) {
+    (void)state;
+    mock_can_bus_t bus = {0};
+    vesc_can_port_t port = {.send_frame = mock_send, .receive_frame = mock_receive, .self = &bus};
+    vesc_can_config_t config = {.controller_id = 7u,
+                                .baudrate = 500000,
+                                .can_mode = VESC_CAN_MODE_VESC,
+                                .status_rate_1_hz = 0.0f,
+                                .status_rate_2_hz = 0.0f,
+                                .status_msgs_r1 = 0u,
+                                .status_msgs_r2 = 0u};
+
+    vesc_can_app_t app;
+    vesc_can_construct(&app, EDGE_MOD_VESC_CAN, 20u, &config, &port);
+    assert_int_equal(vesc_can_init(&app), EDGE_OK);
+
+    vesc_can_peer_totals_t totals;
+    vesc_can_get_peer_totals(&app, &totals);
+    assert_int_equal(totals.num_vescs_extra, 0);
+
+    /* Controller 2's status 1: 4000 erpm, 12.5 A forward, half duty. */
+    bus.rx_id = ((uint32_t)CAN_PACKET_STATUS_1 << 8) | 2u;
+    bus.rx_len = 8u;
+    bus.rx_data[0] = 0x00;
+    bus.rx_data[1] = 0x00;
+    bus.rx_data[2] = 0x0F;
+    bus.rx_data[3] = 0xA0;
+    bus.rx_data[4] = 0x00;
+    bus.rx_data[5] = 0x7D; /* 125 -> 12.5 A */
+    bus.rx_data[6] = 0x01;
+    bus.rx_data[7] = 0xF4; /* 500 -> 0.5 */
+    bus.has_rx = true;
+    assert_int_equal(vesc_can_process_incoming(&app), EDGE_OK);
+
+    vesc_can_get_peer_totals(&app, &totals);
+    assert_int_equal(totals.num_vescs_extra, 1);
+    assert_float_equal(totals.current_tot, 12.5f, 1e-4f);
+    assert_float_equal(totals.ah_tot, 0.0f, 1e-6f); /* no status 2 yet, and its table is its own */
+
+    /* Status 2 and 3 and 4 from the same peer: the hours and the input current. */
+    bus.rx_id = ((uint32_t)CAN_PACKET_STATUS_2 << 8) | 2u;
+    bus.rx_data[0] = 0;
+    bus.rx_data[1] = 0;
+    bus.rx_data[2] = 0;
+    bus.rx_data[3] = 10; /* 10 -> 1e-3 */
+    bus.rx_data[4] = 0;
+    bus.rx_data[5] = 0;
+    bus.rx_data[6] = 0;
+    bus.rx_data[7] = 25;
+    bus.has_rx = true;
+    assert_int_equal(vesc_can_process_incoming(&app), EDGE_OK);
+
+    bus.rx_id = ((uint32_t)CAN_PACKET_STATUS_3 << 8) | 2u;
+    bus.rx_data[0] = 0;
+    bus.rx_data[1] = 0;
+    bus.rx_data[2] = 0;
+    bus.rx_data[3] = 50;
+    bus.rx_data[4] = 0;
+    bus.rx_data[5] = 0;
+    bus.rx_data[6] = 0;
+    bus.rx_data[7] = 75;
+    bus.has_rx = true;
+    assert_int_equal(vesc_can_process_incoming(&app), EDGE_OK);
+
+    bus.rx_id = ((uint32_t)CAN_PACKET_STATUS_4 << 8) | 2u;
+    bus.rx_data[0] = 0;
+    bus.rx_data[1] = 0;
+    bus.rx_data[2] = 0;
+    bus.rx_data[3] = 0;
+    bus.rx_data[4] = 0x00;
+    bus.rx_data[5] = 0x64; /* 100 -> 10 A of input current */
+    bus.rx_data[6] = 0;
+    bus.rx_data[7] = 0;
+    bus.has_rx = true;
+    assert_int_equal(vesc_can_process_incoming(&app), EDGE_OK);
+
+    vesc_can_get_peer_totals(&app, &totals);
+    assert_int_equal(totals.num_vescs_extra, 1); /* one controller, four kinds of frame */
+    assert_float_equal(totals.current_tot, 12.5f, 1e-4f);
+    assert_float_equal(totals.ah_tot, 1e-3f, 1e-6f);
+    assert_float_equal(totals.ah_charge_tot, 25e-4f, 1e-6f);
+    assert_float_equal(totals.wh_tot, 5e-3f, 1e-6f);
+    assert_float_equal(totals.wh_charge_tot, 75e-4f, 1e-6f);
+    assert_float_equal(totals.current_in_tot, 10.0f, 1e-4f);
+
+    /* A tenth of a second later the frames are stale and the peer stops counting, though its slot
+     * stays where it was - the reference tests the age, it does not clear the table. */
+    vesc_can_tick(&app, 101.0f);
+    vesc_can_get_peer_totals(&app, &totals);
+    assert_int_equal(totals.num_vescs_extra, 0);
+    assert_float_equal(totals.current_tot, 0.0f, 1e-6f);
+    assert_float_equal(totals.current_in_tot, 0.0f, 1e-6f);
+
+    /* A second controller takes the next free slot, and its own numbers are its own. */
+    bus.rx_id = ((uint32_t)CAN_PACKET_STATUS_1 << 8) | 3u;
+    bus.rx_data[4] = 0x00;
+    bus.rx_data[5] = 0x0A; /* 10 -> 1 A */
+    bus.has_rx = true;
+    assert_int_equal(vesc_can_process_incoming(&app), EDGE_OK);
+    vesc_can_get_peer_totals(&app, &totals);
+    assert_int_equal(totals.num_vescs_extra, 1);
+    assert_float_equal(totals.current_tot, 1.0f, 1e-4f);
+
+    /* A frame too short to hold what its kind carries is filed as nothing rather than read past its
+     * end, which is the reference's own length check on each of the four kinds. */
+    const uint32_t short_kinds[4] = {(uint32_t)CAN_PACKET_STATUS_1, (uint32_t)CAN_PACKET_STATUS_2,
+                                     (uint32_t)CAN_PACKET_STATUS_3, (uint32_t)CAN_PACKET_STATUS_4};
+    for (size_t i = 0u; i < 4u; i++) {
+        bus.rx_id = (short_kinds[i] << 8) | 5u;
+        bus.rx_len = 4u;
+        bus.has_rx = true;
+        assert_int_equal(vesc_can_process_incoming(&app), EDGE_OK);
+    }
+    vesc_can_get_peer_totals(&app, &totals);
+    assert_int_equal(totals.num_vescs_extra, 1); /* the short frames added nobody */
+
+    /* The helpers' own guards. */
+    assert_int_equal(vesc_can_send_masked(NULL, 0x1Fu), EDGE_EINVAL);
+    vesc_can_tick(NULL, 1.0f);
+    vesc_can_get_peer_totals(&app, NULL);
+}
+
+int main(void) {
+
+    const struct CMUnitTest tests[] = {
+        cmocka_unit_test(test_vesc_can_init_validation),
+        cmocka_unit_test(test_vesc_can_sends_and_guards),
+        cmocka_unit_test(test_vesc_can_status_broadcast),
+        cmocka_unit_test(test_vesc_can_rx_command),
+        cmocka_unit_test(test_vesc_can_rx_dispatch_branches),
+        cmocka_unit_test(test_vesc_can_send_buffer_framing),
+        cmocka_unit_test(test_vesc_can_status_scheduling),
+        cmocka_unit_test(test_vesc_can_peer_frames_and_totals),
+    };
+    return cmocka_run_group_tests(tests, NULL, NULL);
+}

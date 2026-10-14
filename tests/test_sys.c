@@ -5,12 +5,15 @@
 
 #include <cmocka.h>
 
+#include "bldc/sys.h"
 #include "edge/event.h"
 #include "edge/events.h"
 #include "example/sys.h"
 #include "keyboard/sys.h"
 #include "meter/sys.h"
 #include "watch/sys.h"
+
+#define TEST_EVENT_EXTRA 0x1001u
 
 typedef struct fake_app {
     edge_module_t module;
@@ -342,6 +345,10 @@ static void test_wrapper_and_guards(void **state) {
 
     assert_int_equal(edge_event_queue_init(&queue, storage, 2u), EDGE_OK);
     assert_int_equal(sys_example_init(&sys, apps, 1u, &queue, subs, 1u), EDGE_OK);
+
+    /* sys_bldc is a thin composition-root callee like sys_example; it gets the same
+     * treatment so it is not the one family with no test at all. */
+    assert_int_equal(sys_bldc_init(&sys, apps, 1u, &queue, subs, 1u), EDGE_OK);
     assert_int_equal(edge_sys_start(&sys), EDGE_OK);
     assert_int_equal(edge_sys_bind_event_queue(&sys, &queue, subs, 1u), EDGE_ESTATE);
     assert_int_equal(edge_sys_start(&sys), EDGE_ESTATE);
@@ -381,7 +388,7 @@ static void test_argument_and_state_guards(void **state) {
     assert_int_equal(edge_sys_subscribe(&sys, EDGE_EVT_UART0_RX, NULL), EDGE_EINVAL);
     assert_int_equal(edge_sys_subscribe(&sys, EDGE_EVT_UART0_RX, &a.module), EDGE_OK);
     assert_int_equal(edge_sys_subscribe(&sys, EDGE_EVT_UART0_TX_DONE, &a.module), EDGE_OK);
-    assert_int_equal(edge_sys_subscribe(&sys, EDGE_EVT_DLT645_RX, &a.module), EDGE_ENOSPC);
+    assert_int_equal(edge_sys_subscribe(&sys, TEST_EVENT_EXTRA, &a.module), EDGE_ENOSPC);
     assert_int_equal(edge_sys_dispatch_events(&sys), EDGE_ESTATE);
     assert_int_equal(edge_sys_power_off(&sys), EDGE_ESTATE);
     assert_int_equal(edge_sys_start(&sys), EDGE_OK);
@@ -389,7 +396,7 @@ static void test_argument_and_state_guards(void **state) {
     assert_int_equal(edge_sys_set_clock(&sys, &clock), EDGE_ESTATE);
     assert_int_equal(edge_sys_set_event_budget(&sys, 2u), EDGE_ESTATE);
     assert_int_equal(edge_sys_bind_event_queue(&sys, &queue, subs, 2u), EDGE_ESTATE);
-    assert_int_equal(edge_sys_subscribe(&sys, EDGE_EVT_DLT645_RX, &a.module), EDGE_ESTATE);
+    assert_int_equal(edge_sys_subscribe(&sys, TEST_EVENT_EXTRA, &a.module), EDGE_ESTATE);
     assert_int_equal(edge_sys_dispatch_events(NULL), EDGE_EINVAL);
     assert_int_equal(edge_sys_init(&fresh, apps, 1u), EDGE_OK);
     assert_int_equal(edge_sys_run_once(NULL), EDGE_ESTATE);
@@ -795,9 +802,44 @@ static void test_new_api_argument_guards(void **state) {
     assert_int_equal(edge_sys_suspend_all(&sys), EDGE_OK);
     assert_int_equal(edge_sys_resume_all(&sys), EDGE_OK);
     assert_int_equal(edge_sys_power_off(&sys), EDGE_OK);
-    assert_int_equal(edge_sys_suspend_all(&sys), EDGE_ESTATE);
-    assert_int_equal(edge_sys_resume_all(&sys), EDGE_ESTATE);
     assert_int_equal(edge_sys_set_idle(&sys, NULL, NULL), EDGE_ESTATE);
+}
+
+static void test_sys_configure(void **state) {
+    (void)state;
+    fake_app_t a;
+    make_app(&a, 1u, 1u);
+    edge_module_t *apps[] = {&a.module};
+    edge_event_t storage[4];
+    edge_event_queue_t queue;
+    edge_sys_subscription_t subs[4];
+    edge_sys_t sys;
+    static const uint32_t required[] = {1u};
+    edge_clock_port_t clock = {.monotonic_ticks = NULL, .wall_time = NULL, .self = NULL};
+
+    assert_int_equal(edge_event_queue_init(&queue, storage, 4u), EDGE_OK);
+
+    /* NULL guards */
+    assert_int_equal(edge_sys_configure(NULL, NULL), EDGE_EINVAL);
+    assert_int_equal(edge_sys_configure(&sys, NULL), EDGE_EINVAL);
+
+    const edge_sys_config_t config = {
+        .apps = apps,
+        .app_count = 1u,
+        .required_ids = required,
+        .required_count = 1u,
+        .events = &queue,
+        .subscriptions = subs,
+        .subscription_capacity = 4u,
+        .clock = &clock,
+        .event_budget = 16u,
+    };
+
+    assert_int_equal(edge_sys_configure(&sys, &config), EDGE_OK);
+    assert_int_equal(edge_sys_validate_required(&sys), EDGE_OK);
+    assert_int_equal(edge_sys_start(&sys), EDGE_OK);
+    assert_int_equal(edge_sys_power_off(&sys), EDGE_OK);
+    assert_int_equal(edge_sys_deinit(&sys), EDGE_OK);
 }
 
 /*
@@ -808,7 +850,55 @@ static void test_new_api_argument_guards(void **state) {
  */
 #define TEST(fn) cmocka_unit_test_setup(fn, reset_state)
 
+/*
+ * The suspend and resume sweeps in their failure paths, plus the pending check's branches. The
+ * existing case exercises a clean sweep, so the half that matters operationally - an app whose
+ * callback fails being isolated while only the first error is reported - was unexecuted.
+ */
+static void test_suspend_resume_and_pending(void **state) {
+    (void)state;
+    fake_app_t a;
+    fake_app_t b;
+    make_app(&a, 1u, 1u);
+    make_app(&b, 2u, 2u);
+    edge_module_t *apps[] = {&a.module, &b.module};
+    edge_sys_t sys;
+
+    assert_int_equal(edge_sys_init(&sys, apps, 2u), EDGE_OK);
+
+    /* Before the system runs the sweeps are refused, and a null system is not pending. */
+    assert_int_equal(edge_sys_suspend_all(&sys), EDGE_ESTATE);
+    assert_int_equal(edge_sys_resume_all(&sys), EDGE_ESTATE);
+    assert_false(edge_sys_pending(NULL));
+
+    assert_int_equal(edge_sys_start(&sys), EDGE_OK);
+
+    /* A clean sweep suspends both, and resuming brings them back. */
+    assert_int_equal(edge_sys_suspend_all(&sys), EDGE_OK);
+    assert_int_equal(a.suspend_count, 1);
+    assert_int_equal(b.suspend_count, 1);
+    assert_int_equal(edge_sys_resume_all(&sys), EDGE_OK);
+    assert_int_equal(a.resume_count, 1);
+    assert_int_equal(b.resume_count, 1);
+
+    /* An app whose suspend fails is isolated, and its error is the one reported. */
+    b.suspend_rc = EDGE_EIO;
+    assert_int_equal(edge_sys_suspend_all(&sys), EDGE_EIO);
+    assert_true(sys.stats.isolated >= 1u);
+    assert_int_equal(edge_sys_resume_all(&sys), EDGE_OK);
+
+    /* Pending: a pending count answers true, and so does an app whose next due time has passed. */
+    sys.pending_count = 1u;
+    assert_true(edge_sys_pending(&sys));
+    sys.pending_count = 0u;
+    a.module.failed = 0u;
+    a.module.suspended = 0u;
+    a.module.next_due = 0u;
+    assert_true(edge_sys_pending(&sys));
+}
+
 int main(void) {
+
     const struct CMUnitTest tests[] = {
         TEST(test_start_sorts_by_priority_then_id),
         TEST(test_validation),
@@ -834,10 +924,12 @@ int main(void) {
         TEST(test_unsubscribe_during_dispatch_delivers_to_the_rest),
         TEST(test_required_list_is_borrowed_not_copied),
         TEST(test_suspend_resume),
+        TEST(test_suspend_resume_and_pending),
         TEST(test_idle_hook),
         TEST(test_step_and_run_shutdown),
         TEST(test_stats_reset),
         TEST(test_new_api_argument_guards),
+        TEST(test_sys_configure),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

@@ -9,6 +9,21 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef ALARM_MODULE_ID
+#define ALARM_MODULE_ID 0x1E00u
+#endif
+
+#ifndef EDGE_MOD_ALARM
+#define EDGE_MOD_ALARM ALARM_MODULE_ID
+#endif
+
+#ifndef ALARM_EVT_TRIGGER
+#define ALARM_EVT_TRIGGER 0x160Cu
+#endif
+#ifndef EDGE_EVT_WATCH_ALARM_TRIGGER
+#define EDGE_EVT_WATCH_ALARM_TRIGGER ALARM_EVT_TRIGGER
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

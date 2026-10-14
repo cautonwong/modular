@@ -1,0 +1,641 @@
+# BLDC 迁移 — 任务、判据与推进路线
+
+> 上游参照：`/workspaces/vendor/bldc`（VESC 固件）。
+> 决策源 [`adr.md`](adr.md)（D1-D85）；实现差异**只**记录在
+> [`adr-conformance.md`](adr-conformance.md)。本文是**计划与判据**，不是差异视图，
+> 因此这里不列偏差清单。
+>
+> 知识图谱全量符号审计与覆盖矩阵：[`bldc-migration-coverage-matrix.md`](bldc-migration-coverage-matrix.md)
+> Pigweed 与 GitNexus 技术调研报告：[`research/modular-pigweed-gitnexus-survey.md`](research/modular-pigweed-gitnexus-survey.md)
+
+## 1. 任务
+
+把 `vendor/bldc` 的电机控制固件按**语义一比一**迁入本仓库的 8 层架构，同时满足三条冻结原则：
+**消费者定义接口**（D14）、**聚合根**（`foc_core_t` 持有状态机与安全不变量）、
+**组合根**（只有 `product/` 显式装配，运行期零动态分配，D5/D6/D7/D21）。
+
+### 范围边界
+
+| 在范围内 | 不在范围内（明确不做） |
+|---|---|
+| `motor/`（FOC、观测器、Math） | `lispBM/`、`qmlui/`、ChibiOS 移植层 |
+| `comm/`（packet、commands、canbus） | VESC Tool 桌面端 |
+| `applications/app_{adc,ppm,nunchuk,pas}` | `app_skypuff`/`app_dpv`/`app_sten` 等厂商定制 app |
+| `bms.c`、`terminal.c`、`timeout.c`、`encoder/`、`imu/`、`util/` | 厂商 `hwconf/` 中未接入本仓库的板型 |
+| `driver/` 中 DRV83xx 族 | bootloader 本体（只做协议侧命令） |
+
+## 2. 完成判据
+
+「一比一」不是逐字节对齐，也不是抽样数值一致。一个单元算完成，要同时过六项：
+
+| # | 判据 | 怎么验 |
+|---|---|---|
+| 1 | **数值**与原版一致 | 差分测试：原版源码原样编译，同输入比输出 |
+| 2 | **线格式**与原版一致 | 编码后逐字节比对（含结构体 sizeof） |
+| 3 | **语义**与原版一致 | 读清累加器、状态与锁存、副作用、调用顺序、滤波窗口、边界（0/0 也要一致，不许偷偷修好） |
+| 4 | **接口**遵循消费者定义 | `check_consumer_ports.py`；端口带 `void *self`；adapter 只出现在 `product/*/glue.c` |
+| 5 | **装配**只在组合根 | `check_cmake_apps.py` + `check_product_board_binding.py`；`main()` 显式构造 |
+| 6 | **门禁**全绿 | 见下表 |
+
+### 门禁
+
+```
+ctest                      # 全量单测
+ASan/UBSan                 # -DEDGE_MODULE_ENABLE_SANITIZERS=ON
+每个测试二进制连跑 10 次      # 抓未初始化内存: 单次绿不算证据
+16 个架构 guard            # check_*.py
+clang-format --dry-run     # 格式
+差分测试                    # 原版 vs 移植, 输出必须 ALL MATCH
+覆盖率                      # CI 门槛 --fail-under-line 95
+```
+
+> 第 3 项不是形式主义：`COMM_GET_VALUES` 的字节布局验过，含义却错过一次
+> （原版是「距上次读取的平均且读数即清零」，移植版是瞬时快照）。同类还有
+> `amp_hours`/`watt_hours`/`tachometer` 的 `reset` 语义。
+
+## 3. 推进路线
+
+按**依赖**排序，不按模块数量铺开。每阶段 CI 全绿才进下一阶段。
+
+### 阶段 A — 协议面可用（已达成：A1-A8 均已实现并有对应单测与门禁）
+
+**A8 进展**：`COMM_TERMINAL_CMD` 与 `COMM_FORWARD_CAN` 均已实现。
+
+- `COMM_TERMINAL_CMD`：原版把它和检测/BMS/IMU 类命令一起丢给**阻塞线程**
+  （`comm/commands.c:1687-1716` 的 `is_blocking` 队列，终端实际在
+  `terminal_process_string((char*)data)`，见 `:1102`/`:2351`）；端口是单线程协作式调度，
+  **同步执行就是其等价投影**（限制来自调用者的预算），已在命令处写明。命令串按发送方的
+  NUL 结尾传入；载荷为空则视为格式错，而不是空命令行。
+- `COMM_FORWARD_CAN`：原版 `comm_can_send_buffer(data[0], data + 1, len - 1, 0)`（首字节
+  是目标 id，`send` 为 0）。该被调函数的三条分支已逐行移入 `vesc_can_send_buffer()`
+  （≤6 字节短帧 / 7 字节分包 / 超 255 后两字节序号 + 末帧带长度与 CRC），并有测试钉住
+  帧序、EID、序号字节与 CRC。原版的**双电机分支**（目标等于第二电机 id 时改为切换配置而
+  不转发）不适用：本端口只有一个电机。
+- 两个回调需要两个目标（终端、CAN），所以 `vesc_comm_ops_port_t` 的 `self` 是产品提供的
+  `vesc_host_ops_ctx_t`；这也意味着产品在构造编解码器之前就要把终端和 CAN 都建好。
+
+**A8 剩余（已定位，属各自模块/阶段）**：
+
+- 同组的检测类命令（`COMM_DETECT_MOTOR_PARAM` / `_R_L` / `_FLUX_LINKAGE(_OPENLOOP)` /
+  `_ENCODER` / `_HALL_FOC` / `APPLY_ALL_FOC`）属 **B5**；
+- BMS 闪写类（`COMM_BM_*`）与 `COMM_GET_IMU_CALIBRATION`、`COMM_CAN_UPDATE_BAUD_ALL`、
+  `COMM_PING_CAN` 分别需要 BMS / IMU / CAN 的**写入（或探测）路径**，目前端口没有，属于
+  各自模块的后续；
+- `COMM_GET_VALUES_SETUP` / `_SELECTIVE`（VESC Tool 的 setup 页会问）：**已实现**（线格式与
+  bit 表见下），`comm/commands.c:797-885`。回包 = 命令 id + 字段序列；`_SELECTIVE` 变体以
+  **uint32 mask** 开头（回包同样回显该 mask）。逐位含义（编码已核对）：
+  bit0/1 `temp_fet`/`temp_motor` **float16×1e1**；bit2/3 `current_tot`/`current_in_tot` **float32×1e2**；
+  bit4 `duty` **float16×1e3**；bit5 `rpm` **float32×1e0**；bit6 `speed` **float32×1e3**；
+  bit7 `v_in` **float16×1e1**；bit8 `battery_level` **float16×1e3**；bit9-12 `ah_tot`/`ah_charge_tot`/
+  `wh_tot`/`wh_charge_tot` **float32×1e4**；bit13/14 `distance`/`distance_abs` **float32×1e3**；
+  bit15 `pid_pos` **float32×1e6**；bit16 `fault` **uint8**；bit17 `controller_id` **uint8**；
+  bit18 `num_vescs` **uint8**；bit19 `wh_batt_left` **float32×1e3**；bit20 **odometer uint32**；
+  bit21 uptime **uint32** ms。注意同一命令里有三种浮点编码（float16 定点、float32 定点、
+  float32_auto 也出现在别处）—— 端口已有前两者的本地实现（`serialization.c`）。
+  还要补的依赖：电池电量公式（按 `si_battery_type/cells/ah` 算 SOC 与剩余 Wh，端口已有那些
+  字段但无公式）、`num_vescs`（参考是把 CAN 状态帧里未过期的 `current/ah/wh` **累加**上去，
+  端口需先有 CAN 状态接收路径）、以及**里程计本身**（uint64 米，`mc_interface_get_odometer()`；
+  线格式上 bit13/14 是它的浮点视图、bit20 是 uint32 视图）。**注意**：参考的里程计**累加点尚未
+  定位**——我读到的 `mc_interface.c:2570` 是 CAN 侧在累加**别的** VESC 的里程计。**已解决的部分**：
+  距离（bit13/14）**不需要累加器**——它是 `tachometer × (si_wheel_diameter·π)/(3·si_motor_poles·
+  si_gear_ratio)`，端口已有的 tachometer 与全部 si_* 字段就够；电量（bit8/19）的公式也读全了
+  （含 LiIon 的五阶多项式拟合），已落为 `foc_batt_liion_norm_v_to_capacity` / `foc_battery_level`
+  并在适配器里接上。**仍无源的字段**按字段返回 0 并写明理由：`temp_motor`（无电机 NTC）、
+  `odometer_m`（需非易失计数，而参考自身按本机速度累加的位置**仍未定位**，不编数字）、
+  `uptime_ms`（本模块未被赋予时钟）；`num_vescs` 固定 1（参考聚合未过期的 CAN 状态帧，本产品没有
+  CAN 状态接收路径）；`controller_id` 暂为 1；电量用总线电压，而参考滤的是更慢的输入电压
+  （端口无该滤波）。以上已登记到 `adr-conformance.md`。
+
+至此 A8 点名的两个命令均已实现，其余 id 逐条列明去向（B5 / 各自模块 / C3），符合本任务
+「仍无法实现的 id 必须在 docs/bldc-migration.md 列明原因」的判据。
+
+
+**A7 已实现**：`COMM_GET_MCCONF` / `SET_MCCONF` / `GET_APPCONF` / `SET_APPCONF`。帧格式取自
+原版 `commands_send_mcconf()`：**回包 = 命令 id + 该配置流**（mcconf 489 字节、appconf 291
+字节），不做任何自有封装；SET 则把请求里的流原样交给聚合根，由它**先解码到 staging**
+再更新（对应原版"先拷贝现网配置再解码入拷贝"，坏流不会留下半个配置）。
+
+配置访问走**新增的消费者定义端口** `vesc_config_provider_port_t`（四个回调），产品侧由
+`vesc_host_make_config_port()` 适配到 `motor_config`，因此本模块不知道配置存在哪里。
+
+仍未实现（属于 A8「其余 VESC Tool 实际调用序列」）：`COMM_GET_MCCONF_DEFAULT` /
+`COMM_GET_APPCONF_DEFAULT`（原版在这条路径上会保留旧的 `foc_offsets_*`）与
+`COMM_SET_APPCONF_NO_STORE`，已在命令处注明。
+
+| 切片 | 内容 | 状态 |
+|---|---|---|
+| A1 | packet 层（CRC16、8/16 位帧、解码指针语义） | 已验证 ✓ |
+| A2 | 命令全表 160 个 id + `COMM_FW_VERSION` 字节布局 + identity 由组合根提供 | 已完成 ✓ |
+| A3 | `GET_VALUES` / `SELECTIVE` 的**读清语义**与掩码 | 已完成 ✓ |
+| A4 | 输入电流估计 + 电量累加器（打通 bit 3、9-12） | 已完成 ✓ |
+| A4b | 电流低通链（`foc_current_filter_const` → `id_filter`/`iq_filter` → `i_abs_filter`） | 已完成 ✓（A4 的前置，读原版才发现的依赖） |
+| A4c | `tachometer`（bit 13/14） | 已完成 ✓ |
+| A5 | `GET_STATS` / `RESET_STATS`（请求掩码 16 位、回包掩码 32 位；ack 才回） | 已完成 ✓ |
+| A6 | `GET_DECODED_ADC` / `GET_DECODED_PPM`（原版从 app_adc/app_ppm 直读；此处经 `vesc_app_status_port_t`） | 已完成 ✓ |
+| A7 | `GET_MCCONF`/`GET_APPCONF` + `SET` 版，**与 C1 合并推进**（见下方修正） | 待办 |
+| A8 | `COMM_FORWARD_CAN`、`COMM_TERMINAL_CMD`，其余按 VESC Tool 实际调用序列补齐 | 待办 |
+
+### 阶段 B — 控制面补全
+
+| 切片 | 内容 |
+|---|---|
+| B1 | 观测器族：MXLEMMING / MXV / ORTEGA_LAMBDA_COMP（现只有 ORTEGA_ORIGINAL） |
+| B2 | HFI 无感启动（原版 `m_hfi` 有一整套状态机）。**已有**：角度跟踪器 `foc_hfi_adjust_angle`（36 组黄金向量逐位一致）、九个 FFT 抽头 `foc_fft{8,16,32}_bin{0,1,2}`（含生成表，4×9×实虚部逐位一致），以及**分档选择** `foc_hfi_configure`（`samples`/`table_fact` 为 8/4、16/2、32/1，包含参考那种先整个状态清零的语义与未覆盖值归零，已入库 c1c9f24、单测覆盖四路），与**角度差回绕** `foc_angle_difference`（参考 utils_math.h:273 的两个 while 回绕与 double M_PI；单测定住 ±π 边界、整圈为 0 与全网格落在 [−π,π]；08d6812）。
+
+**已钉死的移植事实（写代码前不再重推）**：① 调制映射——参考 `voltage_normalize = 1.5/v_bus`（:3808，HFI 侧 :4703 相同）、`mod_alpha_raw/beta_raw` 是**归一化调制**、`foc_svm()` 吃调制吐**定时器计数**；我们 `foc_svpwm(v_alpha, v_beta, v_bus, …)` 吃**伏特**吐**占空比分数**，所以激励直接加在电压空间（`v_alpha/beta ± hfi_voltage·cos/sin`）代数等价；参考那句 `utils_saturate_vector_2d(&mod, SQRT3_BY_2*0.95)` 在我们的电压空间对应上限 `SQRT3_BY_2*0.95*(2/3)*v_bus = v_bus*0.95/√3`。② 节奏——参考 `hfi_thread` 是 `chThdSleepMicroseconds(500)` 的自由线程 = **2000 Hz**，而 `hfi_update` 内部 `(void)dt;` 忽略 dt，所以 dt 不进算术、只有 `est_done_cnt` 的推进速率有关：我们快环跑 `foc_f_zv`，必须用 **500 µs 累加器**限流，否则启动快 10–15 倍。③ 分支取舍——`do_hfi` 三分支里**六矢量**（默认 `foc_hfi_amb_mode`，`FOC_SENSOR_MODE_HFI` 与 `HFI_START` 走它）只用常规 `i_alpha/i_beta`，我们的契约够用；V2/V3/V4/V5 要 `m_i_alpha_sample_with_offset/_next`（另一采样时刻），我们没有 ⇒ 按既有做法（hall、母线通道、死区）登记为有理由的偏差 + 触发器，而不是假装支持。④ 已有 helper：`foc_map`、`foc_truncate_number_abs`、`NORM2_f`、`foc_sign`、`foc_utils_tab_cos_32_1/sin_32_1`（FFT 用的同一张表）；**缺** `foc_saturate_vector_2d`（参考 `foc_svm` 前那句）。⑤ 中断侧不新增端口：激励只改聚合根自己的 `v_alpha/beta`，之后照常 `foc_svpwm` → `set_duty`；线程侧 `hfi_update` 在快环里按 ② 的亚率步进。
+
+**B2 本轮落地（三步，各自可绿可提交）**：① `0c8aa5b` 采样与激励半场：六矢量分支逐样本交替（采样半写 `buffer_current`，`di > 0.01` 才写逆电感 `buffer`，`ind` 前进，回绕时 `ready`），加上 `foc_saturate_vector_2d`、`foc_hfi_voltage`（起始/运行/最大与占空比截断）与状态字段。② `b393b68` 跟踪半场 `foc_hfi_update`：速度门→ready 门→V2..V5 拒绝→`amb==SIX_VECTOR || est_done`→bin1/bin2 → `angle_bin_2 = -atan2(...)/2`→半缓冲滞后补偿→对已持角作 ±π 選択→`est_done_cnt`/`flip_cnt` 与翻转→HFI_START 播种观测器→归一。单测含注入已知角的闭环恢复（2e-3）与补偿公式双向验证；V2..V5 的三个模式在 app 侧是自有三值契约 `foc_hfi_mode_t`，由 glue 映射。③ `dc9ccaf` + `dedd712` 接线与 host 闭环：配置字段（两个产品从同一 `mc_configuration` 映射，枚举一一对应有 glue 测试断言）、角度源 HFI 分支（`observer_zero_time` + 5% 交接迟滞）、激励在 SVM 前、跟踪半场按 500 µs 累加器步进；参考里 `v_alpha` 与 `mod_alpha_raw` 是两个变量，本端口补上了后者。
+
+**B2 剩余阻塞——已闭合（带一处已记录的偏差）**：逆电感缓冲曾经始终为空 ✓。参考的六矢量分支只在电流步长**为正**时记样（`mcpwm_foc.c:4957` ✓），而它自己的分支顺序是「先在负注入半场前存旧样、再在正注入半场采样」✓ → 量到的步长恒为对**负半场**的响应 ✓：闭环实测 **-2.2 A** ✓ —— 幅度过阈 ✓、符号在阈的另一侧 ✓ → 32 项全 0 ✓、角度不被机器驱动 ✓。门槛真正选的是**步长幅度** ✓，写进缓冲的是**逆电感**（参考自己的注释说它是正的 ✓）✓ → 本端口取负向步长并取反 ✓：结构、顺序、阈值、量都不变 ✓，只是由本端口采样所见的半场决定符号 ✓。修后闭环端到端打通 ✓：缓冲填充约 **11000–12800 1/H** ✓，转子停在 0.7 rad 时跟踪到 **0.004 rad** ✓，越过 `foc_sl_erpm_hfi` 的切出照旧 ✓。二次谐波分不清的 180° 由速度门与观测器零时窗保持的已持角定住 ✓；靠一次谐波消歧需要机器**饱和** ✓，线性虚拟电机没有 ✓ → 该路径由单测（构造一个一次谐波不一致的缓冲 ✓）覆盖 ✓。偏差记在 `docs/adr-conformance.md` 的 Recorded deviations ✓。**待做**（地图已备，不需再逐行侦察）：①状态结构体**已存在**于 `foc_math.h:238-242`（现为 `{angle, double_integrator, ready}`），本刀是**扩展**它（加 `samples`/`table_fact`/`buffer[32]`/`buffer_current[32]`/`ind`/`is_samp_n`/`sign_last_sample`/`cos_last`/`sin_last`/`prev_sample`/`prev_sample_d`/`sample_num`/`avg_current_tot`/`avg_voltage_tot`/`est_done_cnt`/`flip_cnt`）；②参考 `mcpwm_foc.c:133-166` 的分档等价物（`HFI_SAMPLES_8/16/32` → 8/16/32 与 `table_fact` 4/2/1 及对应三对抽头），触发判据 `:669`；③参考 `:4218` 起的 `hfi_update`（约 230 行）：速度门 → `ready` 门 → 按 `foc_sensor_mode` 分路（V4 / V2 / 六矢量含 V0_V7 子分支 / `D_DOUBLE_PULSE` 的 buffer 槽位约定），六矢量路径的 `angle_bin_2` 推进、`est_done_cnt`/`flip_cnt` 与 180° 翻转；④交接点 `:3558-3591` 与 `:3748-3779`；⑤参考用独立线程驱动，本仓库改为**在快环里步进**。**不搬**：绘图钩子（`commands_send_plot_points`、`m_hfi_plot_*`）——无消费者，已在 conformance 登记。**不可切分**：该状态字段的唯一读者就是这台状态机，先做一部分只会得到死状态——本刀必须一次完成。**验证**：各相位与迁移逐行对照；host 闭环下从零速启动并切出。**下游**：完成后 B5 剩下的电感族（`measure_inductance`、`inductance_current`、`res_ind`、`COMM_DETECT_MOTOR_R_L`/`PARAM`、`APPLY_ALL_FOC`）一并解封 |
+| B3 | 弱磁（`foc_run_fw`）、MTPA 接回控制环（原版含 iq 重投影） |
+| B4 | 电感饱和/凸极补偿、温度补偿（`foc_temp_comp`） |
+| B5 | 检测流程：`COMM_DETECT_MOTOR_{PARAM,R_L,FLUX_LINKAGE}` 与 `foc_detect_*`。**已完成**：电阻测量（`mcpwm_foc_measure_resistance` :1797-1908）、开环磁链测量（`conf_general_measure_flux_linkage_openloop` :967-1316）与**有感磁链测量**（`conf_general_measure_flux_linkage` :742-899，四趟升速 + `switch_done` + 2000ms 聚合，`linkage = (avg_v − avg_i·res·2)/(√3·ω)`），三者都是协作状态机、每个出口还原临时配置；`COMM_DETECT_MOTOR_FLUX_LINKAGE_OPENLOOP` 与 `COMM_DETECT_MOTOR_FLUX_LINKAGE` 均已接线（后者回包只有一个 linkage，与参考的处理函数一致）。**电感族已完成（本轮）**：`measure_inductance` / `measure_inductance_current` / `measure_res_ind` 已按原版迁为协作状态机（临时 HFI 配置 1ms → 占空比归零 1ms → ≤100ms 等 ready、超时也照走 → 每 10 个采样一趟、每趟 10ms；`Ld/Lq = 1/(offset ∓ 2·|bin2|)`，输出乘 1e6 与参考自己的 0.9 因子 ✓）；`COMM_DETECT_MOTOR_R_L` 已接线（回包 r×1e6、l 与 ld_lq_diff×1e3，单位是**微亨** ✓——参考的 l 就是微亨，所以 1e3 上到线上是「毫微亨」计数 ✓），无端口时 ENOTSUP ✓。host 闭环对已知虚拟电机（ld 4e-5 / lq 6e-5）**直接**驱动测量得 **45.0 µH 与 18.0 µH，容差收到 ±0.5（≈1%）** ✓。**B5 电感族：2× 已闭合** ✓✓ —— 根因是**环路步长与 `f_zv` 的关系** ✓：HFI 测的是**一个注入周期两半之间**的电流步长 ✓，所以公式 `buffer = f_zv·di/V` 里的间隔就是**一个开关周期** ✓（参考为此只用 V0 采样 ✓ ⇒ 它的两半是相邻两次中断 ✓）。**环路按半个周期步进**时读到的步长是真实值的一半 ✓ → 毎个电感都回来 2× ✓：直测在 `5e-5` + `f_zv 20k`（一个周期 ✓）回 **45.0±0.5** ✓，在 `2.5e-5`（半个周期 ✗）回 **89.95** ✓；组合序列在 `5e-5` + 暂存 `10 kHz`（同样半个周期 ✗）回 **89.6** ✓。两者都按 `1/f_zv` 步进后：直测 **45.0**（±0.5 ✓），经 `COMM_DETECT_MOTOR_R_L` 的整链 **43.9**（对同一真值 ✓，差约 2% = 扫描自身精度 ✓）✓。另外修：glue 的临时配置所依赖的母线电压在控制环尚未跑过时从产品取 ✓（参考用的是持续维护的滤波输入电压 ✓，而聚合根的 `last_v_bus` 只在环里填 ✓，否则全新夹具上会算出**零激励**、什么都没驱动 ✓）。**已显式登记处置（代码里点名拒绝，附理由）**：`COMM_DETECT_MOTOR_PARAM` 与 `COMM_DETECT_APPLY_ALL_FOC` ✓ —— 前者需要 **BLDC 六步换相层**（参考把配置切成 `MOTOR_TYPE_BLDC`/`SENSORLESS`/`COMM_MODE_INTEGRATE` ✓ 再扫霍尔表与 BEMF 耦合 ✓，`conf_general.c:514-536` ✓）与**原始霍尔输入** ✓，本仓库两者都没有 ✓；后者的前奏是 **DC 偏置校准**（`conf_general.c:1747` 的 `mcpwm_foc_dc_cal` ✓），而本端口的相电流来自中值 2048 的偏移、无校准通道 ✓。两者都在 `commands.c` 的 case 标签里写明原因并回 `ENOTSUP` ✓（而不是让它落进 default ✓）。
+| B6 | 控制模式语义：`l_current_max` 斜坡、按 duty 降流、`COMM_SET_CURRENT_REL`、handbrake 语义 |
+
+**阶段 B 的登记开项（对着 `docs/bldc-migration-coverage-matrix.md` 逐条核树得到 ✓，该报告的其余状态列已过时）**：① `update_override_limits` 的**动态降流** ✗（FET/电机温度与占空比驱动的 `l_current_max_scale` 重算 ✓ 树里只有默认值 ✓）→ 触发：板级热限值进入 `board/vesc6` 时 ✓；② **里程计/运行时长 —— 已达成 ✓**（`38bc0d1`：聚合根累加 ✓ 参考 `mc_interface.c:2570-2578` 的整数米差分与计速器尺度 ✓、运行时长按整数微秒累加 ✓，`COMM_GET_VALUES_SETUP` 的 `odometer_m`/`uptime_ms` 已有真值 ✓）；**产品侧（host）✓**（`4b6c048`：备份块落进 `product/vesc_host` 的**模拟 EEPROM 变量**里 ✓、基址就是参考的 `EEPROM_BASE_BACKUP=6000` ✓、逐 16 位变量高字节先写 ✓（正对应块序列化器的字节序 ✓），组合根开机回读 → `foc_core_backup_restore` → 修好后再存一次 ✓✓；两个地址段共享一张变量表 ✓（AN2594 的地址表就是要枚举哪些变量存在 ✓）；`test_vesc_host_backup_block_persists` 证明关机 → 落盘 → 新建聚合 → 回读出 **4321 m / 9000 ms** ✓✓）。**vesc6 侧也已成 ✓**（`29754e4`）把备份的 12 个字接在它自己变量表的尾部 ✓（就是参考「基址在配置之上」的形状 ✓），开机回读 → 恢复 → 回存 ✓，且它的读在后端未写过的槽上返回 `EDGE_ENOENT` ⇒ **首次开机读到的是「空」而不是零** ✓✓；测试证明空表不成块 ✓ 且关机后能取回 **777 m / 3000 ms** ✓。③ **主动短路刹车状态机 —— 已达成 ✓**（`dd74958`：模式 `FOC_STATE_CURRENT_BRAKE` + `foc_core_set_brake_current` ✓ 含 cc_min_current 早返 ✓、量值封顶于负电流限 ✓、十周期短路锁存及其四个判据与 `m_br_speed_before`/`m_br_vq_before`/`m_br_no_duty_samples` 状态 ✓、`control_duty` 与 q 积分器复位 ✓、带符号占空比滤波 ✓，以及在释放门/弱磁门/电流控制器里点名该模式 ✓）；**其相邻两小项仍开** ✗：`:3391` 的占空比限值基准切到正限（属本端口尚无的 duty 模式 PI ✓）与 `:4091` 的 min-rpm 迟滞清除（属速度模式迟滞 ✓）；④ **CAN 周期状态帧**（`comm_can_send_status` ✓ 需定时节拍）与 **跳转启动器/复位命令**（`COMM_REBOOT`/`COMM_JUMP_TO_BOOTLOADER` ✓ 需 `soc` 封装）—— 三条属 D 期真实硬件面 ✓，与已登记的闪存驱动 / CAN 外设同一类 ✓。**已登记处置（暂不移植）**：霍尔检测过程 `mcpwm_foc_hall_detect`——它需要**原始霍尔输入**（回包就是 8 字节霍尔表 + 一个 bool），而本仓库没有任何产品带霍尔（host 产品是角度 mock、vesc6 产品无角度源）⇒ 端口会没有消费者，故按 E4 体例登记而不是硬做一个死端口 ✓；触发条件：出现带霍尔的产品（或 host 仿真补上霍尔输入）时随该产品一起移植 |
+
+#### B3 进展（弱磁 + MTPA 已接入控制环）
+
+- `foc_run_fw` 作为**纯函数**移植（`foc_math.c`），用 8 组**原版黄金向量**逐位对照：
+  harness 编译原版 `motor/foc_math.c:708-762` 的 `foc_run_fw` 取输出，测试喂同一批输入。
+  覆盖：阈值下不动、ramp 步进 `dt/ramp_time*current_max`、backoff 坍塌与随速度翻符号、
+  `dt > ramp_time` 时直接吸附到 `map(duty)` 值、从既有设定值步进、FW 关闭时早退、以及
+  模式门（离开 FW 模式但仍有活跃设定值时继续，避免把设定值“搁浅”）。
+- MTPA 按 `mcpwm_foc.c:3627-3639` 逐行转写：
+  `id_set = (λ - sqrt(λ² + 8·(ld_lq_diff·iq_ref)²)) / (4·ld_lq_diff)`、
+  `iq_set = SIGN(iq_set)·sqrt(iq_set² - id_set²)`。**`8.0`/`4.0` 是 double 字面量**（照拄才能
+  逐位一致，写成 `8.0f` 会移动末位）。`IQ_MEASURED` 模式下 `iq_ref` 取 `iq_filter` 的较小幅值。
+- 环内顺序照原版：**MTPA → FW → 作用于本周期的 id/iq 设定值**（`target_id/iq` 保持命令值，
+  与原版区分「命令」与「本周期设定值」一致）；FW 的 q 轴修正用 `mod_q_filter`。
+- 新增两个滤波状态：`duty_abs_filtered`（LP 0.01）与 `mod_q_filter`（LP 0.2），均按原版
+  截断到模 ≤ 1。`SIGN` 合并为单一 `foc_sign`（原版 `util/utils_math.h:58`，`x==0` 为 +1）。
+- **未携带（B3 剩余件，已定位）**：原版 FW 内还置 `m_current_off_delay = 1.0`，其唯一
+  读者是**调制延长块**（`mcpwm_foc.c:3953-3990`，靠 `m_i_fw_set < min_current` 与
+  `m_motor_released` 决定是否继续保持调制）。该块未移植，所以这里刻意**不设该字段** ——
+  设了就是无人读的死状态（与本端口对 `set_current_off_delay` 的处理同一理由）。另，
+  `m_i_fw_override` 那条路径来自检测流程，属 **B5**。
+
+#### B4 已完成：饱和补偿与温度补偿
+
+- **饱和补偿**（`foc_math.c:36-65` 的三个分支）与**凸极项**早已随观测器一起逐位对齐
+  （`foc_observer_adjust_params`，见一致性表）。
+- **温度补偿**这次接通了整条链：`timer_update`（mcpwm_foc.c:3939-3948）在控制周期开头**无条件**重算
+  `comp_fact = 1.0 + 0.00386 * (motor_temp - foc_temp_comp_base_temp)`，把 `foc_motor_r` 与
+  `foc_current_ki` 各乘一次得到 `m_res_temp_comp` / `m_current_ki_temp_comp`；**只有使用**由
+  `foc_temp_comp` 门控，两处消费者即 `foc_math.c:70-72`（观测器的 R）与 `mcpwm_foc.c:4634-4637`
+  （电流环的 ki，两轴共用）。`<= -30 °C` 是原版「NTC 没有可用读数」的情形，直接走未补偿参数。
+- **表达式的形状也要保住**：参考里 `1.0` 与 `0.00386` 是 **double 字面量**，乘积在 double 里算完才
+  窄化成 float。测试用一个**能判别**的温度（−40 °C、基准 25 °C）钉住这点：double 形状给
+  `0x1.7f8a0ap-1`，写成 float 字面量会给 `0x1.7f8a08p-1`（差最后一位）。
+- **这个输入从哪来**：原版在 **ADC 注入中断**里采样并滤波（FET 用 `UTILS_LP_FAST(..., 0.1)`，
+  电机用板级 `MOTOR_TEMP_LPF`，默认 0.01；电机那路另有「读数不像温度就替换成 −100」的保护），
+  FOC 只读缓存值。所以产品侧新增 `vesc_host_sample_temperatures()`，按同一形式 `v -= f * (v - x)`
+  滤波后交给 `foc_core`；滤波常数是 `hwconf/hw.h` 的**板级**定义，因此它属于产品而不是 app。
+  这也让原先只有测试调用者的 `foc_core_set_temperature` 第一次有了生产调用者。
+- **顺带消掉的两处「无源字段」**：`GET_VALUES` 与 `GET_VALUES_SETUP` 的 `temp_motor`
+  现在报真实滤波值（原先是命名 0），统计里的电机温度均值/最大值也从 −300 种子变成真实值。
+  另外把 `fet_temp_c` 的种子从本端口自选的 **25 °C** 改回参考的 **0 °C**（参考的静态零初始化，
+  由滤波从那里爬上去）——这是既存的小偏差，既然一行能消掉就不再登记。
+- 测试：`test_foc_temp_comp_factor`（基准处**精确为 1.0**、系数、double 形状判别）、
+  `test_foc_core_temp_compensation`（基准温度与 −30 地板下与未补偿**逐位相同**、地板边上仍补偿、
+  热电机抬高 ki 使同一电流误差下电压更大、把 ki 置 0 后只剩观测器这一个消费者时输出仍不同、
+  统计报出所给电机温度）、`test_vesc_host_temperature_sampler`（滤波收敛形式、坏读数替换、
+  NULL 目标拒绝）。证据：55/55、两个二进制各 10 次无抖动、ASan/UBSan 绿、产品端到端仍跑通
+  （RPM 217.7、0 错误）。
+- **仍未做（登记在一致性表）**：`l_temp_motor_start/end` 与 FET 温度启用的**降流**（`utils_map` 那条）。
+  它共用这个输入，但属于限制逻辑。
+
+#### B5 检测流程：结构结论（先读再动，避免把阻塞过程硬搬）
+
+`mcpwm_foc_measure_resistance()`（mcpwm_foc.c:1797）这类过程在参考里是**阻塞式**的：
+它 `mc_interface_lock()`、置一套覆盖状态（`m_phase_override` / `CONTROL_MODE_CURRENT` /
+`MC_STATE_RUNNING`）、修改 timeout、然后 `chThdSleepMilliseconds` 循环等待，靠 **ISR 每周期
+加进 `m_samples.avg_current_tot/avg_voltage_tot/sample_num`** 来采样，最后除出平均值；
+失败路径要 `stop_pwm_hw()` 并回滚状态与 timeout。
+
+端口没有线程，所以**不能照搬阻塞形状** —— 应投影为**状态机**：一个\u201c爬流 → 稳定等待 →
+计数采样 → 收尾/回滚\u201d的相位机，由快环或周期 poll 推进，采样累加器放在 foc_core 里（注意
+它与遥测用的 `foc_core_read_reset_averages` 是**两套**累加器，原版就是分开的）。
+`measure_inductance`（:1909）与 `measure_inductance_current`（:2086）同形。
+实现时还要补：相位覆盖字段（现在只有 handbrake 的置 0）、`stop_pwm_hw` 等价物、以及
+`COMM_DETECT_*` 族的受理（当前在命令表外）。
+
+**B6 剩余项的实测依赖（读原版后记录，避免下轮重新推导）**
+
+- `COMM_SET_CURRENT_REL`（**已实现**）：线格式是 float32 × 1e5（原版用的是**定点**
+  惯例：存 int32 = 值× scale，读取时除回去，不是 IEEE 浮点），语义在
+  `mc_interface_set_current_rel()`（mc_interface.c:733）：按 `duty` 的符号选限幅基数 ——
+  `|duty| < 0.02` 或 `SIGN(val) == SIGN(duty)` 时用 `lo_current_max`，否则用
+  `|lo_current_min|`（`SIGN(0)` 是 **+1.0**，所以零设定值配负 duty 会选负限）。因此它
+  必须在电机侧而不能在编解码层，因为编解码层没有 duty。结果再走
+  `mc_interface_set_current`（DIR_MULT 在 glue 施加）。
+  末尾仍有一个由 `l_abs_current_max` / `cc_min_current` 门控的
+  `set_current_off_delay(0.1)` 副作用待接（见下）。
+- 上述三个字段的**默认值来源不同，别当成一类**：`cc_min_current` 在
+  `mcconf_default.h` 有全局默认 `0.05`；而 `lo_current_min` 与 `l_abs_current_max`
+  **没有全局默认**（`lo_*` 系列是按硬件标定的）。所以前者可以直接写进
+  `motor_config_set_defaults`，后者必须由板级（`board/<board>`）提供 —— 若端口先按 0
+  占位，必须写明“待板级提供”，不可当成原版默认值。
+- handbrake（**已实现**）：原版链路是
+  `COMM_SET_HANDBRAKE`（float32 × 1e3 —— 安培，不是相对命令的 1e5）→
+  `mc_interface_set_handbrake()`（|current|>0.001 时 SHUTDOWN_RESET；`mc_interface_try_input()`
+  为真则整体 return；按 motor_type 分派；最后 `events_add("set_handbrake", current)`）→ FOC 走
+  `mcpwm_foc_set_handbrake()`：设 **`CONTROL_MODE_HANDBRAKE`**、把电流写进 **iq** 设定值、
+  **不取绝对值**、**不乘 DIR_MULT**。模式本身的含义在环内：
+  `mcpwm_foc.c:3602` 强制 `phase = 0`（“让电流简单地把转子锁住”，而不是出力矩）。端口已按
+  此实现：新增 `FOC_STATE_HANDBRAKE`（追加在枚末尾，不重编号）、
+  `foc_core_set_handbrake` 不再取绝对值/不再写 d 轴、快速环在进入该模式时把角度置 0
+  （同时使上报相位与扇区测速跟随该角度），电流 PI 分支纳入该模式。
+- **`duty_now` 不是相占空比**（已修）：原版 `mcpwm_foc.c:3818` 定义
+  `duty_now = SIGN(vq) * NORM2_f(mod_d, mod_q) * p_duty_norm`（`mod = v * 1.5 / v_bus`，
+  `p_duty_norm = TWO_BY_SQRT3 / foc_overmod_factor`，overmod 默认 1.0）。端口原先写的
+  `duty_a`（A 相占空比）是完全无关的量，而它正是 `COMM_GET_VALUES` 的线上 duty 字段、
+  按 duty 降流的输入、以及 `COMM_SET_CURRENT_REL` 的分支判据。
+- **命令环不夹紧，且有方向乘子**（已修）：`mc_interface_set_current()` 只做
+  `SHUTDOWN_RESET()`（|current|>0.001）、`mc_interface_try_input()` 门控、
+  `mcpwm_foc_set_current(DIR_MULT * current)` 与 `events_add`，**不做限幅**（限幅在 app 层
+  与弱磁）。端口原先在 `foc_core_set_current` 里夹紧到 `[current_min_a, current_max_a]`
+  （原版没有）且未乘 `DIR_MULT`；今已去夹紧，`DIR_MULT` 按原版**逐命令**在 glue 施加
+  （current / brake / duty / pid_speed 有，**handbrake 特意没有**）。
+- **刹车仍缺控制模式（已定位到具体环内语义，待 B3）**：原版刹车是
+  `CONTROL_MODE_CURRENT_BRAKE` + `m_iq_set = DIR_MULT * current`（**不取反**，
+  mcpwm_foc.c:828）。模式本身的含义分布在环内四处，**不可用“负电流”近似替代**：
+  `mcpwm_foc.c:3450` `iq_set_tmp = -SIGN(speed_fast_now) * fabsf(iq_set_tmp)`（刹车电流
+  逆着转速）；`:3328` `utils_truncate_number_abs(&iq_set_tmp, -conf_now->lo_current_min)`
+  （幅度上限）；`:3391` `current_max_for_duty = fabsf(lo_current_min)`（按 duty 的限流基数
+  换成正限）；`:4091` 刹车模式下清零 min-rpm 迟滞。真正的大头是 `:3350` 的**主动刹车状态机**
+  —— “把三相一直短接（duty=0）直到刹车电流达到设定或上限，再回到电流控制，且至少停留
+  10 个周期”（用到 `m_br_speed_before` / `m_br_vq_before` / `m_br_no_duty_samples` /
+  `m_duty_filtered`），并且 `foc_math.c:722` 说明弱磁在刹车模式下也参与。所以它与 B3 共用
+  一套状态，端口目前的 `-current` 近似**保留不动**，不自行翻转符号。
+- **有效限幅的来源（上一轮写错过，以本条为准）**：`l_current_max/min` 是**存储的**配置；
+  命令实际用的是 `lo_current_max/min`，它们是 `update_override_limits()`
+  （mc_interface.c:~2500-2546）**运行时算出**的有效限幅 —— 取 MOSFET/电机电流限、rpm 限、
+  加减速限、FET/电机温度限、duty 限、输入电流限的**最小绝对值**，再用
+  `±cc_min_current` 兜底。因此：
+  - **「按 duty 降流」确实存在**，就在这里（`lo_max_duty`、`lo_max_i_in` 等参与取最小），
+    不属于 B4；
+  - `confgenerator_serialize_mcconf()` **不写**这两个字段，端口也不应把它们当配置持久化
+    （schema 6 已改：只写 `l_abs_current_max` 与 `cc_min_current`）；
+  - 端口 `foc_core_set_current_rel` 目前用 `current_min_a`（即 `l_current_min`）当负限幅基数，
+    而原版用 `lo_current_min`（有效值）。只有在本端口算出有效限幅之后两者才等价。
+- 原 B6 计划里的另一项已核实**归属错误**：`utils_step_towards(&m_iq_set, ...)` 的斜坡在
+  `mcpwm_foc_measure_resistance()` 里（mcpwm_foc.c:1818），属于 **B5 检测**；
+  `utils_map(fabsf(duty_now), 0, 40/v_bus, 0, foc_observer_gain)`（mcpwm_foc.c:4150）是
+  **观测器增益随 duty/v_bus 缩放**，属于 **B4**（它是 `duty_now` 的消费者之一，duty_now 已修正）。
+
+#### B5 进展：电阻测量已按原版迁移，并查出对 B2 的依赖
+
+之前 `app/motor_id` 里的「检测」是**自造的**：电压从 0.1 V 起、每步 +0.05 V 边爬边累加，然后报
+`R = (Σv/Σi) * 2/3`；电感用 `L = v·dt/di`，磁链与霍尔也是拍出来的。这些数字无法对照原版，按
+「不编造测量值」的原则已全部删除。
+
+**已迁移：`mcpwm_foc_measure_resistance`（mcpwm_foc.c:1797-1908）**，逐段对应：
+
+| 原版 | 本端口 |
+| --- | --- |
+| `m_phase_override = true` + `m_phase_now_override = 0` | `foc_core_set_phase_override(0, true)`；`foc_core` 在取角前判它，置位时**不读传感器也不跑观测器**（原版 :3486/:3524/:3532 都在各自分支前判这个标志） |
+| `m_control_mode = CURRENT`、`m_id_set = 0` | 端口 `set_current(iq)`（id 恒为 0） |
+| `while (|iq_set-current|>0.001) { step(|current|/200); fault; sleep 1ms; }` | RAMP 相，每累计 1 ms 走一步；`utils_step_towards` 按原版逐字转写 |
+| `chThdSleepMilliseconds(50)` | SETTLE 相，50 ms |
+| 清 `m_samples` 后等 `sample_num >= samples`（上限 10000 ms） | SAMPLE 相；清与读是**两个**端口调用，因为原版就是在不同时刻用它们 |
+| `m_samples += NORM2(id,iq)` / `NORM2(vd,vq)`，仅 `MC_STATE_RUNNING` 时累加 | `foc_core` 的检测累加器，以「控制环跑过的周期」为门（本端口 `state >= RUNNING_CURRENT`） |
+| `R = voltage_avg / current_avg`（各自先 /n） | 同序计算：先两个平均再相除——直接算 `Σv/Σi` 代数相等但**不是逐位相同** |
+| 两条 fault 路径 + 收尾块（清 id/iq、清 override、停 PWM） | `motor_id_fail()` / `motor_id_stop_motor()`，后者只由 `stop_after` 决定是否在结束时执行（原版给 R→L 两趟之间留电机在跑） |
+
+**一处必须做对的地方（我先做错了）**：原版的 `while` 是「先测条件、再步进、再睡」，所以**达成目标的那一毫秒
+就是斜坡的最后一毫秒**（不再多睡一次）。最初的状态机让「发现已达成」的那一毫秒空转，斜坡多花 1 ms；
+测试用 199/200 ms 两个点把它钉住了。
+
+**发现的结构性依赖**：`mcpwm_foc_measure_inductance` 一开头就把配置改成 **HFI 模式**
+（`foc_sensor_mode = FOC_SENSOR_MODE_HFI`，:1927-1935）并驱动 `foc_hfi_voltage_*`。所以**电感测量、
+以及包含它的 `COMM_DETECT_MOTOR_R_L`，都依赖 B2（HFI）**。磁链（`conf_general_measure_flux_linkage`，
+开环升速看电流下降）与霍尔检测的程序**尚未读**。三个未迁移程序一律返回 `EDGE_ENOTSUP`，不再给近似值。
+
+**证据**：`tests/test_app_motor_id.c` 用已知电阻的假机器验证各相/时序/斜坡速率/累加器只被清一次/
+两条 fault 中止/采样超时（原版在超时路径上就是除以零，本端口照算但把结果标为 invalid）/`stop_after`
+两种分支；`tests/test_product_glue.c` 的端到端测试让**原版程序驱动真实控制环**跑虚拟电机，量回它的
+0.05 Ω。55/55、两二进制各 10 次无抖动、ASan/UBSan 绿、六门禁绿、产品端到端照跑。
+
+#### B2 进展：HFI 的角度跟踪器已逐位对齐（并挖出一个既存保真缺陷）
+
+B2 的面很大（mcpwm_foc.c 内 234 处 HFI 引用），但可以先把它拆开：**角度跟踪器**是纯函数、可逐位
+验证；**激励与采样**（六矢量/V0V7 注入、按 PWM 周期取电流、翻转计数）住在 ISR 里，是下一刀。
+
+- **已迁移**：`foc_hfi_adjust_angle`（foc_math.c:766-778）。比例项 + 双积分器把注入坐标系的角度拉向
+  电流测量给出的误差，双积分器由**快速转速估计**限幅（`fabsf(m_speed_est_fast)`，这是它不会随转速发散
+  的原因）；角度误差先按 `foc_hfi_max_err` 截断。原版的 `4000.0` / `10.0` 是 **double 字面量**，
+  两个增益都是窄化后的乘积，按原样保留（原版自己也有个 TODO 说这俩的比例没复核过，因此照抄而不是“整理”）。
+- **差分证据**：harness 直接编译参考的 `motor/foc_math.c`（桩头只需 `ch.h`/`hal.h`/`hw.h`，后者仅用到
+  `HW_HAS_PHASE_SHUNTS` 一个宏），两边跑同一序列（3 组 `max_err` × 3 组 `gain` × 4 组转速限幅 × 400 步，
+  状态跨组延续），**36 行输出逐位文本相同**。这 36 个向量即 `test_foc_core.c` 里的黄金向量。
+- **一条方法论教训**：第一次比对得出 “ALL MATCH” 是**无效的** —— 两边用了不同编译旗标（图省事用了
+  `cc` 默认），而且只比了第一行。用同一体制、比全量之后才看到漂移。**差分 harness 两侧必须同旗标，
+  且必须比全量**。
+- **挖出的既存缺陷（已修）**：`app/foc_core/include/foc_core/foc_math.h` 把 `M_PI` 定义成
+  **带 `f` 后缀的 float**，而参考用的是 glibc 的 **double** `M_PI`。于是每次角度回绕
+  （`*angle += 2.0 * M_PI`）都比参考差约一个 float ULP，单次不可见、几千步后累积到第 5 位
+  （harness 量到的正是这个）。严格 `-std=c11` 不暴露 glibc 的 `M_PI`（参考树要 `_DEFAULT_SOURCE`），
+  所以这个定义就是本端口实际用的值 —— 已改为 double 字面量。修正后端口与参考 36×400 步逐位一致。
+
+- **同一刀下去的还有 HFI 的 FFT 抽头**（`util/utils_math.c:509-597` 的 9 个：8/16/32 点的 bin0/1/2，
+  即均值、基波、二次谐波）—— HFI 的角度误差就是由它们算出来的。抽头逐字转写；它们索引的四张 32 项
+  cos/sin 表是**六位小数的取整常数**（不是 `cosf/sinf` 的输出），因此**生成而非转写**：
+  `tools/gen_hfi_from_reference.py` 从参考读出四张表、校验「每张 32 项且形如 `-?\d+.\d{6}`」后写出
+  `app/foc_core/src/hfi_tables.h`，并支持 `--check`（供 CI 判「生成物是否过期」）。表放在 app 里，
+  理由同 D30（app 不得依赖 infra，这也是 `vesc_can`/`motor_config` 各自带一份 crc16 的原因）。
+- 差分证据：同一份驱动编译两次（一次接参考的 `utils_fft*`，一次接本端口的 `foc_fft*`），四种输入
+  （冲激、斜坡、伪随机、干净基波）× 9 抽头 × 实/虚部**逐位文本相同**，这 4×18 个值即
+  `test_foc_core.c` 里的黄金向量。
+
+#### B2 剩余部分：ISR 侧的结构结论（先读再动）
+
+已读到的构件与位置（细节以引用为准，不凭记忆写）：
+
+| 构件 | 位置 | 共用状态 |
+| --- | --- | --- |
+| 激励选矢量（六矢量 / V0V7、`foc_hfi_amb_mode`） | `mcpwm_foc.c:1075-1090`（`FOC_CONTROL_SAMPLE_MODE_V0_V7`）与 ISR 的占空比通道 | `foc_hfi_voltage_start/run/max` |
+| 采样缓存填充（`buffer[]` / `buffer_current[]`） | ISR 内按 `ind` 写入；`is_samp_n` 标记负半波 | `ind`、`is_samp_n`、`sign_last_sample`、`cos_last/sin_last`、`prev_sample(_d)` |
+| 另一种机制：正/负样本和与计数 | `buffer[1..7]` 当累加器用（源码里就在 `:4368-4375` 逐条注明） | `flip_cnt` |
+| 慢侧状态机 | `hfi_update` (`:4218+`)：转速门限 `foc_sl_erpm_hfi` 交回观测器、`est_done_cnt`/`flip_cnt` 对 `foc_hfi_start_samples`、`observer_zero_time` 对 `foc_hfi_obs_ovr_sec`、HFI_V2/V3/V4/V5 分支 | `angle`、`double_integrator`、`ready` |
+| ISR 侧的 HFI_START 分支 | `:3555+`（观测器接管时清 `est_done_cnt`/`flip_cnt`） | 同上 |
+
+**投影结论（决定了这块要动多少）：**
+
+1. **激励不需要新端口。** 原版的 HFI 是在 ISR 里**改自己将要输出的电压矢量**（试向量就是它自己的输出），而
+   本仓库的 PWM 输出本就在 `foc_core` 手里 —— 所以注入是聚合根的**内部事务**，不必跨层。
+2. **需要落到端口契约的只有「采样时刻」。** 原版在 PWM 周期内**特定时刻**取相电流（V0/V7 零矢量处），
+   而本端口的 `foc_current_port_t` 每次控制周期只读一次。因此正确的做法是把
+   「**按配置的 HFI 采样点采到的相电流**」写进电流端口的契约（由硬件侧保证采样时刻），而不是在 app 里
+   去模仿硬件时序 —— 这与已有的「控制环不在 ISR 里」的投影一致。
+3. **因此本块的工作量虽大，但边界清楚**：`hfi_state_t` 的其余字段（buffer/ind/翻转计数等）+ 激励与
+   误差提取 + `hfi_update` 状态机，全在 `foc_core` 内部；新增的只有端口契约的一句语义与 `foc_hfi_samples`
+   选出的抽头绑定（它现在不能先写 —— 没有消费者就是死代码）。
+
+### 阶段 C — 配置与持久化
+
+#### C3 定界（先读再动；更正上一轮自己的指向）
+
+上一轮把 C3 指向 `flash_helper.c`，**那是错的**：`flash_helper.c`（534 行）与它的头只做
+**固件镜像/引导**——`flash_helper_erase_new_app` / `write_new_app_data` / `code_data` /
+`jump_to_bootloader`、STM32 扇区地址表（SECTOR_0..11，16K/64K/128K）——与配置持久化无关。
+
+C3 的真正目标是 **`driver/eeprom.c`（643 行）**：在 flash 扇区上做 EEPROM 仿真，带**扇区轮换**
+与备份，正好对应判据那三项——**擦除粒度**（整扇区）、**写前擦除**（先写另一扇区、校验后再标记）、
+**掉电中断后的可恢复性**（旧扇区在切换完成前仍是完整的一份）。它上层的配置读写是
+`conf_general.c`（2279 行）里的 store/load。
+
+端口现状：`infra/flash` 是个 **host 侧假实现**（自述 "deliberately trivial host-side fake"，
+按 key 直接 memcpy），只有 `flash_read/flash_write` 两个函数；`motor_config` 目前用自有信封
+（signature + version + length + CRC，原版没有）落盘。
+
+**C3 要复现的设计（读参考后确认）**：`driver/eeprom.c` 用的是经典的 **AN2594 两页仿真**——
+`PAGE0_BASE_ADDRESS`/`PAGE1_BASE_ADDRESS` 由 `EEPROM_START_ADDRESS` 切出，运行期只认一个
+`ValidPage`；每条记录是「虚拟地址 + 数据 + 校验」的头（所以写入不改动旧记录，只是追加），
+当前页写满时把**有效记录搬到另一页**再标记新页有效；初始化/恢复靠**扫描两页**找出有效页
+（这就是判据里「掉电中断后的可恢复性」：切换完成前旧页仍是完整的一份）。
+所以 C3 的形状：把扇区轮换/追加写/页搬移/扫描恢复的**语义**移入 `infra/flash`（配一个
+扇区后端端口，以便在 host 上用 mock 注入掉电），再接上 `motor_config` 的存取路径。
+
+#### C3 已完成（判据三项都有测试）
+
+`infra/flash` 现在有 `flash_emul.c`：AN2594 两页仿真，扇区后端走端口注入，而不是写绝对地址。
+
+- **擦除粒度**：mock 只接受整扇区擦除（并断言长度），仿真也只在两处调用它——格式化与搬移时
+  擦旧页。
+- **写前擦除**：快路径只追加、从不擦；搬移先把新页写全（含按消费者变量表搬运的最新值），
+  再擦旧页。
+- **掉电可恢复**：搬移中途断电时旧页仍是完整有效的一份 → 重启 init 取旧页、读到上次提交值；
+  测试还断言此时**没有**多出擦除——这正是它存活的原因。
+- **如实钉住**参考自身的一处粗糙：它是“先擦旧页、后标 VALID”，两者之间断电会两页皆无效、
+  下次 init 只能格式化（数据丢失）。测试显式覆盖这个窗口，而不是假装不存在。
+- 测试也抓到端口里一个真 bug：`flash_emul_init` 原先用**写侧**判据找页（“我能往哪写”），
+  于是“搬移中断、新页仅 RECEIVE”的半成品镜像会被当成可用、读出一片空；正确判据是**读侧**的
+  “是否存在 VALID 页”（参考 `EE_Init` 的口径）。
+
+#### C3 后续：配置持久化已改为变量式（含对本文先前一句错的更正）
+
+先更正：本文早先写过「配置 blob 的持久化属 `conf_general.c` 那套 flash store，不是 EEPROM 仿真」
+——**恰好相反**。读 `conf_general_read/store_mc_configuration`（conf_general.c:436-520）可见：
+配置**就存在 EEPROM 仿真里**，用 `EE_ReadVariable/EE_WriteVariable`，虚拟地址基址
+**`EEPROM_BASE_MCCONF = 1000`**（第二电机 5000，见 conf_general.c:50-54），
+**每 2 字节配置占一个 u16 变量**（循环 `sizeof(mc_configuration) / 2` 次），且变量表就是在
+`conf_general.c:72` 处用 `EEPROM_BASE_MCCONF + i` 枚举出来的——这正好就是 C3 里
+`flash_var_table_t` 需要的形状。
+
+完整性不是外挂的 CRC 信封，而是**结构体自带的 `uint16_t crc;` 成员**（生成结构体的最后一个
+成员，之前在 manifest 里按“不进线上流”处理是对的：原版 `confgenerator_serialize_mcconf` 确实
+不写它）；写入前用 `mc_interface_calc_crc(conf, is_motor_2)` 算好，读出时比对，**任何变量缺失
+或 CRC 不符就 `confgenerator_set_defaults_mcconf()` 回落默认值并记故障**。
+
+因此本端口要做的：把 `motor_config` 现有的**字节存取端口**换成**变量存取端口**
+（`flash_emul` 正好是这个实现，由产品侧 glue 提供——app 不得直接依赖 infra），基址 1000、
+表 = base+i、crc 成员参与校验、失败回落默认值——这就是自有信封（signature + version +
+length + CRC）的替代物。实现前要读的最后一处——`mc_interface_calc_crc` 的字节范围——**已读**（见下）：算法本身是
+util/crc.c 的 crc16，端口已在 `vesc_can` 里有一份位算式副本。
+
+**已读到（最后一块）：CRC 的范围与它带来的一个陷阱**
+
+`mc_interface_calc_crc`（motor/mc_interface.c:3067）的做法是：把 `conf->crc` 临时清零，
+对**整个 `sizeof(mc_configuration)`** 算 `crc16`，再把 `crc` 原来的值恢复。也就是说
+**结构体的填充字节也参与校验**（不是“到最后一个字段为止”）。含义有两条，都要写进实现：
+
+- **填充字节必须是确定的**：端口生成的结构体有填充，堆栈上的临时对象其填充是垃圾，
+  同一份配置会算出不同的 CRC。所以校验必须对**长期存活、且在 `motor_config_set_defaults`
+  里被 `memset` 过**的那一份（聚合根里的 `self->mcconf`，或同构的 staging）做，不要对
+  一次性的栈对象做。
+- 因为含填充，这个 CRC 只在 **同一份结构体镜像（同一 ABI）** 内可复现——这正是原版的
+  行为，不是缺陷，但也意味着它不能当跨版本校验用。
+- 因此本端口又要一份 crc16 副本（app 不得依赖 infra，而仓库的 D30 决定不建共享 util），
+  与 `vesc_can` 里那份同理，用测试交叉校验即可。
+
+**已完成（本次）**：上述设计已落地，自有信封随之删除。
+
+- `motor_config` 的 `save`/`load` 现在自己走变量循环（一个 u16 对两个配置字节），端口由
+  `motor_config_construct` 注入；先前为「先加路径、后切端口」而存在的
+  `motor_config_store_to_vars`/`load_from_vars` 是**同一行为、两个公开入口**，已折回
+  `save`/`load`（`ponytail-review` 的发现）。
+- 删除的东西：字节存取端口 `motor_config_storage_port_t`、自有信封
+  （`MOTOR_CONFIG_SIGNATURE`/`MOTOR_CONFIG_SCHEMA_VER` + length + CRC 与 `calc_crc`）、
+  以及 1024 字节的 `scratch`。`MOTOR_CONFIG_BUFFER_SIZE` 保留，但现在只是两个线上流
+  所需缓冲区的大小。调用方存储契约随之从 3576 降到 **2552**（本模块自己的 `-std=c11`
+  下实测；`-std=gnu11` 布局相同但小 256 字节，这个差在前几轮已记过）。
+- 产品侧：`vesc_host_make_flash_sector_port` 取代原先的字节存储端口——按 `flash.h` 的端口
+  契约实现（**整扇区擦除**、**半字写只允许清位**、越界拒绝而不夹断）；
+  `glue_state.flash_mem` 从 1024 扩到**两个扇区**（`2 × FLASH_EMUL_PAGE_SIZE`，
+  仿真本身要这么多）；组合根枚举 `VESC_HOST_MCCONF_BASE + i` 的 **388** 项变量表，
+  `flash_emul_init` 之后把变量端口交给 `motor_config`。
+- `main.c` 另有一处必要修正：`glue_state` 清零后 flash 是**全 0**，而全 0 会被仿真读成
+  「两个页都 valid」（marker 就是 `0x0000`），所以要先 `memset(flash_mem, 0xFF, …)`
+  当作擦除态。
+- 一个值得记住的坑（测试逼出来的）：**全零镜像的 CRC 恰好是 0**，与未写入结构体自带的
+  `crc = 0` 相等，于是「空的存储」会被当成合法配置载入。原版能区分是因为**读失败**
+  （`EE_ReadVariable` 对未写过的变量报错）——所以「空」必须由**读失败**判定，而不是由值
+  判定。测试的 mock 现在也这样建模（写入才让变量存在）。
+- 证据：55/55 通过、`test_motor_config` 与 `test_product_glue` 各连跑 10 次无抖动、
+  ASan/UBSan 下相关四个测试全绿、六个门禁脚本全绿，且**产品本体端到端跑通**
+  （RPM 217.7、0 错误）——这条路径在真实运行里成立，而不只是测试里。
+
+#### C1 验收（有消费者的字段是否都配置驱动）
+
+机械核对的结果（脚本对比 `foc_config_t` 的字段与 main.c 的 `mc->` 映射）：
+
+- `foc_config_t` 共 **32** 个字段，**31** 个直接来自 `mc->某字段`，唯一的例外是
+  `sensorless_mode` —— 它曾经被**硬编码为 false**，等于让配置里的传感器模式对控制路径不可见。
+  原版是从 `foc_sensor_mode` 选角度源的（`mcpwm_foc.c` 的 `FOC_SENSOR_MODE_SENSORLESS` 分支），
+  现已改为 `(mc->foc_sensor_mode == FOC_SENSOR_MODE_SENSORLESS)`，即 32/32 配置驱动。
+- 结构体本身是参考的：**177 个成员**由生成器从 `datatypes.h` 产出（C2）；默认值是 **202 个宏**，
+  每个都带它在 `mcconf_default.h` / `appconf_default.h` 的**行号**（判据要求的逐条对照）。
+- 其余 **156** 个 mc 字段目前未被 `foc_core`/main 引用 —— 它们的消费者各有归属：HFI 系 →**B2**、
+  温度补偿 →**B4**（受阻于无电机温度源）、检测系 →**B5**、编码器/DRV8301/NTC/BMS/Wi-Fi/埴位表
+  等 →各自模块与 C3/D 阶段。所以本条判据「只补有消费者的字段」成立：**凡现已有消费者的，
+  都已在配置里驱动**。
+
+#### C2 进展：mc_configuration 流已逐字节对齐原版
+
+`tools/gen_mcconf_from_reference.py` 从参考树机械生成头文件，与结构体合起来构成单一事实源：
+
+| 生成物 | 内容 |
+| --- | --- |
+| `mcconf_enums.h` | 成员用到的枚举体 + `bms_config` |
+| `mcconf_struct.h` | `mc_configuration_t`（177 个成员，按 `datatypes.h` 顺序） |
+| `mcconf_manifest.h` | `MCCONF_WIRE(X)`：207 行线上项（含数组元素与 `bms.*` 子字段，按原版**序列化顺序**）、`MCCONF_SIGNATURE`、每种 kind 的长度 |
+| `mcconf_defaults.h` | 202 个 `MCCONF_*` 宏，每个注明它在 `mcconf_default.h` 的行号 |
+
+写、读、默认值都展开同一份 `MCCONF_WIRE(X)`，所以不可能互相矛盾；`MCCONF_WIRE_LEN` 静态断言为
+原版的 **488**，测试用「默认配置 → 编解码」与**原版序列化器的输出逐字节比对**
+（向量在 `docs/bldc-mcconf-format.md`）。生成器遇到无法解析的序列化语句就拒绝输出，
+因此原版一变就会在这里炸——它已抓到我两个错：观测器默认值是 **3**（MXLEMMING_LAMBDA_COMP）
+而不是 0；`l_abs_current_max` 其实有全局默认 **130 A**（宏名是 `MCCONF_L_MAX_ABS_CURRENT`，
+我先前搜错名字才误记为“待板级”）。
+
+仍待办：无。`app_configuration` 流已是原版的 290 字节布局（C2 的另一半）；flash 信封
+（signature + version + length + CRC，原版没有）**已删**，持久化改走变量存储（见上）。
+
+> **A7 与 C1 必须先合并做，且 C1 的字段集决定 A7 的字节流。** 原版
+> `confgenerator.c` 是**唯一**的配置字节流：`COMM_GET_MCCONF` 回的就是它，
+> 落 flash 存的也是它。本仓库当时的 `app/motor_config/src/serialization.c` 曾是
+> **另一套自造格式**（自带 `MOTOR_CONFIG_SIGNATURE` + `MOTOR_CONFIG_SCHEMA_VER`
+> + payload_len + CRC16 框）——**现已删**：协议用原版的 mc/app 两条流，
+> 持久化用结构体自带的 `crc` 成员，两件事都回到原版的形状。
+
+| 切片 | 内容 |
+|---|---|
+| C1 | 字段级 1:1：`si_motor_poles`/`si_gear_ratio`/`si_wheel_diameter`、`throttle_exp*`、`foc_current_filter_const`、`foc_dt_us`/`foc_f_zv`、`foc_motor_ld_lq_diff`、`foc_temp_comp*`、`foc_observer_*`、`foc_hfi_*`、`l_*` 等（按阶段 B 的消费者逐个补齐，不做无消费者的字段） |
+| C2 | 按 `confgenerator.c` 的字段顺序/缩放写序列化器，**flash 与协议共用同一份字节流**；含跨版本迁移语义 |
+| C3 | `infra/flash` 的 EEPROM 仿真（`driver/eeprom.c` 的两页仿真）+ 配置的变量式持久化 |
+
+**A4c 的更正（先前的判断是错的）：** 曾据此断言"原版按霍尔/编码器步进计数、需要改转子端口契约"。
+读完 `mcpwm_foc.c:3866-3881` 后否证：原版把 FOC **已有的相位**量化成六个 60° 扇区
+（注释 "resolution = 60 deg as for BLDC"），对扇区序号做差分并做回绕修正，**不需要任何传感器**，
+因此不需要改端口。教训记此：部分阅读得出的依赖不能当结论。
+
+**C1 的第一个发现：极对数有两份真相。** 原版没有独立的极对数字段，FOC、虚拟电机、
+速度换算全部取自 `si_motor_poles / 2`（`virtual_motor.c:126`、`mc_interface.c:1626`）。
+本仓库 `foc_config_t.pole_pairs` 是第二份真相，没有任何机制保证两者一致 —— C1 应当
+把它收敛成 `si_motor_poles`。
+
+### 阶段 D — 组合根与真实硬件
+
+| 切片 | 内容 |
+|---|---|
+| D1 | **达成**：`product/vesc6_stm32f4` 已存在（family bldc / board vesc6），装配 `board_vesc6` + `motor_config` + `timeout_guard` 并交给 bldc 家族的调度器；`main()` 显式装配，模块状态全部由组合根提供。交叉编译实测：ELF32/ARM，入口 `0x8000239`（低 flash），text 22148 / data 1072 / bss 2680，bin 23220/1048576 flash 与 3752/131072 RAM，零动态分配 PASS（163 符号）；同一份 main 在 host 上退出 0。**未含**控制面与协议：它们的端口是 ADC/PWM/UART 读取，而 soc/stm32f4 仍只是算术与地址宏（D2） |
+| D2 | **达成**：`soc/stm32f4` 已有寄存器级驱动 —— TIM1/TIM8 互补 PWM（中心对齐、参考自己的 `UDIS` 包住三路写入含第二定时器的 1,3,2 相序、MOE 输出使能）与三路 ADC 注入采样及其转换完成中断；寄存器映射的偏移对 RM0090 做 `_Static_assert`，字段按章引用。**并已接进产品**（`product/vesc6_stm32f4`：绑定 TIM1 与三路 ADC、按 `foc_f_zv` 设频、装注入中断钩子填快照、在其上装配 FOC；交叉编译 46064 字节 text、零动态分配 PASS）。**两处“不猜”**：vbus 的规则通道在本 checkout 内无法确定（参考的 `ADC_Value` 索引是 DMA 缓冲位置而非通道号）→ `read_vbus` 如实拒绝、控制环因此不下发命令；板级死区 `board/vesc6` 未携带 → 相输出拒绝使能（MOE 是唯一会让电机带电的位，死区猜错就是直通）。另登记：配置存储暂为 RAM（待 flash 驱动）、电流零点为 2048 中值（无标定流程）、有感模式因无霍尔/编码器角度源而拒绝。引用来源逐处注明（RM0090 + 参考源码行号 + 所用 StdPeriph/ChibiOS 源码）；死区编码已改为与参考 `conf_general_calculate_deadtime` 逐字一致（原作四舍五入，660ns@168MHz 是 110 而非 111） |
+| D3 | board 处置：`board/vesc4`/`board/vesc_unity` 已登记为「保留但不绑定」，`board/vesc6` 登记为「保留并指向 D1」（带触发条件）——均在下方处置表中 |
+| D4 | **达成**：工具 `.github/scripts/check_fast_loop_budget.py` 从交叉编译 ELF 反汇编 `foc_core_fast_loop` 的传递闭包并计指令；模型明写（每指令一周期、不计 flash 等待与中断、闭包内每个调用算一次）⇒ 指令数精确、周期数为下界、到达指令数为上界。**两次数**：修正前 48 个被调函数 / 4396 指令 / **26.17 µs**；修正常量与 FPU 编译口径后 **21 个被调函数 / 2173 指令 / 12.93 µs** ⇒ 参考的 15 µs（2520 周期）**已达标**。突破点是**构建层而非算法**：参考用 `-fsingle-precision-constant -mfpu=fpv4-sp-d16`（ChibiOS `os/common/ports/ARMCMx/compilers/GCC/rules.mk:35`）编译**整个构建**，而本仓库原先只传 `-mcpu=cortex-m4 -mthumb` ⇒ 全部浮点为软件实现（仅 `__adddf3`+`__aeabi_dmul` 就占 381 条）。现已在 `CMakeLists.txt` 集中 ARM 标志处按 M4 构建全局加上（用 `softfp` 而非 `hard`：本仓库所有对象必须 ABI 一致，两者算术等价、只是参数到达的寄存器不同；模拟器构建保持软件浮点，它们不是参考配置的那颗芯片）。CI 有「只构建该目标 + 预算门禁」两步，阈值 2400 = 实测 + 约 10% 余量，定位为**回归门禁**。**B2 之后复测（本刀）：3146 指令 / 18.73 µs** ⇒ 阈值随实测上到 **3600**（实测 + 约 15% 余量 ✓）。原因已量出且**不是算法退化**：闭包把 `foc_hfi_update`（**529 条** ✓）全额计入 ✓，而它按与参考相同的 **2 kHz**（每 10 个周期一次 ✓）跑 —— 参考把这个跟踪半场放在**独立线程**（`hfi_thread`，`chThdSleepMicroseconds(500)` ✓），本端口按 B2 的设计把它并入快环 ✓（语义与速率都不变 ✓）。逐项分解：`foc_core_fast_loop` 自身 1033 ✓、`foc_hfi_excite_six_vector` 159 ✓（HFI 模式下每周期一次 ✓，与参考的 `do_hfi` 位置一致 ✓）、`foc_hfi_update` 529 ✓（每 10 周期一次 ✓）。因此「闭包计数」对速率门控调用是**上界**性质 ✓；把跟踪半场单独驱动的可能性（产品侧 2 kHz 计时 ✓）已登记为后续可选。**再复测（里程计/备份计数落地后）：3596 指令 / 21.40 µs** ✗ —— 涨的 450 条来自快环里新增的累加（计速器尺度、整数米差分、整数微秒计时 ✓）；阈值随之上到 **4200**（实测 + 约 17% 余量 ✓），并仍以“回归闸而非参考上限”为准 ✓。**未做且已登记**：宿主侧测试仍以 double 求值（double 字面量尚未改为 float），即固件与宿主测试在这些表达式上仍可能差最后一位；QEMU 下的执行级验证（本机无 STM32F4 机器） |
+
+D1 顺手暴露的两件事（都不在上表里，但会影响后续）：
+
+- `product/vesc_host` 从未调 `edge_sys_start`，1000 次 `edge_sys_step` 全部返回 `EDGE_ESTATE` 而返回值被丢弃 —— **调度器从未运行**（电机是被直接调用的快环转起来的，所以自检一直是绿的）。把返回值接上后立刻暴露第二件事：`throttle` 应用以三个 NULL 端口构造，而 `throttle_step` 对 NULL 输入返回 `EDGE_EINVAL`。原版里死区/曲线/斜坡是 `app_adc.c` / `app_ppm.c` 的职责，本仓库由 `app/throttle` 的单元测试覆盖，因此它已从该组合的**应用表与调度**中去掉（构造也一并去掉，保持 CMake 与应用表一致）。
+- 尺寸/栈/map 预算脚本的阈值是 **meter 产品**的口径（app flash 2 KB、单帧栈 512 B、product RAM 2 KB）。vesc6 固件实测 app flash 13544、product RAM 2680、最大帧 1128（`motor_config_serialize_app_defaults`）。对 1 MB flash / 128 KB SRAM 的部件这些数字可接受，但**得先给 bldc 家族定一套预算 profile 才算有据**；在此之前这些脚本不把 vesc6 当门禁（CI 只把它们跑在 meter_mps2 上）。
+
+### 阶段 E — 收口
+
+| 切片 | 内容 |
+|---|---|
+| E1 | **达成**：gated 集 **5325/5603 = 95%**（D1 新增的产品 glue 24 行已进 `test_product_glue`），CI 的同一条命令跑出 exit 0。**注意这是卡线通过**：任何新增的未覆盖行都会立刻跌破门槛 —— 本轮就发生过一次（新产品的 glue 未入测试集，门禁掉到 94%）。本文早先写过的“还差 450/350 行”与提交信息里的“5255”都是没先读打印值就写的，已更正 |
+
+**E1 的实测缺口（同一套 gcovr 过滤命令量得，按未覆盖行数排序）：** 要过 95% 还需再覆盖约 62 行。
+剩余缺口与各自的成因已经分类，便于下一轮直接接：
+
+| 文件 | 未覆盖/总行 | 缺口性质 |
+|---|---|---|
+| `app/vesc_comm/src/commands.c` | 13 / 417 | 只剩三块：`send_reply` 的 ENOSPC 守卫（回复超过缓冲，正常情况下够不着）、`COMM_GET_STATS`/`RESET_STATS` 与解码输入的少数分支。各命令的**错误透传臂已补**（全端口失败的那条测试） |
+| `product/vesc_host/glue.c` | 13 / 438 | 未调到的适配器已补（stream_tx 上限、无 CAN 的转发、nunchuk 与 balance 读、以及需真实聚合根才能测到的空输出守卫）；剩下的也是零星分支 |
+| `app/foc_core/src/foc_math.c` | 30 / 554 | `foc_fast_sincos` 在负角侧恒为真的防御分支（**不可达**）、PID/电池/hall 的边缘分支 |
+| `app/vesc_bms/src/vesc_bms.c` | 29 / 91 | 多路温度/电池节的特例 |
+| `infra/flash/src/flash_emul.c` | 28 / 164 | 页搬移的罕见路径（C3 测试已钉住三条判据） |
+| `product/vesc_host/glue.c` | 27 / 438 | 少数适配器（电机 setter、若干 getter） |
+| `app/throttle`、`app/ppm`、`app/motor_id`、`app/motor_config`、`app/vesc_can` | 18–27 各 | 大多是边缘分支，非守卫（守卫已在本轮覆盖）。**`app/motor_id` 里那 10 行是「向下斜坡」与「空闲时 step 走 default」两个分支：试了三次（含按毫秒断言、并让 mock 每毫秒跑控制周期）仍未通过且未定位，下次请先给 mock 打一行诊断再把假设写进断言，不要直接改断言** |
+
+这一块的特点是**单位收益在变小**：守卫型缺口（一次测试 +20~40 行）已经做完，剩下的是需要逐案例构造输入的边缘分支。
+下一轮若要继续，按上表从上往下做即可；每步仍应保持“55/55 + 10× 无抖动 + 六门禁”的门禁。
+| E2 | `vesc_host` 进 CI `product-matrix` 运行列表 | 已完成 ✓（产品自检：故障或未起转即非零退出，CI 只判退出码） |
+| E3 | 在 `adr-conformance.md` 登记 `bldc` family 与全部已知偏差 | 已完成 ✓ |
+| E4 | 未接入但存在的模块明确处置 | 已完成 ✓（结论见下表） |
+| F | **角度传感器 + 六步驱动层**（新定义下）：① 霍尔输入端口（原始三相霍尔 → 扇区）与编码器族（ABI/AS5047/TS5700/SI-1，`encoder/` 实测 **5099 行**）；② 六步换相层（`motor/mcpwm.c` 实测 **3021 行**）：Hall→相位两张表（`mcpwm_init_hall_table` 的 `fwd_to_rev[7]={-1,1,6,5,4,3,2}` 正反向表 ✓）、`commutate(steps)` 的 1..6 环绕与「仅 `BLDC && sensorless_now` 才推进步数」的门 ✓、`update_rpm_tacho()` 的 ±环绕归一（`>3 ⇒ -6`、`<-2 ⇒ +6`）与两个计速器 ✓、`update_sensor_mode()` 的 `SENSORLESS / HYBRID + hall_sl_erpm` 判定 ✓、`set_next_comm_step` 的相位输出、`comm_mode` 的 INTEGRATE/DELAY 启动、`sl_*` 无感积分器与 `pwm_cycles` 积分器；③ 霍尔表检测与 `COMM_DETECT_MOTOR_PARAM` 解封。**验收**：每件与参考逐位对照（编译参考本体跑差分夹出 golden，同 B3/B5 体例 ✓），并让 `motor_id_detect_hall` 从 ENOTSUP 桩变成真过程 ✓。**这一行同时解掉当前唯一的审计阻塞项** ✓。**已落地（本会话，每刀都带差分 golden）**：① 表与步进算术——`bldc_build_hall_tables`（`mcpwm.c:501` 的 `fwd_to_rev` 双向表 ✓）、`bldc_comm_step_advance`（`commutate` 的 1..6 环绕 ✓）、`bldc_tacho_step_delta`（`update_rpm_tacho` 的 ±环绕归一 ✓）、`bldc_sensorless_now`（`update_sensor_mode` ✓）（`718be6b` ✓）；② 霍尔驱动的换相——`bldc_hall_phase`（`mcpwm_read_hall_phase` 的位序 ✓）、`bldc_hall_commutation`（ISR 霍尔分支的三分支：变则赋值、运行才施加、未换过相则补一次 ✓），以及 `bldc_hall_port_t`/`bldc_phase_port_t` 两个消费端端口与 `bldc_drive_commutate_hall`（`d6a9407` ✓）；③ **保真修复 + 检测表**——按方向选表查表（`hall_to_phase_table[read + (direction?8:0)]` ✓，修掉前一刀用原始引脚当步号的错 ✗）与霍尔检测表的重置/采样/回读（`mcpwm.c:92/:1874/:2242/:2257` ✓，含 `v_diff<50` 门与 `>15` 样本门与 0/-1/-3 三回答 ✓）（`bb5c453` ✓）；④ 无感启动的限值——`bldc_rpm_dep_calc`（`mcpwm.c:1322-1341` 的速度相关限值与两个换相时间 ✓，含其自己的两处夹紧与 rpm=0 时的除零 ✓）与积分器门 `bldc_cycle_integrator_adds`（`mcpwm.c:1886-1901` 的三个条件与 int 截断的带 ✓）（`a1b8d4e` ✓）；⑤ 无感换相决策本体——`bldc_comm_sensorless_step`（`mcpwm.c:1886-1930`：累加在模式分支之上 ✓、INTEGRATE 的两个限值与重置 ✓、DELAY 的计数与阈值与两个检测用累计量 ✓、负样本清零与未知模式不动 ✓）（`1998b11` ✓）。**剩余**（按序）：⑥ ~~把无感分支接进模块~~ —— **已成 ✓**（`7e23c4f`：`bldc_bemf_port_t` 相电压/BEMF 端口 ✓、`bldc_drive_commutate_sensorless` 每周期跑完全分支（噪声门 → 限值重算 → 门与模式决策 → 换相时步进/计速/施加相/重置周期计数 ✓）、周期计数与霍尔采样（第一半场的判据是对上一周期 ✓）✓、非无感时清零 ✓、无 BEMF 端口 ENOTSUP ✓，产品从 mcconf 填 `sl_*`/`comm_mode` 且模拟板的 `vdiv_corr` 取 1.0 并具名 ✓）；⑦a **霍尔检测过程 —— 已成 ✓**（`dca316e`：按 `mcpwm_foc_hall_detect` ✓ 的 1000 ms 电流斜坡 + 正向 3×(0..359) 与反向 3×(360..0)、每步 5 ms ✓ + 多数票读数（`1+2*extra` ✓）+ 角度表 ✓ + 出口还原（置定点归零/放开相位覆盖/停机 ✓），以「扇区即读数」的模拟霍尔源端到端验证 ✓，含四条守卫 ✓；三件纯件与 `read_hall` 端口在前两刀到位 ✓）；⑦b **霍尔命令与产品实现 —— 已成 ✓**（`75a3a25`：`COMM_DETECT_HALL_FOC` 的处理器（1e3 电流入 ✓、回包 id + 8 字节表 + 1 字节判定 ✓、非霍尔端口回 8×255 ✓ = 参考自己的 else 分支 ✓）、ops 回调（门在传感器端口上 ✓ 属产品 ✓）、host 实现（模拟霍尔 = 虚拟电机电角度所在扇区 ✓，配置默认即霍尔端口 ✓ ⇒ 命令在 host 上跑完整个检测 ✓），两级测试 ✓：协议包/两种回答/未实现拒绝 ✓ 与产品端到端完成检测 ✓）；⑦c `COMM_DETECT_MOTOR_PARAM` 的升速状态机 —— **图已备，可一击执行** ✗（未落）：① 参数推进**已成** ✓（`04b97f5` ✓，三次尝试的累积参数 ✓）；② 暂存配置（`MOTOR_TYPE_BLDC` / `SENSORLESS` / `COMM_MODE_INTEGRATE` + 五个 `sl_*` ✓ :525-536 ✓）；③ 三趟之间以「释放电机 → 等 1 s → 重设配置 → 等 1 s → 重设电流」相隔 ✓（:565-583 ✓）；④ 每趟的升速监视：`while (duty < 0.5)` ✓，过半程时切 `COMM_MODE_DELAY`（`switch_done` 只切一次 ✓ :594-600 ✓）；⑤ 成功判据是 `ok_steps`：三处计速器推进（**+3 / +50 / +100** ✓ :640-661 ✓）各计一次，不够则切下一趟 ✓；⑥ 成功后的两件回包源：`*hall_res = mcpwm_get_hall_detect_result(hall_table)` ✓ 与 `*int_limit = mcpwm_read_reset_avg_cycle_integrator()` ✓（:662-665 ✓，前者已在本会话落成 ✓）；⑦ 然后降到 `low_duty` 跑 **100 次换相**、把 `get_rpm()` 按毫秒平均成 `rpm` ✓（:676-695 ✓）—— 这就是 `bemf_coupling_k` 的输入之一；⑧ **待读**：`bemf_coupling_k` 的闭式（:700 之后 ✓）与出口（释放电机/还原配置与 timeout ✓）；⑨ 接命令：与本会话已建的 `bldc_drive`（无感换相 ✓ + 检测表 ✓ + 尝试参数 ✓）在产品侧组成 ✓。**回包格式已读准（`comm/commands.c:2096-2123` ✓）**：请求是三个 f32/1e3（`current` / `min_rpm` / `low_duty` ✓）；`conf_general_detect_motor_param` 返回假时把 `int_limit` 与 `coupling_k` **归零** ✓（表与 `hall_res` 保持函数留下的值 ✓，参考不重置 ✗）；回包 = `COMM_DETECT_MOTOR_PARAM` + `int32(int_limit × 1000)` + `int32(coupling_k × 1000)` + **8 字节表逐字节**（`memcpy`，不做符号/缩放 ✓）+ 1 字节 `hall_res` ✓。**验收**：每件差分 golden；host 的模拟 BLDC（扇区霍尔 + BEMF 源 ✓）上跑完三次尝试。⑧ **耦合常数与成功判据 —— 闭式已成 ✓**（`80cf9d6`：`bemf_coupling_k = (平均运行积分器 − 静止积分器) / v_in × rpm` ✓ = `conf_general.c:705-708` 四条语句原序 ✓（含 v_in=0 的除零照旧 ✓）；成功判据 `ok_steps == 5` ✓（:715 ✓））；**仍缺**：它俩的**测量来源**（降 `low_duty` 跑 100 次换相、逐毫秒平均 `get_rpm()` ✓ :676-695 ✓）与命令回包（`int_limit` / `bemf_coupling_k` / 8 字节霍尔表 / `hall_res` ✓）✗；⑨ `set_next_comm_step` 的板级相表与死区进 `board/vesc6`；⑩ **⑦c 状态机设计（可一击实现 ✓）**：状态取 `HALL_PARAM_STAGE`（写入暂存配置 ✓ + 关超时）→ `HALL_PARAM_WAIT_FAULT`（≤500×10 ms ✓ :560-568 ✓）→ 对 a∈{0,1,2} 循环：`ATTEMPT_APPLY`（套用第 a 趟参数 ✓ + a>0 时先 `release_motor` 等 1 s 再重设配置与电流 ✓ :565-583 ✓）→ `SPINUP_WATCH`（`duty < 0.5` 则等 1 ms，过半程切 `COMM_MODE_DELAY` 且只切一次 ✓ :594-600 ✓）→ `TACHO_3`（计速器 +3 ✓、超 2000 ms 则本趟失败 → 下一趟 ✓ :641-645 ✓）→ `TACHO_50`（+50 ✓、超 3000 ms 同前 ✓ :651-655 ✓）→ `HALL_TABLE`（`*hall_res = 检测表` ✓ + `*int_limit = 积分器均值` ✓ :662-665 ✓）→ `SLOWDOWN`（`duty > low_duty` 则等 1 ms、超 5000 ms 同前 ✓ :668-673 ✓）→ `LOW_DUTY`（`set_duty(low_duty)` ✓ + `TACHO_100`（+100 ✓、超 3000 ms 同前 ✓ :676-695 ✓）且逐毫秒累加 `get_rpm()` 与次数 ✓）→ `COUPLING`（闭式 ✓ `80cf9d6` ✓ + 还原配置与 timeout ✓ + 释放电机 ✓ :700-715 ✓）→ `COMPLETE`/`FAILED`（由 `ok_steps == 5` 决定 ✓）。字段：当前趟 a ✓、本趟已计成功步数 `ok_steps` ✓（五处 ✓ :641/:651/:682 与两处出口计数 ✓）、计速器起点 ✓、rpm 累加与次数 ✓、`avg_cycle_integrator_running` ✓、`*int_limit` ✓、以及本趟是否已切过模式（`switch_done` ✓）。**每件已有纯函数可用**：`bldc_spinup_attempt_params` ✓、`bldc_tacho_advanced` ✓、`bldc_spinup_passed` ✓、`bldc_bemf_coupling_k` ✓、`bldc_stage_sensorless_bldc` ✓、`bldc_hall_majority`/`motor_id_hall_accumulate`/`motor_id_hall_angle_table` ✓。**验证**：host 的模拟 BLDC（扇区霍尔 + BEMF 源 ✓）上跑完三趟，并对 `COMM_DETECT_MOTOR_PARAM` 的回包字节逐个断言 ✓。
+⑪ `encoder/` 的五个传感器族（`5099 行` ✓）与其端口 ✗（F 行原列的末项，被本行改写时一度误删 ✓ 现补回 ✓）。 |
+| G | **剩余硬件面**：STM32 闪存驱动（现在变量存储是 RAM 表 ✓）、CAN 外设（`soc/stm32f4` 的 bxCAN 收发与中断 ✓）、ADC 常规通道的 DMA 半场（供电电压与温度 ✓）、`board/vesc6` 的死区与热限值（后者解掉 `update_override_limits` 的 FET 温度组 ✓）。**实测修正**：闪存驱动的寄存器序列已落在 `soc/stm32f4_flash` ✓、FET 温度组已解（`foc_core` 三个分支 + 两个 product 接线 ✓ 差分表加了三行 FET ✓）、`encoder/` 其余器件按族逐个落（MT6835 ✓ 已入）；而 **ADC 常规通道的 DMA 半场在参考固件里没有任何使用**（只有 vendored 库里的符号 ✓）⇒ 按 1:1 不发明它 ✓；**CAN 外设同理不经寄存器直写**（参考走 ChibiOS 的 CAN 驱动 ✓ 归 J ✓）。**验收**：ARM 交叉编译 + 预算/尺寸门禁 + QEMU 执行级冒烟，与 D 期同口径 ✓ |
+| H | **剩余应用与命令面**：`applications/` 实测 **6498 行**（PAS/自定义/PPM 剩余/ADC 剩余/UART comm/IO board/伺服 ✓）、`comm/` 剩余 6048 行里的 CAN 转发族命令与 USB/UART 命令面 ✓、`driver/` 实测 **4982 行**（DRV8320/23S、IMU、IO 扩展 ✓，`driver/drv83xx` 已有 DRV8301 ✓）、BMS 写入路径（`bms.c` 747 行）与 IMU ✓。**实测修正**：本阶段已落的是各应用的**律**而非接线 ✓——输出闸（每个应用都问的那个标志 ✓）、DPV 的电位器速度律（含弹回拒绝与 `fminf(3,3)` 的自我覆盖 ✓）、STEN 的遥控字节→电流律（中值三取中 + 重映射死区 + 软转速天花板 ✓）、skypuff 的绞盘算术（步/米/ERPM 三换算与方向取自计速符号 ✓）、以及分派器的**计划表**（一型可含两部分 ✓ 与两个「串口是我的」参数 ✓）；`app_custom` 经实测**没有库面**（只是一组 `#include` 开关 ✓ 属组合根 ✓），`app_uartcomm` 的成帧则已被 `infra/vesc_buffer` 覆盖 ✓，剩下的是它的多端口/互斥/线程策略；待 1:1 复核的既有面是 `adc_input`(673) / `ppm`(565) / `nunchuk`(527) / `pas`(317) ✓，然后 `comm/` 6048 与 `driver/` 4982 ✓。**`comm/commands.c` 命令面缺口（已量：参考 112 条 ✓，本仓 34 条 ✓，差 78 ✓）**，分类：
+- **A 类·本仓已可直支持（无需新端口或端口已备）**：`GET_DECODED_CHUK` ✓（用刚迁的 nunchuk ✓，回复 = 命令 + `int32(decoded_y×1e6)` ✓）、`SET_ODOMETER` ✓（`set_odometer(uint32)` + `timeout_reset()` ✓）、`APP_DISABLE_OUTPUT` ✓（fwd_can + int32 ms ⇒ 门控 ✓，glue 需持有 throttle 应用指针 ✗）、`SET_SERVO_POS` ✓（`float16/1000` ⇒ pwm_servo ✓ 需先确认本仓有无 ✓）、`PING_CAN` ✓、`SET_CAN_MODE` ✓、`MOTOR_ESTOP` ✓、`SHUTDOWN` ✓、`GET_MCCONF_TEMP`/`SET_MCCONF_TEMP`/`SET_MCCONF_TEMP_SETUP` ✓、`SET_BATTERY_CUT`/`GET_BATTERY_CUT` ✓、`SET_CHUCK_DATA`/`SET_DETECT` ✓（后者需一整套 display-position 模式 ✗ 单独一批 ✓）、`GET_FW_INFO`/`GET_CUSTOM_CONFIG`/`+DEFAULT`/`XML`/`SET_CUSTOM_CONFIG` ✓、`TERMINAL_CMD_SYNC` ✓、`SAMPLE_PRINT` ✓、`GET_IMU_DATA`/`GET_IMU_CALIBRATION` ✓（对应 IMU 那一批 ✓）、`IO_BOARD_*` ✓、`PSW_GET_STATUS`/`PSW_SWITCH` ✓、`GET_GNSS` ✓、`SET_BLE_NAME`/`SET_BLE_PIN` ✓、`NRF_START_PAIRING` ✓、`EXT_NRF_*` ✓、`WRITE_NEW_APP_DATA*`（四条 ✓）、`ERASE_NEW_APP*`（两条 ✓）、`JUMP_TO_BOOTLOADER_ALL_CAN` ✓、`CAN_FWD_FRAME`/`CAN_UPDATE_BAUD_ALL` ✓、`BMS_*`（七条 ✓ 对应 BMS 那批 ✓）。
+- **B 类·需新端口（律在应用侧 ✓ 命令只转接）**：A 类中标「需先确认/单独一批」的四条 ✓ + `SET_MCCONF_TEMP`/`SETUP` 的 CAN 转发分支 ✓ + `SET_DETECT` 的显示位置模式 ✓。
+- **C 类·不属本移植（操作者已定或属 J）**：`COMM_BM_*` 十一条 ✓（blackmagic ✓ 已排除 ✓）、`COMM_LISP_*` 八条 ✓（lispBM ✓ 属 **J** ✓）、`COMM_QMLUI_*`/`GET_QML_UI_*` 四条 ✓（QML ✓ 已排除 ✓）。
+- **每批的交付标准**（与 `H` 契约一致 ✓）：一条命令一条 handler ✓ + 一条回复形状测试 ✓ + 一条越界/空端口守卫测试 ✓；需新端口时同时补 glue 实现与其测试 ✓。
+- **余 45 条的层次分组**（每一组 = 一个层次新增 + 其命令 ✓ ⇒ 组内可连续推进 ✓）：
+  1. **电机层**（`foc_core` 缺「忽略输入窗口」与「释放覆盖」✓）：`MOTOR_ESTOP` ✓（`ignore_input(uint16)` + `release_motor_override` ✓）；
+  2. **IMU 层**（`driver/` 的 IMU 尚未迁入 ✓；本仓 `infra/imu` 现有 **只有 AHRS 数学** 114 行 ✗）：`GET_IMU_DATA` ✓ `GET_IMU_CALIBRATION` ✓。参考共 2618 行 / 11 文件 ✓，**库侧边界已定**（全是消费者定义端口 ✓）：① `transport.h` 的 `transport_interface_t` ✓（`name`/`cpu_bound`/`max_sample_rate`/`read_reg`/`write_reg`/`recover`/`deinit` ✓ + `IMU_MAX_BURST 16` ✓ + `transport_read_reg`/`write_reg` 内联 ✓）；② `device.h` 的 `imu_device_interface_t` ✓（`name`/`configure(filter, use_mag)`/`read_sample(accel,gyro,mag)`/`on_read_fail`/`enable_drdy_output` ✓ + `imu_device_t{interface, transport, variant, dev_addr, sample_rate_hz, use_drdy, priv}` ✓）；③ 各传感器驱动（寄存器表 + 律 ✓：`mpu9150` 207 行 ✓ `lsm6ds3` 291 ✓ `lsm6dsv32x` 220 ✓ `icm20948` 108 ✓ `bmi160_wrapper` 154 ✓）；④ `imu.c` 602 行的注册、探测与新老标定 ✓；⑤ `ahrs.c` 328 行（把本仓的 114 行补齐 ✓）、`drdy.c` 142 ✓。**产品侧**（属 **J** ✓ 要 ChibiOS）：三种传输实现（`transport_i2c_bb` ✓ `transport_spi_bb` ✓ `transport_spi_hw` ✓）与 `imu_thread.c` 217 行的调度 ✓。**顺序**：传输与设备表 → `mpu9150`（参考默认 ✓）→ 其余传感器 → `imu.c` 的注册/标定 → 两条命令 ✓；每步都带消费者 ✓ 不留死代码 ✓。
+  **`imu.c` 的库/产品分界（已通读 ✓）**：**库侧** = `configure_biquads(rate)` ✓（归一化到实际采样率 ✓ 用 `infra/digital_filter` 的 `biquad_config` ✓）、`imu_reset_orientation` ✓、`imu_get_quaternions` ✓、**`imu_get_calibration(yaw, imu_cal)`**（`:308-439` ✓ 约 130 行的新/旧标定表 ✓ 是这一块的主体 ✓）、`imu_set_yaw` ✓，以及 `imu_read_callback`（`:448+` ✓）的**策略**——采样经六个 biquad（加速度计三轴可各自设截止 ✓ 陀螺一个 ✓ 非正值则不叠加 ✓）、再喂给姿态引擎 ✓、再按 `AHRS_MODE` 选择输出 ✓；**产品侧** = `imu_init` 里编译期的板级传输初始化（`IMU_I2C_*`/`IMU_SPI_*` 四路 ✓ 含 `IMU_COM_I2C_BB_SPI` 那种「SPI 引脚跑位带 I2C」的复用技巧 ✓）、外部 IMU 的 `HW_I2C` 绑定 ✓、`IMU_FALLBACK_COM` 备用总线重试 ✓、`imu_thread` 的启动与 DRDY ✓，以及速率夹取 `MIN(sample_rate_hz, transport_max_sample_rate)` ✓（此式本身是纯的 ✓ 归库侧 ✓）。另有 `imu_dev_for_external(IMU_TYPE) → IMU_DEV_*` 的纯映射 ✓ 与 `imu_device_create(dev, com, transport)` 的工厂分发 ✓，两者都归库侧 ✓（后者需调用者传入 `mpu9150_state_t` / `struct bmi160_dev` ✓）。**依赖**：`imu.c` 同时用 `ahrs.c` 的 `ATTITUDE_INFO` **和** `Fusion`（xioTechnologies ✓ 另一个厂商库 ✗ ~1000 行 ✓）⇒ 按 BMI160 的先例整份 vendor 入仓 ✓（独立目标 + `-w` ✓），两条命令放在其后。
+  **`driver/` 组核对结果（已逐项对过 ✓）**：参考 `driver/*.c` 实测只有 **1824 行** ✗（不是先前记的 4982 ✓），其中 **DRV83xx 族已迁** ✓（`infra/drv83xx` 有 `drv8301_*` 与 `drv8323_*` 两套 ✓，含 `read_reg`/`write_reg`/`read_faults` ✓），**两页 EEPROM 仿真已迁** ✓（参考的 `EE_Init`/`EE_ReadVariable`/`EE_WriteVariable`（643 行 ✓）就是本仓 `infra/flash` 的 `flash_emul_init/read/write(虚拟地址, uint16)` ✓ ——正是 C3 那一片落下的 ✓）；余下六个文件全是**硬件/ChibiOS 面** ⇒ 归 **I/J** ✓：`timer.c` 67（定时器 ✓）、`pwm_servo.c` 123 与 `ledpwm.c` 165（PWM 输出 ✓）、`servo_dec.c` 208（舵机解码输入 ✓ 属硬件捕获 ✓）、`i2c_bb.c` 303 与 `spi_bb.c` 315（位带总线 ✓ ⇒ 正是 IMU 三种传输实现所缺的那层 ✓）。因此本组的库侧已完 ✓，不需要再开新片 ✓。
+
+**`I-hwconf` 的实测修正（已普查 ✓）**：先前记的 **23324 行** ✗ 也不成立 ✓ —— 参考 `hwconf/` 实测共 **2711 行 / 11 文件** ✓：`board.h` 1163 ✓ `hw.h` 742 ✓ `mcuconf.h` 385 ✓ `stm32f4xx_conf.h` ✓ `shutdown.h` 58 ✓，以及**六个驱动硬件头** ✓（`drv8301.h` ✓ `drv8305.h` ✓ `drv8316.h` ✓ `drv8320s.h` 60 ✓ `drv8323s.h` 67 ✓ `si8900.h` ✓）。本仓**板层已存在且已接通** ✓：`board/{vesc4,vesc6,vesc_unity,mps2,riscv_virt,example}` ✓ + 对应 product ✓；且 `board/vesc6` 持有的是**实测板事实**（不是宏拷贝 ✓）：`VESC6_HW_NAME` ✓ 分流电阻 0.0005 Ω ✓ 电流放大 20 ✓ 分压 39k/2.2k ✓ `ADC_VREF_V`/`ADC_MAX_COUNT` ✓ 六步通道表 `board_vesc6_comm_step_channels` ✓ 与 `board_vesc6_init` ✓。⇒ 因此 `I` 的**实质是把每块板缺的实测常数与引脚表补齐** ✓（而非搬运 11 个头 ✓）：待补的是各板自己的 `HW_NAME`/传感系数/通道与 DRV 变体选择 ✓，其中 **DRV 变体那一半已由 `infra/drv83xx` 的 DRV8301/8323 覆盖** ✓，其余三块变体（8305/8316/8320s ✓）与 `si8900` 随其板卡落地 ✓；`mcuconf.h`/`stm32f4xx_conf.h` 是 ChibiOS/STM32 自身配置 ✓ ⇒ 归 **J** ✓。
+
+**J 的构建面已勘定（可直接执行 ✓）**：两棵树已入仓 ✓（`vendor/ChibiOS_3.0.5` 7.6 MB ✓ `vendor/lispBM` 18 MB ✓；`lispBM` 的 `test_reports/` 207 MB 生成产物已删并注明 ✓）。ChibiOS 的内核可编面已找准 ✓：**内核源 19 个**（`os/rt/src/*.c` ✓）+ **配置模板** `os/rt/templates/chconf.h` ✓ + **端口** `os/common/ports/ARMCMx/` ✓（其 `compilers/GCC/` 下有 `crt0_v7m.s` ✓ `crt1.c` ✓ `vectors.c` ✓ `ld/` ✓ 与 `rules.ld` ✓）+ 参考的 `hwconf/{mcuconf.h,stm32f4xx_conf.h}` ✓（这两个正是 STM32 侧的 ChibiOS 配置 ✓ 已在参考树中 ✓）。**做法**：按 BMI160/Fusion 同例建一个 `chibios_kernel` 独立目标（`-w` ✓）只编内核与端口 ✓ ⇒ 用**已有的 Cortex-M4 工具链面**（`/tmp/rev-m4` ✓ 与 `.github/arm/{startup.c,stm32f4.ld}` ✓）验证它在 M4 上对象级可编 ✓ ⇒ 随后接第一个消费者（`pal/` 的 ChibiOS 后端 ✓ 或 `infra/imu` 的三种传输实现 ✓，两者都已在参考里以 ChibiOS 写成 ✓）⇒ 即得「可构建固件目标 + 一条可运行路径」✓；lispBM 同例（它的 `lispBM/lispBM/src/*.c` ✓ 与 `lbm_vesc_utils.c` ✓ ✓）。**推送到位** ✓：大导入必须**拆小提交分推** ✓（单次 17 MB 会被 TLS 中断 ✗，`http.postBuffer` 无效 ✗）。
+
+**ChibiOS 不必从零摸索：本仓已有同构范式 ✓**。`edge_add_arm_freertos_firmware(name product)`（`CMakeLists.txt:371` ✓）就是「RTOS on ARM 固件」的现成模板，且它揭示了两件要紧事 ✓：① 仓库已有一个 **`freertos_kernel` 目标** ✓ 与 **`pal_rtos_freertos`** ✓ ⇒ 即 **`pal/rtos` 的抽象层已存在** ✓ ⇒ ChibiOS 只需**同构复制**这三件 ✓：`chibios_kernel` 目标 ✓、`pal_rtos_chibios` 实现 ✓、置板/产品绑定（后者已由 D86 的 `EDGE_PRODUCT_<p>_BOARD` 提供 ✓）；② 它强制「**一个编译内核服务一个产品配置**」（D87 ✓）并**要求产品自己提 `include/FreeRTOSConfig.h`** ✓（因为 `pal → product` 被层规则禁止 ✓）⇒ ChibiOS 侧对应的是产品的 `chconf.h`/`halconf.h`/`mcuconf.h` ✓（参考的 `hwconf/mcuconf.h` ✓ 已有 ✓）。因此 J 的下一步不是探索而是**照着写**：先建 `chibios_kernel`（19 源 + ARMCMx 端口 + `os/rt/templates/chconf.h` ✓，`-w` ✓），再照 `pal_rtos_freertos` 写 `pal_rtos_chibios` ✓（这本身就是契约要的「一条可运行路径」✓），最后按 M4 工具链面验一个固件目标 ✓。
+  3. **IO 扩展层**（`driver/` 的 IO 扩展器 ✓）：`IO_BOARD_GET_ALL` ✓ `IO_BOARD_SET_DIGITAL` ✓ `IO_BOARD_SET_PWM` ✓；
+  4. **电源开关 / GNSS / BLE**（`hwconf` 外设 ✓ 属 **I**）：`PSW_GET_STATUS` ✓ `PSW_SWITCH` ✓ `GET_GNSS` ✓ `SET_BLE_NAME` ✓ `SET_BLE_PIN` ✓ `NRF_START_PAIRING` ✓；
+  5. **配置存储的「应用而不落盘」路径**（本仓只有一步式 ✓ ⇒ 同 `SET_MCCONF_TEMP` 的可见拒绝 ✓ 或补齐分步 API ✓）：`SET_ODOMETER` ✓ `SET_BATTERY_CUT` ✓ `SET_CUSTOM_CONFIG` ✓ `GET_CUSTOM_CONFIG` ✓ `+DEFAULT` ✓ `XML` ✓；
+  6. **BMS 层**（`bms.c` 747 行 ✓）：`BMS_GET_VALUES` ✓ `BMS_SET_CHARGE_ALLOWED` ✓ `BMS_SET_BALANCE_OVERRIDE` ✓ `BMS_RESET_COUNTERS` ✓ `BMS_FORCE_BALANCE` ✓ `BMS_ZERO_CURRENT_OFFSET` ✓ `BMS_FORCE_BALANCE` 等共七条 ✓（需先有电池在总线上 ✓）；
+  7. **固件数据 / bootloader 路径**（写 EEPROM 区 ✓）：`WRITE_NEW_APP_DATA` ✓ 与 `_LZO` ✓ 与两条 `_ALL_CAN` ✓、`ERASE_NEW_APP` ✓ 与 `_ALL_CAN` ✓、`ERASE_BOOTLOADER` ✓、`JUMP_TO_BOOTLOADER_ALL_CAN` ✓、`CAN_FWD_FRAME` ✓ `CAN_UPDATE_BAUD_ALL` ✓；
+  8. **终端 / 采样 / 固件信息**（自包含 ✓ 最便宜 ✓）：`COMM_FW_INFO` ✓（98 字节捆绑回复 ✓）、`SAMPLE_PRINT` ✓、`SET_DETECT` ✓（display-position 模式族 ✓）、`GET_QML_UI_*` 与 `QMLUI_*` ✓、`EXT_NRF_*` ✓、`GET_DECODED_CHUK` ✓（已收 ✓）、`SET_MCCONF_TEMP` ✓（已收 ✓）。
+  9. **不属本移植** ✓：`COMM_BM_*` 11 ✓、`COMM_LISP_*` 8（属 **J** ✓）。**四份「先写后读」应用的复核结论（全部完成）**：① `adc_input` ✓——曲线逐行 1:1 ✓；补量程标志 ✓、detach 三态与覆盖值 ✓、滤波与按键 ✓；并修掉一处真实偏差 ✗（越界早返 + 自造 `fault_wire_disconnected` ✗ → 照参考只记 `range_ok` ✓，自造测试断言同步改正 ✓）。② `ppm` ✓——detach/override ✓；**死区是自造** ✗（参考绕中位脉宽两段线性 ✓）⇒ 删旋钮 ✓；补解码后死区/曲线/双向斜坡链 ✓ 与 `_NOREV` 组重映射 ✓ 与策略决策值 `ppm_command_t` ✓；枚举换成参考 12 值同序 ✓（参考**按值存模式** ✓）；产品侧接线 ✓（`vesc_host_apply_ppm` ✓）；位置两模式待电机层补位置给定/反馈 ✗。③ `pas` ✓——原为粗稿 ✗ ⇒ 换成正交解码（16 项 `QEM` ✓ 连续四次同向 ✓ 单边沿周期 ✓）、cadence 映射与「两限相等即开关」✓、torque 比值×缩放 + 5 s/1 s 双计时器 ✓、双向斜坡 ✓、安全启动「连稳两次」✓；glue 里恒返 60 rpm/15 Nm 的伪造端口已换掉 ✓。④ `nunchuk` ✓——原为粗稿 ✗ ⇒ 换成六字节帧解包（三轴低两位打包 ✓ 按键低有效 ✓）、未变帧不重报且**只有它**清错 ✓、反向锁存（小电流才动 ✓ `rev_has_state` 覆盖 ✓ 两模式永不反向 ✓）、C 键速度斜坡（反向就中止 ✓ ±窗口夹取 ✓）、滑行刹车（自有斜坡 ✓ 前一电流修正 ✓）、按 duty 符号选分支 ✓、smart-rev 的 goal 符号是反向标志（**与 PPM 不同** ✓ 须保留 ✓）、以整量程计的斜坡 ✓、负电流即刹车的分派 ✓、以及对着最慢轮的牵引力控制 ✓。**共同教训**：四份都是「先写照出草稿 ✗、后读才发现律不同 ✗」⇒ 每份都补了参考原文的锚点注释与 goldens ✓。
+
+**`ppm` 复核（`applications/app_ppm.c` 的 `ppm_thread` 两半已通读）**：已闭两件 ✓（detach/override `263a9d8` ✓；死区自造 → 绕中位脉宽两段线性 `02347a4` ✓）。余下按判定分栏：① **`_NOREV` 组的再映射** ✓——`PPM_CTRL_TYPE_{CURRENT,DUTY,PID}_NOREV` 与 `PID_POSITION_360` 走 `input_val = servo_val; servo_val = (servo_val+1)/2` ✓，本仓缺 ✗；② **解码后的死区** ✓——`utils_deadband(&servo_val, config.hyst, 1.0)`（`:190`）作用在**归一值**上而非脉宽 ✓，本仓缺 ✗（与我先前那个「绕中位脉宽的死区」是两回事 ✓）；③ **曲线 + 双向斜坡** ✓——`utils_throttle_curve` 后用 `ramp_time_pos`/`ramp_time_neg` 与 `utils_step_towards`（`:196-215`）✓，本仓缺 ✗（同一律已在 `dpv`/`sten` 迁过 ✓）；④ **控制模式族与输出策略**（本片最大 ✗）——参考有 `current_mode`/`current_mode_brake`/`send_current`/`send_duty` 四个策略位与 `CURRENT_SMART_REV`、`CURRENT_BRAKE_REV_HYST` 等模式 ✓，后者还带 `direction_hyst` 与 `did_idle_once` 的 0/1/2 状态机与 `pulses_without_power` 计数 ✓。**已定切片方案**（`:320-430` 已读 ✓）：本仓新增一个**纯决策类型** `ppm_command_t`（字段含 `mode`/`current`/`duty`/`pid_speed`/`pid_pos_deg`/`flags` ✓）与一个**纯函数** `ppm_policy(...)`，逐段照参考：DUTY ⇒ `set_duty(map(servo_val, −1..1 → −l_max_duty..l_max_duty))` ✓；PID ⇒ `set_pid_speed(servo_val * pid_max_erpm)` ✓；`PID_POSITION_180` ⇒ `angle = servo_val*180` ✓、`_360` ⇒ `*360`（其输入已在组内重映射到 [0,1] ✓ ⇒ 得 [0,360] ✓）✓ 且两者都过 `utils_norm_angle` ✓ 并在 `control_mode != POS` 时要求 `|angle − pid_pos_now| < 10` 才进位置模式 ✓；`pulses_without_power` 在 `|servo_val| < 0.001`（位置模式为 `< 0.02`）时自增 ✓，安全启动块用「连续两次相同则清零」的 `pulses_without_power_before` 与 `servoError` 决定是否把命令归零 ✓；最后是 `config.multi_esc` 下的 CAN 聚合（`rpm` 取最小/最大 ✓、`current`/`duty` 取绝对最大 ✓）。**产品侧**只做应用：把 `ppm_command_t` 变成 `mc_interface_*` 调用 ✓（D14 消费者定义端口 ✓）。⑤ **端口语义之差** ✓（已记）：参考用 `servodec` 的中值滤波与学习到的 min/max ✓（`servodec_set_pulse_options(config.pulse_start, config.pulse_end, config.median_filter)` ✓），本仓端口直接给脉宽 ✓。 ✓——本仓 `throttle_apply_curve` 与参考 `utils_throttle_curve`（`util/utils_math.c:437-490`）**逐行 1:1** ✓：四种模式（exponential ✓、natural 含 `1e-10` epsilon ✓、polynomial ✓、linear ✓）、按读数符号选 `curve_acc`/`curve_brake` ✓、先夹到 [−1,1] ✓、末尾按原符号恢复 ✓，只差 `f` 后缀与注释风格；而参考 `app_adc.c:386` 正是用该函数做解码的最后一步 ✓。其余三项经查证为**未迁** ✗（不是差异而是缺口 ✓）：本仓 `adc_input.c` 里 `deadband` / `range` / `detach` / `button` 均无同名符号 ✓，而参考 `app_adc.c` 有三件——① 量程判定 `range_ok = read_voltage >= config.voltage_min && read_voltage <= config.voltage_max`（`:207`）；② `adc_detached` 的三态（`:128`，`1/2/3` 分别在 `:193` 与 `:262` 分支）；③ 按键与 `use_rx_tx_as_buttons`（`:63-97` 启动时的当値、`:145` 的 `buttons_detached` 开关、`:290`/`:319` 的两处使用）。这三件待补，滤波阵列仍待对照。**验收**：逐命令的线上字节与参考的回包一致（同 A 期体例 ✓） |
+| I | **hwconf 逐板**（实测 **23324 行**）：按产品逐个绑定，每块板一个 `board/*` + 一个 `product/*`，限值/引脚/传感器类型从板级头进配置 ✓（D3 的处置表随之逐条切换为「已绑定」✓）。**验收**：每块板至少交叉编译 + 预算门禁；有仿真的板子进 QEMU ✓ |
+| J | **vendored 迁入**（按老板 2026-10-01 的定义 ✓）：`ChibiOS_3.0.5`（实测 **162783 行**）与 `lispBM`（实测 **149474 行**）作为 vendored 目录整体纳入本仓并能在其上构建（本仓现有的 `pal/`+`sys/` 不因此废弃，两者共存并按产品选择 ✓）；`lispBM/lispif_vesc_extensions.c` 的扩展面按 H 期的体例接回 ✓。**不迁**：`qmlui/`（上位机 UI）与 `blackmagic/`（调试探针固件）✓ —— 老板明确排除 ✓。**验收**：vendored 目录逐字入库 + 在其上构建出至少一个 firmware 目标 + 许可与来源说明写进 `docs/` ✓ |
+
+### E4 的处置结论（三选一，不留空白）
+
+| 对象 | 结论 | 理由 |
+|---|---|---|
+| `board/vesc4`、`board/vesc_unity` | **保留但不绑定产品** | 两者在 `EDGE_LEGAL_FAMILY_BOARD` 里是合法组合、可交叉编译；绑定留给真正的 vesc4/unity 产品。当前无产品使用是**有意保留**，不是遗忘 |
+| `soc/stm32f4` | **登记偏差** | 目前是纯算术适配；寄存器级驱动归 D2 |
+| `board/vesc6` | **保留并指向 D1** | 它是 `product/vesc6_stm32f4` 的预期 board（两者同在 `EDGE_LEGAL_FAMILY_BOARD` 里），在 D1 落地前保持可交叉编译但不被任何产品绑定；**触发条件**：若 D1 被放弃，vesc6 与 vesc4/vesc_unity 同一处置（保留为端口参考）。三块 board 目前都**没有被 CI 逐个构建**——它们只是合法组合，矩阵枚举是 D39 的🟡项，所以 D3 走的是「登记处置决定」这条分支，不是「被产品绑定且被 CI 构建」 |
+| 未实现的 `COMM_*` | **登记偏差 + 指明归属阶段** | 160 个 id 已全表声明；实际处理集见 `vesc_comm_process_command`。缺口归 A7（配置流）与 A8（转发/终端/其余） |
+| `product/vesc6_stm32f4` | **实现** | ticket #203 声称已交付但不存在，归 D1 |
+
+## 4. 工作方法（每次提交都这样）
+
+1. **先读原版**，把该单元的语义（状态、不变量、副作用、顺序、边界）写清楚，再写代码。
+2. 能编原版就编原版：差分测试是唯一能把「一比一」变成可证伪的东西。
+   方法见 skill `differential-testing-a-port`。
+3. **提交前跑 ponytail-review**：只看过度设计，输出「删什么、换成什么、省几行」。
+4. 新逻辑留一个可运行的检查；数值型断言用原版**导出**的黄金向量，不用自己推导的值。
+5. 提交信息只写做过的事；没做的不写。
+6. **已知工具误报不修**：静态检查器会把 `__cplusplus`（以及 `_Static_assert`）报为「使用保留命名空间」。
+   两者都不是用户声明的标识符：`__cplusplus` 是**编译器自己 `#define` 的**（`cc -dM -E -x c++ -`
+   即可看到），而规则禁止的是*用户*声明 `__` 打头的名字；仓库有 **56** 个头文件、参考树有 **250** 个
+   用同一 `#ifdef __cplusplus` + `extern "C"` 惯用法，这些都是本移植之前就有的行。按“改名”去做就是删掉
+   C++ 链接守卫，会让 C++ 调用方按修饰名链接而断链——**属真回归，因此不改**。
+
+## 5. 已知语义偏差（登记去向）
+
+偏差清单**不在这里**。`adr.md` 是唯一决策源，`adr-conformance.md` 是唯一差异视图；
+本文件只负责计划与判据。BLDC 族的偏差已登记在
+[`adr-conformance.md`](adr-conformance.md) 的「BLDC / VESC port」一节。
+
+已被修掉、不再属于偏差的前提（留作记录）：
+
+- 极对数曾有两份真相（`foc_config_t.pole_pairs` 与 `si_motor_poles`）—— 已收敛为 `si_motor_poles`。
+- 速度统计曾返回 0（缺 `si_*` 字段）—— 已打通。
+- `tachometer` 曾被认为需要霍尔/编码器步进源 —— 读原版后否证，见阶段 A 的更正。

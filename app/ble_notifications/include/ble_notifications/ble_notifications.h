@@ -9,6 +9,28 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef BLE_NOTIFICATIONS_MODULE_ID
+#define BLE_NOTIFICATIONS_MODULE_ID 0x3300u
+#endif
+
+#ifndef EDGE_MOD_BLE_NOTIFICATIONS
+#define EDGE_MOD_BLE_NOTIFICATIONS BLE_NOTIFICATIONS_MODULE_ID
+#endif
+
+#ifndef NOTIF_EVT_NEW
+#define NOTIF_EVT_NEW 0x1612u
+#endif
+#ifndef EDGE_EVT_WATCH_NOTIF_NEW
+#define EDGE_EVT_WATCH_NOTIF_NEW NOTIF_EVT_NEW
+#endif
+
+#ifndef NOTIF_EVT_DISMISSED
+#define NOTIF_EVT_DISMISSED 0x1613u
+#endif
+#ifndef EDGE_EVT_WATCH_NOTIF_DISMISSED
+#define EDGE_EVT_WATCH_NOTIF_DISMISSED NOTIF_EVT_DISMISSED
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

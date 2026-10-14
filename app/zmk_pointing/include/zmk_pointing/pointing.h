@@ -9,6 +9,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef ZMK_POINTING_MODULE_ID
+#define ZMK_POINTING_MODULE_ID 0x2700u
+#endif
+
+#ifndef EDGE_MOD_ZMK_POINTING
+#define EDGE_MOD_ZMK_POINTING ZMK_POINTING_MODULE_ID
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

@@ -8,6 +8,14 @@
 #include "edge/errors.h"
 #include "edge/module.h"
 
+#ifndef ZMK_BOOT_MODULE_ID
+#define ZMK_BOOT_MODULE_ID 0x4700u
+#endif
+
+#ifndef EDGE_MOD_ZMK_BOOT
+#define EDGE_MOD_ZMK_BOOT ZMK_BOOT_MODULE_ID
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

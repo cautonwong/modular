@@ -9,6 +9,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef WATCH_TIMER_MODULE_ID
+#define WATCH_TIMER_MODULE_ID 0x1200u
+#endif
+
+#ifndef EDGE_MOD_WATCH_TIMER
+#define EDGE_MOD_WATCH_TIMER WATCH_TIMER_MODULE_ID
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

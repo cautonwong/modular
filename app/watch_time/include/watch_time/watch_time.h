@@ -9,6 +9,35 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef WATCH_TIME_MODULE_ID
+#define WATCH_TIME_MODULE_ID 0x1A00u
+#endif
+
+#ifndef EDGE_MOD_WATCH_TIME
+#define EDGE_MOD_WATCH_TIME WATCH_TIME_MODULE_ID
+#endif
+
+#ifndef WATCH_EVT_TIME_TICK
+#define WATCH_EVT_TIME_TICK 0x1607u
+#endif
+#ifndef EDGE_EVT_WATCH_TIME_TICK
+#define EDGE_EVT_WATCH_TIME_TICK WATCH_EVT_TIME_TICK
+#endif
+
+#ifndef WATCH_EVT_NEW_HOUR
+#define WATCH_EVT_NEW_HOUR 0x1608u
+#endif
+#ifndef EDGE_EVT_WATCH_NEW_HOUR
+#define EDGE_EVT_WATCH_NEW_HOUR WATCH_EVT_NEW_HOUR
+#endif
+
+#ifndef WATCH_EVT_NEW_DAY
+#define WATCH_EVT_NEW_DAY 0x1609u
+#endif
+#ifndef EDGE_EVT_WATCH_NEW_DAY
+#define EDGE_EVT_WATCH_NEW_DAY WATCH_EVT_NEW_DAY
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

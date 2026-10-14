@@ -1,0 +1,10 @@
+{
+  "note": "Project-level pi-lens settings. Same convention as ci/exemptions.json: every entry says what the decision is, why it is the decision, and what would retire it.",
+  "rules": {
+    "no-reserved-identifiers": {
+      "disable": ["no-reserved-identifiers"],
+      "reason": "The rule's query matches any identifier with the shape ^_[A-Z_] and has no exemption list, so it cannot tell an implementation-defined macro from a user-declared identifier. This codebase's only matches are __cplusplus and _Static_assert, both defined by the compiler or the language rather than declared here, and the repo has 56 headers using the standard #ifdef __cplusplus + extern \"C\" guard. Renaming them is not possible and removing them would break C++ linkage.",
+      "exit": "Re-enable when the upstream rule gains an exemption list for implementation-defined names, or if this repository ever declares a leading-underscore identifier of its own."
+    }
+  }
+}

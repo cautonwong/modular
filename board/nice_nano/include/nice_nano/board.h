@@ -10,6 +10,10 @@
 extern "C" {
 #endif
 
+#ifndef EDGE_EVT_ZMK_POSITION_STATE_CHANGED
+#define EDGE_EVT_ZMK_POSITION_STATE_CHANGED 0x2101u
+#endif
+
 /* nice!nano Pinout (nRF52840 Pro Micro footprint) */
 #define NICE_NANO_PIN_VBATT 4u         /* AIN2 / P0.04 */
 #define NICE_NANO_PIN_LED_BLUE 15u     /* P0.15 */

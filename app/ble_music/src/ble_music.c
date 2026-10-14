@@ -8,9 +8,6 @@ static void copy_bytes(void *dst, const void *src, size_t n) {
     }
 }
 #include "ble_music/ble_music.h"
-#include "edge/events.h"
-#include "edge/modules.h"
-
 static void safe_strncpy(char *dst, const char *src, size_t max_len) {
     if (dst == NULL || max_len == 0) {
         return;
@@ -34,7 +31,7 @@ static edge_status_t music_poll(edge_module_t *module) {
 
 void ble_music_init(ble_music_t *self, const ble_music_transport_port_t *transport,
                     edge_event_sink_t *event_sink) {
-    ble_music_construct(self, EDGE_MOD_BLE_MUSIC, 2u, transport, event_sink);
+    ble_music_construct(self, BLE_MUSIC_MODULE_ID, 2u, transport, event_sink);
 }
 
 void ble_music_construct(ble_music_t *self, uint32_t module_id, uint32_t priority,
@@ -74,7 +71,7 @@ static void emit_updated_event(ble_music_t *self) {
     if (self != NULL && self->event_sink != NULL) {
         edge_event_t ev = {
             .id = EDGE_EVT_WATCH_MUSIC_UPDATED,
-            .source = EDGE_MOD_BLE_MUSIC,
+            .source = BLE_MUSIC_MODULE_ID,
             .arg0 = self->info.playing ? 1u : 0u,
             .arg1 = 0u,
             .timestamp = 0u,

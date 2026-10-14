@@ -4,6 +4,16 @@
 #include "edge/event.h"
 #include <stdint.h>
 
+#ifndef EDGE_EVT_UART0_RX
+#define EDGE_EVT_UART0_RX (0x0100u + 0x01u)
+#endif
+#ifndef EDGE_EVT_UART0_TX_DONE
+#define EDGE_EVT_UART0_TX_DONE (0x0100u + 0x02u)
+#endif
+#ifndef EDGE_EVT_BOARD_TIMER0
+#define EDGE_EVT_BOARD_TIMER0 (0x0100u + 0x03u)
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

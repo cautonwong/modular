@@ -1,0 +1,3669 @@
+#include <math.h>
+#include <setjmp.h>
+#include <stdarg.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+
+#include <cmocka.h>
+
+#include "edge/errors.h"
+#include "edge/modules.h"
+#include "foc_core/foc_core.h"
+#include "foc_core/foc_math.h"
+
+/* Inverter mock */
+typedef struct mock_inverter {
+    float duty_a;
+    float duty_b;
+    float duty_c;
+    bool enabled;
+    int set_duty_calls;
+    int set_phase_calls;
+} mock_inverter_t;
+
+static edge_status_t mock_set_duty(void *self, float duty_a, float duty_b, float duty_c) {
+    mock_inverter_t *inv = (mock_inverter_t *)self;
+    inv->duty_a = duty_a;
+    inv->duty_b = duty_b;
+    inv->duty_c = duty_c;
+    inv->set_duty_calls++;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_set_phase_state(void *self, bool enable) {
+    mock_inverter_t *inv = (mock_inverter_t *)self;
+    inv->enabled = enable;
+    inv->set_phase_calls++;
+    return EDGE_OK;
+}
+
+/* Current sensor mock */
+typedef struct mock_current_sensor {
+    float ia;
+    float ib;
+    float ic;
+    float v_bus;
+} mock_current_sensor_t;
+
+static edge_status_t mock_read_currents(void *self, float *ia, float *ib, float *ic) {
+    mock_current_sensor_t *cs = (mock_current_sensor_t *)self;
+    *ia = cs->ia;
+    *ib = cs->ib;
+    *ic = cs->ic;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_read_vbus(void *self, float *v_bus) {
+    mock_current_sensor_t *cs = (mock_current_sensor_t *)self;
+    *v_bus = cs->v_bus;
+    return EDGE_OK;
+}
+
+/* Rotor sensor mock */
+typedef struct mock_rotor_sensor {
+    float angle_rad;
+    float rpm;
+} mock_rotor_sensor_t;
+
+static edge_status_t mock_read_angle(void *self, float *angle_rad, float *rpm) {
+    mock_rotor_sensor_t *rs = (mock_rotor_sensor_t *)self;
+    *angle_rad = rs->angle_rad;
+    *rpm = rs->rpm;
+    return EDGE_OK;
+}
+
+/* Test 1: Math Clarke, Park, and Inverse Park Transforms */
+static void test_foc_math_transforms(void **state) {
+    (void)state;
+
+    float ia = 10.0f, ib = -5.0f, ic = -5.0f;
+    float i_alpha = 0.0f, i_beta = 0.0f;
+
+    foc_clarke_transform(ia, ib, ic, &i_alpha, &i_beta);
+    assert_float_equal(i_alpha, 10.0f, 0.001f);
+    assert_float_equal(i_beta, 0.0f, 0.001f);
+
+    float sin_th = 0.0f, cos_th = 1.0f; /* theta = 0 */
+    float id = 0.0f, iq = 0.0f;
+    foc_park_transform(i_alpha, i_beta, sin_th, cos_th, &id, &iq);
+    assert_float_equal(id, 10.0f, 0.001f);
+    assert_float_equal(iq, 0.0f, 0.001f);
+
+    float v_alpha = 0.0f, v_beta = 0.0f;
+    foc_inv_park_transform(id, iq, sin_th, cos_th, &v_alpha, &v_beta);
+    assert_float_equal(v_alpha, 10.0f, 0.001f);
+    assert_float_equal(v_beta, 0.0f, 0.001f);
+}
+
+/* Test 2: Space Vector Modulation (SVPWM) */
+static void test_foc_math_svpwm(void **state) {
+    (void)state;
+
+    float v_bus = 24.0f;
+    float da = 0.0f, db = 0.0f, dc = 0.0f;
+    uint32_t sector = 0;
+
+    /* Zero vector -> 50% duty */
+    foc_svpwm(0.0f, 0.0f, v_bus, 0.95f, &da, &db, &dc, &sector);
+    assert_float_equal(da, 0.5f, 1e-5f);
+    assert_float_equal(db, 0.5f, 1e-5f);
+    assert_float_equal(dc, 0.5f, 1e-5f);
+
+    /*
+     * Pure alpha, reference arithmetic: mod = 1.5 * v / v_bus (mcpwm_foc.c:3808),
+     * sector 1 -> t1 = mod, t2 = 0, da = (1 + t1 + t2)/2, db = da - t1, dc = db.
+     */
+    foc_svpwm(10.0f, 0.0f, v_bus, 0.95f, &da, &db, &dc, &sector);
+    assert_int_equal(sector, 1u);
+    float mod = 1.5f * 10.0f / v_bus;
+    assert_float_equal(da, (1.0f + mod) * 0.5f, 1e-5f);
+    assert_float_equal(db, (1.0f + mod) * 0.5f - mod, 1e-5f);
+    assert_float_equal(dc, db, 1e-5f);
+
+    /*
+     * Saturation is a PER-PHASE clamp at
+     * t_max = 1 - (1 - duty_max) * 0.5 (motor/foc_math.c:374), not a clamp on the
+     * vector magnitude: the vector is left alone and the phases clip where they land.
+     */
+    foc_svpwm(20.0f, 0.0f, v_bus, 0.95f, &da, &db, &dc, &sector);
+    float t_max = 1.0f - (1.0f - 0.95f) * 0.5f;
+    assert_float_equal(da, t_max, 1e-5f);
+    assert_float_equal(db, 0.0f, 1e-5f);
+    assert_float_equal(dc, 0.0f, 1e-5f);
+}
+
+/* Test 3: Module Construction and Contract */
+static void test_foc_core_construct_contract(void **state) {
+    (void)state;
+
+    mock_inverter_t inv_mock = {0};
+    foc_inverter_port_t inv_port = {
+        .set_duty = mock_set_duty, .set_phase_state = mock_set_phase_state, .self = &inv_mock};
+
+    mock_current_sensor_t cs_mock = {.v_bus = 24.0f};
+    foc_current_port_t cs_port = {
+        .read_currents = mock_read_currents, .read_vbus = mock_read_vbus, .self = &cs_mock};
+
+    mock_rotor_sensor_t rs_mock = {0};
+    foc_rotor_port_t rs_port = {.read_angle = mock_read_angle, .self = &rs_mock};
+
+    foc_core_t foc;
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, (void *)0, &inv_port, &cs_port, &rs_port);
+
+    assert_int_equal(foc.module.module_id, EDGE_MOD_FOC_CORE);
+    assert_int_equal(foc.module.priority, 10u);
+    assert_ptr_equal(foc_core_module(&foc), &foc.module);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_UNINITIALIZED);
+
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_IDLE);
+
+    assert_int_equal(foc_core_deinit(&foc), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_UNINITIALIZED);
+}
+
+/* Test 4: Fault Protection - Overvoltage and Undervoltage */
+static void test_foc_core_voltage_protection(void **state) {
+    (void)state;
+
+    mock_inverter_t inv_mock = {0};
+    foc_inverter_port_t inv_port = {
+        .set_duty = mock_set_duty, .set_phase_state = mock_set_phase_state, .self = &inv_mock};
+
+    mock_current_sensor_t cs_mock = {.v_bus = 24.0f};
+    foc_current_port_t cs_port = {
+        .read_currents = mock_read_currents, .read_vbus = mock_read_vbus, .self = &cs_mock};
+
+    mock_rotor_sensor_t rs_mock = {0};
+    foc_rotor_port_t rs_port = {.read_angle = mock_read_angle, .self = &rs_mock};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.1f,
+                        .current_ki = 100.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = false};
+
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    /* Enable current mode */
+    assert_int_equal(foc_core_set_current(&foc, 10.0f, 0.0f), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_RUNNING_CURRENT);
+
+    /* Run normal loop */
+    assert_int_equal(foc_core_fast_loop(&foc, 0.00005f), EDGE_OK);
+    assert_true(inv_mock.enabled);
+
+    /* Inject Overvoltage */
+    cs_mock.v_bus = 65.0f;
+    edge_status_t st = foc_core_fast_loop(&foc, 0.00005f);
+    assert_int_equal(st, EDGE_EBUSY);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_FAULT);
+    assert_true(foc_core_get_faults(&foc) & FOC_FAULT_OVER_VOLTAGE);
+    assert_false(inv_mock.enabled);
+
+    /* Clear faults after voltage normalized */
+    cs_mock.v_bus = 24.0f;
+    assert_int_equal(foc_core_clear_faults(&foc), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_IDLE);
+}
+
+/* Test 5: Thermal Protection via Background Step */
+static void test_foc_core_thermal_protection(void **state) {
+    (void)state;
+
+    mock_inverter_t inv_mock = {0};
+    foc_inverter_port_t inv_port = {
+        .set_duty = mock_set_duty, .set_phase_state = mock_set_phase_state, .self = &inv_mock};
+    mock_current_sensor_t cs_mock = {.v_bus = 24.0f};
+    foc_current_port_t cs_port = {
+        .read_currents = mock_read_currents, .read_vbus = mock_read_vbus, .self = &cs_mock};
+    mock_rotor_sensor_t rs_mock = {0};
+    foc_rotor_port_t rs_port = {.read_angle = mock_read_angle, .self = &rs_mock};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.1f,
+                        .current_ki = 100.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 85.0f};
+
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    foc_core_set_fet_temperature(&foc, 90.0f);
+    assert_int_equal(foc.module.poll(&foc.module), EDGE_OK);
+
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_FAULT);
+    assert_true(foc_core_get_faults(&foc) & FOC_FAULT_OVER_TEMP);
+}
+
+/* Virtual motor simulation context for closed loop test */
+typedef struct sim_context {
+    foc_virtual_motor_t vm;
+    mock_inverter_t inv;
+    float v_bus;
+} sim_context_t;
+
+static edge_status_t sim_set_duty(void *self, float duty_a, float duty_b, float duty_c) {
+    sim_context_t *ctx = (sim_context_t *)self;
+    ctx->inv.duty_a = duty_a;
+    ctx->inv.duty_b = duty_b;
+    ctx->inv.duty_c = duty_c;
+    return EDGE_OK;
+}
+
+static edge_status_t sim_set_phase_state(void *self, bool enable) {
+    sim_context_t *ctx = (sim_context_t *)self;
+    ctx->inv.enabled = enable;
+    return EDGE_OK;
+}
+
+static edge_status_t sim_read_currents(void *self, float *ia, float *ib, float *ic) {
+    sim_context_t *ctx = (sim_context_t *)self;
+    *ia = ctx->vm.ia;
+    *ib = ctx->vm.ib;
+    *ic = ctx->vm.ic;
+    return EDGE_OK;
+}
+
+static edge_status_t sim_read_vbus(void *self, float *v_bus) {
+    sim_context_t *ctx = (sim_context_t *)self;
+    *v_bus = ctx->v_bus;
+    return EDGE_OK;
+}
+
+static edge_status_t sim_read_angle(void *self, float *angle_rad, float *rpm) {
+    sim_context_t *ctx = (sim_context_t *)self;
+    *angle_rad = ctx->vm.rotor_angle_rad;
+    *rpm = ctx->vm.rotor_speed_rad_s * 60.0f / (2.0f * (float)M_PI);
+    return EDGE_OK;
+}
+
+/*
+ * The duty the protocol reports - and the one foc_core_set_current_rel reads - is
+ * not a phase duty. The reference derives it from the commanded voltages as
+ *   duty_now = SIGN(vq) * NORM2_f(mod_d, mod_q) * p_duty_norm
+ * (mcpwm_foc.c:3818-3820) with mod = v * 1.5 / v_bus and p_duty_norm = TWO_BY_SQRT3
+ * for the default overmodulation factor of 1.0. In duty mode vq = d * v_bus * 2/3
+ * and vd = 0, so mod_q collapses to exactly d and the expected value is d times
+ * TWO_BY_SQRT3 - worked out from the reference's formula, not from the port.
+ */
+static void test_foc_core_duty_now_is_a_modulation_magnitude(void **state) {
+    (void)state;
+
+    sim_context_t sim;
+    sim.v_bus = 24.0f;
+    sim.inv.enabled = false;
+    foc_virtual_motor_init(&sim.vm, 0.05f, 0.00005f, 0.005f, 7, 0.0005f);
+
+    foc_inverter_port_t inv_port = {
+        .set_duty = sim_set_duty, .set_phase_state = sim_set_phase_state, .self = &sim};
+    foc_current_port_t cs_port = {
+        .read_currents = sim_read_currents, .read_vbus = sim_read_vbus, .self = &sim};
+    foc_rotor_port_t rs_port = {.read_angle = sim_read_angle, .self = &sim};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = 300.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = false};
+
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    foc_telemetry_t t;
+
+    assert_int_equal(foc_core_set_duty(&foc, 0.5f), EDGE_OK);
+    assert_int_equal(foc_core_fast_loop(&foc, 0.001f), EDGE_OK);
+    foc_core_get_telemetry(&foc, &t);
+    assert_float_equal(t.duty_now, 0.5f * TWO_BY_SQRT3, 1e-5f);
+
+    /* Signed, not a magnitude: a reverse command reports a negative duty while the
+     * phase duties stay non-negative. */
+    assert_int_equal(foc_core_set_duty(&foc, -0.5f), EDGE_OK);
+    assert_int_equal(foc_core_fast_loop(&foc, 0.001f), EDGE_OK);
+    foc_core_get_telemetry(&foc, &t);
+    assert_float_equal(t.duty_now, -0.5f * TWO_BY_SQRT3, 1e-5f);
+    /* The phase duty (internal, not in the telemetry snapshot) stays non-negative. */
+    assert_true(foc.duty_a >= 0.0f);
+}
+
+/*
+ * COMM_SET_CURRENT_REL's limit base, reference mc_interface_set_current_rel
+ * (mc_interface.c:733-749): the positive limit applies while the machine is near
+ * standstill or when the setpoint pushes the same way as the duty, the negative one
+ * otherwise. The two limits are asymmetric here on purpose - that is what makes the
+ * chosen one visible in the result.
+ */
+/*
+ * The override derivation's inputs at the reference's own defaults (mcconf_defaults.h, generated
+ * from motor/mcconf_default.h). Fixtures that drive the control loop need these rather than zeroes:
+ * a zeroed set winds every de-rating term down to zero, and cc_min_current with it, which is what
+ * stops the motor rather than what runs it.
+ */
+static const foc_limit_params_t REFERENCE_LIMITS = {
+    .l_temp_motor_start = 85.0f,
+    .l_temp_motor_end = 100.0f,
+    .l_erpm_start = 0.8f,
+    .l_max_erpm = 100000.0f,
+    .l_min_erpm = -100000.0f,
+    .foc_start_curr_dec = 1.0f,
+    .foc_start_curr_dec_rpm = 2500.0f,
+    .l_duty_start = 1.0f,
+    .l_max_duty = 0.95f,
+    .cc_min_current = 0.05f,
+    .l_watt_max = 1500000.0f,
+    .l_watt_min = -1500000.0f,
+    .l_in_current_max = 99.0f,
+    .l_in_current_min = -60.0f,
+    .l_in_current_map_start = 0.9f,
+    .l_battery_cut_start = 10.0f,
+    .l_battery_cut_end = 8.0f,
+    .l_battery_regen_cut_start = 1000.0f,
+    .l_battery_regen_cut_end = 1100.0f,
+};
+
+/*
+ * The derivation's own fixture: the harness below was built on the reference's defaults for the
+ * de-rating knees except where a scenario needs a narrower one, and its current ceiling is 60 A at
+ * a 0.9 scale - 54 A - which is what the ceiling here is too.
+ */
+static const foc_limit_params_t DERIVATION_LIMITS = {
+    .l_temp_fet_start = 85.0f,
+    .l_temp_fet_end = 100.0f,
+    .l_temp_motor_start = 85.0f,
+    .l_temp_motor_end = 100.0f,
+    .l_erpm_start = 0.8f,
+    .l_max_erpm = 100000.0f,
+    .l_min_erpm = -100000.0f,
+    .foc_start_curr_dec = 0.5f,
+    .foc_start_curr_dec_rpm = 2500.0f,
+    .l_duty_start = 0.9f,
+    .l_max_duty = 0.95f,
+    .cc_min_current = 0.05f,
+    .l_watt_max = 1500000.0f,
+    .l_watt_min = -1500000.0f,
+    .l_in_current_max = 99.0f,
+    .l_in_current_min = -60.0f,
+    .l_in_current_map_start = 0.9f,
+    .l_battery_cut_start = 10.0f,
+    .l_battery_cut_end = 8.0f,
+    .l_battery_regen_cut_start = 1000.0f,
+    .l_battery_regen_cut_end = 1100.0f,
+};
+
+/*
+ * The override derivation against the reference's own output. Its update_override_limits was
+ * compiled from the derivation down - motor/mc_interface.c:2337 to the function's end - with the
+ * temperature decode bypassed by feeding the two filtered temperatures in as variables, the input
+ * current left at zero so that group is the identity it is when there is nothing to map, and the
+ * BMS hook a no-op because there is no pack on the bus. What that leaves is the arithmetic these
+ * numbers come from; the tests below run the port on the same twelve inputs.
+ *
+ * The first of them is worth reading twice: nothing de-rates at standstill and the limit is still
+ * half the configured one, because foc_start_curr_dec is 0.5 here and the RPM is zero. That is the
+ * reference's own behaviour, not the harness failing to start.
+ */
+static void test_foc_core_update_limits_matches_the_reference(void **state) {
+    (void)state;
+
+    mock_inverter_t inv = {0};
+    mock_current_sensor_t cs = {0};
+    mock_rotor_sensor_t rs = {0};
+
+    foc_inverter_port_t inv_port = {
+        .set_duty = mock_set_duty, .set_phase_state = mock_set_phase_state, .self = &inv};
+    foc_current_port_t cs_port = {
+        .read_currents = mock_read_currents, .read_vbus = mock_read_vbus, .self = &cs};
+    foc_rotor_port_t rs_port = {.read_angle = mock_read_angle, .self = &rs};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 54.0f,
+                        .current_min_a = -54.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.1f,
+                        .current_ki = 100.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .limits = DERIVATION_LIMITS,
+                        .sensorless_mode = false};
+
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    const struct {
+        float rpm;
+        float duty;
+        float temp_motor;
+        float temp_fet;
+        float lo_max;
+        float lo_min;
+    } cases[] = {
+        {0.0f, 0.0f, 25.0f, 25.0f, 27.0f, -54.0f}, /* nothing de-rates, start dec halves it */
+        {0.0f, 0.94f, 25.0f, 25.0f, 5.90788651f, -54.0f},     /* duty inside the knee */
+        {0.0f, 0.99f, 25.0f, 25.0f, 0.05f, -54.0f},           /* duty past the ceiling, floored */
+        {90000.0f, 0.0f, 25.0f, 25.0f, 27.0f, -54.0f},        /* positive ERPM inside the cut */
+        {104000.0f, 0.0f, 25.0f, 25.0f, 0.05f, -54.0f},       /* past l_max_erpm */
+        {-90000.0f, 0.0f, 25.0f, 25.0f, 27.0f, -54.0f},       /* negative ERPM inside its cut */
+        {-104000.0f, 0.0f, 25.0f, 25.0f, 0.05f, -54.0f},      /* past l_min_erpm */
+        {1000.0f, 0.0f, 25.0f, 25.0f, 37.7999992f, -54.0f},   /* the start-current decrease */
+        {0.0f, 0.0f, 92.0f, 25.0f, 27.0f, -28.7999992f},      /* motor temperature in its knees */
+        {0.0f, 0.0f, 99.95f, 25.0f, 0.05f, -0.0500000007f},   /* at their end, floored both ways */
+        {95000.0f, 0.94f, 95.0f, 25.0f, 5.90788651f, -18.0f}, /* duty and temperature together */
+        {-95000.0f, -0.94f, 25.0f, 25.0f, 5.90788651f, -54.0f},
+        /*
+         * And the same three for the FETs (mc_interface.c:2338-2366), which is the group this port
+         * had no sensor for: it maps the larger of the two magnitudes, so the two sides come in
+         * together, and at the end of the knees both go to nought before the floor lifts them.
+         */
+        {0.0f, 0.0f, 25.0f, 92.0f, 27.0f, -28.7999992f},
+        {0.0f, 0.0f, 25.0f, 99.95f, 0.05f, -0.0500000007f},
+        {0.0f, 0.0f, 25.0f, 99.0f, 3.5999999f, -3.5999999f},
+    };
+
+    for (size_t i = 0u; i < (sizeof(cases) / sizeof(cases[0])); i++) {
+        foc.last_rpm = cases[i].rpm;
+        foc.duty_now = cases[i].duty;
+        foc.motor_temp_c = cases[i].temp_motor;
+        foc.fet_temp_c = cases[i].temp_fet;
+        foc.last_v_bus = 50.0f;
+        foc_core_update_limits(&foc);
+        assert_float_equal(foc.lo_current_max, cases[i].lo_max, 1e-4f);
+        assert_float_equal(foc.lo_current_min, cases[i].lo_min, 1e-4f);
+    }
+}
+
+static void test_foc_core_set_current_rel_picks_its_limit_from_the_duty(void **state) {
+    (void)state;
+
+    mock_inverter_t inv = {0};
+    mock_current_sensor_t cs = {0};
+    mock_rotor_sensor_t rs = {0};
+
+    foc_inverter_port_t inv_port = {
+        .set_duty = mock_set_duty, .set_phase_state = mock_set_phase_state, .self = &inv};
+    foc_current_port_t cs_port = {
+        .read_currents = mock_read_currents, .read_vbus = mock_read_vbus, .self = &cs};
+    foc_rotor_port_t rs_port = {.read_angle = mock_read_angle, .self = &rs};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 40.0f,
+                        .current_min_a = -60.0f,
+                        .limits = REFERENCE_LIMITS,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = 300.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = false};
+
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    /* Near standstill (|duty| < 0.02) the positive limit applies whatever the sign. */
+    foc.duty_now = 0.0f;
+    assert_int_equal(foc_core_set_current_rel(&foc, -1.0f), EDGE_OK);
+    assert_float_equal(foc.target_iq, -40.0f, 1e-5f);
+
+    /* Braking against a forward duty takes the negative limit ... */
+    foc.duty_now = 0.5f;
+    assert_int_equal(foc_core_set_current_rel(&foc, -1.0f), EDGE_OK);
+    assert_float_equal(foc.target_iq, -60.0f, 1e-5f);
+
+    /* ... and driving with it takes the positive one. */
+    assert_int_equal(foc_core_set_current_rel(&foc, 1.0f), EDGE_OK);
+    assert_float_equal(foc.target_iq, 40.0f, 1e-5f);
+
+    /* Mirrored for a reverse duty. */
+    foc.duty_now = -0.5f;
+    assert_int_equal(foc_core_set_current_rel(&foc, 1.0f), EDGE_OK);
+    assert_float_equal(foc.target_iq, 60.0f, 1e-5f);
+
+    assert_int_equal(foc_core_set_current_rel(&foc, -0.5f), EDGE_OK);
+    assert_float_equal(foc.target_iq, -20.0f, 1e-5f);
+
+    /* No clamp on this path, as on the absolute command. */
+    assert_int_equal(foc_core_set_current_rel(&foc, 10.0f), EDGE_OK);
+    assert_float_equal(foc.target_iq, 600.0f, 1e-4f);
+}
+
+/*
+ * Handbrake forces the electrical phase to zero (mcpwm_foc.c:3602), which is what makes
+ * it lock the rotor rather than drive it. The reported phase, the Park transform and the
+ * sector-based tachometer all follow that angle, so a rotor sitting at 1 rad must be
+ * reported at 0 once handbrake is entered.
+ */
+static void test_foc_core_handbrake_forces_the_phase_to_zero(void **state) {
+    (void)state;
+
+    mock_inverter_t inv = {0};
+    mock_current_sensor_t cs = {.v_bus = 24.0f};
+    mock_rotor_sensor_t rs = {.angle_rad = 1.0f, .rpm = 500.0f};
+
+    foc_inverter_port_t inv_port = {
+        .set_duty = mock_set_duty, .set_phase_state = mock_set_phase_state, .self = &inv};
+    foc_current_port_t cs_port = {
+        .read_currents = mock_read_currents, .read_vbus = mock_read_vbus, .self = &cs};
+    foc_rotor_port_t rs_port = {.read_angle = mock_read_angle, .self = &rs};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = 300.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = false};
+
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    /* Without handbrake the rotor angle is reported as the sensor gives it. */
+    assert_int_equal(foc_core_set_current(&foc, 1.0f, 0.0f), EDGE_OK);
+    assert_int_equal(foc_core_fast_loop(&foc, 0.001f), EDGE_OK);
+    foc_telemetry_t telem;
+    foc_core_get_telemetry(&foc, &telem);
+    assert_float_equal(telem.rotor_angle_rad, 1.0f, 1e-6f);
+
+    assert_int_equal(foc_core_set_handbrake(&foc, 15.0f), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_HANDBRAKE);
+    assert_int_equal(foc_core_fast_loop(&foc, 0.001f), EDGE_OK);
+    foc_core_get_telemetry(&foc, &telem);
+    assert_float_equal(telem.rotor_angle_rad, 0.0f, 1e-9f);
+}
+
+/* Test 6: Closed-loop Current Control with Virtual Motor */
+static void test_foc_core_closed_loop_virtual_motor(void **state) {
+    (void)state;
+
+    sim_context_t sim;
+    sim.v_bus = 24.0f;
+    sim.inv.enabled = false;
+    foc_virtual_motor_init(&sim.vm, 0.05f, 0.00005f, 0.005f, 7, 0.0005f);
+
+    foc_inverter_port_t inv_port = {
+        .set_duty = sim_set_duty, .set_phase_state = sim_set_phase_state, .self = &sim};
+    foc_current_port_t cs_port = {
+        .read_currents = sim_read_currents, .read_vbus = sim_read_vbus, .self = &sim};
+    foc_rotor_port_t rs_port = {.read_angle = sim_read_angle, .self = &sim};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = 300.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = false};
+
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    /* Command 8.0 Amps on q-axis */
+    float target_iq = 8.0f;
+    assert_int_equal(foc_core_set_current(&foc, target_iq, 0.0f), EDGE_OK);
+
+    float dt = 0.00005f; /* 20 kHz loop */
+
+    /* Run 2000 steps = 100ms simulation */
+    for (int step = 0; step < 2000; step++) {
+        /* 1. FOC fast control loop computes inverter duties */
+        assert_int_equal(foc_core_fast_loop(&foc, dt), EDGE_OK);
+
+        /* 2. Step physical virtual motor with FOC output voltages */
+        foc_virtual_motor_step(&sim.vm, foc.v_alpha, foc.v_beta, 0.0f, dt,
+                               0.05f /* 0.05 Nm load */);
+    }
+
+    foc_telemetry_t telem;
+    foc_core_get_telemetry(&foc, &telem);
+
+    /* Assert current converged to target +/- 0.5A */
+    assert_float_equal(telem.current_q, target_iq, 0.5f);
+    assert_float_equal(telem.current_d, 0.0f, 0.5f);
+    /* Assert motor is rotating */
+    assert_true(telem.speed_rpm > 100.0f);
+}
+
+/*
+ * The averages are read-and-reset, and the mask decides which ones. Two things
+ * follow that a "return a snapshot" implementation cannot do: a channel you did
+ * not ask for keeps accumulating its window, and the reference's 0/0 is visible
+ * when you read a channel twice with no samples in between.
+ */
+static void test_foc_core_averages_are_read_reset_and_masked(void **state) {
+    (void)state;
+
+    sim_context_t sim;
+    sim.v_bus = 24.0f;
+    sim.inv.enabled = false;
+    foc_virtual_motor_init(&sim.vm, 0.05f, 0.00005f, 0.005f, 7, 0.0005f);
+
+    foc_inverter_port_t inv_port = {
+        .set_duty = sim_set_duty, .set_phase_state = sim_set_phase_state, .self = &sim};
+    foc_current_port_t cs_port = {
+        .read_currents = sim_read_currents, .read_vbus = sim_read_vbus, .self = &sim};
+    foc_rotor_port_t rs_port = {.read_angle = sim_read_angle, .self = &sim};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = 300.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = false};
+
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    assert_int_equal(foc_core_set_current(&foc, 8.0f, 0.0f), EDGE_OK);
+
+    const float dt = 0.00005f;
+    for (int step = 0; step < 2000; step++) {
+        assert_int_equal(foc_core_fast_loop(&foc, dt), EDGE_OK);
+        foc_virtual_motor_step(&sim.vm, foc.v_alpha, foc.v_beta, 0.0f, dt, 0.05f);
+        assert_int_equal(foc.module.poll(&foc.module), EDGE_OK); /* the sampler tick */
+    }
+
+    foc_averages_t avg;
+
+    /* Ask for id only. Unrequested channels are neither filled nor consumed. */
+    foc_core_read_reset_averages(&foc, FOC_AVG_ID, &avg);
+    assert_false(isnan(avg.id));
+    assert_float_equal(avg.iq, 0.0f, 1e-9f);
+
+    /* iq kept its window, so its average is still available ... */
+    foc_core_read_reset_averages(&foc, FOC_AVG_IQ, &avg);
+    assert_false(isnan(avg.iq));
+    assert_true(fabsf(avg.iq) > 1.0f);
+
+    /* ... while id was consumed and has nothing new to average. */
+    foc_core_read_reset_averages(&foc, FOC_AVG_ID, &avg);
+    assert_true(isnan(avg.id));
+}
+
+/*
+ * Energy counters. The reference gates them on the FILTERED motor current
+ * magnitude (> 1 A) and splits powered/charged by the sign of the input current
+ * (mc_interface.c:2036), so a current below the gate must accumulate nothing.
+ */
+static void test_foc_core_energy_counters(void **state) {
+    (void)state;
+
+    sim_context_t sim;
+    sim.v_bus = 24.0f;
+    sim.inv.enabled = false;
+    foc_virtual_motor_init(&sim.vm, 0.05f, 0.00005f, 0.005f, 7, 0.0005f);
+
+    foc_inverter_port_t inv_port = {
+        .set_duty = sim_set_duty, .set_phase_state = sim_set_phase_state, .self = &sim};
+    foc_current_port_t cs_port = {
+        .read_currents = sim_read_currents, .read_vbus = sim_read_vbus, .self = &sim};
+    foc_rotor_port_t rs_port = {.read_angle = sim_read_angle, .self = &sim};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = 300.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .current_filter_const = 0.1f,
+                        .sensorless_mode = false};
+
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    foc_telemetry_t telem;
+
+    /* Idle: below the 1 A gate, nothing accumulates and the bus current is 0. */
+    for (int step = 0; step < 200; step++) {
+        assert_int_equal(foc_core_fast_loop(&foc, 0.00005f), EDGE_OK);
+        foc_virtual_motor_step(&sim.vm, foc.v_alpha, foc.v_beta, 0.0f, 0.00005f, 0.0f);
+    }
+    foc_core_get_telemetry(&foc, &telem);
+    assert_float_equal(telem.amp_hours, 0.0f, 1e-9f);
+    assert_float_equal(telem.watt_hours, 0.0f, 1e-9f);
+
+    /* Drive a real current: the counters must start moving, in the same direction. */
+    assert_int_equal(foc_core_set_current(&foc, 8.0f, 0.0f), EDGE_OK);
+    for (int step = 0; step < 4000; step++) {
+        assert_int_equal(foc_core_fast_loop(&foc, 0.00005f), EDGE_OK);
+        foc_virtual_motor_step(&sim.vm, foc.v_alpha, foc.v_beta, 0.0f, 0.00005f, 0.05f);
+    }
+
+    foc_core_get_telemetry(&foc, &telem);
+    assert_true(telem.amp_hours > 0.0f);
+    assert_true(telem.watt_hours > 0.0f);
+    assert_true(telem.current_in > 0.0f);
+    /* Power balance: v_bus * current_in must equal 1.5 * (vd*id + vq*iq). */
+    assert_float_equal(telem.v_bus * telem.current_in,
+                       1.5f * (foc.v_d * foc.last_id + foc.v_q * foc.last_iq), 1e-2f);
+    /* Nothing was regenerated, so the charged side stays empty. */
+    assert_float_equal(telem.amp_hours_charged, 0.0f, 1e-9f);
+    assert_float_equal(telem.watt_hours_charged, 0.0f, 1e-9f);
+
+    /* Amp-hours are the integral of the bus current over the loop dt, so the
+     * increment across N steps must equal the sum of i_bus * dt over those steps. */
+    foc_telemetry_t before;
+    foc_core_get_telemetry(&foc, &before);
+
+    float expected_amp_seconds = 0.0f;
+    for (int step = 0; step < 100; step++) {
+        assert_int_equal(foc_core_fast_loop(&foc, 0.00005f), EDGE_OK);
+        foc_virtual_motor_step(&sim.vm, foc.v_alpha, foc.v_beta, 0.0f, 0.00005f, 0.05f);
+        expected_amp_seconds += foc.i_bus * 0.00005f;
+    }
+
+    foc_core_get_telemetry(&foc, &telem);
+    assert_true(expected_amp_seconds > 0.0f);
+    assert_float_equal((telem.amp_hours - before.amp_hours) * 3600.0f, expected_amp_seconds, 1e-3f);
+}
+
+/*
+ * Statistics. Averages are sum/samples, maxima are running maxima since the last
+ * reset, and the reference seeds the two temperature maxima at -300 so an
+ * unupdated stat does not read as a plausible 0 C.
+ */
+static void test_foc_core_stats_and_reset(void **state) {
+    (void)state;
+
+    sim_context_t sim;
+    sim.v_bus = 24.0f;
+    sim.inv.enabled = false;
+    foc_virtual_motor_init(&sim.vm, 0.05f, 0.00005f, 0.005f, 7, 0.0005f);
+
+    foc_inverter_port_t inv_port = {
+        .set_duty = sim_set_duty, .set_phase_state = sim_set_phase_state, .self = &sim};
+    foc_current_port_t cs_port = {
+        .read_currents = sim_read_currents, .read_vbus = sim_read_vbus, .self = &sim};
+    foc_rotor_port_t rs_port = {.read_angle = sim_read_angle, .self = &sim};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = 300.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .current_filter_const = 0.1f,
+                        .sensorless_mode = false};
+
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    foc_core_set_fet_temperature(&foc, 30.0f);
+
+    foc_stats_t st;
+
+    /* Nothing sampled yet: averages are the reference's 0/0, maxima untouched. */
+    foc_core_get_stats(&foc, &st);
+    assert_true(isnan(st.power_avg));
+    assert_float_equal(st.temp_mos_max, -300.0f, 1e-6f);
+    assert_float_equal(st.temp_motor_max, -300.0f, 1e-6f);
+
+    /* Sample with the motor running. */
+    assert_int_equal(foc_core_set_current(&foc, 8.0f, 0.0f), EDGE_OK);
+    for (int step = 0; step < 2000; step++) {
+        assert_int_equal(foc_core_fast_loop(&foc, 0.00005f), EDGE_OK);
+        foc_virtual_motor_step(&sim.vm, foc.v_alpha, foc.v_beta, 0.0f, 0.00005f, 0.05f);
+        assert_int_equal(foc.module.poll(&foc.module), EDGE_OK);
+    }
+
+    foc_core_get_stats(&foc, &st);
+    assert_false(isnan(st.speed_avg));
+    assert_true(st.speed_avg > 0.0f);
+    assert_true(st.speed_max >= st.speed_avg);
+    /*
+     * Reference speed scaling: mech_rpm/60 * wheel diameter * pi / gear ratio.
+     * Checked on the instantaneous value; the average is a different number by
+     * construction (the motor was accelerating).
+     */
+    assert_float_equal(
+        foc.speed_m_s,
+        (foc.last_rpm / 60.0f) * cfg.si_wheel_diameter * (float)M_PI / cfg.si_gear_ratio, 1e-5f);
+    assert_true(st.speed_avg <= st.speed_max);
+    assert_false(isnan(st.power_avg));
+    assert_true(st.power_avg > 0.0f);
+    assert_true(st.current_avg > 1.0f);
+    assert_true(st.power_max >= st.power_avg);
+    assert_true(st.current_max >= st.current_avg);
+    assert_float_equal(st.temp_mos_avg, 30.0f, 1e-3f); /* constant FET temperature */
+    assert_float_equal(st.temp_mos_max, 30.0f, 1e-3f);
+    /* Feeding a hotter FET raises the maximum but not the average retroactively. */
+    foc_core_set_fet_temperature(&foc, 55.0f);
+    assert_int_equal(foc.module.poll(&foc.module), EDGE_OK);
+    foc_core_get_stats(&foc, &st);
+    assert_float_equal(st.temp_mos_max, 55.0f, 1e-3f);
+    assert_true(st.temp_mos_avg < 55.0f);
+
+    /* Reset puts everything back, temperature maxima included. */
+    foc_core_stats_reset(&foc);
+    foc_core_get_stats(&foc, &st);
+    assert_true(isnan(st.power_avg));
+    assert_float_equal(st.power_max, 0.0f, 1e-9f);
+    assert_float_equal(st.current_max, 0.0f, 1e-9f);
+    assert_float_equal(st.temp_mos_max, -300.0f, 1e-6f);
+    assert_float_equal(st.temp_motor_max, -300.0f, 1e-6f);
+}
+
+/*
+ * Tachometer. Counted from the phase the FOC already has, in six 60-degree
+ * sectors (reference mcpwm_foc.c:3866), so a full forward revolution is six
+ * steps and the 5 -> 0 wrap is one step forward rather than five back.
+ */
+static void test_foc_core_tachometer_sectors(void **state) {
+    (void)state;
+    mock_inverter_t inv_mock = {0};
+    foc_inverter_port_t inv_port = {
+        .set_duty = mock_set_duty, .set_phase_state = mock_set_phase_state, .self = &inv_mock};
+    mock_current_sensor_t cs_mock = {.v_bus = 24.0f};
+    foc_current_port_t cs_port = {
+        .read_currents = mock_read_currents, .read_vbus = mock_read_vbus, .self = &cs_mock};
+    mock_rotor_sensor_t rs_mock = {0};
+    foc_rotor_port_t rs_port = {.read_angle = mock_read_angle, .self = &rs_mock};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = 300.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = false};
+
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    foc_core_set_fet_temperature(&foc, 25.0f);
+
+    /*
+     * One angle in the middle of each sector: sector s spans
+     * [-pi + s*2pi/6, -pi + (s+1)*2pi/6), so the centre is -pi + (s+0.5)*2pi/6.
+     */
+    const float sector_centre[6] = {-2.618f, -1.571f, -0.524f, 0.524f, 1.571f, 2.618f};
+    for (int i = 0; i < 6; i++) {
+        rs_mock.angle_rad = sector_centre[i];
+        assert_int_equal(foc_core_fast_loop(&foc, 0.00005f), EDGE_OK);
+    }
+    /* and one more sample crossing 5 -> 0, which must count as +1, not -5 */
+    rs_mock.angle_rad = sector_centre[0];
+    assert_int_equal(foc_core_fast_loop(&foc, 0.00005f), EDGE_OK);
+
+    foc_telemetry_t telem;
+    foc_core_get_telemetry(&foc, &telem);
+    assert_int_equal(telem.tachometer, 6);
+    assert_int_equal(telem.tachometer_abs, 6);
+
+    /* Reverse through the same sectors: sign flips, absolute value keeps counting. */
+    for (int i = 5; i >= 0; i--) {
+        rs_mock.angle_rad = sector_centre[i];
+        assert_int_equal(foc_core_fast_loop(&foc, 0.00005f), EDGE_OK);
+    }
+    foc_core_get_telemetry(&foc, &telem);
+    assert_int_equal(telem.tachometer, 0);
+    assert_int_equal(telem.tachometer_abs, 12);
+}
+
+/*
+ * The observer family. The differential harness against the reference's
+ * motor/foc_math.c is the real proof (all seven types bit-identical over 4000
+ * steps); this keeps the port's own suite honest about two things the harness
+ * cannot cover from here: that the selector actually selects, and that every
+ * type stays inside the reference's flux clamp.
+ */
+static void test_foc_observer_family(void **state) {
+    (void)state;
+    const float lambda = 0.00245f;
+    const float dt = 5e-5f;
+    float first_x1[7];
+    float first_phase[7];
+
+    for (int type = 0; type < 7; type++) {
+        foc_observer_t obs;
+        foc_observer_init(&obs, lambda);
+
+        for (int n = 0; n < 500; n++) {
+            float t = (float)n * dt;
+            float ia = 5.0f * sinf(2.0f * (float)M_PI * 60.0f * t);
+            float ib = 5.0f * cosf(2.0f * (float)M_PI * 60.0f * t);
+            float va = 3.0f * cosf(2.0f * (float)M_PI * 60.0f * t);
+            float vb = 3.0f * sinf(2.0f * (float)M_PI * 60.0f * t);
+            foc_observer_update(&obs, va, vb, ia, ib, dt, 0.015f, 7e-6f, lambda, 9.0e5f,
+                                (foc_observer_type_t)type);
+        }
+
+        /*
+         * What the reference actually guarantees, per type: the *_LAMBDA_COMP
+         * variants clamp their flux estimate into [0.3, 2.5] * lambda; the plain
+         * Ortega and MXV branches have no state clamp at all, so asserting one for
+         * them would be inventing a property the reference does not have.
+         */
+        assert_false(isnan(obs.phase));
+        assert_false(isnan(obs.x1));
+        assert_false(isnan(obs.x2));
+        assert_false(isnan(obs.lambda_est));
+
+        bool clamps_lambda = (type == FOC_OBSERVER_ORTEGA_LAMBDA_COMP) ||
+                             (type == FOC_OBSERVER_MXLEMMING_LAMBDA_COMP) ||
+                             (type == FOC_OBSERVER_MXV_LAMBDA_COMP) ||
+                             (type == FOC_OBSERVER_MXV_LAMBDA_COMP_LIN);
+        if (clamps_lambda) {
+            assert_true(obs.lambda_est >= lambda * 0.3f - 1e-9f);
+            assert_true(obs.lambda_est <= lambda * 2.5f + 1e-9f);
+        }
+        first_x1[type] = obs.x1;
+        first_phase[type] = obs.phase;
+    }
+
+    /* Selecting a different algorithm must produce a different state, or the
+     * selector is decorative. */
+    assert_true(fabsf(first_x1[0] - first_x1[1]) > 1e-6f);
+    assert_true(fabsf(first_phase[0] - first_phase[1]) > 1e-6f);
+}
+
+/*
+ * PLL (reference foc_math.c:225 foc_pll_run). It tracks the phase it is fed and
+ * its speed output is the electrical speed the control path uses; with a phase
+ * advancing at a constant rate the speed must settle on that rate.
+ */
+static void test_foc_pll_tracks_phase_rate(void **state) {
+    (void)state;
+    foc_pll_t pll = {.phase = 0.0f, .speed = 0.0f};
+
+    const float dt = 5e-5f;
+    const float rate = 2.0f * (float)M_PI * 100.0f; /* 100 Hz electrical */
+    float phase = 0.0f;
+
+    for (int n = 0; n < 20000; n++) {
+        phase += rate * dt;
+        while (phase >= (float)M_PI) {
+            phase -= 2.0f * (float)M_PI;
+        }
+        foc_pll_run(&pll, phase, dt, 2000.0f, 30000.0f);
+    }
+
+    assert_float_equal(pll.speed, rate, rate * 0.02f);
+    assert_false(isnan(pll.phase));
+    assert_true(fabsf(pll.phase) <= (float)M_PI);
+
+    /* A NaN on either state is cleared rather than latched. */
+    pll.phase = NAN;
+    pll.speed = NAN;
+    foc_pll_run(&pll, 0.5f, dt, 2000.0f, 30000.0f);
+    assert_false(isnan(pll.phase));
+    assert_false(isnan(pll.speed));
+}
+
+/* Test 7: Speed and Position Control Modes */
+static void test_foc_core_modes(void **state) {
+    (void)state;
+
+    mock_inverter_t inv_mock = {0};
+    foc_inverter_port_t inv_port = {
+        .set_duty = mock_set_duty, .set_phase_state = mock_set_phase_state, .self = &inv_mock};
+    mock_current_sensor_t cs_mock = {.v_bus = 24.0f};
+    foc_current_port_t cs_port = {
+        .read_currents = mock_read_currents, .read_vbus = mock_read_vbus, .self = &cs_mock};
+    mock_rotor_sensor_t rs_mock = {.angle_rad = 0.5f, .rpm = 500.0f};
+    foc_rotor_port_t rs_port = {.read_angle = mock_read_angle, .self = &rs_mock};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = 300.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f};
+
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    /* Test RPM mode */
+    assert_int_equal(foc_core_set_rpm(&foc, 1000.0f), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_RUNNING_RPM);
+    assert_int_equal(foc_core_fast_loop(&foc, 0.00005f), EDGE_OK);
+
+    /* Test Pos mode */
+    assert_int_equal(foc_core_set_pos(&foc, 90.0f), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_RUNNING_POS);
+    assert_int_equal(foc_core_fast_loop(&foc, 0.00005f), EDGE_OK);
+
+    /* Test Handbrake mode: a mode of its own, with the setpoint on the q axis. The port
+     * used to write the d axis and return RUNNING_CURRENT, which made it a plain current
+     * command that happened to brake. */
+    assert_int_equal(foc_core_set_handbrake(&foc, 15.0f), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_HANDBRAKE);
+    assert_float_equal(foc.target_iq, 15.0f, 1e-6f);
+    assert_int_equal(foc_core_fast_loop(&foc, 0.00005f), EDGE_OK);
+}
+
+/*
+ * The reference firmware's util/utils_math.c utils_fast_sincos_better - a parabola
+ * fit plus one 0.225 refinement pass, deliberately not exact. Golden values come
+ * from running the reference; tolerance is well below the fit's residual error
+ * (up to 0.0011), so replacing this with sinf/cosf fails the test.
+ */
+static void test_foc_math_sincos_matches_reference(void **state) {
+    (void)state;
+    static const struct {
+        float angle;
+        float sin_v;
+        float cos_v;
+    } golden[] = {
+        {0.0f, 0.0f, 1.0f},
+        {0.5235988f, 0.5f, 0.8666666f},
+        {1.5707963f, 1.0f, 0.0000001f},
+        {-2.0f, -0.9097958f, -0.4157479f},
+        {2.5f, 0.5988864f, -0.8018935f},
+    };
+
+    for (size_t i = 0; i < sizeof golden / sizeof golden[0]; i++) {
+        float s = 0.0f;
+        float c = 0.0f;
+        foc_fast_sincos(golden[i].angle, &s, &c);
+        assert_float_equal(s, golden[i].sin_v, 1e-6f);
+        assert_float_equal(c, golden[i].cos_v, 1e-6f);
+    }
+}
+
+/*
+ * Two guards the reference observer has and a naive rewrite drops: a NaN sample
+ * must not poison x1/x2 permanently, and a flux vector that collapses towards
+ * zero must be lifted, or atan2 jumps by half a turn on noise alone.
+ *
+ * Note the scope: the reference guards its state, not its inputs, so a NaN sample
+ * still yields a NaN phase for that sample. What must hold is that the observer
+ * recovers on the next valid sample.
+ */
+static void test_foc_observer_nan_and_flux_floor(void **state) {
+    (void)state;
+    foc_observer_t obs;
+
+    foc_observer_init(&obs, 0.005f);
+    foc_observer_update(&obs, NAN, NAN, NAN, NAN, 5e-5f, 0.05f, 5e-5f, 0.005f, 1000.0f,
+                        FOC_OBSERVER_ORTEGA_ORIGINAL);
+    assert_false(isnan(obs.x1));
+    assert_false(isnan(obs.x2));
+
+    /* Still usable afterwards: one bad sample is not a latched failure. */
+    foc_observer_update(&obs, 1.0f, 0.0f, 0.1f, 0.0f, 5e-5f, 0.05f, 5e-5f, 0.005f, 1000.0f,
+                        FOC_OBSERVER_ORTEGA_ORIGINAL);
+    assert_false(isnan(obs.phase));
+    foc_observer_update(&obs, 1.0f, 0.0f, 0.1f, 0.0f, 5e-5f, 0.05f, 5e-5f, 0.005f, 1000.0f,
+                        FOC_OBSERVER_ORTEGA_ORIGINAL);
+    assert_false(isnan(obs.phase));
+
+    /* Start below half the configured linkage and let the floor lift the vector. */
+    foc_observer_init(&obs, 0.001f);
+    foc_observer_update(&obs, 0.0f, 0.0f, 0.0f, 0.0f, 5e-5f, 0.05f, 5e-5f, 0.005f, 0.0f,
+                        FOC_OBSERVER_ORTEGA_ORIGINAL);
+    assert_float_equal(obs.x1, 0.001f * 1.1f, 1e-6f);
+    assert_float_equal(obs.x2, 0.0f, 1e-6f);
+}
+
+/*
+ * Parameter compensation. The differential harness proves the whole chain against
+ * the reference (four combinations of saturation mode and temperature
+ * compensation, bit-exact); these assertions keep each rule individually visible,
+ * so a change to one of them fails by name rather than inside a blob comparison.
+ */
+static void test_foc_observer_adjust_params(void **state) {
+    (void)state;
+    const float r = 0.015f, l = 7e-6f, lambda = 0.00245f;
+    float ra = 0.0f, la = 0.0f, lwa = 0.0f;
+
+    /* Disabled: parameters come back untouched. */
+    foc_observer_adjust_params(r, l, lambda, 0.0f, 0.0f, 0.0f, 0.0f, 60.0f, lambda, 0.0f,
+                               FOC_SAT_COMP_DISABLED, 0.0f, false, FOC_OBSERVER_ORTEGA_ORIGINAL,
+                               &ra, &la, &lwa);
+    assert_float_equal(ra, r, 1e-9f);
+    assert_float_equal(la, l, 1e-9f);
+    assert_float_equal(lwa, lambda, 1e-9f);
+
+    /* FACTOR: L and lambda shrink by sat_comp * (i_abs_filter / l_current_max). */
+    float fact = 0.25f * (30.0f / 60.0f);
+    foc_observer_adjust_params(r, l, lambda, 0.0f, 0.0f, 0.0f, 30.0f, 60.0f, lambda, 0.25f,
+                               FOC_SAT_COMP_FACTOR, 0.0f, false, FOC_OBSERVER_ORTEGA_ORIGINAL, &ra,
+                               &la, &lwa);
+    assert_float_equal(la, l - l * fact, 1e-12f);
+    assert_float_equal(lwa, lambda - lambda * fact, 1e-12f);
+    assert_float_equal(ra, r, 1e-9f); /* this branch leaves R alone */
+
+    /* Temperature compensation replaces R with the model's value. */
+    foc_observer_adjust_params(r, l, lambda, 0.0f, 0.0f, 0.0f, 0.0f, 60.0f, lambda, 0.0f,
+                               FOC_SAT_COMP_DISABLED, 0.021f, true, FOC_OBSERVER_ORTEGA_ORIGINAL,
+                               &ra, &la, &lwa);
+    assert_float_equal(ra, 0.021f, 1e-9f);
+
+    /* Saliency moves L by ld_lq_diff's projection on iq, and only above the
+     * reference's 0.1 A gate. */
+    float ld_lq = 2.5e-6f, id = 4.0f, iq = 6.0f;
+    foc_observer_adjust_params(r, l, lambda, ld_lq, id, iq, 0.0f, 60.0f, lambda, 0.0f,
+                               FOC_SAT_COMP_DISABLED, 0.0f, false, FOC_OBSERVER_ORTEGA_ORIGINAL,
+                               &ra, &la, &lwa);
+    assert_float_equal(la, l - ld_lq / 2.0f + ld_lq * (iq * iq) / (id * id + iq * iq), 1e-12f);
+    foc_observer_adjust_params(r, l, lambda, ld_lq, 0.05f, 0.05f, 0.0f, 60.0f, lambda, 0.0f,
+                               FOC_SAT_COMP_DISABLED, 0.0f, false, FOC_OBSERVER_ORTEGA_ORIGINAL,
+                               &ra, &la, &lwa);
+    assert_float_equal(la, l, 1e-12f);
+
+    /* LAMBDA scales L by the live flux estimate, for the observers that track one. */
+    float l_est = lambda * 0.6f;
+    foc_observer_adjust_params(r, l, lambda, 0.0f, 0.0f, 0.0f, 0.0f, 60.0f, l_est, 0.0f,
+                               FOC_SAT_COMP_LAMBDA, 0.0f, false, FOC_OBSERVER_MXV, &ra, &la, &lwa);
+    assert_float_equal(la, l * (l_est / lambda), 1e-12f);
+    foc_observer_adjust_params(r, l, lambda, 0.0f, 0.0f, 0.0f, 0.0f, 60.0f, l_est, 0.0f,
+                               FOC_SAT_COMP_LAMBDA, 0.0f, false, FOC_OBSERVER_ORTEGA_ORIGINAL, &ra,
+                               &la, &lwa);
+    assert_float_equal(la, l, 1e-12f);
+}
+
+/*
+ * Speed PID. The differential harness proves it against the reference's
+ * foc_run_pid_control_speed bit-exactly (four configurations, comparing the iq
+ * setpoint and the ramped internal setpoint every step); this keeps the release
+ * path, the ramp rate and the braking clamp individually visible.
+ */
+static void test_foc_run_pid_speed(void **state) {
+    (void)state;
+    foc_speed_pid_t pid = {0};
+    foc_speed_pid_params_t p = {.kp = 0.0048f,
+                                .ki = 0.02f,
+                                .kd = 0.0001f,
+                                .kd_filter = 0.1f,
+                                .ramp_erpms_s = 1000.0f,
+                                .min_erpm = 100.0f,
+                                .openloop_rpm = 700.0f,
+                                .l_min_erpm = -100000.0f,
+                                .l_max_erpm = 100000.0f,
+                                .lo_current_max = 60.0f,
+                                .current_max_scale = 1.0f,
+                                .allow_braking = false,
+                                .invert_direction = false};
+    float iq = 0.0f;
+
+    /* Below the minimum setpoint the loop releases the motor. */
+    foc_run_pid_speed(&pid, &p, true, true, 0.0f, 50.0f, 0.001f, &iq);
+    assert_float_equal(iq, 0.0f, 1e-9f);
+
+    /* Not in speed mode: the setpoint is left alone, the loop state is cleared. */
+    iq = 12.0f;
+    pid.set_rpm = 500.0f;
+    pid.i_term = 0.3f;
+    foc_run_pid_speed(&pid, &p, false, true, 0.0f, 0.0f, 0.001f, &iq);
+    assert_float_equal(iq, 12.0f, 1e-9f);
+    assert_float_equal(pid.i_term, 0.0f, 1e-9f);
+
+    /* The setpoint ramps toward the command at ramp_erpms_s * dt. */
+    pid.set_rpm = 0.0f;
+    foc_run_pid_speed(&pid, &p, true, true, 0.0f, 2000.0f, 0.001f, &iq);
+    assert_float_equal(pid.set_rpm, 1.0f, 1e-5f);
+
+    /* Braking disabled: a negative output while spinning forward is refused. */
+    pid.set_rpm = 700.0f;
+    pid.i_term = 0.0f;
+    pid.prev_error = 0.0f;
+    pid.d_filter = 0.0f;
+    foc_run_pid_speed(&pid, &p, true, true, 1500.0f, 700.0f, 0.001f, &iq);
+    assert_float_equal(iq, 0.0f, 1e-9f);
+
+    /* Same command with braking allowed produces a negative (braking) setpoint. */
+    p.allow_braking = true;
+    pid.i_term = 0.0f;
+    pid.prev_error = 0.0f;
+    pid.d_filter = 0.0f;
+    foc_run_pid_speed(&pid, &p, true, true, 1500.0f, 700.0f, 0.001f, &iq);
+    assert_true(iq < 0.0f);
+    p.allow_braking = false;
+
+    /* The ramp comes down as well as up: 700 toward 200 moves one step, not to the target. */
+    pid.set_rpm = 700.0f;
+    foc_run_pid_speed(&pid, &p, true, true, 0.0f, 200.0f, 0.001f, &iq);
+    assert_float_equal(pid.set_rpm, 699.0f, 1e-4f);
+
+    /* Without the index the openloop limit holds the setpoint, whichever way it points. */
+    pid.set_rpm = 5000.0f;
+    foc_run_pid_speed(&pid, &p, true, false, 0.0f, 5000.0f, 0.001f, &iq);
+    assert_float_equal(pid.set_rpm, 700.0f, 1e-4f);
+    pid.set_rpm = -5000.0f;
+    foc_run_pid_speed(&pid, &p, true, false, 0.0f, -5000.0f, 0.001f, &iq);
+    assert_float_equal(pid.set_rpm, -700.0f, 1e-4f);
+
+    /* An inverted direction swaps the limits, so the clamp is the negated pair and the
+     * truncation is what holds the setpoint, at both ends. */
+    p.invert_direction = true;
+    pid.set_rpm = 200000.0f;
+    foc_run_pid_speed(&pid, &p, true, true, 0.0f, 200000.0f, 0.001f, &iq);
+    assert_float_equal(pid.set_rpm, 100000.0f, 1.0f);
+    pid.set_rpm = -200000.0f;
+    foc_run_pid_speed(&pid, &p, true, true, 0.0f, -200000.0f, 0.001f, &iq);
+    assert_float_equal(pid.set_rpm, -100000.0f, 1.0f);
+    p.invert_direction = false;
+}
+
+/*
+ * Field weakening against the reference's own output. The vectors come from compiling
+ * motor/foc_math.c's foc_run_fw in the harness described in docs/bldc-migration.md and
+ * feeding it these exact inputs, so they are the reference's numbers and not this port's.
+ */
+static void test_foc_run_fw_matches_reference(void **state) {
+    (void)state;
+    const foc_fw_params_t p = {.current_max = 30.0f,
+                               .duty_start = 0.8f,
+                               .backoff = 2.0f,
+                               .ramp_time = 0.5f,
+                               .l_max_duty = 0.95f,
+                               .cc_min_current = 0.05f};
+    foc_fw_state_t st = {.duty_abs_filtered = 0.5f,
+                         .iq = 5.0f,
+                         .iq_target = 5.0f,
+                         .speed_erpm = 1000.0f,
+                         .i_fw_set = 0.0f};
+
+    /* Below duty_start * l_max_duty (0.76): nothing happens. */
+    foc_run_fw(&st, &p, true, 0.001f);
+    assert_float_equal(st.i_fw_set, 0.0f, 1e-6f);
+
+    /* Just above it: the ramp moves by dt / ramp_time * current_max = 0.06. */
+    st.duty_abs_filtered = 0.77f;
+    foc_run_fw(&st, &p, true, 0.001f);
+    assert_float_equal(st.i_fw_set, 0.060000002f, 1e-6f);
+
+    /* Well above it, with iq equal to its target: the same step. */
+    st.duty_abs_filtered = 0.9f;
+    st.i_fw_set = 0.0f;
+    foc_run_fw(&st, &p, true, 0.001f);
+    assert_float_equal(st.i_fw_set, 0.060000002f, 1e-6f);
+
+    /* iq overshooting its target collapses the map's upper end, so the step lands on 0. */
+    st.iq = 20.0f;
+    st.iq_target = 5.0f;
+    st.i_fw_set = 0.0f;
+    foc_run_fw(&st, &p, true, 0.001f);
+    assert_float_equal(st.i_fw_set, 0.0f, 1e-6f);
+
+    /* Negative speed flips the backoff's sign, so no backoff is applied here. */
+    st.speed_erpm = -1000.0f;
+    foc_run_fw(&st, &p, true, 0.001f);
+    assert_float_equal(st.i_fw_set, 0.060000002f, 1e-6f);
+
+    /* A dt longer than the ramp time snaps to the mapped value instead of stepping:
+     * duty 0.9 between 0.76 and 0.95 maps to 30 * 0.14 / 0.19. */
+    st.speed_erpm = 1000.0f;
+    st.iq = 5.0f;
+    st.i_fw_set = 0.0f;
+    foc_run_fw(&st, &p, true, 0.6f);
+    assert_float_equal(st.i_fw_set, 22.105262756f, 1e-5f);
+
+    /* From a live setpoint it steps towards that value. */
+    st.i_fw_set = 10.0f;
+    foc_run_fw(&st, &p, true, 0.001f);
+    assert_float_equal(st.i_fw_set, 10.060000420f, 1e-5f);
+
+    /* With FW configured off the function returns before touching the setpoint. */
+    foc_fw_params_t off = p;
+    off.current_max = 0.0f;
+    st.i_fw_set = 0.0f;
+    foc_run_fw(&st, &off, true, 0.001f);
+    assert_float_equal(st.i_fw_set, 0.0f, 1e-6f);
+
+    /* The mode gate: outside the FW modes it only continues while a setpoint is live, so a
+     * mode change cannot strand one. */
+    st.duty_abs_filtered = 0.9f;
+    st.i_fw_set = 0.0f;
+    foc_run_fw(&st, &p, false, 0.001f);
+    assert_float_equal(st.i_fw_set, 0.0f, 1e-6f);
+
+    st.i_fw_set = 1.0f;
+    foc_run_fw(&st, &p, false, 0.001f);
+    assert_true(st.i_fw_set > 1.0f);
+}
+
+/*
+ * MTPA, reference mcpwm_foc.c:3627-3639. The block is inline in the reference rather than a
+ * function, so this is a transcription checked by reading plus the invariants below: the
+ * d-axis setpoint goes negative for a positive q demand, the q setpoint shrinks, the
+ * relation between the two holds, and iq_ref comes from the measured filtered current in the
+ * measured mode. The 8.0/4.0 literals are doubles in the reference and stay doubles here.
+ */
+static void test_foc_apply_mtpa(void **state) {
+    (void)state;
+    const float lambda = 0.00245f;
+    const float ld_lq_diff = 1.0e-5f;
+
+    /* Mode off, and no saliency: nothing is touched. */
+    float iq = 10.0f;
+    float id = 0.5f;
+    foc_apply_mtpa(FOC_MTPA_MODE_OFF, ld_lq_diff, lambda, 10.0f, &iq, &id);
+    assert_float_equal(id, 0.5f, 1e-9f);
+    assert_float_equal(iq, 10.0f, 1e-9f);
+
+    foc_apply_mtpa(FOC_MTPA_MODE_IQ_TARGET, 0.0f, lambda, 10.0f, &iq, &id);
+    assert_float_equal(id, 0.5f, 1e-9f);
+    assert_float_equal(iq, 10.0f, 1e-9f);
+
+    /* iq target mode. */
+    iq = 10.0f;
+    id = 0.0f;
+    foc_apply_mtpa(FOC_MTPA_MODE_IQ_TARGET, ld_lq_diff, lambda, 3.0f, &iq, &id);
+    assert_true(id < 0.0f);
+    assert_true(iq > 0.0f);
+    assert_true(iq < 10.0f);
+    /* The MTPA relation the reference's formula encodes. */
+    const float expected_id =
+        (lambda - sqrtf(lambda * lambda + 8.0 * (ld_lq_diff * 10.0f) * (ld_lq_diff * 10.0f))) /
+        (4.0 * ld_lq_diff);
+    assert_float_equal(id, expected_id, 1e-6f);
+
+    /* Measured mode uses the filtered current when it is the smaller magnitude. */
+    float iq_m = 10.0f;
+    float id_m = 0.0f;
+    float iq_t = 10.0f;
+    float id_t = 0.0f;
+    foc_apply_mtpa(FOC_MTPA_MODE_IQ_MEASURED, ld_lq_diff, lambda, 4.0f, &iq_m, &id_m);
+    foc_apply_mtpa(FOC_MTPA_MODE_IQ_TARGET, ld_lq_diff, lambda, 4.0f, &iq_t, &id_t);
+    assert_true(id_m > id_t); /* |iq_ref| is 4 instead of 10, so less d-axis is needed */
+    assert_float_equal(
+        id_t,
+        (lambda - sqrtf(lambda * lambda + 8.0 * (ld_lq_diff * 10.0f) * (ld_lq_diff * 10.0f))) /
+            (4.0 * ld_lq_diff),
+        1e-6f);
+    assert_float_equal(
+        id_m,
+        (lambda - sqrtf(lambda * lambda + 8.0 * (ld_lq_diff * 4.0f) * (ld_lq_diff * 4.0f))) /
+            (4.0 * ld_lq_diff),
+        1e-6f);
+}
+
+/*
+ * The battery level, reference mc_interface_get_battery_level() with
+ * utils_batt_liion_norm_v_to_capacity(). The polynomial is transcribed, so this pins the
+ * properties that make it that curve instead of re-implementing it: zero at and below the empty
+ * cell voltage, one at the full one, monotonic in between, clamped outside the range, and the
+ * reference's own 0/0 for an unknown chemistry - which is NaN, and not a number to invent a
+ * replacement for.
+ */
+static void test_foc_battery_level(void **state) {
+    (void)state;
+
+    /* The five coefficients sum to the full-charge capacity, and everything vanishes at zero. */
+    assert_float_equal(foc_batt_liion_norm_v_to_capacity(0.0f), 0.0f, 1e-6f);
+    assert_float_equal(foc_batt_liion_norm_v_to_capacity(1.0f), 0.999587f, 1e-5f);
+    /* Clamped outside [0, 1], as the reference truncates it. */
+    assert_float_equal(foc_batt_liion_norm_v_to_capacity(3.0f),
+                       foc_batt_liion_norm_v_to_capacity(1.0f), 1e-9f);
+    assert_float_equal(foc_batt_liion_norm_v_to_capacity(-2.0f), 0.0f, 1e-6f);
+
+    const uint8_t liion = FOC_BATTERY_TYPE_LIION_3_0__4_2;
+    float wh_left = -1.0f;
+
+    /* A 10-cell, 10 Ah pack at 3.2 V per cell is empty. */
+    assert_float_equal(foc_battery_level(liion, 10, 10.0f, 32.0f, &wh_left), 0.0f, 1e-6f);
+    assert_float_equal(wh_left, 0.0f, 1e-6f);
+
+    /* At 4.2 V per cell it is full: the polynomial's 0.999587 of an 8.5 Ah usable capacity. */
+    const float full = foc_battery_level(liion, 10, 10.0f, 42.0f, &wh_left);
+    assert_float_equal(full, 0.999587f, 1e-4f);
+    assert_float_equal(wh_left, 8.5f * 0.999587f * 37.0f, 1e-2f);
+
+    /* Monotonic in between. */
+    float previous = -1.0f;
+    for (float v = 32.0f; v <= 42.0f; v += 2.0f) {
+        const float level = foc_battery_level(liion, 10, 10.0f, v, NULL);
+        assert_true(level >= previous);
+        previous = level;
+    }
+
+    /* An unknown chemistry divides zero by zero, as the reference does. */
+    assert_true(isnan(foc_battery_level(9u, 10, 10.0f, 42.0f, &wh_left)));
+
+    /* Lithium iron phosphate, 2.6 to 3.6 V per cell: 10 cells at 3.0 V each is 4 of 10 Ah left,
+     * averaged against (2.8 * cells + v_in) / 2. 116 / (10 * 32) = 0.3625. */
+    const uint8_t liiron = FOC_BATTERY_TYPE_LIIRON_2_6__3_6;
+    assert_float_equal(foc_battery_level(liiron, 10, 10.0f, 30.0f, &wh_left), 0.3625f, 1e-4f);
+    assert_float_equal(wh_left, 4.0f * 29.0f, 1e-3f);
+    /* Empty at the bottom of its own range and full at the top: no 0.85 derating on this
+     * chemistry, unlike the li-ion one, which keeps its polynomial. */
+    assert_float_equal(foc_battery_level(liiron, 10, 10.0f, 26.0f, &wh_left), 0.0f, 1e-6f);
+    assert_float_equal(foc_battery_level(liiron, 10, 10.0f, 36.0f, &wh_left), 1.0f, 1e-4f);
+
+    /* Lead acid, a much narrower range at 2.1 to 2.36 V per cell: 2.23 V each is half of it, so
+     * 5 of 10 Ah left. 108.25 / (10 * 22.3) = 0.485426. */
+    const uint8_t lead = FOC_BATTERY_TYPE_LEAD_ACID;
+    assert_float_equal(foc_battery_level(lead, 10, 10.0f, 22.3f, &wh_left), 0.485426f, 1e-4f);
+    assert_float_equal(wh_left, 5.0f * 21.65f, 1e-3f);
+    assert_float_equal(foc_battery_level(lead, 10, 10.0f, 21.0f, &wh_left), 0.0f, 1e-6f);
+}
+
+/*
+ * The temperature model behind foc_temp_comp: 1.0 + 0.00386 * (motor_temp - base_temp), the
+ * expression from the reference's timer_update (mcpwm_foc.c:3942).
+ *
+ * The last case pins the shape rather than the arithmetic. The reference writes 1.0 and 0.00386
+ * as double literals, so the product is evaluated in double and only the result is narrowed to
+ * float; as float literals the same expression gives 0x1.7f8a08p-1 here instead. A port that
+ * "tidied" the literals would fail on this one value, which is the point of picking it.
+ */
+static void test_foc_temp_comp_factor(void **state) {
+    (void)state;
+    /* At the base temperature the factor is exactly one: the model is neutral there. */
+    assert_float_equal(foc_temp_comp_factor(25.0f, 25.0f), 1.0f, 0.0f);
+    /* And the coefficient is the reference's 0.00386 per degree. */
+    assert_float_equal(foc_temp_comp_factor(125.0f, 25.0f), 1.386f, 1e-6f);
+    /* Below the base it falls below one, in the same proportion. */
+    assert_float_equal(foc_temp_comp_factor(5.0f, 25.0f), 0.9228f, 1e-6f);
+    assert_true(foc_temp_comp_factor(5.0f, 25.0f) < 1.0f);
+    /* The double-literal case. */
+    assert_true(foc_temp_comp_factor(-40.0f, 25.0f) == 0x1.7f8a0ap-1f);
+}
+
+/*
+ * One temperature-compensation scenario: build a core, run it at a fixed command, and report
+ * the duty magnitude it settled on. Everything except the temperature model, the observer mode
+ * and ki is identical between runs, which is what makes their outputs comparable.
+ *
+ * With out_stats non-null the module is polled once more first, because that poll is where the
+ * statistics sampler runs (as the reference's updater thread does), and the stats are read back.
+ */
+static float run_temp_comp_case(bool temp_comp, bool sensorless, float motor_temp_c,
+                                float current_ki, foc_stats_t *out_stats) {
+    sim_context_t sim;
+    sim.v_bus = 24.0f;
+    sim.inv.enabled = false;
+    foc_virtual_motor_init(&sim.vm, 0.05f, 0.00005f, 0.005f, 7, 0.0005f);
+
+    foc_inverter_port_t inv_port = {
+        .set_duty = sim_set_duty, .set_phase_state = sim_set_phase_state, .self = &sim};
+    foc_current_port_t cs_port = {
+        .read_currents = sim_read_currents, .read_vbus = sim_read_vbus, .self = &sim};
+    foc_rotor_port_t rs_port = {.read_angle = sim_read_angle, .self = &sim};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = current_ki,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .current_filter_const = 0.1f,
+                        .sensorless_mode = sensorless,
+                        .temp_comp = temp_comp,
+                        .temp_comp_base_temp = 25.0f};
+
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    foc_core_set_motor_temperature(&foc, motor_temp_c);
+    assert_int_equal(foc_core_set_current(&foc, 5.0f, 0.0f), EDGE_OK);
+
+    for (int step = 0; step < 400; step++) {
+        assert_int_equal(foc_core_fast_loop(&foc, 0.00005f), EDGE_OK);
+        foc_virtual_motor_step(&sim.vm, foc.v_alpha, foc.v_beta, 0.0f, 0.00005f, 0.05f);
+    }
+
+    if (out_stats != (void *)0) {
+        assert_int_equal(foc.module.poll(&foc.module), EDGE_OK);
+        foc_core_get_stats(&foc, out_stats);
+    }
+
+    foc_telemetry_t telem;
+    foc_core_get_telemetry(&foc, &telem);
+    return fabsf(telem.duty_now);
+}
+
+/*
+ * Temperature compensation as the loop sees it. Both of its consumers are gated on foc_temp_comp
+ * and both are fed by the same cycle-time recomputation, so:
+ *
+ *   - at the base temperature the factor is exactly one, and the run must be bit-for-bit the
+ *     uncompensated one (not merely close: the parameters are the same floats);
+ *   - below the reference's -30 degC floor the plain parameters are used, so that run must match
+ *     the uncompensated one exactly as well;
+ *   - a hot motor scales the current loop's ki, which shows up as a larger commanded voltage for
+ *     the same current error;
+ *   - with ki taken out of the picture entirely (ki = 0) the observer is the only consumer left,
+ *     and its resistance is a different number, so the flux estimate and the angle it produces
+ *     differ and the commanded voltage differs with them;
+ *   - the statistics sampler reports the same motor temperature the model was given.
+ */
+static void test_foc_core_temp_compensation(void **state) {
+    (void)state;
+
+    const float plain = run_temp_comp_case(false, false, 125.0f, 300.0f, NULL);
+    assert_true(plain > 0.0f);
+
+    /* Neutral at the base temperature, and at the floor. */
+    assert_true(run_temp_comp_case(true, false, 25.0f, 300.0f, NULL) == plain);
+    assert_true(run_temp_comp_case(true, false, -40.0f, 300.0f, NULL) == plain);
+    /* Exactly at the floor's edge the model is still applied. */
+    assert_true(run_temp_comp_case(true, false, -29.9f, 300.0f, NULL) != plain);
+
+    /* A hot motor raises ki, so the same current error integrates further. */
+    const float hot = run_temp_comp_case(true, false, 125.0f, 300.0f, NULL);
+    assert_true(hot > plain);
+
+    /* With no integral action, the observer's resistance is the only difference left. */
+    const float observer_plain = run_temp_comp_case(false, true, 125.0f, 0.0f, NULL);
+    const float observer_hot = run_temp_comp_case(true, true, 125.0f, 0.0f, NULL);
+    assert_true(observer_plain > 0.0f);
+    assert_true(observer_hot != observer_plain);
+
+    /* And the sampler reports the temperature the model was given. */
+    foc_stats_t st;
+    (void)run_temp_comp_case(true, false, 125.0f, 300.0f, &st);
+    assert_float_equal(st.temp_motor_max, 125.0f, 1e-4f);
+    assert_float_equal(st.temp_motor_avg, 125.0f, 1e-4f);
+}
+
+/*
+ * HFI's angle tracker against the reference. The 36 vectors below are the reference's own output
+ * for the sweep this test runs - the same errors, truncation limits, gains, speed bounds and dt,
+ * 400 steps per configuration, with the state carried across the whole sweep as the harness does -
+ * printed at 9 significant digits, which round-trips a float exactly. The harness links the
+ * reference's motor/foc_math.c unmodified; its recipe and stub headers are recorded in
+ * docs/bldc-migration.md.
+ *
+ * The sweep is chosen to reach the parts that matter: errors past foc_hfi_max_err so the
+ * truncation runs, angles driven past +-pi so the wrap runs (that wrap uses the reference's double
+ * literals), and speed estimates small enough that the double integrator clamps against them.
+ */
+static void test_foc_hfi_adjust_angle_matches_reference(void **state) {
+    (void)state;
+    static const struct {
+        float angle;
+        float double_integrator;
+        int ready;
+    } expected[] = {
+        {0.000799999165f, 0.0f, 1},      {0.00346211903f, 0.5f, 1},
+        {0.217055976f, 0.459999681f, 1}, {0.505047619f, 0.419999689f, 1},
+        {0.509047568f, 0.0f, 1},         {0.517307758f, 0.5f, 1},
+        {0.68943882f, 12.0f, 1},         {1.35343814f, 11.7999992f, 1},
+        {1.36743808f, 0.0f, 1},          {1.39556789f, 0.5f, 1},
+        {1.48528004f, 12.0f, 1},         {-0.0739083514f, 11.3000059f, 1},
+        {-0.0803080797f, 0.0f, 1},       {-0.0890275463f, 0.5f, 1},
+        {0.0476602651f, 12.0f, 1},       {2.81029153f, 12.1599932f, 1},
+        {2.83429146f, 0.0f, 1},          {2.87055826f, 0.5f, 1},
+        {2.9614079f, 12.0f, 1},          {2.98517442f, 11.4000244f, 1},
+        {3.13777423f, 0.0f, 1},          {-2.91639757f, 0.5f, 1},
+        {-2.5918293f, 12.0f, 1},         {1.42698669f, 474.764954f, 1},
+        {1.21098721f, 0.0f, 1},          {0.924039125f, 0.5f, 1},
+        {0.743338943f, 12.0f, 1},        {1.80465996f, 15.6000671f, 1},
+        {1.5646596f, 0.0f, 1},           {1.24493635f, 0.5f, 1},
+        {0.90211153f, 12.0f, 1},         {-0.80102706f, 852.000122f, 1},
+        {-0.662420392f, 0.0f, 1},        {-0.477517843f, 0.5f, 1},
+        {-0.222277343f, 12.0f, 1},       {-0.0761491582f, 900.0f, 1},
+    };
+    const float max_errs[] = {0.02f, 0.2f, 1.0f};
+    const float gains[] = {0.2f, 1.0f, 3.5f};
+    const float speeds[] = {0.0f, 0.5f, 12.0f, 900.0f};
+    assert_int_equal(sizeof(expected) / sizeof(expected[0]), 36u);
+
+    foc_hfi_state_t hfi_state = {0};
+    size_t index = 0u;
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            for (int k = 0; k < 4; k++) {
+                const float dt = 5.0e-5f * (float)(1 + i + k);
+                for (int step = 0; step < 400; step++) {
+                    const float ang_err =
+                        (float)(step - 200) * 0.01f * (float)(1 + j) + 0.007f * (float)i;
+                    foc_hfi_adjust_angle(ang_err, max_errs[i], gains[j], speeds[k], dt, &hfi_state);
+                }
+                assert_true(hfi_state.angle == expected[index].angle);
+                assert_true(hfi_state.double_integrator == expected[index].double_integrator);
+                assert_int_equal(hfi_state.ready ? 1 : 0, expected[index].ready);
+                assert_true(index < 36u);
+                index++;
+            }
+        }
+    }
+    assert_int_equal(index, 36u);
+
+    /* A null state is refused rather than written through. */
+    foc_hfi_adjust_angle(0.1f, 1.0f, 1.0f, 1.0f, 1e-4f, NULL);
+}
+
+/*
+ * The nine HFI DFT bins against the reference. The four rows are the reference's own output for the
+ * four input patterns below - an impulse, a ramp, a pseudo-random sequence and a clean bin-1
+ * sinusoid - printed at 9 significant digits, which round-trips a float exactly. The harness
+ * compiles one driver twice, against the reference's util/utils_math.c and against these functions,
+ * and a textual diff of the two runs is the comparison; docs/bldc-migration.md has the recipe.
+ *
+ * The bins matter because HFI's angle error is computed from them every control cycle, and they
+ * index tables of rounded six-decimal literals that cosf/sinf would not reproduce.
+ */
+static void test_foc_fft_bins_match_reference(void **state) {
+    (void)state;
+    static const float expected[][18] = {
+        {0.03125f, 0.0f, 0.0259834379f, -0.0173615627f, 0.011958844f, -0.0288712494f, 0.0625f, 0.0f,
+         0.0239176881f, -0.0577424988f, -0.044194188f, -0.044194188f, 0.125f, 0.0f, -0.0883883759f,
+         -0.0883883759f, 0.0f, 0.125f},
+        {-0.015625f, 0.0f, -0.0156250019f, 0.15864329f, -0.015625f, 0.0785521865f, -0.265625f, 0.0f,
+         -0.015625f, 0.0785522014f, -0.015625f, 0.0377220958f, -0.390625f, 0.0f, -0.0156250037f,
+         0.0377220921f, -0.015625f, 0.015625f},
+        {0.98379463f, 0.0f, -0.168508112f, -0.017366996f, -0.0415294059f, -0.098797448f,
+         0.955540419f, 0.0f, -0.115269512f, 0.0210615359f, -0.135867313f, -0.0104073174f,
+         0.820434928f, 0.0f, -0.254662961f, -0.0101622269f, -0.0271532536f, 0.263560861f},
+        {0.122598127f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.122598127f, 0.0f, 0.0f, 0.0f, 0.122598127f,
+         0.0f, 0.122598127f, 0.0f, 0.122598127f, 0.0f, 0.122598127f, 0.0f},
+    };
+
+    uint32_t rng_state = 12345u;
+    float buf[32];
+    for (int pattern = 0; pattern < 4; pattern++) {
+        for (int i = 0; i < 32; i++) {
+            switch (pattern) {
+            case 0:
+                buf[i] = (i == 3) ? 1.0f : 0.0f;
+                break;
+            case 1:
+                buf[i] = (float)i * 0.03125f - 0.5f;
+                break;
+            case 2:
+                rng_state = rng_state * 1664525u + 1013904223u;
+                buf[i] = (float)(int32_t)(rng_state >> 8) / 8388608.0f;
+                break;
+            default:
+                buf[i] = 0.980785f * (float)((i % 8) == 0 ? 1 : 0);
+                break;
+            }
+        }
+
+        float got[18];
+        foc_fft32_bin0(buf, &got[0], &got[1]);
+        foc_fft32_bin1(buf, &got[2], &got[3]);
+        foc_fft32_bin2(buf, &got[4], &got[5]);
+        foc_fft16_bin0(buf, &got[6], &got[7]);
+        foc_fft16_bin1(buf, &got[8], &got[9]);
+        foc_fft16_bin2(buf, &got[10], &got[11]);
+        foc_fft8_bin0(buf, &got[12], &got[13]);
+        foc_fft8_bin1(buf, &got[14], &got[15]);
+        foc_fft8_bin2(buf, &got[16], &got[17]);
+
+        for (int k = 0; k < 18; k++) {
+            assert_true(got[k] == expected[pattern][k]);
+        }
+    }
+}
+
+/*
+ * foc_core's guards. They are the same shape as motor_config's - one check per entry point, each
+ * its own branch - and the scenario tests cannot reach them because they always pass a real core.
+ * The void entry points are called with null too; there is nothing to assert about a function that
+ * promises to do nothing, and the point is that it does nothing rather than dereferencing.
+ */
+static void test_foc_core_guards(void **state) {
+    (void)state;
+    foc_core_construct(NULL, 1u, 1u, NULL, NULL, NULL, NULL);
+
+    assert_int_equal(foc_core_init(NULL), EDGE_EINVAL);
+    assert_int_equal(foc_core_deinit(NULL), EDGE_EINVAL);
+    assert_int_equal(foc_core_stop(NULL), EDGE_EINVAL);
+    assert_int_equal(foc_core_clear_faults(NULL), EDGE_EINVAL);
+    assert_int_equal(foc_core_fast_loop(NULL, 5e-5f), EDGE_EINVAL);
+
+    assert_int_equal(foc_core_set_current(NULL, 1.0f, 0.0f), EDGE_EINVAL);
+    assert_int_equal(foc_core_set_current_rel(NULL, 0.5f), EDGE_EINVAL);
+    assert_int_equal(foc_core_set_duty(NULL, 0.5f), EDGE_EINVAL);
+    assert_int_equal(foc_core_set_rpm(NULL, 1000.0f), EDGE_EINVAL);
+    assert_int_equal(foc_core_set_pos(NULL, 90.0f), EDGE_EINVAL);
+    assert_int_equal(foc_core_set_handbrake(NULL, 5.0f), EDGE_EINVAL);
+
+    /* A null core is not running and has no faults. */
+    assert_true(foc_core_get_state(NULL) != FOC_STATE_RUNNING_CURRENT);
+    assert_int_equal(foc_core_get_faults(NULL), 0u);
+
+    /* The rest promise to do nothing, and must not dereference to find that out. */
+    foc_core_get_telemetry(NULL, NULL);
+    foc_core_get_stats(NULL, NULL);
+    foc_core_stats_reset(NULL);
+    foc_core_read_reset_averages(NULL, 0u, NULL);
+    foc_core_set_fet_temperature(NULL, 40.0f);
+    foc_core_set_motor_temperature(NULL, 30.0f);
+    foc_core_set_phase_override(NULL, 0.0f, true);
+    foc_core_read_detect_samples(NULL, NULL, NULL, NULL);
+    foc_core_reset_detect_samples(NULL);
+    assert_ptr_equal(foc_core_module(NULL), NULL);
+
+    /* A core with real storage but no ports is refused at init, and doing so leaves the fault
+     * and state fields in a defined place rather than half-configured. */
+    foc_core_t core;
+    memset(&core, 0, sizeof(core));
+    foc_core_construct(&core, 1u, 1u, NULL, NULL, NULL, NULL);
+    assert_int_equal(foc_core_init(&core), EDGE_EINVAL);
+    assert_true((foc_core_get_faults(&core) & FOC_FAULT_INVALID_CONFIG) != 0u ||
+                foc_core_get_state(&core) == FOC_STATE_FAULT || foc_core_get_faults(&core) == 0u);
+}
+
+/*
+ * Branches in the math helpers that the existing cases do not reach: the sine approximation on the
+ * negative side and near +-pi, where it takes the other correction branch; the SVPWM guard for a
+ * bus voltage too small to modulate, which parks all three duties at half and reports sector 1,
+ * including the half of that guard with no sector output; the three transforms' arithmetic; and
+ * the battery curve clamping its argument instead of extrapolating.
+ */
+static void test_foc_math_helper_branches(void **state) {
+    (void)state;
+
+    /* Sine and cosine across the wrap, including the angles that take the other correction. */
+    for (int i = -40; i <= 40; i++) {
+        const float a = (float)i * 0.1570796f;
+        float s = 0.0f;
+        float c = 0.0f;
+        foc_fast_sincos(a, &s, &c);
+        assert_true(fabsf(s - sinf(a)) < 0.01f);
+        assert_true(fabsf(c - cosf(a)) < 0.01f);
+    }
+
+    /* Angles well outside one turn are wrapped rather than approximated. */
+    float s = 0.0f;
+    float c = 0.0f;
+    foc_fast_sincos(7.0f * (float)M_PI, &s, &c);
+    assert_true(fabsf(s) < 0.05f);
+
+    /* A bus voltage too small to modulate parks every duty at half. */
+    float da = 0.0f;
+    float db = 0.0f;
+    float dc = 0.0f;
+    uint32_t sector = 9u;
+    foc_svpwm(1.0f, 0.0f, 0.0f, 0.95f, &da, &db, &dc, &sector);
+    assert_float_equal(da, 0.5f, 1e-6f);
+    assert_float_equal(db, 0.5f, 1e-6f);
+    assert_float_equal(dc, 0.5f, 1e-6f);
+    assert_int_equal(sector, 1u);
+    /* ... and the same without a sector output. */
+    foc_svpwm(1.0f, 0.0f, 0.0f, 0.95f, &da, &db, &dc, NULL);
+
+    /* The transforms are each other's inverse at zero angle. */
+    float alpha = 0.0f;
+    float beta = 0.0f;
+    foc_clarke_transform(1.0f, -0.5f, -0.5f, &alpha, &beta);
+    assert_float_equal(alpha, 1.0f, 1e-6f);
+    assert_float_equal(beta, (1.0f + 2.0f * -0.5f) * ONE_BY_SQRT3, 1e-6f);
+
+    float id = 0.0f;
+    float iq = 0.0f;
+    foc_park_transform(alpha, beta, 0.0f, 1.0f, &id, &iq);
+    assert_float_equal(id, alpha, 1e-6f);
+    assert_float_equal(iq, beta, 1e-6f);
+
+    float va = 0.0f;
+    float vb = 0.0f;
+    foc_inv_park_transform(id, iq, 0.0f, 1.0f, &va, &vb);
+    assert_float_equal(va, alpha, 1e-6f);
+    assert_float_equal(vb, beta, 1e-6f);
+
+    /* The battery curve clamps rather than extrapolating, and the helpers clamp as written. */
+    assert_float_equal(foc_batt_liion_norm_v_to_capacity(2.0f),
+                       foc_batt_liion_norm_v_to_capacity(1.0f), 1e-6f);
+    assert_float_equal(foc_batt_liion_norm_v_to_capacity(-1.0f),
+                       foc_batt_liion_norm_v_to_capacity(0.0f), 1e-6f);
+
+    float v = 5.0f;
+    foc_truncate_number(&v, 0.0f, 1.0f);
+    assert_float_equal(v, 1.0f, 1e-6f);
+    v = -5.0f;
+    foc_truncate_number_abs(&v, 1.0f);
+    assert_float_equal(v, -1.0f, 1e-6f);
+}
+
+/*
+ * The saturation path that combines a lambda-scaled inductance with the factor, for an observer
+ * that tracks lambda and one that does not. The assertions are the branch's own arithmetic: the
+ * combined mode scales the inductance by the flux estimate and applies the factor to the
+ * inductance only - the reference leaves lambda itself alone there - and the saliency term applies
+ * on top of every mode, so it is part of the expected value rather than an afterthought.
+ *
+ * Battery chemistries were meant to be here too. They are not: what the curve does for a pack
+ * outside its own voltage range is not something this test has read, and inventing an expectation
+ * for it would be worse than leaving it uncovered. The battery level has its own case already.
+ */
+static void test_foc_math_sat_lambda_combination(void **state) {
+    (void)state;
+
+    float r = 0.0f;
+    float l = 0.0f;
+    float lambda = 0.0f;
+
+    /* Factor plus lambda scaling, with the observer that tracks lambda. */
+    foc_observer_adjust_params(0.05f, 1e-4f, 0.005f, 1e-5f, 1.0f, 0.5f, 2.0f, 10.0f, 0.004f, 0.2f,
+                               FOC_SAT_COMP_LAMBDA_AND_FACTOR, 0.06f, false,
+                               FOC_OBSERVER_MXLEMMING_LAMBDA_COMP, &r, &l, &lambda);
+    assert_true(l < 1e-4f);
+    /* The combined mode scales the inductance by the flux estimate and applies the factor to the
+     * inductance only: the reference leaves lambda itself alone in this branch. */
+    assert_float_equal(lambda, 0.005f, 1e-9f);
+
+    /* The same with temperature compensation on: the resistance comes from the model. */
+    foc_observer_adjust_params(0.05f, 1e-4f, 0.005f, 1e-5f, 1.0f, 0.5f, 2.0f, 10.0f, 0.004f, 0.2f,
+                               FOC_SAT_COMP_LAMBDA_AND_FACTOR, 0.06f, true,
+                               FOC_OBSERVER_MXLEMMING_LAMBDA_COMP, &r, &l, &lambda);
+    assert_float_equal(r, 0.06f, 1e-6f);
+
+    /* An observer that does not track lambda skips that half, so only the factor shrinks the
+     * inductance. */
+    foc_observer_adjust_params(0.05f, 1e-4f, 0.005f, 1e-5f, 1.0f, 0.5f, 2.0f, 10.0f, 0.004f, 0.2f,
+                               FOC_SAT_COMP_LAMBDA_AND_FACTOR, 0.06f, false,
+                               FOC_OBSERVER_ORTEGA_ORIGINAL, &r, &l, &lambda);
+    const float after_factor = 1e-4f * (1.0f - 0.2f * (2.0f / 10.0f));
+    /* The saliency term applies to every mode, so it is part of the expected value rather than an
+     * afterthought: l -= ld_lq_diff / 2 - ld_lq_diff * iq^2 / (id^2 + iq^2) with the currents that
+     * were passed in. */
+    const float after_saliency =
+        after_factor - 1e-5f / 2.0f + 1e-5f * (0.5f * 0.5f) / (1.0f * 1.0f + 0.5f * 0.5f);
+    assert_float_equal(l, after_saliency, 1e-10f);
+    assert_float_equal(lambda, 0.005f, 1e-9f);
+}
+
+/*
+ * The loop's port-failure paths and the module's own hooks. A sensor that cannot be read has to
+ * stop the cycle rather than run the control on stale numbers, and a lost rotor in sensored mode
+ * has to latch the sensor-lost fault - which is a different outcome from a bad bus reading, since
+ * one is a fault and the other is an error the caller can retry.
+ */
+static edge_status_t failing_currents(void *self, float *ia, float *ib, float *ic) {
+    (void)self;
+    *ia = 0.0f;
+    *ib = 0.0f;
+    *ic = 0.0f;
+    return EDGE_EIO;
+}
+
+static edge_status_t failing_vbus(void *self, float *v_bus) {
+    (void)self;
+    *v_bus = 24.0f;
+    return EDGE_EIO;
+}
+
+static edge_status_t failing_angle(void *self, float *angle_rad, float *rpm) {
+    (void)self;
+    *angle_rad = 0.0f;
+    *rpm = 0.0f;
+    return EDGE_EIO;
+}
+
+static void test_foc_core_loop_and_module_failures(void **state) {
+    (void)state;
+    mock_inverter_t inv;
+    mock_current_sensor_t cs;
+    mock_rotor_sensor_t rs;
+    memset(&inv, 0, sizeof(inv));
+    memset(&cs, 0, sizeof(cs));
+    memset(&rs, 0, sizeof(rs));
+    cs.v_bus = 24.0f;
+
+    foc_core_t core;
+    foc_core_t foc;
+    foc_inverter_port_t inv_port = {
+        .set_duty = mock_set_duty, .set_phase_state = mock_set_phase_state, .self = &inv};
+    foc_rotor_port_t rs_port = {.read_angle = mock_read_angle, .self = &rs};
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = 300.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = false};
+
+    /* A failing current read: the cycle reports the port's error. */
+    foc_current_port_t bad_cs_port = {
+        .read_currents = failing_currents, .read_vbus = mock_read_vbus, .self = &cs};
+    foc_core_construct(&core, 1u, 1u, &cfg, &inv_port, &bad_cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&core), EDGE_OK);
+    assert_int_equal(foc_core_set_current(&core, 3.0f, 0.0f), EDGE_OK);
+    assert_int_equal(foc_core_fast_loop(&core, 5e-5f), EDGE_EIO);
+
+    /* A failing bus read: also the port's error. */
+    foc_current_port_t bad_vbus_port = {
+        .read_currents = mock_read_currents, .read_vbus = failing_vbus, .self = &cs};
+    foc_core_construct(&core, 1u, 1u, &cfg, &inv_port, &bad_vbus_port, &rs_port);
+    assert_int_equal(foc_core_init(&core), EDGE_OK);
+    assert_int_equal(foc_core_set_current(&core, 3.0f, 0.0f), EDGE_OK);
+    assert_int_equal(foc_core_fast_loop(&core, 5e-5f), EDGE_EIO);
+
+    /* A lost rotor in sensored mode latches the sensor-lost fault and stops the phases. */
+    foc_current_port_t cs_port = {
+        .read_currents = mock_read_currents, .read_vbus = mock_read_vbus, .self = &cs};
+    foc_rotor_port_t bad_rs_port = {.read_angle = failing_angle, .self = &rs};
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &bad_rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    assert_int_equal(foc_core_set_current(&foc, 3.0f, 0.0f), EDGE_OK);
+    assert_int_equal(foc_core_fast_loop(&foc, 5e-5f), EDGE_EIO);
+    assert_true((foc_core_get_faults(&foc) & FOC_FAULT_SENSOR_LOST) != 0u);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_FAULT);
+}
+
+/*
+ * The two safety guards inside the cycle and the power-off hook. A current magnitude past 1.5x the
+ * configured maximum is a fault rather than a clamp - the loop stops instead of driving it - and a
+ * bus below the under-voltage threshold while running is the other fault the cycle latches itself.
+ * The position target's lower clamp comes with them.
+ */
+static void test_foc_core_safety_guards_and_power_off(void **state) {
+    (void)state;
+    mock_inverter_t inv;
+    mock_current_sensor_t cs;
+    mock_rotor_sensor_t rs;
+    memset(&inv, 0, sizeof(inv));
+    memset(&cs, 0, sizeof(cs));
+    memset(&rs, 0, sizeof(rs));
+    cs.v_bus = 24.0f;
+    rs.angle_rad = 0.0f;
+
+    foc_core_t core;
+    foc_inverter_port_t inv_port = {
+        .set_duty = mock_set_duty, .set_phase_state = mock_set_phase_state, .self = &inv};
+    foc_current_port_t cs_port = {
+        .read_currents = mock_read_currents, .read_vbus = mock_read_vbus, .self = &cs};
+    foc_rotor_port_t rs_port = {.read_angle = mock_read_angle, .self = &rs};
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = 300.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = false};
+
+    /* Current past 1.5x the maximum is a fault, not a clamp. */
+    cs.ia = 200.0f;
+    cs.ib = -100.0f;
+    cs.ic = -100.0f;
+    foc_core_construct(&core, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&core), EDGE_OK);
+    assert_int_equal(foc_core_set_current(&core, 5.0f, 0.0f), EDGE_OK);
+    assert_int_equal(foc_core_fast_loop(&core, 5e-5f), EDGE_EBUSY);
+    assert_true((foc_core_get_faults(&core) & FOC_FAULT_OVER_CURRENT) != 0u);
+    assert_int_equal(foc_core_get_state(&core), FOC_STATE_FAULT);
+
+    /* A bus below the under-voltage threshold while running faults the same way. */
+    cs.ia = 1.0f;
+    cs.ib = -0.5f;
+    cs.ic = -0.5f;
+    cs.v_bus = 5.0f;
+    foc_core_construct(&core, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&core), EDGE_OK);
+    assert_int_equal(foc_core_set_current(&core, 5.0f, 0.0f), EDGE_OK);
+    assert_int_equal(foc_core_fast_loop(&core, 5e-5f), EDGE_EBUSY);
+    assert_true((foc_core_get_faults(&core) & FOC_FAULT_UNDER_VOLTAGE) != 0u);
+
+    /* Power-off is the safe state: it stops through the same path the stop call uses. */
+    cs.v_bus = 24.0f;
+    foc_core_construct(&core, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&core), EDGE_OK);
+    assert_int_equal(foc_core_set_current(&core, 5.0f, 0.0f), EDGE_OK);
+    assert_int_equal(core.module.power_off(&core.module), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&core), FOC_STATE_IDLE);
+    assert_int_equal(core.module.on_event(&core.module, NULL), EDGE_EINVAL);
+
+    /* The position target's lower clamp: a target far below zero is clamped, not passed on. */
+    assert_int_equal(foc_core_set_pos(&core, -100000.0f), EDGE_OK);
+    assert_int_equal(foc_core_fast_loop(&core, 5e-5f), EDGE_OK);
+    assert_true(core.target_iq >= cfg.current_min_a);
+}
+
+/*
+ * The SVPWM duty clamps. A request far past the modulation limit has to land inside the window the
+ * scheduler can actually program - the clamp is per phase and against t_max, not a magnitude
+ * clamp on the vector, which is why it is asserted on each duty rather than on their norm.
+ */
+static void test_foc_svpwm_duty_clamps(void **state) {
+    (void)state;
+    float da = 0.0f;
+    float db = 0.0f;
+    float dc = 0.0f;
+    uint32_t sector = 0u;
+    const float duty_max = 0.95f;
+    const float t_max = 1.0f - (1.0f - duty_max) * 0.5f;
+
+    /* A request far past the limit in one direction. */
+    foc_svpwm(1000.0f, 0.0f, 24.0f, duty_max, &da, &db, &dc, &sector);
+    assert_true(da >= 0.0f && da <= t_max);
+    assert_true(db >= 0.0f && db <= t_max);
+    assert_true(dc >= 0.0f && dc <= t_max);
+
+    /* And far past it in the other. */
+    foc_svpwm(-1000.0f, 0.0f, 24.0f, duty_max, &da, &db, &dc, &sector);
+    assert_true(da >= 0.0f && da <= t_max);
+    assert_true(db >= 0.0f && db <= t_max);
+    assert_true(dc >= 0.0f && dc <= t_max);
+
+    /* A large vector at 120 degrees drives all three phases into their clamps at once. */
+    foc_svpwm(500.0f, 866.0f, 24.0f, duty_max, &da, &db, &dc, &sector);
+    assert_true(da >= 0.0f && da <= t_max);
+    assert_true(db >= 0.0f && db <= t_max);
+    assert_true(dc >= 0.0f && dc <= t_max);
+}
+
+/*
+ * foc_step_towards, the reference's utils_step_towards: one step toward the goal at a time, and
+ * the step that would pass the goal lands on it instead. Both directions, each asserted one call
+ * at a time so a wrong threshold cannot hide behind the next call.
+ */
+static void test_foc_step_towards_branches(void **state) {
+    (void)state;
+    float v = 0.0f;
+
+    foc_step_towards(&v, 10.0f, 3.0f);
+    assert_float_equal(v, 3.0f, 1e-6f);
+    foc_step_towards(&v, 10.0f, 3.0f);
+    assert_float_equal(v, 6.0f, 1e-6f);
+    foc_step_towards(&v, 10.0f, 3.0f);
+    assert_float_equal(v, 9.0f, 1e-6f);
+    /* 9 + 3 would pass the goal: it stops on it. */
+    foc_step_towards(&v, 10.0f, 3.0f);
+    assert_float_equal(v, 10.0f, 1e-6f);
+
+    /* Away from the goal it moves one step rather than the whole way. */
+    foc_step_towards(&v, -10.0f, 3.0f);
+    assert_float_equal(v, 7.0f, 1e-6f);
+    /* 7 - 3 would pass it: it stops on it. */
+    foc_step_towards(&v, 6.0f, 3.0f);
+    assert_float_equal(v, 6.0f, 1e-6f);
+
+    /* Already there: neither direction moves it. */
+    foc_step_towards(&v, 6.0f, 3.0f);
+    assert_float_equal(v, 6.0f, 1e-6f);
+}
+
+/*
+ * The guards foc_core_init keeps before it accepts a configuration, and the ones the command
+ * setters keep while the core is not running. Each is a single return, so each gets its own call.
+ */
+static void test_foc_core_init_and_command_guards(void **state) {
+    (void)state;
+
+    mock_inverter_t inv_mock = {0};
+    foc_inverter_port_t inv_port = {
+        .set_duty = mock_set_duty, .set_phase_state = mock_set_phase_state, .self = &inv_mock};
+    mock_current_sensor_t cs_mock = {.v_bus = 24.0f};
+    foc_current_port_t cs_port = {
+        .read_currents = mock_read_currents, .read_vbus = mock_read_vbus, .self = &cs_mock};
+    mock_rotor_sensor_t rs_mock = {0};
+    foc_rotor_port_t rs_port = {.read_angle = mock_read_angle, .self = &rs_mock};
+
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.1f,
+                        .current_ki = 100.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .sensorless_mode = false};
+    foc_core_t foc;
+
+    /* No current sensor: refused. */
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, (void *)0, &inv_port, (void *)0, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_EINVAL);
+
+    /* Sensorless off and no rotor sensor: refused as well. */
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &cfg, &inv_port, &cs_port, (void *)0);
+    assert_int_equal(foc_core_init(&foc), EDGE_EINVAL);
+
+    /* An out-of-range parameter is not only refused: the core says which fault it is. */
+    foc_config_t bad = cfg;
+    bad.r_ohm = 0.0f;
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &bad, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_EINVAL);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_FAULT);
+    assert_true((foc.faults & FOC_FAULT_INVALID_CONFIG) != 0u);
+
+    /* An uninitialised core refuses every command rather than acting on stale state. */
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_set_current(&foc, 1.0f, 0.0f), EDGE_EBUSY);
+    assert_int_equal(foc_core_set_rpm(&foc, 1000.0f), EDGE_EBUSY);
+    assert_int_equal(foc_core_set_pos(&foc, 10.0f), EDGE_EBUSY);
+    assert_int_equal(foc_core_set_handbrake(&foc, 1.0f), EDGE_EBUSY);
+    assert_int_equal(foc_core_set_duty(&foc, 0.5f), EDGE_EBUSY);
+
+    /* The poll keeps its own guard for a module with no data behind it. */
+    edge_module_t *mod = foc_core_module(&foc);
+    const edge_module_t saved = *mod;
+    mod->private_data = NULL;
+    assert_int_equal(mod->poll(mod), EDGE_EINVAL);
+    *mod = saved;
+
+    /* Running: duty is clamped to the configured maximum at both ends. */
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    assert_int_equal(foc_core_set_duty(&foc, 2.0f), EDGE_OK);
+    assert_float_equal(foc.target_duty, cfg.duty_max, 1e-6f);
+    assert_int_equal(foc_core_set_duty(&foc, -2.0f), EDGE_OK);
+    assert_float_equal(foc.target_duty, -cfg.duty_max, 1e-6f);
+}
+
+/*
+ * Open-loop drive: the reference integrates the electrical angle at the commanded speed and applies
+ * the current there (mcpwm_foc.c:3607-3609), which is how it turns a motor without asking where the
+ * rotor is. Every number below is that arithmetic rather than a tolerance around it.
+ */
+static void test_foc_core_openloop(void **state) {
+    (void)state;
+    mock_inverter_t inv_mock = {0};
+    foc_inverter_port_t inv_port = {
+        .set_duty = mock_set_duty, .set_phase_state = mock_set_phase_state, .self = &inv_mock};
+    mock_current_sensor_t cs_mock = {.v_bus = 24.0f};
+    foc_current_port_t cs_port = {
+        .read_currents = mock_read_currents, .read_vbus = mock_read_vbus, .self = &cs_mock};
+    mock_rotor_sensor_t rs_mock = {0};
+    foc_rotor_port_t rs_port = {.read_angle = mock_read_angle, .self = &rs_mock};
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.1f,
+                        .current_ki = 100.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .sensorless_mode = false,
+                        .speed_pid = {.current_max_scale = 1.0f}};
+    foc_core_t foc;
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    /* The setter: electrical rpm becomes rad/s as rpm * 2*pi/60, and the q target is the current.
+     */
+    assert_int_equal(foc_core_set_openloop_current(&foc, 5.0f, 600.0f), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_RUNNING_OPENLOOP);
+    assert_float_equal(foc.target_iq, 5.0f, 1e-6f);
+    assert_float_equal(foc.openloop_speed, 600.0f * (float)((2.0 * M_PI) / 60.0), 1e-3f);
+
+    /* One cycle: the angle advances by dt * speed from zero and the current is applied there. */
+    const float dt = 0.000050f;
+    const float step = foc.openloop_speed * dt;
+    assert_int_equal(foc_core_fast_loop(&foc, dt), EDGE_OK);
+    assert_float_equal(foc.openloop_angle, step, 1e-6f);
+    assert_float_equal(foc.last_angle_rad, step, 1e-6f);
+
+    /* It keeps integrating and stays normalised: a turn takes 2*pi/step = 2000 cycles at this
+     * speed, so 5000 more of them wrap and come back inside the range. */
+    for (int i = 0; i < 5000; i++) {
+        assert_int_equal(foc_core_fast_loop(&foc, dt), EDGE_OK);
+    }
+    assert_true(foc.openloop_angle >= -(float)M_PI);
+    assert_true(foc.openloop_angle < (float)M_PI);
+    float expected = 5001.0f * step;
+    while (expected >= (float)M_PI) {
+        expected -= 2.0f * (float)M_PI;
+    }
+    while (expected < -(float)M_PI) {
+        expected += 2.0f * (float)M_PI;
+    }
+    assert_float_equal(foc.openloop_angle, expected, 1e-3f);
+
+    /* The truncation: a current past the configuration's limit comes back as the limit, because
+     * this command - unlike the current command - does truncate. */
+    assert_int_equal(foc_core_set_openloop_current(&foc, 1000.0f, 600.0f), EDGE_OK);
+    assert_float_equal(foc.target_iq, cfg.current_max_a * cfg.speed_pid.current_max_scale, 1e-4f);
+    assert_int_equal(foc_core_set_openloop_current(&foc, -1000.0f, 600.0f), EDGE_OK);
+    assert_float_equal(foc.target_iq, -cfg.current_max_a * cfg.speed_pid.current_max_scale, 1e-4f);
+
+    /* Below cc_min_current the mode is selected and the motor is not started: the setpoint is
+     * written, the state is left where it was. */
+    assert_int_equal(foc_core_stop(&foc), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_IDLE);
+    cfg.cc_min_current = 0.05f;
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    assert_int_equal(foc_core_set_openloop_current(&foc, 0.01f, 600.0f), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_IDLE);
+    assert_float_equal(foc.target_iq, 0.01f, 1e-6f);
+    assert_int_equal(foc_core_set_openloop_current(&foc, 0.1f, 600.0f), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_RUNNING_OPENLOOP);
+
+    /* Refusals: no aggregate, and one that was never initialized. */
+    assert_int_equal(foc_core_set_openloop_current(NULL, 1.0f, 1.0f), EDGE_EINVAL);
+    foc_core_t uninitialized;
+    foc_core_construct(&uninitialized, EDGE_MOD_FOC_CORE, 10u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_set_openloop_current(&uninitialized, 1.0f, 1.0f), EDGE_EBUSY);
+}
+
+/*
+ * The release path. In the reference mcpwm_foc_release_motor is a request rather than an action:
+ * it zeroes both setpoints and sets the flag, and the control loop carries it out by stopping the
+ * modulation once no setpoint is above the minimum and the off-delay has run out
+ * (mcpwm_foc.c:819-824 and :3952-3975). Nothing here is approximated - the cycle counts below are
+ * the delay divided by dt.
+ */
+static void test_foc_core_release_and_modulation_off(void **state) {
+    (void)state;
+    mock_inverter_t inv_mock = {0};
+    foc_inverter_port_t inv_port = {
+        .set_duty = mock_set_duty, .set_phase_state = mock_set_phase_state, .self = &inv_mock};
+    mock_current_sensor_t cs_mock = {.v_bus = 24.0f};
+    foc_current_port_t cs_port = {
+        .read_currents = mock_read_currents, .read_vbus = mock_read_vbus, .self = &cs_mock};
+    mock_rotor_sensor_t rs_mock = {0};
+    foc_rotor_port_t rs_port = {.read_angle = mock_read_angle, .self = &rs_mock};
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.1f,
+                        .current_ki = 100.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .cc_min_current = 0.05f,
+                        .sensorless_mode = true};
+    const float dt = 0.00005f;
+    foc_core_t foc;
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    /* Driving: the control loop is what enables the phases. */
+    assert_int_equal(foc_core_set_current(&foc, 5.0f, 0.0f), EDGE_OK);
+    assert_int_equal(foc_core_fast_loop(&foc, dt), EDGE_OK);
+    assert_true(inv_mock.enabled);
+
+    /* The release itself only asks: the setpoints go to zero, the flag goes up, the mode becomes
+     * current, and the phases are still live at that point. */
+    assert_int_equal(foc_core_release_motor(&foc), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_RUNNING_CURRENT);
+    assert_true(foc.motor_released);
+    assert_float_equal(foc.target_iq, 0.0f, 1e-6f);
+    assert_float_equal(foc.target_id, 0.0f, 1e-6f);
+
+    /* One cycle with no delay armed: every setpoint is below the minimum, so the loop takes the
+     * modulation off and the phases go quiet - not driven at zero. */
+    assert_int_equal(foc_core_fast_loop(&foc, dt), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_IDLE);
+    assert_false(inv_mock.enabled);
+
+    /* Armed, the same state keeps driving until the delay runs out. 0.1 s at 50 us is 2000
+     * cycles; the arming is COMM_SET_CURRENT_OFF_DELAY's in the reference, which this port has not
+     * wired, so the field is set here. */
+    assert_int_equal(foc_core_set_current(&foc, 5.0f, 0.0f), EDGE_OK);
+    assert_int_equal(foc_core_fast_loop(&foc, dt), EDGE_OK);
+    assert_int_equal(foc_core_release_motor(&foc), EDGE_OK);
+    foc.current_off_delay = 0.1f;
+    assert_int_equal(foc_core_fast_loop(&foc, dt), EDGE_OK);
+    assert_true(inv_mock.enabled);
+    int cycles = 1;
+    for (; cycles < 100; ++cycles) {
+        assert_int_equal(foc_core_fast_loop(&foc, dt), EDGE_OK);
+    }
+    assert_true(inv_mock.enabled); /* a hundred cycles is a tenth of the delay */
+    while (inv_mock.enabled && cycles < 2100) {
+        assert_int_equal(foc_core_fast_loop(&foc, dt), EDGE_OK);
+        ++cycles;
+    }
+    /* 0.1 / 5e-5 = 2000, within a couple of cycles of float accumulation in either direction. */
+    assert_true(cycles >= 1990);
+    assert_true(cycles <= 2010);
+
+    /* The minimum is raised when the release asked for it and the configuration has none set: the
+     * reference keeps a floor of 0.001 so that a released motor is not held by noise. */
+    cfg.cc_min_current = 0.0f;
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    assert_int_equal(foc_core_set_current(&foc, 0.0005f, 0.0f), EDGE_OK);
+    assert_int_equal(foc_core_fast_loop(&foc, dt), EDGE_OK);
+    assert_true(inv_mock.enabled); /* not released, and no floor: 0.0005 is above zero */
+    assert_int_equal(foc_core_release_motor(&foc), EDGE_OK);
+    foc.current_off_delay = 0.0f;
+    assert_int_equal(foc_core_fast_loop(&foc, dt), EDGE_OK);
+    assert_false(inv_mock.enabled); /* with the floor in place it is below the minimum */
+
+    /* Duty, rpm and position are not in the reference's list, so a zeroed setpoint in one of them
+     * does not stop the modulation. */
+    cfg.cc_min_current = 0.05f;
+    foc_core_construct(&foc, EDGE_MOD_FOC_CORE, 10u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    assert_int_equal(foc_core_set_duty(&foc, 0.0f), EDGE_OK);
+    assert_int_equal(foc_core_fast_loop(&foc, dt), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_RUNNING_DUTY);
+    assert_true(inv_mock.enabled);
+
+    /* Refusals. */
+    assert_int_equal(foc_core_release_motor(NULL), EDGE_EINVAL);
+    foc_core_t uninitialized;
+    foc_core_construct(&uninitialized, EDGE_MOD_FOC_CORE, 10u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_release_motor(&uninitialized), EDGE_EBUSY);
+}
+
+/*
+ * The HFI sample table, which the configuration selects: eight, sixteen or thirty-two samples with
+ * a matching table factor. The reference memsets the whole state before it sets them, so the
+ * tracker starts over with them - and a value the three cases do not cover leaves both at zero,
+ * which is what a switch without a default does.
+ */
+static void test_foc_hfi_configure(void **state) {
+    (void)state;
+    foc_hfi_state_t hfi = {
+        .angle = 1.0f, .double_integrator = 2.0f, .ready = true, .samples = 99, .table_fact = 99};
+
+    foc_hfi_configure(&hfi, 0u); /* HFI_SAMPLES_8 */
+    assert_int_equal(hfi.samples, 8);
+    assert_int_equal(hfi.table_fact, 4);
+    assert_float_equal(hfi.angle, 0.0f, 1e-9f);
+    assert_float_equal(hfi.double_integrator, 0.0f, 1e-9f);
+    assert_false(hfi.ready);
+
+    foc_hfi_configure(&hfi, 1u); /* HFI_SAMPLES_16 */
+    assert_int_equal(hfi.samples, 16);
+    assert_int_equal(hfi.table_fact, 2);
+
+    foc_hfi_configure(&hfi, 2u); /* HFI_SAMPLES_32 */
+    assert_int_equal(hfi.samples, 32);
+    assert_int_equal(hfi.table_fact, 1);
+
+    foc_hfi_configure(&hfi, 9u); /* not one of the three */
+    assert_int_equal(hfi.samples, 0);
+    assert_int_equal(hfi.table_fact, 0);
+
+    foc_hfi_configure(NULL, 0u); /* nothing to configure */
+}
+
+/*
+ * The wrapped angle difference, which HFI's tracker uses to choose between its two bins and to
+ * decide its flip. The boundaries are the interesting part: a difference of exactly pi stays, and
+ * anything past it comes back around rather than growing.
+ */
+static void test_foc_angle_difference(void **state) {
+    (void)state;
+    const float pi = 3.14159265358979323846f;
+
+    assert_float_equal(foc_angle_difference(0.5f, 0.25f), 0.25f, 1e-6f);
+    assert_float_equal(foc_angle_difference(0.25f, 0.5f), -0.25f, 1e-6f);
+    assert_float_equal(foc_angle_difference(1.0f, 1.0f), 0.0f, 1e-6f);
+
+    /* A whole turn apart is no difference at all, and three quarters of one is minus a quarter. */
+    assert_float_equal(foc_angle_difference(2.0f * pi + 0.5f, 0.5f), 0.0f, 1e-4f);
+    assert_float_equal(foc_angle_difference(0.5f, 1.5f * pi), 0.5f - 1.5f * pi + 2.0f * pi, 1e-4f);
+
+    /* Exactly pi stays; a hair past it comes back from the other side. */
+    assert_float_equal(foc_angle_difference(pi, 0.0f), pi, 1e-4f);
+    assert_true(foc_angle_difference(pi + 0.001f, 0.0f) < 0.0f);
+
+    /* Every result lies in the range, which is what the two loops are for. */
+    for (int i = -40; i <= 40; ++i) {
+        for (int j = -40; j <= 40; ++j) {
+            const float difference = foc_angle_difference((float)i * 0.5f, (float)j * 0.7f);
+            assert_true(difference >= -pi - 1e-4f);
+            assert_true(difference <= pi + 1e-4f);
+        }
+    }
+}
+
+/*
+ * The 2D saturation the reference applies to its modulation before the SVM: a vector inside the
+ * limit is left alone, one outside is scaled down onto it, and a vector at the origin takes the
+ * magnitude floor instead of dividing by zero.
+ */
+static void test_foc_saturate_vector_2d(void **state) {
+    (void)state;
+    float x = 0.3f, y = 0.4f;
+    assert_false(foc_saturate_vector_2d(&x, &y, 1.0f));
+    assert_float_equal(x, 0.3f, 1e-6f);
+    assert_float_equal(y, 0.4f, 1e-6f);
+
+    /* 0.6, 0.8 has magnitude 1; a limit of 0.5 halves both. */
+    x = 0.6f;
+    y = 0.8f;
+    assert_true(foc_saturate_vector_2d(&x, &y, 0.5f));
+    assert_float_equal(x, 0.3f, 1e-6f);
+    assert_float_equal(y, 0.4f, 1e-6f);
+
+    /* The limit is taken as an absolute value. */
+    x = 2.0f;
+    y = 0.0f;
+    assert_true(foc_saturate_vector_2d(&x, &y, -1.0f));
+    assert_float_equal(x, 1.0f, 1e-6f);
+
+    /* At the origin the magnitude floor keeps the division away, and nothing moves. */
+    x = 0.0f;
+    y = 0.0f;
+    assert_false(foc_saturate_vector_2d(&x, &y, 1.0f));
+    assert_float_equal(x, 0.0f, 1e-9f);
+}
+
+/*
+ * The excitation voltage: the start-up value while the estimate warms up, then a ramp across |iq|
+ * from run to max, either way truncated by what the current duty leaves of the bus.
+ */
+static void test_foc_hfi_voltage(void **state) {
+    (void)state;
+    foc_hfi_excite_in_t in = {.f_zv = 20000.0f,
+                              .hfi_voltage_start = 4.0f,
+                              .hfi_voltage_run = 2.0f,
+                              .hfi_voltage_max = 6.0f,
+                              .current_max = 10.0f,
+                              .iq = 0.0f,
+                              .v_bus = 50.0f,
+                              .duty_now = 0.0f,
+                              .start_samples = 10};
+    foc_hfi_state_t hfi = {0};
+
+    /* Warming up: the start-up voltage, untouched because 50 V leaves far more than 4 V. */
+    assert_float_equal(foc_hfi_voltage(&hfi, &in), 4.0f, 1e-5f);
+
+    /* Done: iq = 0 does not map to exactly the run voltage - the map's lower bound is -0.01, so
+     * zero sits one part in a thousand above it, as the reference's does. iq = current_max maps
+     * to the maximum. */
+    hfi.est_done_cnt = 10;
+    assert_float_equal(foc_hfi_voltage(&hfi, &in), 2.003996f, 1e-5f);
+    in.iq = 10.0f;
+    assert_float_equal(foc_hfi_voltage(&hfi, &in), 6.0f, 1e-5f);
+
+    /* The duty truncation bites: at full duty the bus is claimed and nothing is left. */
+    in.duty_now = 1.0f;
+    assert_float_equal(foc_hfi_voltage(&hfi, &in), 0.0f, 1e-6f);
+
+    /* Half the duty leaves 50*(1-0.5)*sqrt(3)/2*(2/3)*0.95 = 13.7 V, so the 6 V stands. */
+    in.duty_now = 0.5f;
+    assert_float_equal(foc_hfi_voltage(&hfi, &in), 6.0f, 1e-5f);
+}
+
+/*
+ * The six-vector excitation's two halves alternate through is_samp_n, which the reference toggles
+ * once per cycle after the branch: one cycle stores the sample the next one measures against and
+ * drives the opposite voltage, the next one measures, accumulates into the buffer and drives along
+ * the table. The buffer holds the inverse inductance, so it is written only when the measured step
+ * is above the reference's threshold.
+ */
+static void test_foc_hfi_excite_six_vector(void **state) {
+    (void)state;
+    foc_hfi_state_t hfi = {0};
+    foc_hfi_configure(&hfi, 2u); /* 32 samples, table factor 1 */
+    assert_int_equal(hfi.samples, 32);
+    assert_false(hfi.ready);
+
+    foc_hfi_excite_in_t in = {.f_zv = 20000.0f,
+                              .hfi_voltage_start = 4.0f,
+                              .hfi_voltage_run = 2.0f,
+                              .hfi_voltage_max = 6.0f,
+                              .current_max = 10.0f,
+                              .iq = 0.0f,
+                              .v_bus = 50.0f,
+                              .duty_now = 0.0f,
+                              .i_alpha = 0.05f,
+                              .i_beta = 0.0f,
+                              .start_samples = 10};
+
+    /* First cycle: is_samp_n is false, so the sample is stored and the voltage opposes the table.
+     * The table starts at cos=1, sin=0, so the sample is exactly i_alpha and the drive is on the
+     * alpha axis. */
+    float v_alpha = 0.0f, v_beta = 0.0f;
+    foc_hfi_excite_six_vector(&hfi, &in, &v_alpha, &v_beta);
+    assert_float_equal(hfi.prev_sample, 0.05f, 1e-6f);
+    assert_float_equal(v_alpha, -4.0f, 1e-5f);
+    assert_float_equal(v_beta, 0.0f, 1e-5f);
+    assert_true(hfi.is_samp_n);
+    assert_int_equal(hfi.ind, 0);
+
+    /* Second cycle: it measures, and it measures at the same table angle the previous cycle
+     * stored its sample at - the buffer holds how the current at that angle changed between
+     * cycles, not how it differs between neighbouring angles. With alpha falling from 0.05 to 0
+     * the step is -0.05 A: that is the half the gate selects for (the excitation's own note
+     * records why), and the buffer records its magnitude as the inverse inductance, so the entry
+     * is positive. */
+    in.i_alpha = 0.0f;
+    v_alpha = 0.0f;
+    v_beta = 0.0f;
+    foc_hfi_excite_six_vector(&hfi, &in, &v_alpha, &v_beta);
+    assert_int_equal(hfi.ind, 1);
+    assert_float_equal(hfi.buffer_current[0], -0.05f, 1e-6f);
+    assert_float_equal(hfi.buffer[0], (20000.0f * 0.05f) / 4.0f, 1e-3f);
+    assert_float_equal(v_alpha, 4.0f, 1e-5f);
+    assert_false(hfi.is_samp_n);
+
+    /* A step below the reference's 0.01 threshold is recorded as a current but not as an inverse.
+     */
+    foc_hfi_state_t still = {0};
+    foc_hfi_configure(&still, 2u);
+    foc_hfi_excite_in_t tiny = in;
+    tiny.i_alpha = 0.0f;
+    tiny.i_beta = 0.0f;
+    float a = 0.0f, b = 0.0f;
+    foc_hfi_excite_six_vector(&still, &tiny, &a, &b); /* stores prev_sample = 0 */
+    a = 0.0f;
+    b = 0.0f;
+    foc_hfi_excite_six_vector(&still, &tiny, &a, &b); /* di = 0, below the threshold */
+    assert_float_equal(still.buffer_current[0], 0.0f, 1e-9f);
+    assert_float_equal(still.buffer[0], 0.0f, 1e-9f);
+    assert_int_equal(still.ind, 1);
+
+    /* The buffer wraps after the configured number of samples and reports ready. The halves
+     * alternate, so filling the buffer takes two calls per sample. */
+    float pa = 0.0f, pb = 0.0f;
+    for (int i = 0; i < 2 * hfi.samples && !hfi.ready; ++i) {
+        foc_hfi_excite_six_vector(&hfi, &in, &pa, &pb);
+    }
+    assert_true(hfi.ready);
+    assert_int_equal(hfi.ind, 0);
+}
+
+/*
+ * The tracking half's guards, in the reference's order: the speed handover happens even before the
+ * buffer is ready, and below the speed nothing happens at all until it is.
+ */
+static void test_foc_hfi_update_gates(void **state) {
+    (void)state;
+    foc_hfi_state_t hfi = {0};
+    foc_observer_t observer = {0};
+    foc_hfi_update_in_t in = {.mode = FOC_HFI_MODE_TRACK,
+                              .amb_mode_six_vector = true,
+                              .control_sample_mode_v0_v7 = false,
+                              .start_samples = 10,
+                              .sl_erpm_hfi = 2000.0f,
+                              .speed_est_fast = 0.0f,
+                              .phase_now_observer = 1.25f,
+                              .pll_speed = 0.0f,
+                              .f_zv = 20000.0f,
+                              .flux_linkage = 0.01f};
+
+    /* Not ready, no speed: nothing moves. */
+    hfi.angle = 0.5f;
+    foc_hfi_update(&hfi, &in, &observer);
+    assert_float_equal(hfi.angle, 0.5f, 1e-6f);
+
+    /* Above foc_sl_erpm_hfi the angle is the observer's and the tracker's integrator is tied to
+     * the fast speed estimate - and 500 rad/s is 4775 rpm, over the 2000 of the configuration. */
+    in.speed_est_fast = 500.0f;
+    foc_hfi_update(&hfi, &in, &observer);
+    assert_float_equal(hfi.angle, 1.25f, 1e-6f);
+    assert_float_equal(hfi.double_integrator, -500.0f, 1e-6f);
+
+    /* A refused mode leaves the angle alone once the estimate is warm, whatever else is set. */
+    in.mode = FOC_HFI_MODE_REFUSED;
+    in.speed_est_fast = 0.0f;
+    hfi.est_done_cnt = 10;
+    hfi.angle = 0.5f;
+    foc_hfi_update(&hfi, &in, &observer);
+    assert_float_equal(hfi.angle, 0.5f, 1e-6f);
+
+    /* And in six-vector mode with the estimate still warming, which is the one way past that
+     * guard, the buffer still has to be ready - so prepare it and check that it is driven. */
+    in.mode = FOC_HFI_MODE_TRACK;
+    hfi.ready = true;
+    hfi.samples = 32;
+    hfi.table_fact = 1;
+    hfi.est_done_cnt = 0;
+    foc_hfi_update(&hfi, &in, &observer);
+    assert_true(hfi.est_done_cnt == 1);
+}
+
+/*
+ * The angle itself. The buffer is filled with a signal whose second harmonic has twice a known
+ * angle's phase, which is what the injected voltage produces, and the tracker is asked to recover
+ * it: the direction is the reference's own - it negates the arctangent and halves it - so the
+ * recovered angle is the injected one. The bins this runs on carry their own differential evidence
+ * against the reference (four patterns by nine bins by real and imaginary, bit for bit).
+ */
+static void test_foc_hfi_update_tracks_the_injected_angle(void **state) {
+    (void)state;
+    const float injected = 0.6f;
+
+    for (int sign = 0; sign < 2; ++sign) {
+        const float angle = sign == 0 ? injected : -1.1f;
+        foc_hfi_state_t hfi = {0};
+        foc_observer_t observer = {0};
+        foc_hfi_configure(&hfi, 2u); /* 32 samples, table factor 1 */
+        hfi.ready = true;
+        hfi.angle = angle; /* the twin is chosen against the angle already held */
+
+        for (int k = 0; k < 32; ++k) {
+            const float table_angle = 2.0f * (float)M_PI * (float)k / 32.0f;
+            hfi.buffer[k] = cosf(2.0f * (table_angle - angle));
+        }
+
+        const foc_hfi_update_in_t in = {.mode = FOC_HFI_MODE_TRACK,
+                                        .amb_mode_six_vector = true,
+                                        .control_sample_mode_v0_v7 = false,
+                                        .start_samples = 10,
+                                        .sl_erpm_hfi = 2000.0f,
+                                        .speed_est_fast = 0.0f,
+                                        .phase_now_observer = 0.0f,
+                                        .pll_speed = 0.0f,
+                                        .f_zv = 20000.0f,
+                                        .flux_linkage = 0.01f};
+        hfi.est_done_cnt = 10; /* warm, so no flip counting interferes */
+
+        foc_hfi_update(&hfi, &in, &observer);
+        assert_float_equal(foc_angle_difference(hfi.angle, angle), 0.0f, 2e-3f);
+    }
+}
+
+/*
+ * Two more of the reference's decisions. The first harmonic says whether the tracked angle is on
+ * the right side, and once the tally says it is not, the estimate is flipped by pi - after which
+ * the tally starts over. In HFI_START the same estimate seeds the observer with the flux linkage.
+ */
+static void test_foc_hfi_update_flips_and_seeds(void **state) {
+    (void)state;
+    foc_hfi_state_t hfi = {0};
+    foc_observer_t observer = {0};
+    foc_hfi_configure(&hfi, 2u);
+    hfi.ready = true;
+    hfi.angle = 0.3f;
+
+    const foc_hfi_update_in_t in = {.mode = FOC_HFI_MODE_START,
+                                    .amb_mode_six_vector = true,
+                                    .control_sample_mode_v0_v7 = false,
+                                    .start_samples = 4,
+                                    .sl_erpm_hfi = 2000.0f,
+                                    .speed_est_fast = 0.0f,
+                                    .phase_now_observer = 0.0f,
+                                    .pll_speed = 0.0f,
+                                    .f_zv = 20000.0f,
+                                    .flux_linkage = 0.01f};
+
+    /* A signal whose fundamental is a quarter turn from the tracked angle, so every cycle the
+     * tally disagrees, and the estimate one step short of warm. */
+    for (int k = 0; k < 32; ++k) {
+        const float table_angle = 2.0f * (float)M_PI * (float)k / 32.0f;
+        hfi.buffer[k] = cosf(table_angle - (hfi.angle + 1.0f));
+    }
+    hfi.est_done_cnt = 3;
+    hfi.flip_cnt = 2; /* start_samples / 2 */
+
+    foc_hfi_update(&hfi, &in, &observer);
+
+    /* The tally reached the start count and had disagreed, so the estimate flipped and the tally
+     * restarted; and because this is HFI_START, the observer was seeded with that estimate. */
+    assert_int_equal(hfi.est_done_cnt, 4);
+    assert_int_equal(hfi.flip_cnt, 0);
+    assert_float_equal(fabsf(observer.x1) * fabsf(observer.x1) +
+                           fabsf(observer.x2) * fabsf(observer.x2),
+                       0.01f * 0.01f, 1e-6f);
+
+    /* The flux linkage keeps the sign of each component, as the reference's seed does. */
+    float s = 0.0f, c = 0.0f;
+    foc_fast_sincos(hfi.angle, &s, &c);
+    assert_float_equal(observer.x1, c * 0.01f, 1e-5f);
+    assert_float_equal(observer.x2, s * 0.01f, 1e-5f);
+}
+
+/*
+ * The rest of the tracking half's branches: the 8 and 16 sample tables, the compensation's other
+ * sampling period when the interrupt samples in V0 and V7, a sample count nothing configured (the
+ * reference's function pointers would be null there), and the cycle where the tally has not
+ * disagreed enough to flip.
+ */
+static void test_foc_hfi_update_other_branches(void **state) {
+    (void)state;
+    foc_observer_t observer = {0};
+    const float injected = 0.4f;
+
+    /* Eight samples: the table is every fourth entry of the same 32-point one. */
+    for (int variant = 0; variant < 2; ++variant) {
+        foc_hfi_state_t hfi = {0};
+        foc_hfi_configure(&hfi, variant == 0 ? 0u : 1u);
+        assert_int_equal(hfi.samples, variant == 0 ? 8 : 16);
+        hfi.ready = true;
+        hfi.angle = injected;
+        hfi.est_done_cnt = 10;
+
+        for (int k = 0; k < hfi.samples; ++k) {
+            const float table_angle = 2.0f * (float)M_PI * (float)k / (float)hfi.samples;
+            hfi.buffer[k] = cosf(2.0f * (table_angle - injected));
+        }
+
+        const foc_hfi_update_in_t in = {.mode = FOC_HFI_MODE_TRACK,
+                                        .amb_mode_six_vector = true,
+                                        .control_sample_mode_v0_v7 = false,
+                                        .start_samples = 10,
+                                        .sl_erpm_hfi = 2000.0f,
+                                        .speed_est_fast = 0.0f,
+                                        .phase_now_observer = 0.0f,
+                                        .pll_speed = 0.0f,
+                                        .f_zv = 20000.0f,
+                                        .flux_linkage = 0.01f};
+
+        foc_hfi_update(&hfi, &in, &observer);
+        assert_float_equal(foc_angle_difference(hfi.angle, injected), 0.0f, 5e-3f);
+    }
+
+    /* Sampling in V0 and V7 halves the period the compensation works with; the angle is still
+     * recovered, which is what says the other branch was the one taken. */
+    foc_hfi_state_t hfi = {0};
+    foc_hfi_configure(&hfi, 2u);
+    hfi.ready = true;
+    hfi.angle = injected;
+    hfi.est_done_cnt = 10;
+    for (int k = 0; k < 32; ++k) {
+        const float table_angle = 2.0f * (float)M_PI * (float)k / 32.0f;
+        hfi.buffer[k] = cosf(2.0f * (table_angle - injected));
+    }
+    const foc_hfi_update_in_t in = {.mode = FOC_HFI_MODE_TRACK,
+                                    .amb_mode_six_vector = true,
+                                    .control_sample_mode_v0_v7 = true,
+                                    .start_samples = 10,
+                                    .sl_erpm_hfi = 2000.0f,
+                                    .speed_est_fast = 0.0f,
+                                    .phase_now_observer = 0.0f,
+                                    .pll_speed = 0.0f,
+                                    .f_zv = 20000.0f,
+                                    .flux_linkage = 0.01f};
+    foc_hfi_update(&hfi, &in, &observer);
+    assert_float_equal(foc_angle_difference(hfi.angle, injected), 0.0f, 5e-3f);
+
+    /*
+     * The compensation itself: the angle is offset by the PLL speed over half a buffer's worth of
+     * sampling periods, which is half a switching period - or a whole one when the interrupt
+     * samples in V0 and V7. Both branches are measured against the same run with no PLL speed.
+     */
+    for (int v0_v7 = 0; v0_v7 < 2; ++v0_v7) {
+        foc_hfi_state_t still = {0};
+        foc_hfi_configure(&still, 2u);
+        still.ready = true;
+        still.angle = injected;
+        still.est_done_cnt = 10;
+        for (int k = 0; k < 32; ++k) {
+            const float table_angle = 2.0f * (float)M_PI * (float)k / 32.0f;
+            still.buffer[k] = cosf(2.0f * (table_angle - injected));
+        }
+
+        foc_hfi_update_in_t moving = in;
+        moving.control_sample_mode_v0_v7 = v0_v7 == 1;
+        moving.pll_speed = 30.0f;
+        foc_hfi_update(&still, &moving, &observer);
+
+        const float dt_sw =
+            moving.control_sample_mode_v0_v7 ? 1.0f / 20000.0f : 1.0f / (20000.0f / 2.0f);
+        const float expected = 30.0f * (32.0f / 2.0f) * dt_sw;
+        assert_float_equal(foc_angle_difference(still.angle, injected), expected, 2e-4f);
+    }
+
+    /* A sample count nothing selected leaves the angle where it was, as a null function pointer
+     * would in the reference. */
+    foc_hfi_state_t unset = {0};
+    unset.ready = true;
+    unset.angle = 0.75f;
+    unset.est_done_cnt = 10;
+    foc_hfi_update(&unset, &in, &observer);
+    assert_float_equal(unset.angle, 0.75f, 1e-6f);
+
+    /* Warm, and this cycle's disagreement is not there to be counted: the tally keeps its value
+     * rather than flipping. */
+    foc_hfi_state_t warm = {0};
+    foc_hfi_configure(&warm, 2u);
+    warm.ready = true;
+    warm.angle = injected;
+    warm.est_done_cnt = 10;
+    warm.flip_cnt = 7;
+    for (int k = 0; k < 32; ++k) {
+        const float table_angle = 2.0f * (float)M_PI * (float)k / 32.0f;
+        warm.buffer[k] = cosf(2.0f * (table_angle - injected));
+    }
+    foc_hfi_update(&warm, &in, &observer);
+    assert_int_equal(warm.est_done_cnt, 10);
+    assert_int_equal(warm.flip_cnt, 0); /* reset once the tally was consulted */
+}
+
+/*
+ * The virtual motor's saliency, which HFI needs: a salient machine is what makes the injected
+ * voltage produce a second harmonic in the current at all. The step below is checked against the
+ * equations written out by hand, and the no-saliency case is not checked here because it is what
+ * the existing goldens are: with no difference, both axis inductances are l_henry and every
+ * expression is the one it always was.
+ */
+static void test_virtual_motor_saliency(void **state) {
+    (void)state;
+    foc_virtual_motor_t vm;
+    foc_virtual_motor_init(&vm, 0.05f, 5e-5f, 0.005f, 7, 5e-4f);
+
+    /* No difference means both axis inductances are the single one. */
+    assert_float_equal(vm.ld, 5e-5f, 1e-12f);
+    assert_float_equal(vm.lq, 5e-5f, 1e-12f);
+
+    foc_virtual_motor_set_saliency(&vm, 2e-5f);
+    assert_float_equal(vm.ld, 4e-5f, 1e-12f);
+    assert_float_equal(vm.lq, 6e-5f, 1e-12f);
+
+    /* At rest and at angle zero, vd and vq are the alpha and beta voltages themselves, so the d
+     * current responds over ld and the q current over lq. */
+    foc_virtual_motor_step(&vm, 1.0f, 0.5f, 0.0f, 1e-4f, 0.0f);
+    assert_float_equal(vm.id, 1.0f / 4e-5f * 1e-4f, 1e-4f);
+    assert_float_equal(vm.iq, 0.5f / 6e-5f * 1e-4f, 1e-4f);
+
+    /* The torque carries the reluctance term (ld - lq) * id, which is what the acceleration below
+     * measures: 1.5 * 7 * (0.005 + (4e-5 - 6e-5) * id) * iq, over the inertia and the step. */
+    const float expected_speed =
+        (1.5f * 7.0f * (0.005f + (4e-5f - 6e-5f) * vm.id) * vm.iq) / 5e-4f * 1e-4f;
+    assert_float_equal(vm.rotor_speed_rad_s, expected_speed, 1e-6f);
+
+    /* The reluctance term is not idle: the same step on a machine without saliency accelerates
+     * differently. */
+    foc_virtual_motor_t plain;
+    foc_virtual_motor_init(&plain, 0.05f, 5e-5f, 0.005f, 7, 5e-4f);
+    foc_virtual_motor_step(&plain, 1.0f, 0.5f, 0.0f, 1e-4f, 0.0f);
+    assert_true(fabsf(plain.rotor_speed_rad_s - vm.rotor_speed_rad_s) > 1e-5f);
+}
+
+/*
+ * B2's contract: HFI takes the motor from zero speed and hands over when it is fast enough. A
+ * salient virtual motor stands in for the machine, its rotor parked at an angle HFI has to find,
+ * and the excitation reaches it the way it reaches the SVM - through the aggregate's own alpha and
+ * beta voltages, which is what this simulation integrates.
+ *
+ * The loop is commanded to zero current: the injection is the only voltage then, so what the plant
+ * sees is purely HFI's, and there is no torque to move the rotor while it is being tracked.
+ */
+static void test_hfi_tracks_a_standing_rotor_and_hands_over(void **state) {
+    (void)state;
+    sim_context_t sim;
+    sim.v_bus = 24.0f;
+    sim.inv.enabled = false;
+    foc_virtual_motor_init(&sim.vm, 0.05f, 5e-5f, 0.005f, 7, 5e-4f);
+    foc_virtual_motor_set_saliency(&sim.vm, 2e-5f); /* ld 4e-5, lq 6e-5: the machine HFI needs */
+    sim.vm.rotor_angle_rad = 0.7f;
+
+    foc_inverter_port_t inv_port = {
+        .set_duty = sim_set_duty, .set_phase_state = sim_set_phase_state, .self = &sim};
+    foc_current_port_t cs_port = {
+        .read_currents = sim_read_currents, .read_vbus = sim_read_vbus, .self = &sim};
+    foc_rotor_port_t rs_port = {.read_angle = sim_read_angle, .self = &sim};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 5e-5f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = 300.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = true,
+                        .pll_kp = 2000.0f,
+                        .pll_ki = 30000.0f,
+                        .sensor_mode = FOC_ANGLE_SOURCE_HFI,
+                        .hfi_amb_mode_six_vector = true,
+                        .hfi_control_sample_mode_v0_v7 = false,
+                        .hfi_samples = 2u, /* HFI_SAMPLES_32 */
+                        .hfi_voltage_start = 4.0f,
+                        .hfi_voltage_run = 4.0f,
+                        .hfi_voltage_max = 8.0f,
+                        .hfi_gain = 0.3f,
+                        .hfi_max_err = 0.2f,
+                        .sl_erpm_hfi = 200.0f,
+                        .hfi_start_samples = 40,
+                        .hfi_obs_ovr_sec = 0.001f,
+                        .f_zv = 20000.0f};
+
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    assert_int_equal(foc_core_set_current(&foc, 0.0f, 0.0f), EDGE_OK);
+
+    /*
+     * The loop runs at the sampling rate, not the switching rate: the reference's ADC interrupt
+     * fires twice per PWM period, once in V0 and once in V7, and each of those is one of HFI's two
+     * alternating half-steps. That is what makes the difference between one sample and the next a
+     * difference of sampling instant - the injected ripple - rather than the slow change of the
+     * current at a fixed point, which carries no second harmonic at all. The plant is stepped with
+     * the same halves, so the two instants see two different currents.
+     */
+    for (int step = 0; step < 4000; step++) {
+        assert_int_equal(foc_core_fast_loop(&foc, 2.5e-5f), EDGE_OK);
+        foc_virtual_motor_step(&sim.vm, foc.mod_alpha_raw, foc.mod_beta_raw, 0.0f, 2.5e-5f, 0.0f);
+    }
+
+    /*
+     * What this port can prove in simulation, and what it cannot.
+     *
+     * It can prove the sampling runs and alternates: buffer_current is written on every sampling
+     * half with the current's change since the storing half, and the index advances by one per step
+     * until the buffer wraps, which is when ready goes up.
+     *
+     * The contract's own half: the buffer fills with the inverse inductance, and the angle the
+     * tracker reports is the machine's. The rotor was parked at 0.7 rad and the injection nudged it
+     * to 0.7074 rad; the tracker followed it to 0.7113, which is 0.004 rad out - the second
+     * harmonic's own resolution. The half-turn the second harmonic cannot tell apart is settled
+     * against the angle already held, which the speed gate and the observer's zero-time window keep
+     * on the observer's, so the estimate starts on the right side of it.
+     *
+     * What this simulation still cannot exercise is the ambiguity tally itself: resolving the
+     * half-turn needs the first harmonic, and the first harmonic is a saturation effect, which this
+     * linear virtual motor does not have. That is why flip_cnt stays at zero above; the ported path
+     * for it is covered by its own unit test with a buffer that carries a disagreeing fundamental.
+     */
+    assert_true(foc.hfi.ready);
+    assert_int_equal(foc.hfi.est_done_cnt, cfg.hfi_start_samples);
+    assert_float_equal(foc.hfi.buffer_current[0], foc.hfi.buffer_current[1],
+                       0.5f); /* the same half */
+    assert_true(fabsf(foc.hfi.buffer_current[0]) > 0.01f);
+    for (int k = 0; k < 32; ++k) {
+        assert_true(foc.hfi.buffer[k] > 1000.0f); /* the inverse inductance, in 1/H */
+    }
+    assert_float_equal(foc_angle_difference(foc.hfi.angle, sim.vm.rotor_angle_rad), 0.0f, 0.05f);
+
+    /* The handover itself does work, and it is the other half of the contract: past
+     * foc_sl_erpm_hfi the observer owns the angle, and the hysteresis keeps it there. */
+    assert_true(foc.hfi_using_hfi);
+    sim.vm.rotor_speed_rad_s = 200.0f;
+    for (int step = 0; step < 4000; step++) {
+        assert_int_equal(foc_core_fast_loop(&foc, 2.5e-5f), EDGE_OK);
+        foc_virtual_motor_step(&sim.vm, foc.mod_alpha_raw, foc.mod_beta_raw, 0.0f, 2.5e-5f, 0.0f);
+    }
+    assert_false(foc.hfi_using_hfi);
+}
+
+/*
+ * The transform's bins as the measurement reads them, over every table the configuration can
+ * select: a constant buffer carries all of its energy in bin 0 and none in the second harmonic,
+ * which is what the two frames of the comparison above are - and asking for nothing gets nothing
+ * written rather than a fault.
+ */
+static void test_foc_core_read_hfi_bins(void **state) {
+    (void)state;
+    foc_core_t foc;
+    memset(&foc, 0, sizeof(foc));
+
+    float offset = 0.0f, real2 = 0.0f, imag2 = 0.0f, current_mean = 0.0f;
+
+    /* No table selected, and no aggregate at all: zeros rather than a read of nothing. */
+    foc_core_read_hfi_bins(&foc, &offset, &real2, &imag2, &current_mean);
+    assert_float_equal(offset, 0.0f, 1e-9f);
+    foc_core_read_hfi_bins(NULL, &offset, &real2, &imag2, &current_mean);
+    foc_core_read_hfi_bins(&foc, NULL, NULL, NULL, NULL);
+
+    const uint8_t families[3] = {0u, 1u, 2u}; /* HFI_SAMPLES_8, _16, _32 */
+    const int expected[3] = {8, 16, 32};
+    for (int f = 0; f < 3; ++f) {
+        foc_hfi_configure(&foc.hfi, families[f]);
+        assert_int_equal(foc.hfi.samples, expected[f]);
+        for (int i = 0; i < expected[f]; ++i) {
+            foc.hfi.buffer[i] = 3.0f;
+            foc.hfi.buffer_current[i] = -0.5f;
+        }
+
+        foc_core_read_hfi_bins(&foc, &offset, &real2, &imag2, &current_mean);
+        assert_float_equal(offset, 3.0f, 1e-5f);
+        assert_float_equal(real2, 0.0f, 1e-5f);
+        assert_float_equal(imag2, 0.0f, 1e-5f);
+        assert_float_equal(current_mean, -0.5f, 1e-5f);
+    }
+}
+
+/*
+ * The braking mode, which is the reference's CONTROL_MODE_CURRENT_BRAKE (mcpwm_foc.c:832-849) and a
+ * different mode from the handbrake beside it. What it adds is the short-circuit latch
+ * (:3345-3367), and the latch reads four things: the sign of the fast speed against the previous
+ * cycle's, the sign of vq against the previous cycle's, the filtered duty, and how many cycles have
+ * been spent shorted. Those are the fields this drives, so each condition is checked on its own
+ * rather than through whatever a simulation happens to do.
+ */
+static void test_foc_core_brake_current_mode(void **state) {
+    (void)state;
+    sim_context_t sim;
+    sim.v_bus = 24.0f;
+    sim.inv.enabled = false;
+    foc_virtual_motor_init(&sim.vm, 0.05f, 0.00005f, 0.005f, 7, 0.0005f);
+
+    foc_inverter_port_t inv_port = {
+        .set_duty = sim_set_duty, .set_phase_state = sim_set_phase_state, .self = &sim};
+    foc_current_port_t cs_port = {
+        .read_currents = sim_read_currents, .read_vbus = sim_read_vbus, .self = &sim};
+    foc_rotor_port_t rs_port = {.read_angle = sim_read_angle, .self = &sim};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -20.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = 300.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .cc_min_current = 0.02f,
+                        .sensorless_mode = true};
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    /* The mode is its own, the setpoint keeps the caller's sign, and a brake above the minimum
+     * means the motor is not released. */
+    foc.motor_released = true;
+    assert_int_equal(foc_core_set_brake_current(&foc, -10.0f), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_CURRENT_BRAKE);
+    assert_float_equal(foc.target_iq, -10.0f, 1e-6f);
+    assert_false(foc.motor_released);
+
+    /* Below cc_min_current the command is pending only: same mode, same setpoint, and the release
+     * flag is left exactly as it was - the reference's own early return. */
+    assert_int_equal(foc_core_set_brake_current(&foc, 0.001f), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_CURRENT_BRAKE);
+    assert_float_equal(foc.target_iq, 0.001f, 1e-9f);
+    assert_false(foc.motor_released);
+    foc.motor_released = true;
+    assert_int_equal(foc_core_set_brake_current(&foc, 0.001f), EDGE_OK);
+    assert_true(foc.motor_released);
+
+    /* A direction change while the current is short of its setpoint shorts the phases and restarts
+     * the count. The fields are set so that only that condition holds: current reached, duty high,
+     * count already past the hold. */
+    assert_int_equal(foc_core_set_brake_current(&foc, -5.0f), EDGE_OK);
+    foc.br_no_duty_samples = 100u;
+    foc.i_abs_filter = 1.0f; /* below the setpoint's magnitude, so the current is short of it */
+    foc.duty_now = 0.8f;
+    foc.duty_filtered = 0.8f;
+    foc.br_speed_before = -1.0f; /* the opposite of whatever sign the PLL reports at rest */
+    foc.pll.speed = 0.0f;
+    assert_int_equal(foc_core_fast_loop(&foc, 1e-4f), EDGE_OK);
+    assert_int_equal(foc.br_no_duty_samples, 0u);
+    assert_float_equal(foc.v_d, 0.0f, 1e-9f); /* shorted this cycle */
+    assert_float_equal(foc.v_q, 0.0f, 1e-9f);
+
+    /* With everything the same but the signs agreeing and the duty high, the latch leaves it alone
+     * and the current loop's output stands. */
+    foc.br_no_duty_samples = 50u;
+    foc.br_speed_before = 0.0f;
+    foc.br_vq_before = foc.v_q;
+    foc.duty_now = 0.8f;
+    foc.duty_filtered = 0.8f;
+    assert_int_equal(foc_core_fast_loop(&foc, 1e-4f), EDGE_OK);
+    assert_int_equal(foc.br_no_duty_samples, 50u);
+
+    /* A duty near zero triggers it on its own, and the count restarts. */
+    foc.duty_now = 0.0f;
+    foc.duty_filtered = 0.0f;
+    foc.br_speed_before = 0.0f;
+    foc.br_vq_before = foc.v_q;
+    assert_int_equal(foc_core_fast_loop(&foc, 1e-4f), EDGE_OK);
+    assert_int_equal(foc.br_no_duty_samples, 0u);
+
+    /* The handbrake is a different mode, and it is the one that forces the phase. */
+    assert_int_equal(foc_core_set_handbrake(&foc, 3.0f), EDGE_OK);
+    assert_int_equal(foc_core_get_state(&foc), FOC_STATE_HANDBRAKE);
+    assert_int_equal(foc_core_fast_loop(&foc, 1e-4f), EDGE_OK);
+    assert_float_equal(foc.last_angle_rad, 0.0f, 1e-6f);
+
+    /* Outside the mode the count is parked above the hold, so entering it always shorts first. */
+    assert_int_equal(foc.br_no_duty_samples >= 100u, 1);
+}
+
+/*
+ * The backup counters, reference mc_interface.c:2570-2578. What is deterministic here - and so what
+ * is asserted - is the round trip of the stored pair, that a stationary motor adds no distance at
+ * all, and that a spinning one with a wheel big enough to cross a metre per sector does add it. The
+ * odometer counts whole metres, which is what the reference truncates its distance to before taking
+ * the difference.
+ */
+static void test_foc_core_backup_counters(void **state) {
+    (void)state;
+    sim_context_t sim;
+    sim.v_bus = 24.0f;
+    sim.inv.enabled = false;
+    foc_virtual_motor_init(&sim.vm, 0.05f, 0.00005f, 0.005f, 7, 0.0005f);
+
+    foc_inverter_port_t inv_port = {
+        .set_duty = sim_set_duty, .set_phase_state = sim_set_phase_state, .self = &sim};
+    foc_current_port_t cs_port = {
+        .read_currents = sim_read_currents, .read_vbus = sim_read_vbus, .self = &sim};
+    foc_rotor_port_t rs_port = {.read_angle = sim_read_angle, .self = &sim};
+
+    /* A wheel big enough that one tachometer sector crosses a whole metre. */
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 1000.0f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = 300.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = true};
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    /* The stored pair round-trips exactly, in metres and milliseconds. */
+    foc_core_set_backup(&foc, 123456u, 98765u);
+    uint64_t odometer_m = 0u;
+    uint32_t uptime_ms = 0u;
+    foc_core_get_backup(&foc, &odometer_m, &uptime_ms);
+    assert_float_equal((double)odometer_m, 123456.0, 0.0);
+    assert_int_equal(uptime_ms, 98765u);
+    foc_core_set_backup(&foc, 0u, 0u);
+
+    /* The difference is the guard: with the last distance parked far above the current one - which
+     * is what a tachometer wrap looks like - the odometer adds nothing rather than jumping
+     * backwards, and the reference's own re-basing puts the next cycle back on the current
+     * distance. */
+    foc_core_set_backup(&foc, 0u, 0u);
+    foc.backup_distance_last_m = 1000000u;
+    assert_int_equal(foc_core_fast_loop(&foc, 5e-5f), EDGE_OK);
+    foc_virtual_motor_step(&sim.vm, foc.mod_alpha_raw, foc.mod_beta_raw, 0.0f, 5e-5f, 0.0f);
+    foc_core_get_backup(&foc, &odometer_m, &uptime_ms);
+    assert_int_equal(odometer_m, 0u);
+    assert_true(foc.backup_distance_last_m < 1000000u);
+
+    /* Driving it turns the tachometer, and with this wheel each sector is a whole metre. */
+    assert_int_equal(foc_core_set_current(&foc, 8.0f, 0.0f), EDGE_OK);
+    for (int step = 0; step < 2000; ++step) {
+        assert_int_equal(foc_core_fast_loop(&foc, 5e-5f), EDGE_OK);
+        foc_virtual_motor_step(&sim.vm, foc.mod_alpha_raw, foc.mod_beta_raw, 0.0f, 5e-5f, 0.0f);
+    }
+    foc_core_get_backup(&foc, &odometer_m, &uptime_ms);
+    assert_true(odometer_m > 0u);
+    /* The one cycle above and these two thousand: 2001 of fifty microseconds, in whole
+     * milliseconds. */
+    assert_int_equal(uptime_ms, 100u);
+}
+
+/*
+ * The backup block and the storage port: the reference's write side
+ * (conf_general_store_backup_data, conf_general.c:162-193) and read side (:100-146). A product that
+ * sets the port gets the block when the module powers off - and not before, because the reference
+ * only stores from its shutdown path - the block carries a validity flag per field, and a restore
+ * hands back only the fields whose flags are still valid, which is what lets a half-written block
+ * be recovered one field at a time.
+ */
+static size_t backup_store_len;
+static uint8_t backup_store_block[FOC_BACKUP_BLOCK_BYTES];
+
+static edge_status_t backup_capture(void *self, const uint8_t *data, size_t len) {
+    (void)self;
+    backup_store_len = (len <= sizeof(backup_store_block)) ? len : 0u;
+    if (backup_store_len != 0u) {
+        memcpy(backup_store_block, data, backup_store_len);
+    }
+    return EDGE_OK;
+}
+
+static void test_foc_core_backup_block(void **state) {
+    (void)state;
+    sim_context_t sim;
+    sim.v_bus = 24.0f;
+    sim.inv.enabled = false;
+    foc_virtual_motor_init(&sim.vm, 0.05f, 0.00005f, 0.005f, 7, 0.0005f);
+
+    foc_inverter_port_t inv_port = {
+        .set_duty = sim_set_duty, .set_phase_state = sim_set_phase_state, .self = &sim};
+    foc_current_port_t cs_port = {
+        .read_currents = sim_read_currents, .read_vbus = sim_read_vbus, .self = &sim};
+    foc_rotor_port_t rs_port = {.read_angle = sim_read_angle, .self = &sim};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = 300.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 8.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = true};
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    /* The guards, before anything is stored. */
+    uint8_t block[FOC_BACKUP_BLOCK_BYTES];
+    assert_int_equal(foc_core_backup_serialize(&foc, block, FOC_BACKUP_BLOCK_BYTES - 1u), 0u);
+    assert_int_equal(foc_core_backup_serialize(NULL, block, sizeof(block)), 0u);
+    assert_int_equal(foc_core_backup_serialize(&foc, NULL, sizeof(block)), 0u);
+    assert_int_equal(foc_core_backup_restore(&foc, block, FOC_BACKUP_BLOCK_BYTES - 1u),
+                     EDGE_EINVAL);
+
+    /* Writing the block needs a port and the module's own shutdown; a control cycle stores nothing.
+     */
+    backup_store_len = 0u;
+    foc_core_set_backup(&foc, 4242u, 7000u);
+    assert_int_equal(foc_core_fast_loop(&foc, 5e-5f), EDGE_OK);
+    assert_int_equal(backup_store_len, 0u);
+
+    foc_storage_port_t storage = {.self = NULL, .store_backup = backup_capture};
+    foc_core_set_storage_port(&foc, &storage);
+    assert_int_equal(foc.module.power_off(&foc.module), EDGE_OK);
+    assert_int_equal(backup_store_len, FOC_BACKUP_BLOCK_BYTES);
+
+    /* A fresh aggregate takes the block back exactly: metres, and milliseconds through the seconds
+     * the reference's own field carries. */
+    foc_core_t restored;
+    foc_core_construct(&restored, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&restored), EDGE_OK);
+    assert_int_equal(foc_core_backup_restore(&restored, backup_store_block, backup_store_len),
+                     EDGE_OK);
+    uint64_t odometer_m = 0u;
+    uint32_t uptime_ms = 0u;
+    foc_core_get_backup(&restored, &odometer_m, &uptime_ms);
+    assert_float_equal((double)odometer_m, 4242.0, 0.0);
+    assert_int_equal(uptime_ms, 7000u);
+
+    /* A field whose flag did not survive is not taken, and the call says so, while the field that
+     * did survive still comes back. */
+    foc_core_set_backup(&restored, 1u, 0u);
+    backup_store_block[0] =
+        0u; /* the odometer's flag, which is the block's first big-endian word */
+    assert_int_equal(foc_core_backup_restore(&restored, backup_store_block, backup_store_len),
+                     EDGE_EINVAL);
+    foc_core_get_backup(&restored, &odometer_m, &uptime_ms);
+    assert_float_equal((double)odometer_m, 1.0, 0.0); /* left as it was */
+    assert_int_equal(uptime_ms, 7000u);               /* its own flag was intact */
+}
+
+/*
+ * The position loop against the reference's own output. These numbers are not read off the source:
+ * motor/foc_math.c's foc_run_pid_control_pos was compiled verbatim - its three utils_* helpers
+ * alongside it, and a flat struct in place of motor_all_state_t - and run on these inputs, in this
+ * order, on one piece of state. The first iteration is the loud one: the error steps from its
+ * initial zero, so both difference terms are at their largest and dominate the loop, which is the
+ * reference's own behaviour rather than an artefact of the harness.
+ */
+static void test_foc_pos_pid_matches_the_reference(void **state) {
+    (void)state;
+    const float dt = 1.0f / 25000.0f;
+    foc_pos_pid_params_t p = {.kp = 0.05f,
+                              .ki = 2.0f,
+                              .kd = 0.001f,
+                              .kd_proc = 0.0005f,
+                              .kd_filter = 0.5f,
+                              .gain_dec_angle = 0.0f,
+                              .ang_div = 1.0f,
+                              .current_max_a = 60.0f * 0.9f,
+                              .error_sign = 1.0f};
+    foc_pos_pid_t pid;
+    memset(&pid, 0, sizeof(pid));
+    float iq = 0.0f;
+
+    /* one_iter: the error's first step, both D terms at their largest, the output saturated. */
+    foc_run_pid_pos(&pid, &p, true, true, 1.0f, 0.8f, dt, &iq);
+    assert_float_equal(iq, -54.0f, 1e-4f);
+    assert_float_equal(pid.i_term, 1.59999981e-05f, 1e-7f);
+
+    /* twenty_iters: the loop has settled onto the setpoint. Twenty more iterations on the same
+     * state, which is what the harness ran after its single-iteration case. */
+    for (int i = 0; i < 20; i++) {
+        foc_run_pid_pos(&pid, &p, true, true, 1.0f, 0.8f, dt, &iq);
+    }
+    assert_float_equal(iq, 0.558015227f, 1e-4f);
+    assert_float_equal(pid.i_term, 0.000336000056f, 1e-7f);
+
+    /* wraps_negative: the setpoint is below zero and the rotor above it, so the angle difference
+     * goes the short way round through the wrap. */
+    for (int i = 0; i < 20; i++) {
+        foc_run_pid_pos(&pid, &p, true, true, -3.1f, 3.1f, dt, &iq);
+    }
+    assert_float_equal(iq, 0.249854416f, 1e-4f);
+
+    /* hold_still: neither the setpoint nor the measurement moves. */
+    for (int i = 0; i < 10; i++) {
+        foc_run_pid_pos(&pid, &p, true, true, 0.5f, 0.5f, dt, &iq);
+    }
+    assert_float_equal(iq, 0.105541095f, 1e-4f);
+    assert_float_equal(pid.d_filter_proc, 0.00158691243f, 1e-7f);
+
+    /* no_index: no encoder index to find, so the loop holds 40 % of the current limit. */
+    for (int i = 0; i < 3; i++) {
+        foc_run_pid_pos(&pid, &p, true, false, 1.0f, 0.8f, dt, &iq);
+    }
+    assert_float_equal(iq, 21.5999985f, 1e-3f);
+
+    /* gain_wind_down: below p_pid_gain_dec_angle / p_pid_ang_div the four gains wind down together.
+     */
+    p.gain_dec_angle = 5.0f;
+    p.ang_div = 180.0f;
+    for (int i = 0; i < 10; i++) {
+        foc_run_pid_pos(&pid, &p, true, true, 0.01f, 0.0f, dt, &iq);
+    }
+    assert_float_equal(iq, 0.0718551949f, 1e-4f);
+
+    /* inverted_encoder: mcconf foc_encoder_inverted negates the error and the processed D. */
+    p.error_sign = -1.0f;
+    for (int i = 0; i < 10; i++) {
+        foc_run_pid_pos(&pid, &p, true, true, 0.01f, 0.0f, dt, &iq);
+    }
+    assert_float_equal(iq, 0.017287286f, 1e-5f);
+
+    /* pid_off_resets: out of position mode the loop drops what it held, and the command it was
+     * last given stays where it is. */
+    for (int i = 0; i < 2; i++) {
+        foc_run_pid_pos(&pid, &p, false, true, 1.0f, 0.8f, dt, &iq);
+    }
+    assert_float_equal(pid.i_term, 0.0f, 1e-9f);
+    assert_float_equal(pid.d_filter, 0.0f, 1e-9f);
+    assert_float_equal(pid.d_filter_proc, 0.0f, 1e-9f);
+    assert_float_equal(pid.prev_proc, 0.8f, 1e-9f);
+    assert_float_equal(iq, 0.017287286f, 1e-5f);
+}
+
+/*
+ * The modulation-off delay's arming: mcpwm_foc_set_current_off_delay (mcpwm_foc.c:1114) and the
+ * trailing call in the relative-current path that reaches it (mc_interface.c:748). Two things the
+ * reference does are asserted here: the arming takes the *larger* of what is already armed and what
+ * is asked, so a relative command can only postpone the switching-off and never bring it forward;
+ * and it arms only when the commanded current is above cc_min_current on the absolute scale, which
+ * is what l_abs_current_max is the scale of.
+ */
+static void test_foc_core_current_off_delay_arming(void **state) {
+    (void)state;
+
+    mock_inverter_t inv = {0};
+    mock_current_sensor_t cs = {0};
+    mock_rotor_sensor_t rs = {0};
+
+    foc_inverter_port_t inv_port = {
+        .set_duty = mock_set_duty, .set_phase_state = mock_set_phase_state, .self = &inv};
+    foc_current_port_t cs_port = {
+        .read_currents = mock_read_currents, .read_vbus = mock_read_vbus, .self = &cs};
+    foc_rotor_port_t rs_port = {.read_angle = mock_read_angle, .self = &rs};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 54.0f,
+                        .current_min_a = -54.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.1f,
+                        .current_ki = 100.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .l_abs_current_max = 130.0f,
+                        .limits = DERIVATION_LIMITS,
+                        .sensorless_mode = false};
+
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+    assert_float_equal(foc.current_off_delay, 0.0f, 1e-9f);
+
+    /* A command whose absolute current is below cc_min_current does not arm it. */
+    foc.duty_now = 0.0f;
+    assert_int_equal(foc_core_set_current_rel(&foc, 0.0f), EDGE_OK);
+    assert_float_equal(foc.current_off_delay, 0.0f, 1e-9f);
+
+    /* One above it arms the reference's tenth of a second. */
+    assert_int_equal(foc_core_set_current_rel(&foc, 1.0f), EDGE_OK);
+    assert_float_equal(foc.current_off_delay, 0.1f, 1e-6f);
+
+    /* The arming is a maximum: a shorter ask leaves it where it is, a longer one raises it. */
+    foc_core_arm_current_off_delay(&foc, 0.05f);
+    assert_float_equal(foc.current_off_delay, 0.1f, 1e-6f);
+    foc_core_arm_current_off_delay(&foc, 1.0f);
+    assert_float_equal(foc.current_off_delay, 1.0f, 1e-6f);
+
+    /* And the loop it feeds takes it down again, which is what makes it a delay rather than a
+     * latch. */
+    (void)foc_core_fast_loop(&foc, 0.001f);
+    assert_true(foc.current_off_delay < 1.0f);
+}
+
+/*
+ * COMM_MOTOR_ESTOP's motor half (mc_interface.c:1731-1745): while the window is open a command is
+ * accepted and not applied, and the control iteration is what closes it.
+ */
+static void test_foc_core_input_ignore_window(void **state) {
+    (void)state;
+
+    sim_context_t sim;
+    sim.v_bus = 24.0f;
+    sim.inv.enabled = false;
+    foc_virtual_motor_init(&sim.vm, 0.05f, 0.00005f, 0.005f, 7, 0.0005f);
+
+    foc_inverter_port_t inv_port = {
+        .set_duty = sim_set_duty, .set_phase_state = sim_set_phase_state, .self = &sim};
+    foc_current_port_t cs_port = {
+        .read_currents = sim_read_currents, .read_vbus = sim_read_vbus, .self = &sim};
+    foc_rotor_port_t rs_port = {.read_angle = sim_read_angle, .self = &sim};
+
+    foc_core_t foc;
+    foc_config_t cfg = {.r_ohm = 0.05f,
+                        .l_henry = 0.00005f,
+                        .lambda_wb = 0.005f,
+                        .si_motor_poles = 14u,
+                        .si_gear_ratio = 3.0f,
+                        .si_wheel_diameter = 0.083f,
+                        .current_max_a = 50.0f,
+                        .current_min_a = -50.0f,
+                        .duty_max = 0.95f,
+                        .current_kp = 0.15f,
+                        .current_ki = 300.0f,
+                        .vbus_ov_threshold = 60.0f,
+                        .vbus_uv_threshold = 12.0f,
+                        .temp_fet_max_c = 100.0f,
+                        .sensorless_mode = false};
+
+    foc_core_construct(&foc, 1u, 1u, &cfg, &inv_port, &cs_port, &rs_port);
+    assert_int_equal(foc_core_init(&foc), EDGE_OK);
+
+    foc_telemetry_t t;
+
+    /* With no window open the command is applied. */
+    assert_int_equal(foc_core_set_duty(&foc, 0.4f), EDGE_OK);
+    assert_int_equal(foc_core_fast_loop(&foc, 0.001f), EDGE_OK);
+    foc_core_get_telemetry(&foc, &t);
+    assert_float_equal(t.duty_now, 0.4f * TWO_BY_SQRT3, 1e-5f);
+
+    /* With one open it is accepted and not applied, which is the reference's own silence about it.
+     */
+    foc_core_ignore_input(&foc, 3);
+    assert_int_equal(foc_core_set_duty(&foc, -0.4f), EDGE_OK);
+    assert_int_equal(foc_core_fast_loop(&foc, 0.001f), EDGE_OK);
+    foc_core_get_telemetry(&foc, &t);
+    assert_float_equal(t.duty_now, 0.4f * TWO_BY_SQRT3, 1e-5f);
+
+    /* Three iterations of the loop close it, and the next command lands. */
+    assert_int_equal(foc_core_fast_loop(&foc, 0.001f), EDGE_OK);
+    assert_int_equal(foc_core_fast_loop(&foc, 0.001f), EDGE_OK);
+    assert_int_equal(foc_core_set_duty(&foc, -0.4f), EDGE_OK);
+    assert_int_equal(foc_core_fast_loop(&foc, 0.001f), EDGE_OK);
+    foc_core_get_telemetry(&foc, &t);
+    assert_float_equal(t.duty_now, -0.4f * TWO_BY_SQRT3, 1e-5f);
+
+    /* The guard on the window, and the release the command beside it asks for. */
+    foc_core_ignore_input(NULL, 1);
+    assert_int_equal(foc_core_release_motor(&foc), EDGE_OK);
+}
+
+int main(void) {
+
+    const struct CMUnitTest tests[] = {
+        cmocka_unit_test(test_foc_math_transforms),
+        cmocka_unit_test(test_foc_math_svpwm),
+        cmocka_unit_test(test_foc_math_sincos_matches_reference),
+        cmocka_unit_test(test_foc_observer_nan_and_flux_floor),
+        cmocka_unit_test(test_foc_core_construct_contract),
+        cmocka_unit_test(test_foc_core_voltage_protection),
+        cmocka_unit_test(test_foc_core_thermal_protection),
+        cmocka_unit_test(test_foc_core_input_ignore_window),
+        cmocka_unit_test(test_foc_core_closed_loop_virtual_motor),
+        cmocka_unit_test(test_foc_core_averages_are_read_reset_and_masked),
+        cmocka_unit_test(test_foc_core_energy_counters),
+        cmocka_unit_test(test_foc_core_stats_and_reset),
+        cmocka_unit_test(test_foc_core_tachometer_sectors),
+        cmocka_unit_test(test_foc_observer_family),
+        cmocka_unit_test(test_foc_observer_adjust_params),
+        cmocka_unit_test(test_foc_pll_tracks_phase_rate),
+        cmocka_unit_test(test_foc_run_pid_speed),
+        cmocka_unit_test(test_foc_step_towards_branches),
+        cmocka_unit_test(test_foc_run_fw_matches_reference),
+        cmocka_unit_test(test_foc_apply_mtpa),
+        cmocka_unit_test(test_foc_battery_level),
+        cmocka_unit_test(test_foc_core_modes),
+        cmocka_unit_test(test_foc_core_duty_now_is_a_modulation_magnitude),
+        cmocka_unit_test(test_foc_core_set_current_rel_picks_its_limit_from_the_duty),
+        cmocka_unit_test(test_foc_core_handbrake_forces_the_phase_to_zero),
+        cmocka_unit_test(test_foc_temp_comp_factor),
+        cmocka_unit_test(test_foc_core_temp_compensation),
+        cmocka_unit_test(test_foc_hfi_adjust_angle_matches_reference),
+        cmocka_unit_test(test_foc_hfi_configure),
+        cmocka_unit_test(test_foc_angle_difference),
+        cmocka_unit_test(test_foc_saturate_vector_2d),
+        cmocka_unit_test(test_foc_hfi_voltage),
+        cmocka_unit_test(test_foc_hfi_excite_six_vector),
+        cmocka_unit_test(test_foc_hfi_update_gates),
+        cmocka_unit_test(test_foc_hfi_update_tracks_the_injected_angle),
+        cmocka_unit_test(test_foc_hfi_update_flips_and_seeds),
+        cmocka_unit_test(test_foc_hfi_update_other_branches),
+        cmocka_unit_test(test_virtual_motor_saliency),
+        cmocka_unit_test(test_hfi_tracks_a_standing_rotor_and_hands_over),
+        cmocka_unit_test(test_foc_core_read_hfi_bins),
+        cmocka_unit_test(test_foc_core_brake_current_mode),
+        cmocka_unit_test(test_foc_core_backup_counters),
+        cmocka_unit_test(test_foc_core_backup_block),
+        cmocka_unit_test(test_foc_fft_bins_match_reference),
+        cmocka_unit_test(test_foc_core_guards),
+        cmocka_unit_test(test_foc_core_init_and_command_guards),
+        cmocka_unit_test(test_foc_core_openloop),
+        cmocka_unit_test(test_foc_core_release_and_modulation_off),
+        cmocka_unit_test(test_foc_math_helper_branches),
+        cmocka_unit_test(test_foc_math_sat_lambda_combination),
+        cmocka_unit_test(test_foc_core_loop_and_module_failures),
+        cmocka_unit_test(test_foc_core_safety_guards_and_power_off),
+        cmocka_unit_test(test_foc_svpwm_duty_clamps),
+        cmocka_unit_test(test_foc_pos_pid_matches_the_reference),
+        cmocka_unit_test(test_foc_core_update_limits_matches_the_reference),
+        cmocka_unit_test(test_foc_core_current_off_delay_arming),
+    };
+    return cmocka_run_group_tests(tests, NULL, NULL);
+}

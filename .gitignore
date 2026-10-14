@@ -7,6 +7,7 @@ out/
 *.obj
 *.a
 *.elf
+!tests/guards/**
 *.bin
 *.hex
 *.map
@@ -21,6 +22,7 @@ coverage.html
 coverage/
 
 # Tooling
+.pi/
 compile_commands.json
 .cache/
 ccache/

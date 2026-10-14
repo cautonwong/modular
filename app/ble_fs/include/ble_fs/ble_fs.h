@@ -9,6 +9,21 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef BLE_FS_MODULE_ID
+#define BLE_FS_MODULE_ID 0x3500u
+#endif
+
+#ifndef EDGE_MOD_BLE_FS
+#define EDGE_MOD_BLE_FS BLE_FS_MODULE_ID
+#endif
+
+#ifndef FS_EVT_ACCESS
+#define FS_EVT_ACCESS 0x1615u
+#endif
+#ifndef EDGE_EVT_WATCH_FS_ACCESS
+#define EDGE_EVT_WATCH_FS_ACCESS FS_EVT_ACCESS
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

@@ -1,6 +1,9 @@
 #include "step_counter/step_counter.h"
 
-#include "edge/events.h"
+/* Local event fact constants (D31, EVT-013) */
+#ifndef EDGE_EVT_WATCH_NEW_DAY
+#define EDGE_EVT_WATCH_NEW_DAY 0x1609u
+#endif
 
 static const int16_t s_sin_table_90[91] = {
     0,     571,   1143,  1714,  2285,  2855,  3425,  3993,  4560,  5125,  5689,  6252,  6812,

@@ -1,0 +1,719 @@
+#ifndef APP_VESC_COMM_H
+#define APP_VESC_COMM_H
+
+#include "edge/module.h"
+#include <stdalign.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#ifndef VESC_COMM_MODULE_ID
+#define VESC_COMM_MODULE_ID 0x4900u
+#endif
+
+#ifndef EDGE_MOD_VESC_COMM
+#define EDGE_MOD_VESC_COMM VESC_COMM_MODULE_ID
+#endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define VESC_PACKET_MAX_PL_LEN 512
+#define VESC_PACKET_BUF_LEN (VESC_PACKET_MAX_PL_LEN + 8)
+
+/*
+ * Scratch for building one command reply. Owned by the caller inside vesc_comm_t
+ * rather than living on the handler's stack: the reference pools this memory
+ * (util/mempools.c mempools_get_packet_buffer) for the same reason, and this
+ * architecture's rule is that buffers are provided by the composition root, never
+ * allocated and never hidden in a deep frame. The largest reply the reference
+ * defines is COMM_GET_VALUES at 74 bytes.
+ */
+/* 1 command byte + the reference's 488-byte mc_configuration stream = 489. */
+#define VESC_CMD_REPLY_BUF_LEN 512u
+
+/* COMM_GET_VALUES is the largest reply the reference defines (74 bytes); keep the
+ * scratch above it so the send-path bound is a backstop rather than the normal
+ * case, and so a field added later trips the compiler instead of the wire. */
+_Static_assert(VESC_CMD_REPLY_BUF_LEN >= 96u, "reply scratch too small for GET_VALUES");
+
+/*
+ * The whole COMM_PACKET_ID table, copied from the reference's datatypes.h so the
+ * wire ids cannot drift. Declaring the full table is load-bearing: a hand-picked
+ * subset previously carried three wrong values (DECODED_ADC, DECODED_PPM,
+ * GET_VALUES_SETUP) because the offsets were guessed. Only the ids listed in
+ * vesc_comm_process_command are handled; the rest are the id space this port has
+ * not reached yet.
+ */
+typedef enum {
+    COMM_FW_VERSION = 0,
+    COMM_JUMP_TO_BOOTLOADER = 1,
+    COMM_ERASE_NEW_APP = 2,
+    COMM_WRITE_NEW_APP_DATA = 3,
+    COMM_GET_VALUES = 4,
+    COMM_SET_DUTY = 5,
+    COMM_SET_CURRENT = 6,
+    COMM_SET_CURRENT_BRAKE = 7,
+    COMM_SET_RPM = 8,
+    COMM_SET_POS = 9,
+    COMM_SET_HANDBRAKE = 10,
+    COMM_SET_DETECT = 11,
+    COMM_SET_SERVO_POS = 12,
+    COMM_SET_MCCONF = 13,
+    COMM_GET_MCCONF = 14,
+    COMM_GET_MCCONF_DEFAULT = 15,
+    COMM_SET_APPCONF = 16,
+    COMM_GET_APPCONF = 17,
+    COMM_GET_APPCONF_DEFAULT = 18,
+    COMM_SAMPLE_PRINT = 19,
+    COMM_TERMINAL_CMD = 20,
+    COMM_PRINT = 21,
+    COMM_ROTOR_POSITION = 22,
+    COMM_EXPERIMENT_SAMPLE = 23,
+    COMM_DETECT_MOTOR_PARAM = 24,
+    COMM_DETECT_MOTOR_R_L = 25,
+    COMM_DETECT_MOTOR_FLUX_LINKAGE = 26,
+    COMM_DETECT_ENCODER = 27,
+    COMM_DETECT_HALL_FOC = 28,
+    COMM_REBOOT = 29,
+    COMM_ALIVE = 30,
+    COMM_GET_DECODED_PPM = 31,
+    COMM_GET_DECODED_ADC = 32,
+    COMM_GET_DECODED_CHUK = 33,
+    COMM_FORWARD_CAN = 34,
+    COMM_SET_CHUCK_DATA = 35,
+    COMM_CUSTOM_APP_DATA = 36,
+    COMM_NRF_START_PAIRING = 37,
+    COMM_GPD_SET_FSW = 38,
+    COMM_GPD_BUFFER_NOTIFY = 39,
+    COMM_GPD_BUFFER_SIZE_LEFT = 40,
+    COMM_GPD_FILL_BUFFER = 41,
+    COMM_GPD_OUTPUT_SAMPLE = 42,
+    COMM_GPD_SET_MODE = 43,
+    COMM_GPD_FILL_BUFFER_INT8 = 44,
+    COMM_GPD_FILL_BUFFER_INT16 = 45,
+    COMM_GPD_SET_BUFFER_INT_SCALE = 46,
+    COMM_GET_VALUES_SETUP = 47,
+    COMM_SET_MCCONF_TEMP = 48,
+    COMM_SET_MCCONF_TEMP_SETUP = 49,
+    COMM_GET_VALUES_SELECTIVE = 50,
+    COMM_GET_VALUES_SETUP_SELECTIVE = 51,
+    COMM_EXT_NRF_PRESENT = 52,
+    COMM_EXT_NRF_ESB_SET_CH_ADDR = 53,
+    COMM_EXT_NRF_ESB_SEND_DATA = 54,
+    COMM_EXT_NRF_ESB_RX_DATA = 55,
+    COMM_EXT_NRF_SET_ENABLED = 56,
+    COMM_DETECT_MOTOR_FLUX_LINKAGE_OPENLOOP = 57,
+    COMM_DETECT_APPLY_ALL_FOC = 58,
+    COMM_JUMP_TO_BOOTLOADER_ALL_CAN = 59,
+    COMM_ERASE_NEW_APP_ALL_CAN = 60,
+    COMM_WRITE_NEW_APP_DATA_ALL_CAN = 61,
+    COMM_PING_CAN = 62,
+    COMM_APP_DISABLE_OUTPUT = 63,
+    COMM_TERMINAL_CMD_SYNC = 64,
+    COMM_GET_IMU_DATA = 65,
+    COMM_BM_CONNECT = 66,
+    COMM_BM_ERASE_FLASH_ALL = 67,
+    COMM_BM_WRITE_FLASH = 68,
+    COMM_BM_REBOOT = 69,
+    COMM_BM_DISCONNECT = 70,
+    COMM_BM_MAP_PINS_DEFAULT = 71,
+    COMM_BM_MAP_PINS_NRF5X = 72,
+    COMM_ERASE_BOOTLOADER = 73,
+    COMM_ERASE_BOOTLOADER_ALL_CAN = 74,
+    COMM_PLOT_INIT = 75,
+    COMM_PLOT_DATA = 76,
+    COMM_PLOT_ADD_GRAPH = 77,
+    COMM_PLOT_SET_GRAPH = 78,
+    COMM_GET_DECODED_BALANCE = 79,
+    COMM_BM_MEM_READ = 80,
+    COMM_WRITE_NEW_APP_DATA_LZO = 81,
+    COMM_WRITE_NEW_APP_DATA_ALL_CAN_LZO = 82,
+    COMM_BM_WRITE_FLASH_LZO = 83,
+    COMM_SET_CURRENT_REL = 84,
+    COMM_CAN_FWD_FRAME = 85,
+    COMM_SET_BATTERY_CUT = 86,
+    COMM_SET_BLE_NAME = 87,
+    COMM_SET_BLE_PIN = 88,
+    COMM_SET_CAN_MODE = 89,
+    COMM_GET_IMU_CALIBRATION = 90,
+    COMM_GET_MCCONF_TEMP = 91,
+    COMM_GET_CUSTOM_CONFIG_XML = 92,
+    COMM_GET_CUSTOM_CONFIG = 93,
+    COMM_GET_CUSTOM_CONFIG_DEFAULT = 94,
+    COMM_SET_CUSTOM_CONFIG = 95,
+    COMM_BMS_GET_VALUES = 96,
+    COMM_BMS_SET_CHARGE_ALLOWED = 97,
+    COMM_BMS_SET_BALANCE_OVERRIDE = 98,
+    COMM_BMS_RESET_COUNTERS = 99,
+    COMM_BMS_FORCE_BALANCE = 100,
+    COMM_BMS_ZERO_CURRENT_OFFSET = 101,
+    COMM_JUMP_TO_BOOTLOADER_HW = 102,
+    COMM_ERASE_NEW_APP_HW = 103,
+    COMM_WRITE_NEW_APP_DATA_HW = 104,
+    COMM_ERASE_BOOTLOADER_HW = 105,
+    COMM_JUMP_TO_BOOTLOADER_ALL_CAN_HW = 106,
+    COMM_ERASE_NEW_APP_ALL_CAN_HW = 107,
+    COMM_WRITE_NEW_APP_DATA_ALL_CAN_HW = 108,
+    COMM_ERASE_BOOTLOADER_ALL_CAN_HW = 109,
+    COMM_SET_ODOMETER = 110,
+    COMM_PSW_GET_STATUS = 111,
+    COMM_PSW_SWITCH = 112,
+    COMM_BMS_FWD_CAN_RX = 113,
+    COMM_BMS_HW_DATA = 114,
+    COMM_GET_BATTERY_CUT = 115,
+    COMM_BM_HALT_REQ = 116,
+    COMM_GET_QML_UI_HW = 117,
+    COMM_GET_QML_UI_APP = 118,
+    COMM_CUSTOM_HW_DATA = 119,
+    COMM_QMLUI_ERASE = 120,
+    COMM_QMLUI_WRITE = 121,
+    COMM_IO_BOARD_GET_ALL = 122,
+    COMM_IO_BOARD_SET_PWM = 123,
+    COMM_IO_BOARD_SET_DIGITAL = 124,
+    COMM_BM_MEM_WRITE = 125,
+    COMM_BMS_BLNC_SELFTEST = 126,
+    COMM_GET_EXT_HUM_TMP = 127,
+    COMM_GET_STATS = 128,
+    COMM_RESET_STATS = 129,
+    COMM_LISP_READ_CODE = 130,
+    COMM_LISP_WRITE_CODE = 131,
+    COMM_LISP_ERASE_CODE = 132,
+    COMM_LISP_SET_RUNNING = 133,
+    COMM_LISP_GET_STATS = 134,
+    COMM_LISP_PRINT = 135,
+    COMM_BMS_SET_BATT_TYPE = 136,
+    COMM_BMS_GET_BATT_TYPE = 137,
+    COMM_LISP_REPL_CMD = 138,
+    COMM_LISP_STREAM_CODE = 139,
+    COMM_FILE_LIST = 140,
+    COMM_FILE_READ = 141,
+    COMM_FILE_WRITE = 142,
+    COMM_FILE_MKDIR = 143,
+    COMM_FILE_REMOVE = 144,
+    COMM_LOG_START = 145,
+    COMM_LOG_STOP = 146,
+    COMM_LOG_CONFIG_FIELD = 147,
+    COMM_LOG_DATA_F32 = 148,
+    COMM_SET_APPCONF_NO_STORE = 149,
+    COMM_GET_GNSS = 150,
+    COMM_LOG_DATA_F64 = 151,
+    COMM_LISP_RMSG = 152,
+    COMM_PINLOCK1 = 153,
+    COMM_PINLOCK2 = 154,
+    COMM_PINLOCK3 = 155,
+    COMM_SHUTDOWN = 156,
+    COMM_FW_INFO = 157,
+    COMM_CAN_UPDATE_BAUD_ALL = 158,
+    COMM_MOTOR_ESTOP = 159,
+} vesc_comm_cmd_t;
+
+/*
+ * Telemetry snapshot for COMM_GET_VALUES / COMM_GET_VALUES_SELECTIVE. The mask
+ * selects which fields the caller will send (reference: comm/commands.c, the
+ * `mask & (1 << n)` ladder); it is also what decides which read-and-reset
+ * averages the provider may consume. Fields are the reference's.
+ */
+typedef struct vesc_values {
+    float temp_mos;
+    float temp_motor;
+    float current_motor;
+    float current_in;
+    float id;
+    float iq;
+    float duty_now;
+    float rpm;
+    float v_in;
+    float amp_hours;
+    float amp_hours_charged;
+    float watt_hours;
+    float watt_hours_charged;
+    int32_t tachometer;
+    int32_t tachometer_abs;
+    uint32_t fault_code;
+    float pid_pos_now;
+    uint8_t controller_id;
+    float temp_mos_1;
+    float temp_mos_2;
+    float temp_mos_3;
+    float vd;
+    float vq;
+    uint8_t status; /* bit 0 timeout, bit 1 kill switch (reference: bits 21) */
+} vesc_values_t;
+
+/* COMM_GET_VALUES asks for every field. */
+#define VESC_VALUES_MASK_ALL 0xFFFFFFFFu
+
+/*
+ * COMM_GET_STATS payload. The request carries a uint16 mask and the reply echoes
+ * it as a uint32 (reference: comm/commands.c COMM_GET_STATS), the averages are
+ * sum/samples and the maxima are running maxima since the last reset.
+ */
+typedef struct vesc_stats {
+    float speed_avg;
+    float speed_max;
+    float power_avg;
+    float power_max;
+    float current_avg;
+    float current_max;
+    float temp_mos_avg;
+    float temp_mos_max;
+    float temp_motor_avg;
+    float temp_motor_max;
+    float count_time;
+} vesc_stats_t;
+
+/*
+ * Consumer-Defined Ports (Rules: must have void *self; callbacks take void *self)
+ */
+typedef struct edge_stream_tx_port {
+    edge_status_t (*write)(void *self, const uint8_t *data, size_t len);
+    void *self;
+} edge_stream_tx_port_t;
+
+/*
+ * Decoded app inputs, for COMM_GET_DECODED_PPM and COMM_GET_DECODED_ADC. The
+ * reference reads these straight off app_ppm / app_adc (comm/commands.c), so the
+ * codec asks for the same quantities: the decoded normalised level and the raw
+ * input behind it.
+ */
+/*
+ * comm/commands.c:1830-1852, COMM_GET_MCCONF_TEMP's payload before it is framed: the ten limits the
+ * reference sends, the pole count it sends as a byte, and the gear ratio and wheel diameter it says
+ * are needed to turn the motor's own readings into a speed.
+ */
+typedef struct vesc_mcconf_temp {
+    float l_current_min_scale;
+    float l_current_max_scale;
+    float l_min_erpm;
+    float l_max_erpm;
+    float l_min_duty;
+    float l_max_duty;
+    float l_watt_min;
+    float l_watt_max;
+    float l_in_current_min;
+    float l_in_current_max;
+    uint8_t si_motor_poles;
+    float si_gear_ratio;
+    float si_wheel_diameter;
+} vesc_mcconf_temp_t;
+
+/*
+ * comm/commands.c:2500-2518, COMM_SET_CHUCK_DATA's payload once it has been read: the stick's two
+ * axes, the two buttons, the three accelerometer axes, and the two bytes that only a long enough
+ * frame carries - which the reference leaves false when it does not, rather than inventing them.
+ *
+ * The names and types are the nunchuk application's own data, since this is the same thing arriving
+ * by wire instead of by I2C.
+ */
+typedef struct vesc_chuck_data {
+    int js_x;
+    int js_y;
+    bool bt_c;
+    bool bt_z;
+    int acc_x;
+    int acc_y;
+    int acc_z;
+    bool rev_has_state;
+    bool is_rev;
+} vesc_chuck_data_t;
+
+/*
+ * comm/commands.c:2470-2545, the two IMU commands' payloads. The first answers whichever of fifteen
+ * readings the sender asked for, in one mask; the second is the calibration procedure, whose nine
+ * numbers the reference replies with from its blocking thread.
+ */
+typedef struct vesc_imu_data {
+    float rpy[3];
+    float accel[3];
+    float gyro[3];
+    float mag[3];
+    float quat[4];
+} vesc_imu_data_t;
+
+/*
+ * comm/commands.c:2480 and bms.c:523-620, COMM_BMS_GET_VALUES' payload. The reference asks its BMS
+ * module, which keeps all of it; what this port's BMS already keeps is the six totals, and the rest
+ * are named zeros here rather than guesses - the per-cell, per-temperature and counter telemetry
+ * arrives with the BMS's own frame decoding, which is a slice of its own.
+ */
+#define VESC_BMS_MAX_CELLS 32u
+/* The largest packet the battery's own commands are forwarded in, which is one CAN frame. */
+#define VESC_BMS_FORWARD_MAX 64u
+typedef struct vesc_bms_values {
+    float v_tot;
+    float v_charge;
+    float i_in;
+    float i_in_ic;
+    float ah_cnt;
+    float wh_cnt;
+    uint8_t cell_num;
+    float v_cell[VESC_BMS_MAX_CELLS];
+    uint8_t bal_state[VESC_BMS_MAX_CELLS];
+    uint8_t temp_adc_num;
+    float temps_adc[VESC_BMS_MAX_CELLS];
+    float temp_ic;
+    float temp_hum;
+    float hum;
+    float temp_max_cell;
+    float soc;
+    float soh;
+    uint8_t can_id;
+    float ah_cnt_chg_total;
+    float wh_cnt_chg_total;
+    float ah_cnt_dis_total;
+    float wh_cnt_dis_total;
+} vesc_bms_values_t;
+
+typedef struct vesc_app_status_port {
+    edge_status_t (*get_decoded_ppm)(void *self, float *level, float *pulse_us);
+    edge_status_t (*get_decoded_adc)(void *self, float *level, float *voltage, float *level2,
+                                     float *voltage2);
+    /*
+     * comm/commands.c:2521-2525: COMM_GET_DECODED_CHUK's payload is one number, the stick's own
+     * decoded value - app_nunchuk_get_decoded_y, scaled by a million on the wire.
+     */
+    edge_status_t (*get_decoded_chuk)(void *self, float *level_y);
+    void *self;
+} vesc_app_status_port_t;
+
+/*
+ * COMM_GET_VALUES_SETUP's payload (reference comm/commands.c:797-885). The provider fills all of
+ * it, because a field this port has no source for has to be a named zero rather than a missing
+ * one: odometer_m and uptime_ms are the two, and the docs say why.
+ */
+typedef struct vesc_setup_values {
+    float temp_mos;
+    float temp_motor;
+    float current_tot;
+    float current_in_tot;
+    float duty_now;
+    float rpm;
+    float speed_m_s;
+    float v_in;
+    float battery_level; /* ampere-hours left over total */
+    float ah_tot;
+    float ah_charge_tot;
+    float wh_tot;
+    float wh_charge_tot;
+    float distance_m;
+    float distance_abs_m;
+    float pid_pos_deg;
+    uint8_t fault;
+    uint8_t controller_id;
+    uint8_t num_vescs;
+    float wh_batt_left;
+    uint32_t odometer_m;
+    uint32_t uptime_ms;
+} vesc_setup_values_t;
+
+typedef struct vesc_motor_provider_port {
+    /*
+     * Fill out_val for the fields `mask` selects. The fields the reference serves
+     * through mc_interface_read_reset_avg_* are averages since the previous call,
+     * and reading them RESETS the accumulator - so a provider must read-and-reset
+     * exactly the masked channels and leave the others untouched, or a selective
+     * read would silently shorten every other average's window.
+     */
+    edge_status_t (*get_values)(void *self, uint32_t mask, vesc_values_t *out_val);
+    edge_status_t (*set_duty)(void *self, float duty);
+    edge_status_t (*set_current)(void *self, float current);
+    edge_status_t (*set_current_brake)(void *self, float current);
+    /* Relative current: scaled by a limit the motor side picks from the duty's sign
+     * (reference mc_interface_set_current_rel). */
+    edge_status_t (*set_current_rel)(void *self, float rel);
+    /* Handbrake: a mode of its own, not a current command - the motor side forces the
+     * electrical phase to zero in it (reference mcpwm_foc_set_handbrake). */
+    edge_status_t (*set_handbrake)(void *self, float current);
+    /*
+     * COMM_GET_VALUES_SETUP's source: the reference's mc_interface_get_setup_values() plus the
+     * two values it computes alongside (battery level and remaining watt-hours). The provider
+     * fills all of it, because a field with no source has to be a named zero rather than a
+     * missing one.
+     */
+    edge_status_t (*get_setup_values)(void *self, vesc_setup_values_t *out);
+    edge_status_t (*set_rpm)(void *self, float rpm);
+    edge_status_t (*set_pos)(void *self, float pos);
+    edge_status_t (*get_stats)(void *self, vesc_stats_t *out_val);
+    edge_status_t (*reset_stats)(void *self);
+    void *self;
+} vesc_motor_provider_port_t;
+
+/*
+ * Product identity reported by COMM_FW_VERSION. These are facts of the build and
+ * the board, so the composition root supplies them; keeping them out of the codec
+ * is what stops a plausible-looking placeholder from going out on the wire. The
+ * field set and order are the reference's (comm/commands.c COMM_FW_VERSION).
+ */
+typedef struct vesc_identity {
+    const char *hw_name; /* reference: HW_NAME, hwconf/<board> */
+    const char *fw_name; /* reference: FW_NAME */
+    const uint8_t *uuid; /* 12 bytes, reference: STM32_UUID_8 */
+    uint8_t fw_version_major;
+    uint8_t fw_version_minor;
+    uint8_t pairing_done;
+    uint8_t fw_test_version;
+    uint8_t hw_type; /* HW_TYPE_VESC = 0 */
+    uint8_t custom_cfg_num;
+    uint8_t phase_filters;
+    uint8_t qmlui_hw; /* 0 none, 1, 2 fullscreen */
+    uint8_t qmlui_app;
+    uint8_t nrf_flags;
+    uint8_t controller_id;
+    uint32_t hw_crc; /* reference: main_calc_hw_crc() */
+} vesc_identity_t;
+
+/*
+ * Opaque, caller-provided memory:
+ *
+ *   static alignas(VESC_COMM_STORAGE_ALIGN)
+ *       unsigned char storage[VESC_COMM_STORAGE_SIZE];
+ *   vesc_comm_t *comm = (vesc_comm_t *)storage;
+ *
+ * The definition lives in src/vesc_comm_internal.h, which also asserts that the
+ * size and alignment below still cover it. The caller therefore knows how much
+ * memory to provide without knowing a single field, and cannot reach past the
+ * module's own interface to change its state.
+ *
+ * Size is a ceiling for the widest target (64-bit host) rather than an exact
+ * size, so one constant works everywhere; on a 32-bit target the assertions still
+ * hold with room to spare. The reference keeps its equivalent state in a mempool
+ * for the same reason: the memory belongs to the caller, not to the codec.
+ */
+#define VESC_COMM_STORAGE_SIZE 1720u
+#define VESC_COMM_STORAGE_ALIGN alignof(max_align_t)
+
+typedef struct vesc_comm vesc_comm_t;
+
+/*
+ * Configuration access for COMM_GET_MCCONF / SET_MCCONF / GET_APPCONF / SET_APPCONF.
+ * The two streams are the reference's own byte layouts - the same ones the reference's
+ * confgenerator produces - with no framing added: the caller owns where they live.
+ */
+typedef struct vesc_config_provider_port {
+    edge_status_t (*get_mcconf)(void *self, uint8_t *out, size_t buf_size, size_t *out_len);
+    edge_status_t (*set_mcconf)(void *self, const uint8_t *in, size_t len);
+    edge_status_t (*get_appconf)(void *self, uint8_t *out, size_t buf_size, size_t *out_len);
+    edge_status_t (*set_appconf)(void *self, const uint8_t *in, size_t len);
+    /* COMM_GET_MCCONF_DEFAULT keeps the live calibration offsets, as the reference does. */
+    edge_status_t (*get_mcconf_default)(void *self, uint8_t *out, size_t buf_size, size_t *out_len);
+    edge_status_t (*get_appconf_default)(void *self, uint8_t *out, size_t buf_size,
+                                         size_t *out_len);
+    /* COMM_SET_APPCONF_NO_STORE: applied, not stored. */
+    edge_status_t (*set_appconf_nostore)(void *self, const uint8_t *in, size_t len);
+    void *self;
+} vesc_config_provider_port_t;
+
+/*
+ * Commands that act on the product rather than on the motor. Kept apart from the
+ * configuration port because the consumer is a different module: here it is the terminal.
+ */
+/*
+ * COMM_DETECT_MOTOR_FLUX_LINKAGE_OPENLOOP's result. The reference's procedure hands back the
+ * linkage it measured while driving, the same measurement taken with the phases off, how many
+ * samples the second one had, and whether the measurement is to be trusted; the command layer then
+ * decides which number goes on the wire (comm/commands.c:2304-2314).
+ */
+typedef struct vesc_detect_flux_result {
+    float linkage_wb;
+    float linkage_undriven_wb;
+    float undriven_samples;
+    bool valid;
+} vesc_detect_flux_result_t;
+
+/*
+ * COMM_DETECT_MOTOR_R_L's answer: the resistance the composed sequence measured and the two
+ * inductances. The inductances are in microhenrys, which is the unit the reference's own
+ * measurement publishes - it scales both by 1e6 - and its reply scales them again by 1e3, so what
+ * goes on the wire counts milli-microhenrys.
+ */
+typedef struct vesc_detect_r_l_result {
+    float r_ohm;
+    float l_uh;
+    float ld_lq_diff_uh;
+    bool valid;
+} vesc_detect_r_l_result_t;
+
+typedef struct vesc_comm_ops_port {
+    edge_status_t (*terminal_cmd)(void *self, const char *cmd);
+    /* COMM_FORWARD_CAN: hand a whole packet to another controller over CAN. `data` is the
+     * payload after the target id, which the codec has already peeled off. */
+    edge_status_t (*forward_can)(void *self, uint8_t target_id, const uint8_t *data, size_t len);
+
+    /*
+     * COMM_REBOOT and COMM_JUMP_TO_BOOTLOADER. The reference's reboot handler stores the backup
+     * block and resets (comm/commands.c:695-698); its bootloader jump releases the motor, stops the
+     * serial ports, slows the watchdog and disables interrupts before jumping to the bootloader's
+     * vector table (flash_helper.c). Both halves are the product's - it owns the flash and the
+     * reset line - so each is one call from here, and the reboot one carries the store as well
+     * because that is the order the reference performs them in.
+     */
+    edge_status_t (*reboot)(void *self);
+    edge_status_t (*jump_to_bootloader)(void *self);
+
+    /*
+     * COMM_DETECT_HALL_FOC: the hall sensors' own detection (comm/commands.c:2238-2276), which the
+     * reference runs only when the configuration's sensor port is a hall one and answers with eight
+     * bytes of table and one byte of verdict. That gate is the product's, because the sensor port
+     * is its hardware: a product without halls answers ENOTSUP and the reply is the eight entries
+     * the reference sends in the same case.
+     */
+    edge_status_t (*detect_hall_foc)(void *self, float current_a, uint8_t table[8], bool *result);
+    /*
+     * COMM_DETECT_MOTOR_PARAM: the all-in-one detection (conf_general.c:514-715), whose command
+     * hands over three scaled floats and takes back the cycle integrator's ceiling, the coupling
+     * factor, the eight hall-table bytes and the reference's own count of the readings that came up
+     * short. The reference's command runs to completion before it answers, so an implementation
+     * that drives the procedure to its end is what that looks like from here. The DC-offset
+     * calibration that prologue does first stays the product's, as it is for the other detections
+     * here: a product with no such calibration answers ENOTSUP and the command is refused rather
+     * than half answered.
+     */
+    edge_status_t (*detect_motor_param)(void *self, float current_a, float min_rpm, float low_duty,
+                                        float *int_limit, float *bemf_coupling_k,
+                                        uint8_t hall_table[8], int32_t *hall_res);
+    /* COMM_DETECT_MOTOR_FLUX_LINKAGE_OPENLOOP: run the open-loop flux-linkage measurement. The
+     * reference blocks its command thread until it comes back, so an implementation that advances
+     * the measurement to its end before returning is what that looks like from here. */
+    edge_status_t (*detect_flux_linkage_openloop)(void *self, float current_a, float duty,
+                                                  float erpm_per_sec, float resistance_ohm,
+                                                  float inductance_h,
+                                                  vesc_detect_flux_result_t *result);
+    /*
+     * COMM_DETECT_MOTOR_FLUX_LINKAGE: the same measurement with the motor commutated from its rotor
+     * sensor. Its reply is a single number - the reference's own handler sends the linkage and
+     * nothing else - and its procedure reports success as a bool, so the codec treats anything but
+     * success as a zero.
+     */
+    edge_status_t (*detect_flux_linkage)(void *self, float current_a, float min_rpm, float duty,
+                                         float resistance_ohm, float *linkage_wb);
+    /*
+     * COMM_DETECT_MOTOR_R_L: the composed resistance-and-inductance sequence, whose request carries
+     * nothing and whose reply is the three numbers above. Like the flux commands, the reference
+     * blocks its command thread until the sequence is done, so an implementation that advances it
+     * to its end before returning is what that looks like from here.
+     */
+    edge_status_t (*detect_r_l)(void *self, vesc_detect_r_l_result_t *result);
+    /*
+     * comm/commands.c:1830-1852, COMM_GET_MCCONF_TEMP's payload: ten limits, the pole count the
+     * reference sends as a byte, and the two settings it says are needed to turn the motor's own
+     * readings into a speed.
+     */
+    edge_status_t (*get_mcconf_temp)(void *self, vesc_mcconf_temp_t *out);
+    /*
+     * comm/commands.c:2560-2571, COMM_PING_CAN: which controllers are there, as a list of ids. The
+     * reference pings and waits for answers; the product asks the same question of its own peer
+     * table and returns what it finds, up to max. The count is what was written.
+     */
+    size_t (*ping_can)(void *self, uint8_t *ids, size_t max);
+    /*
+     * comm/commands.c:1266-1275, COMM_GET_BATTERY_CUT's two limits, read off the running
+     * configuration. What the sender can also do - write them back, and fan that out over CAN -
+     * needs a field-level writer for the configuration, which this port does not have yet; it is
+     * named as an open item rather than done half way.
+     */
+    edge_status_t (*get_battery_cut)(void *self, float *start, float *end);
+    /*
+     * comm/commands.c:2500-2518, COMM_SET_CHUCK_DATA: a nunchuk frame arriving by wire rather than
+     * by I2C, which the application takes exactly as it takes a decoded one.
+     */
+    void (*set_chuck_data)(void *self, const vesc_chuck_data_t *data);
+    /*
+     * comm/commands.c:1130-1148, COMM_SHUTDOWN's second half: the sender says whether it wants a
+     * restart or a shutdown, and the product does whichever it can. The reference's restart is a
+     * watchdog reset and its shutdown is the hardware's own; what a host can do is named by the
+     * product that implements this.
+     */
+    void (*request_shutdown)(void *self, bool restart);
+    /*
+     * comm/commands.c:1280-1305, COMM_SET_CAN_MODE: the application configuration's CAN mode,
+     * written back and - when asked - stored, with the reply the sender gets when it asks for one.
+     * The mode's own meaning is the reference's can_mode: which of the status messages this
+     * controller sends.
+     */
+    edge_status_t (*set_can_mode)(void *self, int mode, bool store);
+    /*
+     * comm/commands.c:1215-1300, COMM_SET_MCCONF_TEMP and its _SETUP variant. The two scales come
+     * out of the payload and the rest of the limits follow; the product writes them into the
+     * running configuration, stores them when asked, and does the _SETUP variant's own conversion -
+     * its setup fields are read first because the speeds are turned into motor rpm with them.
+     */
+    edge_status_t (*set_mcconf_temp)(void *self, const vesc_mcconf_temp_t *values, bool store,
+                                     bool is_setup);
+    /*
+     * comm/commands.c:1226-1237: while more than one controller is on the bus, the two watt limits
+     * are divided by how many there are - the reference counts the peers whose frames are under a
+     * tenth of a second old, which is the same test this port uses for a live peer elsewhere.
+     */
+    float (*read_controller_count)(void *self);
+    /*
+     * comm/commands.c:1090-1094, COMM_MOTOR_ESTOP: a sixteen-bit window during which the motor
+     * ignores what it is told, and then the letting go of any override that was in force. The
+     * reference makes both calls in that order, and the product knows what an override is in its
+     * own motor layer.
+     */
+    void (*estop)(void *self, uint16_t time_ms);
+    /*
+     * The IMU's own readings, whichever of the fifteen the sender's mask asks for, and its
+     * calibration. The reference queues the calibration on a blocking thread and replies from
+     * there; what is asked of the product is the same work, and the reply's shape stays with the
+     * codec either way.
+     */
+    edge_status_t (*get_imu_data)(void *self, vesc_imu_data_t *out);
+    edge_status_t (*calibrate_imu)(void *self, float yaw_deg, float cal[9]);
+    /*
+     * bms.c:523, the battery's own answers to its commands - the reference hands the whole command
+     * to its BMS module and lets it reply, and what is asked of the product is that same division.
+     */
+    edge_status_t (*get_bms_values)(void *self, vesc_bms_values_t *out);
+    /*
+     * bms.c:602-608: the five commands the battery answers for itself are forwarded to it whole -
+     * the reference hands the packet to its own CAN layer, addressed to the id the battery replies
+     * from, and lets the battery do the rest.
+     */
+    edge_status_t (*forward_bms_command)(void *self, const uint8_t *packet, size_t len);
+
+    /*
+     * The all-in-one detection (comm/commands.c:2328-2347, conf_general_detect_apply_all_foc_can).
+     * It lives behind the product because everything it composes is a measurement over that
+     * product's own hardware: the DC-offset calibration is its current sensor's, the resistance and
+     * inductance run and the flux linkage drive its own inverter. What it reports back is the
+     * reference's own int16 - zero for a run that completed, negative for one that did not, which
+     * is the value that function starts at.
+     */
+    edge_status_t (*detect_apply_all_foc)(void *self, bool detect_can, float max_power_loss,
+                                          float min_current_in, float max_current_in,
+                                          float openloop_rpm, float sl_erpm, int16_t *result);
+    void *self;
+} vesc_comm_ops_port_t;
+
+void vesc_comm_construct(vesc_comm_t *self, uint32_t module_id, uint32_t priority,
+                         const edge_stream_tx_port_t *stream_tx,
+                         const vesc_motor_provider_port_t *motor,
+                         const vesc_app_status_port_t *app_status,
+                         const vesc_config_provider_port_t *config, const vesc_comm_ops_port_t *ops,
+                         const vesc_identity_t *identity);
+
+edge_status_t vesc_comm_init(vesc_comm_t *self);
+edge_status_t vesc_comm_deinit(vesc_comm_t *self);
+edge_module_t *vesc_comm_module(vesc_comm_t *self);
+
+/* Read-only counters, because the internals are no longer reachable. */
+uint32_t vesc_comm_packets_received(const vesc_comm_t *self);
+uint32_t vesc_comm_packets_sent(const vesc_comm_t *self);
+uint32_t vesc_comm_crc_errors(const vesc_comm_t *self);
+
+/* Packet Processing & Framing */
+void vesc_comm_process_byte(vesc_comm_t *self, uint8_t byte);
+edge_status_t vesc_comm_send_packet(vesc_comm_t *self, const uint8_t *payload, size_t len);
+edge_status_t vesc_comm_process_command(vesc_comm_t *self, const uint8_t *data, size_t len);
+
+/* Helper: CRC16 calculation */
+uint16_t vesc_crc16(const uint8_t *buf, size_t len);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* APP_VESC_COMM_H */

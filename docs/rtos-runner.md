@@ -133,10 +133,9 @@ lower-priority tasks) and it burns current at the same priority.
 
 ## 7. Open
 
-- **No `sys` API exposes the next deadline.** The runner therefore parks for the
-  smallest app period, which costs one periodic wake per period even when nothing
-  is due. An `edge_sys_next_due()` accessor would let the runner sleep exactly
-  until the next deadline and remove that residual wake. Not done here because it
-  changes the `sys` scheduling surface, not the runner.
-- Tickless is verified in QEMU only; the current-reduction claim belongs to the
+- **Next deadline dynamic sleep**: `edge_sys_next_due()` (`sys/runtime/include/runtime/sys.h`)
+  is now implemented (#184). It inspects all registered modules and pending events to
+  compute the exact earliest wake deadline, allowing the runner to sleep until necessary
+  rather than waking periodically on the minimum period.
+- Tickless is verified in QEMU and host simulators; the current-reduction claim belongs to the
   first real platform (#78, #75).

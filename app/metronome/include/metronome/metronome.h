@@ -9,6 +9,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef METRONOME_MODULE_ID
+#define METRONOME_MODULE_ID 0x3800u
+#endif
+
+#ifndef EDGE_MOD_METRONOME
+#define EDGE_MOD_METRONOME METRONOME_MODULE_ID
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

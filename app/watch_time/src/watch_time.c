@@ -1,7 +1,4 @@
 #include "watch_time/watch_time.h"
-
-#include "edge/events.h"
-
 #define RTC_MAX_COUNTER 0x00FFFFFFu /* 24-bit RTC counter */
 
 static bool is_leap_year(uint16_t year) {

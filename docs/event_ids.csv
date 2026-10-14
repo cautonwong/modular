@@ -4,3 +4,4 @@ range,owner,meaning
 0x1000-0x10FF,app.dlt645,DLT645 application events
 0x1100-0x11FF,app.dlms,DLMS application events
 0x1200-0x12FF,app.relay,relay application events
+0x1500-0x15FF,app.pulse_meter,water and pulse meter application events

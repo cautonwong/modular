@@ -14,6 +14,20 @@ SCRIPTS = ROOT / ".github" / "scripts"
 
 # (script, fixture root, expect_pass)
 CASES = [
+    # The budget guard counts a fixed disassembly through a stand-in for objdump: five instructions
+    # in two functions, so one case sits under the bound and one over it.
+    (
+        "check_fast_loop_budget.py",
+        "tests/guards/fast_loop_budget/firmware.elf",
+        True,
+        ["--objdump", "{root}/tests/guards/fast_loop_budget/fake_objdump.sh", "--max-cycles", "10"],
+    ),
+    (
+        "check_fast_loop_budget.py",
+        "tests/guards/fast_loop_budget/firmware.elf",
+        False,
+        ["--objdump", "{root}/tests/guards/fast_loop_budget/fake_objdump.sh", "--max-cycles", "1"],
+    ),
     ("check_app_isolation.py", "tests/guards/isolation_good", True),
     ("check_app_isolation.py", "tests/guards/isolation_bad_infra", False),
     ("check_app_isolation.py", "tests/guards/isolation_bad_app", False),
@@ -113,6 +127,11 @@ CASES = [
     ("check_exemptions.py", "tests/guards/exemptions_bad", False),
     ("check_area_registration.py", "tests/guards/area_registration_good", True),
     ("check_area_registration.py", "tests/guards/area_registration_bad", False),
+    ("check_consumer_ports.py", "tests/guards/consumer_ports_good", True),
+    ("check_consumer_ports.py", "tests/guards/consumer_ports_good_opaque_storage", True),
+    ("check_consumer_ports.py", "tests/guards/consumer_ports_bad_no_self", False),
+    ("check_consumer_ports.py", "tests/guards/consumer_ports_bad_opaque_storage", False),
+    ("check_consumer_ports.py", "tests/guards/consumer_ports_bad_malloc", False),
 ]
 
 

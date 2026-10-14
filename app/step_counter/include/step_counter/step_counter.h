@@ -9,6 +9,21 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef STEP_COUNTER_MODULE_ID
+#define STEP_COUNTER_MODULE_ID 0x1800u
+#endif
+
+#ifndef EDGE_MOD_STEP_COUNTER
+#define EDGE_MOD_STEP_COUNTER STEP_COUNTER_MODULE_ID
+#endif
+
+#ifndef STEP_EVT_COUNT
+#define STEP_EVT_COUNT 0x1604u
+#endif
+#ifndef EDGE_EVT_WATCH_STEP_COUNT
+#define EDGE_EVT_WATCH_STEP_COUNT STEP_EVT_COUNT
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

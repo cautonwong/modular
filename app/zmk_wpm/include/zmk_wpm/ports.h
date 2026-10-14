@@ -6,6 +6,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef ZMK_WPM_MODULE_ID
+#define ZMK_WPM_MODULE_ID 0x2A00u
+#endif
+
+#ifndef EDGE_MOD_ZMK_WPM
+#define EDGE_MOD_ZMK_WPM ZMK_WPM_MODULE_ID
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

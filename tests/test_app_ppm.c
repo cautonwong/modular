@@ -1,0 +1,463 @@
+/* clang-format off */
+#include <stdarg.h>
+#include <stddef.h>
+#include <setjmp.h>
+#include <stdint.h>
+#include <string.h>
+#include <cmocka.h>
+/* clang-format on */
+
+#include "edge/modules.h"
+#include "ppm/ppm.h"
+
+typedef struct mock_ppm_rcv {
+    float pulse_us;
+    bool signal_ok;
+} mock_ppm_rcv_t;
+
+static edge_status_t mock_read_pulse(void *self, float *pulse_us) {
+    mock_ppm_rcv_t *rcv = (mock_ppm_rcv_t *)self;
+    *pulse_us = rcv->pulse_us;
+    return rcv->signal_ok ? EDGE_OK : EDGE_EIO;
+}
+
+static bool mock_signal_present(void *self) {
+    mock_ppm_rcv_t *rcv = (mock_ppm_rcv_t *)self;
+    return rcv->signal_ok;
+}
+
+static void test_ppm_init_validation(void **state) {
+    (void)state;
+    ppm_app_t app;
+    ppm_construct(&app, EDGE_MOD_PPM, 20u, NULL, NULL);
+    assert_int_equal(ppm_init(NULL), EDGE_EINVAL);
+    assert_int_equal(ppm_init(&app), EDGE_EINVAL);
+}
+
+static void test_ppm_deadband_and_range(void **state) {
+    (void)state;
+    ppm_app_t app;
+    mock_ppm_rcv_t rcv = {.pulse_us = 1500.0f, .signal_ok = true};
+    ppm_receiver_port_t port = {
+        .self = &rcv,
+        .read_pulse_us = mock_read_pulse,
+        .is_signal_present = mock_signal_present,
+    };
+    ppm_config_t cfg = {
+        .mode = PPM_MODE_CURRENT,
+        .pulse_min_us = 1000.0f,
+        .pulse_max_us = 2000.0f,
+        .pulse_center_us = 1500.0f,
+        .timeout_s = 0.1f,
+        .safe_start = false,
+    };
+
+    ppm_construct(&app, EDGE_MOD_PPM, 20u, &cfg, &port);
+    assert_int_equal(ppm_init(&app), EDGE_OK);
+
+    /* applications/app_ppm.c:151-159 maps from the centre outwards with no band of its own: 1520us
+     * is 20us past the centre and so 20/500 of the way up, not zero. The port used to hold a
+     * deadband here, which the reference does not have. */
+    rcv.pulse_us = 1520.0f;
+    assert_int_equal(ppm_update(&app, 0.01f), EDGE_OK);
+    assert_float_equal(ppm_get_output(&app), 0.04f, 0.001f);
+
+    /* Full throttle (2000us) -> output 1.0 */
+    rcv.pulse_us = 2000.0f;
+    assert_int_equal(ppm_update(&app, 0.01f), EDGE_OK);
+    assert_float_equal(ppm_get_output(&app), 1.0f, 0.001f);
+
+    /* Full brake (1000us) -> output -1.0 */
+    rcv.pulse_us = 1000.0f;
+    assert_int_equal(ppm_update(&app, 0.01f), EDGE_OK);
+    assert_float_equal(ppm_get_output(&app), -1.0f, 0.001f);
+
+    /* Timeout / signal loss */
+    rcv.signal_ok = false;
+    for (int i = 0; i < 15; i++) {
+        assert_int_equal(ppm_update(&app, 0.01f), EDGE_OK);
+    }
+    assert_false(ppm_is_safe(&app));
+    assert_float_equal(ppm_get_output(&app), 0.0f, 0.001f);
+}
+
+static void test_ppm_safe_start(void **state) {
+    (void)state;
+    ppm_app_t app;
+    mock_ppm_rcv_t rcv = {.pulse_us = 1900.0f, .signal_ok = true};
+    ppm_receiver_port_t port = {
+        .self = &rcv,
+        .read_pulse_us = mock_read_pulse,
+        .is_signal_present = mock_signal_present,
+    };
+    ppm_config_t cfg = {
+        .mode = PPM_MODE_CURRENT,
+        .pulse_min_us = 1000.0f,
+        .pulse_max_us = 2000.0f,
+        .pulse_center_us = 1500.0f,
+        .timeout_s = 0.1f,
+        .safe_start = true,
+    };
+
+    ppm_construct(&app, EDGE_MOD_PPM, 20u, &cfg, &port);
+    assert_int_equal(ppm_init(&app), EDGE_OK);
+
+    /* Started with high throttle -> output blocked by safe start */
+    assert_int_equal(ppm_update(&app, 0.01f), EDGE_OK);
+    assert_float_equal(ppm_get_output(&app), 0.0f, 0.001f);
+    assert_false(ppm_is_safe(&app));
+
+    /* Move to neutral -> safe start unlocks */
+    rcv.pulse_us = 1500.0f;
+    assert_int_equal(ppm_update(&app, 0.01f), EDGE_OK);
+    assert_true(ppm_is_safe(&app));
+
+    /* Now throttle applies */
+    rcv.pulse_us = 2000.0f;
+    assert_int_equal(ppm_update(&app, 0.01f), EDGE_OK);
+    assert_float_equal(ppm_get_output(&app), 1.0f, 0.001f);
+}
+
+/*
+ * The module's own hooks, the accessors' guards and the read-failure path. The hooks are what a
+ * scheduler drives - a poll reads the receiver, and power-off is the safe state - and none of them
+ * had a case. The failing read is checked as an invariant rather than an error code: whatever it
+ * reports, a receiver that cannot be read must not leave a demand behind.
+ */
+static void test_ppm_hooks_guards_and_read_failure(void **state) {
+    (void)state;
+    mock_ppm_rcv_t rcv;
+    memset(&rcv, 0, sizeof(rcv));
+    rcv.pulse_us = 1500.0f;
+    rcv.signal_ok = true;
+    ppm_receiver_port_t port = {
+        .self = &rcv, .read_pulse_us = mock_read_pulse, .is_signal_present = mock_signal_present};
+
+    ppm_app_t app;
+    ppm_construct(&app, EDGE_MOD_PPM, 20u, NULL, &port);
+    assert_int_equal(ppm_init(&app), EDGE_OK);
+
+    /* The hooks a scheduler drives. */
+    assert_int_equal(app.module.poll(&app.module), EDGE_OK);
+    assert_int_equal(app.module.on_event(&app.module, NULL), EDGE_OK);
+    assert_int_equal(app.module.power_off(&app.module), EDGE_OK);
+    assert_float_equal(ppm_get_output(&app), 0.0f, 1e-9f);
+    assert_ptr_equal(ppm_module(&app), &app.module);
+
+    /* A read that fails leaves no demand behind. */
+    rcv.signal_ok = false;
+    (void)ppm_update(&app, 0.01f);
+    assert_float_equal(ppm_get_output(&app), 0.0f, 1e-9f);
+
+    /* The guards. */
+    ppm_construct(NULL, EDGE_MOD_PPM, 20u, NULL, &port);
+    assert_int_equal(ppm_update(NULL, 0.01f), EDGE_EINVAL);
+    assert_float_equal(ppm_get_output(NULL), 0.0f, 1e-9f);
+    assert_float_equal(ppm_get_last_pulse_us(NULL), 0.0f, 1e-9f);
+    assert_ptr_equal(ppm_module(NULL), NULL);
+}
+
+static void test_ppm_detach_and_override(void **state) {
+    (void)state;
+    mock_ppm_rcv_t rcv;
+    memset(&rcv, 0, sizeof(rcv));
+    rcv.pulse_us = 1500.0f; /* the centre the defaults use */
+    rcv.signal_ok = true;
+    ppm_receiver_port_t port = {
+        .self = &rcv, .read_pulse_us = mock_read_pulse, .is_signal_present = mock_signal_present};
+
+    ppm_app_t app;
+    ppm_construct(&app, EDGE_MOD_PPM, 20u, NULL, &port);
+    assert_int_equal(ppm_init(&app), EDGE_OK);
+
+    /* The centre pulse decodes to nothing, which also unlocks the safe start. */
+    assert_int_equal(ppm_update(&app, 0.001f), EDGE_OK);
+    assert_float_equal(ppm_get_output(&app), 0.0f, 1e-4f);
+    assert_false(ppm_is_detached(&app));
+
+    /* Detached, the override is what the loop uses - applications/app_ppm.c:135-137. */
+    ppm_override(&app, 0.75f);
+    ppm_detach(&app, true);
+    assert_true(ppm_is_detached(&app));
+    assert_float_equal(ppm_get_override(&app), 0.75f, 1e-6f);
+    assert_int_equal(ppm_update(&app, 0.001f), EDGE_OK);
+    assert_float_equal(ppm_get_output(&app), 0.75f, 1e-6f);
+
+    /* The substitution is made before the chain, and the curve the chain ends in clamps to [-1, 1]:
+     * that is where the reference bounds this value too, and not at the substitution. */
+    ppm_override(&app, 5.0f);
+    assert_int_equal(ppm_update(&app, 0.001f), EDGE_OK);
+    assert_float_equal(ppm_get_output(&app), 1.0f, 1e-6f);
+
+    /* Let go, and the wire's own reading is what the loop uses again. */
+    ppm_detach(&app, false);
+    assert_int_equal(ppm_update(&app, 0.001f), EDGE_OK);
+    assert_float_equal(ppm_get_output(&app), 0.0f, 1e-4f);
+
+    /* The guards. */
+    ppm_detach(NULL, true);
+    ppm_override(NULL, 1.0f);
+    assert_false(ppm_is_detached(NULL));
+    assert_float_equal(ppm_get_override(NULL), 0.0f, 1e-9f);
+}
+
+static void test_ppm_deadband_curve_and_ramp(void **state) {
+    (void)state;
+    mock_ppm_rcv_t rcv;
+    memset(&rcv, 0, sizeof(rcv));
+    rcv.signal_ok = true;
+    ppm_receiver_port_t port = {
+        .self = &rcv, .read_pulse_us = mock_read_pulse, .is_signal_present = mock_signal_present};
+
+    /* Linear curve, so what is asserted below is the deadband's own rescale: k = max/(max - tres)
+     * with a single unit at the far end, so 0.5 leaves as 0.4444 - the reference's law at :190. */
+    ppm_config_t cfg = {
+        .mode = PPM_MODE_CURRENT,
+        .pulse_min_us = 1000.0f,
+        .pulse_max_us = 2000.0f,
+        .pulse_center_us = 1500.0f,
+        .timeout_s = 0.1f,
+        .safe_start = false,
+        .hyst = 0.1f,
+        .throttle_exp_mode = 3, /* Linear */
+    };
+    ppm_app_t app;
+    ppm_construct(&app, EDGE_MOD_PPM, 20u, &cfg, &port);
+    assert_int_equal(ppm_init(&app), EDGE_OK);
+    assert_int_equal(ppm_update(&app, 0.01f), EDGE_OK); /* centre, also unlocking safe start */
+
+    /* Inside the deadband the value is zeroed rather than rescaled. */
+    rcv.pulse_us = 1525.0f; /* a twentieth of the way up */
+    assert_int_equal(ppm_update(&app, 0.01f), EDGE_OK);
+    assert_float_equal(ppm_get_output(&app), 0.0f, 1e-6f);
+
+    rcv.pulse_us = 1750.0f; /* half way up */
+    assert_int_equal(ppm_update(&app, 0.01f), EDGE_OK);
+    assert_float_equal(ppm_get_output(&app), 0.444444f, 1e-4f);
+
+    /* The ramp is a step of dt/ramp_time toward the target, and its own state carries over. */
+    ppm_app_t ramped;
+    ppm_config_t rcfg = cfg;
+    rcfg.ramp_time_pos = 1.0f;
+    rcfg.ramp_time_neg = 1.0f;
+    ppm_construct(&ramped, EDGE_MOD_PPM, 20u, &rcfg, &port);
+    assert_int_equal(ppm_init(&ramped), EDGE_OK);
+    rcv.pulse_us = 1500.0f;
+    assert_int_equal(ppm_update(&ramped, 0.01f), EDGE_OK);
+
+    rcv.pulse_us = 2000.0f; /* the far end */
+    assert_int_equal(ppm_update(&ramped, 0.25f), EDGE_OK);
+    assert_float_equal(ppm_get_output(&ramped), 0.25f, 1e-4f);
+    assert_int_equal(ppm_update(&ramped, 0.25f), EDGE_OK);
+    assert_float_equal(ppm_get_output(&ramped), 0.5f, 1e-4f);
+}
+
+static void test_ppm_norev_group_remap(void **state) {
+    (void)state;
+    mock_ppm_rcv_t rcv;
+    memset(&rcv, 0, sizeof(rcv));
+    rcv.signal_ok = true;
+    ppm_receiver_port_t port = {
+        .self = &rcv, .read_pulse_us = mock_read_pulse, .is_signal_present = mock_signal_present};
+
+    ppm_config_t cfg = {
+        .mode = PPM_MODE_CURRENT_NOREV,
+        .pulse_min_us = 1000.0f,
+        .pulse_max_us = 2000.0f,
+        .pulse_center_us = 1500.0f,
+        .timeout_s = 0.1f,
+        .safe_start = false,
+        .throttle_exp_mode = 3, /* Linear, so the two values differ only by the re-map. */
+    };
+    ppm_app_t app;
+    ppm_construct(&app, EDGE_MOD_PPM, 20u, &cfg, &port);
+    assert_int_equal(ppm_init(&app), EDGE_OK);
+    assert_int_equal(ppm_update(&app, 0.01f), EDGE_OK); /* centre, unlocking safe start */
+
+    /* The group maps [-1, 1] onto [0, 1]: full brake decodes as -1 and commands 0, which is what
+     * the reference does with this group and not with any other. */
+    rcv.pulse_us = 1000.0f;
+    assert_int_equal(ppm_update(&app, 0.01f), EDGE_OK);
+    assert_float_equal(ppm_get_decoded_level(&app), -1.0f, 1e-4f);
+    assert_float_equal(ppm_get_output(&app), 0.0f, 1e-4f);
+
+    rcv.pulse_us = 2000.0f;
+    assert_int_equal(ppm_update(&app, 0.01f), EDGE_OK);
+    assert_float_equal(ppm_get_decoded_level(&app), 1.0f, 1e-4f);
+    assert_float_equal(ppm_get_output(&app), 1.0f, 1e-4f);
+
+    /* A mode outside the group leaves the two equal. */
+    ppm_config_t dcfg = cfg;
+    dcfg.mode = PPM_MODE_CURRENT;
+    ppm_app_t plain;
+    ppm_construct(&plain, EDGE_MOD_PPM, 20u, &dcfg, &port);
+    assert_int_equal(ppm_init(&plain), EDGE_OK);
+    assert_int_equal(ppm_update(&plain, 0.01f), EDGE_OK);
+    rcv.pulse_us = 1000.0f;
+    assert_int_equal(ppm_update(&plain, 0.01f), EDGE_OK);
+    assert_float_equal(ppm_get_decoded_level(&plain), -1.0f, 1e-4f);
+    assert_float_equal(ppm_get_output(&plain), -1.0f, 1e-4f);
+
+    assert_float_equal(ppm_get_decoded_level(NULL), 0.0f, 1e-9f);
+}
+
+static void test_ppm_policy_modes(void **state) {
+    (void)state;
+    mock_ppm_rcv_t rcv;
+    memset(&rcv, 0, sizeof(rcv));
+    rcv.pulse_us = 1500.0f;
+    rcv.signal_ok = true;
+    ppm_receiver_port_t port = {
+        .self = &rcv, .read_pulse_us = mock_read_pulse, .is_signal_present = mock_signal_present};
+
+    ppm_config_t cfg = {
+        .mode = PPM_MODE_CURRENT,
+        .pulse_min_us = 1000.0f,
+        .pulse_max_us = 2000.0f,
+        .pulse_center_us = 1500.0f,
+        .timeout_s = 0.1f,
+        .safe_start = false,
+        .pid_max_erpm = 10000.0f,
+        .max_erpm_for_dir = 2500.0f,
+    };
+    ppm_app_t app;
+    ppm_construct(&app, EDGE_MOD_PPM, 20u, &cfg, &port);
+    assert_int_equal(ppm_init(&app), EDGE_OK);
+
+    ppm_policy_in_t in = {.rpm_now = 100.0f,
+                          .rpm_local = 100.0f,
+                          .lo_current_max = 50.0f,
+                          .lo_current_min = -30.0f,
+                          .l_max_duty = 0.95f};
+
+    /* CURRENT: accelerating onto lo_current_max, braking onto the magnitude of lo_current_min. */
+    ppm_command_t cmd = ppm_policy(&app, 0.5f, &in);
+    assert_int_equal(cmd.kind, PPM_CMD_CURRENT);
+    assert_float_equal(cmd.current, 25.0f, 1e-4f);
+    assert_false(cmd.current_mode_brake);
+
+    in.rpm_now = -100.0f;
+    cmd = ppm_policy(&app, 0.5f, &in);
+    assert_float_equal(cmd.current, 15.0f, 1e-4f);
+
+    /* SMART_REV brakes on a negative input, which is the flag the product reads as a brake. */
+    app.config.mode = PPM_MODE_CURRENT_SMART_REV;
+    cmd = ppm_policy(&app, -0.5f, &in);
+    assert_true(cmd.current_mode_brake);
+    assert_float_equal(cmd.current, 15.0f, 1e-4f);
+
+    /* DUTY: the value mapped onto the configured duty limit. */
+    app.config.mode = PPM_MODE_DUTY;
+    cmd = ppm_policy(&app, 1.0f, &in);
+    assert_int_equal(cmd.kind, PPM_CMD_DUTY);
+    assert_float_equal(cmd.duty, 0.95f, 1e-4f);
+
+    /* PID: the value times the ceiling the configuration gives. */
+    app.config.mode = PPM_MODE_PID;
+    cmd = ppm_policy(&app, 0.5f, &in);
+    assert_int_equal(cmd.kind, PPM_CMD_PID_SPEED);
+    assert_float_equal(cmd.pid_speed_erpm, 5000.0f, 1e-2f);
+
+    /* POSITION_180: half way is 90 degrees, and it is only taken over when the motor is already
+     * within ten degrees of it. */
+    app.config.mode = PPM_MODE_PID_POSITION_180;
+    in.control_mode_is_position = false;
+    in.pid_pos_now = 200.0f;
+    cmd = ppm_policy(&app, 0.5f, &in);
+    assert_int_equal(cmd.kind, PPM_CMD_NONE);
+    in.pid_pos_now = 95.0f;
+    cmd = ppm_policy(&app, 0.5f, &in);
+    assert_int_equal(cmd.kind, PPM_CMD_PID_POSITION);
+    assert_float_equal(cmd.pid_pos_deg, 90.0f, 1e-3f);
+
+    /* POSITION_360 re-maps onto [0, 1] before this is called, so half way is 180 there. With the
+     * motor already in position mode the ten-degree gate is not applied. */
+    app.config.mode = PPM_MODE_PID_POSITION_360;
+    in.control_mode_is_position = true;
+    cmd = ppm_policy(&app, 0.5f, &in);
+    assert_int_equal(cmd.kind, PPM_CMD_PID_POSITION);
+    assert_float_equal(cmd.pid_pos_deg, 180.0f, 1e-3f);
+
+    /* BRAKE_REV_HYST: the flag starts set, and a speed inside the hysteresis lets go of it. */
+    app.config.mode = PPM_MODE_CURRENT_BRAKE_REV_HYST;
+    assert_true(app.force_brake);
+    in.rpm_local = 1000.0f; /* below 2500 - 500 */
+    in.rpm_now = 100.0f;    /* and going forward, so a positive input accelerates */
+    cmd = ppm_policy(&app, 0.5f, &in);
+    assert_false(app.force_brake);
+    assert_int_equal(app.did_idle_once, 0);
+    assert_float_equal(cmd.current, 25.0f, 1e-4f);
+
+    /* Above the other edge of the hysteresis it goes back to forcing a brake, and a negative input
+     * then brakes instead of reversing. */
+    in.rpm_local = 4000.0f;
+    cmd = ppm_policy(&app, 0.5f, &in);
+    assert_true(app.force_brake);
+    cmd = ppm_policy(&app, -0.5f, &in);
+    assert_true(cmd.current_mode_brake);
+    assert_float_equal(cmd.current, 15.0f, 1e-4f);
+
+    /* NONE commands nothing at all. */
+    app.config.mode = PPM_MODE_NONE;
+    cmd = ppm_policy(&app, 0.5f, &in);
+    assert_int_equal(cmd.kind, PPM_CMD_NONE);
+
+    cmd = ppm_policy(NULL, 0.5f, &in);
+    assert_int_equal(cmd.kind, PPM_CMD_NONE);
+}
+
+static void test_ppm_policy_safe_start_holds(void **state) {
+    (void)state;
+    mock_ppm_rcv_t rcv;
+    memset(&rcv, 0, sizeof(rcv));
+    rcv.pulse_us = 1500.0f;
+    rcv.signal_ok = true;
+    ppm_receiver_port_t port = {
+        .self = &rcv, .read_pulse_us = mock_read_pulse, .is_signal_present = mock_signal_present};
+    ppm_config_t cfg = {
+        .mode = PPM_MODE_CURRENT,
+        .pulse_min_us = 1000.0f,
+        .pulse_max_us = 2000.0f,
+        .pulse_center_us = 1500.0f,
+        .timeout_s = 0.1f,
+        .safe_start = true,
+    };
+    ppm_app_t app;
+    ppm_construct(&app, EDGE_MOD_PPM, 20u, &cfg, &port);
+    assert_int_equal(ppm_init(&app), EDGE_OK);
+
+    ppm_policy_in_t in = {.rpm_now = 100.0f,
+                          .rpm_local = 100.0f,
+                          .lo_current_max = 50.0f,
+                          .lo_current_min = -30.0f,
+                          .l_max_duty = 0.95f};
+
+    /* While the safe start holds, a current mode is held at zero rather than commanded. */
+    ppm_command_t cmd = ppm_policy(&app, 0.5f, &in);
+    assert_int_equal(cmd.kind, PPM_CMD_CURRENT);
+    assert_float_equal(cmd.current, 0.0f, 1e-6f);
+
+    /* Idle pulses climb the counter, and because the count is compared with itself it has to hold
+     * still twice in a row before it is allowed through - which is why this takes 51 of them. */
+    for (int i = 0; i < 51; i++) {
+        cmd = ppm_policy(&app, 0.0f, &in);
+    }
+    cmd = ppm_policy(&app, 0.5f, &in);
+    assert_float_equal(cmd.current, 25.0f, 1e-4f);
+}
+
+int main(void) {
+
+    const struct CMUnitTest tests[] = {
+        cmocka_unit_test(test_ppm_init_validation),
+        cmocka_unit_test(test_ppm_hooks_guards_and_read_failure),
+        cmocka_unit_test(test_ppm_deadband_and_range),
+        cmocka_unit_test(test_ppm_safe_start),
+        cmocka_unit_test(test_ppm_detach_and_override),
+        cmocka_unit_test(test_ppm_deadband_curve_and_ramp),
+        cmocka_unit_test(test_ppm_norev_group_remap),
+        cmocka_unit_test(test_ppm_policy_modes),
+        cmocka_unit_test(test_ppm_policy_safe_start_holds),
+    };
+    return cmocka_run_group_tests(tests, NULL, NULL);
+}

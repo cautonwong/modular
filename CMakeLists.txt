@@ -36,9 +36,22 @@ elseif(EDGE_MODULE_BUILD_ARM_CORTEX_M4 OR EDGE_MODULE_BUILD_ARM_CORTEX_M4_QEMU
        OR EDGE_MODULE_BUILD_FREERTOS_QEMU OR EDGE_MODULE_BUILD_THREADX_QEMU)
     set(EDGE_ARM_CPU cortex-m4)
 endif()
+
+# The reference's own ARM builds pass the single-precision FPU and the constant-precision flag
+# (ChibiOS os/common/ports/ARMCMx/compilers/GCC/rules.mk:35), and they do it for the whole build
+# rather than for one target - which matters here, because an object built with one float ABI does
+# not link against one built with another. Emulator builds keep their arithmetic in software: they
+# are not the part the reference configures. `softfp` rather than `hard` keeps every object in this
+# repository mutually compatible and changes no arithmetic, only the register an argument arrives
+# in.
+if(EDGE_MODULE_BUILD_ARM_CORTEX_M4)
+    list(APPEND EDGE_ARM_FLOAT_FLAGS -mfpu=fpv4-sp-d16 -mfloat-abi=softfp
+         -fsingle-precision-constant)
+endif()
 if(DEFINED EDGE_ARM_CPU)
-    add_compile_options(-mcpu=${EDGE_ARM_CPU} -mthumb -mno-unaligned-access -fstack-usage)
-    add_link_options(-mcpu=${EDGE_ARM_CPU} -mthumb)
+    add_compile_options(-mcpu=${EDGE_ARM_CPU} -mthumb -mno-unaligned-access -fstack-usage
+                        ${EDGE_ARM_FLOAT_FLAGS})
+    add_link_options(-mcpu=${EDGE_ARM_CPU} -mthumb ${EDGE_ARM_FLOAT_FLAGS})
 endif()
 
 function(edge_enable_quality target)
@@ -90,7 +103,7 @@ edge_add_area(app)
 
 # Legal family x board combinations (D39). An unknown family/board fails above;
 # a known-but-unlisted pair is a product composition error and fails here.
-set(EDGE_LEGAL_FAMILY_BOARD "example:example;meter:example;meter:mps2;meter:riscv_virt;watch:example;watch:pinetime;watch:colmi_p8;example:keyboard_mock;keyboard:keyboard_mock;keyboard:nice_nano;keyboard:rpi_pico;keyboard:blackpill;example:colmi_p8;example:nice_nano;example:rpi_pico;example:blackpill;meter:blackpill;meter:rpi_pico")
+set(EDGE_LEGAL_FAMILY_BOARD "example:example;meter:example;meter:mps2;meter:riscv_virt;watch:example;watch:pinetime;watch:colmi_p8;example:keyboard_mock;keyboard:keyboard_mock;keyboard:nice_nano;keyboard:rpi_pico;keyboard:blackpill;example:colmi_p8;example:nice_nano;example:rpi_pico;example:blackpill;meter:blackpill;meter:rpi_pico;bldc:example;bldc:vesc6;bldc:vesc4;bldc:vesc_unity")
 
 function(edge_add_product name)
     cmake_parse_arguments(P "" "family;board" "apps;infra" ${ARGN})
@@ -143,7 +156,7 @@ function(edge_add_product name)
 
     # Record dependencies so edge_add_arm_firmware() can reuse the same product
     # definition without re-parsing the composition.
-    set(EDGE_PRODUCT_${name}_TARGETS "${dep_targets}" CACHE INTERNAL "Product ${name} dependencies")
+    set(EDGE_PRODUCT_${name}_TARGETS "${dep_targets}" PARENT_SCOPE)
     if(NOT EDGE_MODULE_BUILD_EXAMPLE)
         return()
     endif()
@@ -209,6 +222,13 @@ edge_add_product(corne_split family keyboard board keyboard_mock infra hid_repor
 if(TARGET meter_rtems)
     target_link_libraries(meter_rtems PRIVATE pal_rtos_rtems)
 endif()
+edge_add_product(water_meter_host family meter board example infra flash apps pulse_meter)
+if(TARGET water_meter_host)
+    target_link_libraries(water_meter_host PRIVATE pal_os)
+endif()
+edge_add_product(vesc_host family bldc board example infra flash digital_filter vesc_buffer apps foc_core vesc_comm motor_config timeout_guard motor_id bldc_drive ppm adc_input vesc_can nunchuk pas balance vesc_terminal vesc_bms)
+edge_add_product(vesc6_stm32f4 family bldc board vesc6 apps foc_core motor_config timeout_guard)
+
 
 edge_add_product(watch_host family watch board example infra battery_adc cst816s hrs3300 bma421 st7789 flash_spi haptic apps touch_gesture button_handler watch_power heart_rate step_counter watch_time ble_services)
 if(TARGET watch_host)
@@ -317,6 +337,7 @@ endif()
 
 if(EDGE_MODULE_BUILD_ARM_CORTEX_M4)
     edge_add_arm_firmware(example_cortex_m4 example cortex-m4 .github/arm/cortex-m4.ld)
+    edge_add_arm_firmware(vesc6_stm32f4_fw vesc6_stm32f4 cortex-m4 .github/arm/stm32f4.ld)
 endif()
 
 if(EDGE_MODULE_BUILD_ARM_CORTEX_M4_QEMU)

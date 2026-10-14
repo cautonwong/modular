@@ -6,6 +6,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef ZMK_SENSORS_MODULE_ID
+#define ZMK_SENSORS_MODULE_ID 0x2C00u
+#endif
+
+#ifndef EDGE_MOD_ZMK_SENSORS
+#define EDGE_MOD_ZMK_SENSORS ZMK_SENSORS_MODULE_ID
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

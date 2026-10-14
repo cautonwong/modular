@@ -4,12 +4,12 @@
     "example_cortex_m0": {
       "recorded_from": "size-report.json",
       "totals": {
-        "flash": 5282,
+        "flash": 5865,
         "ram": 16
       },
       "layers": {
         "app": {
-          "flash": 184,
+          "flash": 291,
           "ram": 0
         },
         "board": {
@@ -17,7 +17,7 @@
           "ram": 16
         },
         "edge_module": {
-          "flash": 464,
+          "flash": 476,
           "ram": 0
         },
         "infra": {
@@ -37,7 +37,7 @@
           "ram": 0
         },
         "sys": {
-          "flash": 2932,
+          "flash": 3396,
           "ram": 0
         }
       }

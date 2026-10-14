@@ -9,6 +9,21 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef BLE_MOTION_MODULE_ID
+#define BLE_MOTION_MODULE_ID 0x3400u
+#endif
+
+#ifndef EDGE_MOD_BLE_MOTION
+#define EDGE_MOD_BLE_MOTION BLE_MOTION_MODULE_ID
+#endif
+
+#ifndef MOTION_EVT_STREAM
+#define MOTION_EVT_STREAM 0x1614u
+#endif
+#ifndef EDGE_EVT_WATCH_MOTION_STREAM
+#define EDGE_EVT_WATCH_MOTION_STREAM MOTION_EVT_STREAM
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
