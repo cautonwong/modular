@@ -278,6 +278,22 @@ edge_status_t motor_config_validate(const mc_configuration_t *mcconf,
     if (mcconf->l_max_duty <= 0.0f || mcconf->l_max_duty > 1.0f) {
         return EDGE_EINVAL;
     }
+    if (mcconf->l_min_duty < 0.0f || mcconf->l_min_duty >= mcconf->l_max_duty) {
+        return EDGE_EINVAL;
+    }
+    if (mcconf->l_in_current_max <= 0.0f || mcconf->l_in_current_max < mcconf->l_in_current_min) {
+        return EDGE_EINVAL;
+    }
+    if (mcconf->l_abs_current_max <= 0.0f || mcconf->l_abs_current_max < mcconf->l_current_max) {
+        return EDGE_EINVAL;
+    }
+    if (mcconf->l_battery_cut_start > 0.0f && mcconf->l_battery_cut_end > 0.0f &&
+        mcconf->l_battery_cut_start < mcconf->l_battery_cut_end) {
+        return EDGE_EINVAL;
+    }
+    if (mcconf->foc_motor_r < 0.0f || mcconf->foc_motor_l < 0.0f) {
+        return EDGE_EINVAL;
+    }
     if (mcconf->foc_current_filter_const < 0.0f || mcconf->foc_current_filter_const > 1.0f) {
         return EDGE_EINVAL;
     }

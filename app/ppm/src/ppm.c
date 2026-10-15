@@ -557,3 +557,30 @@ float ppm_get_override(const ppm_app_t *app) {
 edge_module_t *ppm_module(ppm_app_t *app) {
     return app ? &app->module : NULL;
 }
+
+edge_status_t ppm_apply_command(const ppm_command_t *cmd, const ppm_motor_port_t *motor) {
+    if (cmd == (void *)0 || motor == (void *)0) {
+        return EDGE_EINVAL;
+    }
+
+    switch (cmd->kind) {
+    case PPM_CMD_CURRENT:
+        if (cmd->current_mode_brake) {
+            return motor->set_current_brake
+                       ? motor->set_current_brake(motor->self, fabsf(cmd->current))
+                       : EDGE_OK;
+        }
+        if (fabsf(cmd->current) < 1e-4f) {
+            return EDGE_OK;
+        }
+        return motor->set_current ? motor->set_current(motor->self, cmd->current) : EDGE_OK;
+    case PPM_CMD_DUTY:
+        return motor->set_duty ? motor->set_duty(motor->self, cmd->duty) : EDGE_OK;
+    case PPM_CMD_PID_SPEED:
+        return motor->set_rpm ? motor->set_rpm(motor->self, cmd->pid_speed_erpm) : EDGE_OK;
+    case PPM_CMD_NONE:
+    case PPM_CMD_PID_POSITION:
+    default:
+        return EDGE_OK;
+    }
+}

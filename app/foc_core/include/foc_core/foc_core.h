@@ -756,6 +756,16 @@ void foc_core_reset_detect_samples(foc_core_t *self);
 void foc_core_read_hfi_bins(const foc_core_t *self, float *offset, float *real_bin2,
                             float *imag_bin2, float *current_mean);
 
+/**
+ * @brief Configure HFI parameters through the foc_core aggregate root.
+ */
+edge_status_t foc_core_configure_hfi(foc_core_t *self, uint8_t samples);
+
+/**
+ * @brief Query whether HFI observer is ready.
+ */
+bool foc_core_hfi_is_ready(const foc_core_t *self);
+
 void foc_core_get_stats(const foc_core_t *self, foc_stats_t *out_stats);
 
 /*

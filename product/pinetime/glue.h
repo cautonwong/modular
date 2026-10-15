@@ -48,39 +48,112 @@
 extern "C" {
 #endif
 
-typedef struct pinetime_glue_state {
-    /* Touch & Display state */
+typedef struct pinetime_touch_adapter {
     bool touch_pressed;
     uint16_t touch_x;
     uint16_t touch_y;
     uint8_t touch_gesture;
+} pinetime_touch_adapter_t;
+
+typedef struct pinetime_display_adapter {
     uint8_t display_brightness;
     bool display_on;
     bool screen_white;
     bool wake_locked;
+} pinetime_display_adapter_t;
 
-    /* Sensor values */
+typedef struct pinetime_sensor_adapter {
     uint16_t ppg_sample;
     bma421_accel_t imu_sample;
     uint16_t battery_mv;
     uint8_t battery_pct;
     bool battery_charging;
     bool battery_power_present;
+} pinetime_sensor_adapter_t;
 
-    /* Time & RTC */
+typedef struct pinetime_rtc_adapter {
     uint32_t rtc_ticks;
+} pinetime_rtc_adapter_t;
 
-    /* Storage buffers */
+typedef struct pinetime_storage_adapter {
     alarm_settings_t alarm_data;
     watch_settings_data_t settings_data;
     uint8_t flash_storage[4096];
     uint32_t validator_word;
+} pinetime_storage_adapter_t;
 
-    /* BLE state */
+typedef struct pinetime_ble_adapter {
     uint16_t last_gatt_handle;
     uint8_t last_gatt_data[64];
     size_t last_gatt_len;
     uint32_t gatt_notify_count;
+} pinetime_ble_adapter_t;
+
+typedef struct pinetime_glue_state {
+    /* Touch adapter */
+    union {
+        pinetime_touch_adapter_t touch;
+        struct {
+            bool touch_pressed;
+            uint16_t touch_x;
+            uint16_t touch_y;
+            uint8_t touch_gesture;
+        };
+    };
+
+    /* Display & power adapter */
+    union {
+        pinetime_display_adapter_t display;
+        struct {
+            uint8_t display_brightness;
+            bool display_on;
+            bool screen_white;
+            bool wake_locked;
+        };
+    };
+
+    /* Sensor adapter */
+    union {
+        pinetime_sensor_adapter_t sensor;
+        struct {
+            uint16_t ppg_sample;
+            bma421_accel_t imu_sample;
+            uint16_t battery_mv;
+            uint8_t battery_pct;
+            bool battery_charging;
+            bool battery_power_present;
+        };
+    };
+
+    /* Time & RTC adapter */
+    union {
+        pinetime_rtc_adapter_t rtc;
+        struct {
+            uint32_t rtc_ticks;
+        };
+    };
+
+    /* Storage adapter */
+    union {
+        pinetime_storage_adapter_t storage;
+        struct {
+            alarm_settings_t alarm_data;
+            watch_settings_data_t settings_data;
+            uint8_t flash_storage[4096];
+            uint32_t validator_word;
+        };
+    };
+
+    /* BLE adapter */
+    union {
+        pinetime_ble_adapter_t ble;
+        struct {
+            uint16_t last_gatt_handle;
+            uint8_t last_gatt_data[64];
+            size_t last_gatt_len;
+            uint32_t gatt_notify_count;
+        };
+    };
 
     /* App references */
     watch_time_t *time_app;

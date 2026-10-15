@@ -28,73 +28,123 @@ typedef struct timeout_guard timeout_guard_t;
 extern "C" {
 #endif
 
-typedef struct vesc_host_glue_state {
+typedef struct vesc_host_simulation_adapter {
     foc_virtual_motor_t vmotor;
-    foc_core_t *foc;
-    /*
-     * What the parameter detection's port reaches through: the aggregate whose configuration it
-     * stages and puts back (conf_general.c:525-534, :634), the six-step drive whose tachometer,
-     * cycle integrator and hall-detection counts the reference reads through mc_interface, and the
-     * timeout guard it switches off for the run (:543-551) and restores on the way out. The
-     * composition root sets all three; a product with none of them leaves those callbacks unable to
-     * answer, which is what the procedure's own port check is for.
-     */
-    motor_config_t *config;
-    bldc_drive_t *bldc;
-    timeout_guard_t *timeout;
-    /*
-     * What the run saves while it holds them: the configuration it staged (the reference edits its
-     * own copy and puts it back) and the timeout's two settings, which it reads before it switches
-     * the timeout off and restores on every way out.
-     */
+    float v_bus;
+} vesc_host_simulation_adapter_t;
+
+typedef struct vesc_host_detection_staging {
     mc_configuration_t saved_mcconf;
     bool mcconf_saved;
     uint32_t saved_timeout_ms;
     float saved_timeout_brake_a;
-    float v_bus;
-    /* The EEPROM emulation's two sectors, one FLASH_EMUL_PAGE_SIZE each: the configuration's
-     * variable table is stored in this image, so the emulation's page size sets its size. */
+} vesc_host_detection_staging_t;
+
+typedef struct vesc_host_storage_adapter {
     uint8_t flash_mem[2u * FLASH_EMUL_PAGE_SIZE];
     uint8_t stream_tx_buf[512];
     size_t stream_tx_len;
+} vesc_host_storage_adapter_t;
+
+typedef struct vesc_host_input_adapter {
     float ppm_pulse_us;
     float adc_throttle_v;
     float adc_brake_v;
-
-    /*
-     * The two NTC readings the host simulation is given, and the filtered values the adapter
-     * makes of them (vesc_host_sample_temperatures). Inputs the composition root sets, like
-     * v_bus and the throttle voltages.
-     */
-    float fet_temp_raw_c;
-    float motor_temp_raw_c;
-    float fet_temp_c;
-    float motor_temp_c;
-    uint32_t last_can_id;
-    uint8_t last_can_data[8];
-    uint8_t last_can_len;
-    char terminal_tx_buf[256];
-
-    /* The decoded-input adapters read through the apps, not through the raw glue
-     * fields; the composition root points these at the constructed apps. */
-    ppm_app_t *ppm;
-    adc_input_app_t *adc;
-    /*
-     * What the PAS application reads: the two pad levels (app_pas.c:136-138), the torque sensor as
-     * a ratio (app_pas.c:243) and the clock its period is measured against (app_pas.c:156). All
-     * three are the product's to keep; the port beside them used to answer a fixed 60 rpm and a
-     * fixed 15 Nm whatever was wired to it.
-     */
     uint8_t pas_level1;
     uint8_t pas_level2;
     float pas_torque_ratio;
     float now_s;
-    /*
-     * The nunchuk application, for COMM_GET_DECODED_CHUK: the reference reads its decoded value
-     * straight off the application (comm/commands.c:2521), and the state here is what the codec's
-     * own status port hands it through. The tag is used rather than the typedef so that this header
-     * needs no application header, as with the two above it.
-     */
+} vesc_host_input_adapter_t;
+
+typedef struct vesc_host_thermal_adapter {
+    float fet_temp_raw_c;
+    float motor_temp_raw_c;
+    float fet_temp_c;
+    float motor_temp_c;
+} vesc_host_thermal_adapter_t;
+
+typedef struct vesc_host_comm_adapter {
+    uint32_t last_can_id;
+    uint8_t last_can_data[8];
+    uint8_t last_can_len;
+    char terminal_tx_buf[256];
+} vesc_host_comm_adapter_t;
+
+typedef struct vesc_host_glue_state {
+    /* Simulation adapter */
+    union {
+        vesc_host_simulation_adapter_t sim;
+        struct {
+            foc_virtual_motor_t vmotor;
+            float v_bus;
+        };
+    };
+
+    foc_core_t *foc;
+    motor_config_t *config;
+    bldc_drive_t *bldc;
+    timeout_guard_t *timeout;
+
+    /* Parameter detection staging */
+    union {
+        vesc_host_detection_staging_t detect_staging;
+        struct {
+            mc_configuration_t saved_mcconf;
+            bool mcconf_saved;
+            uint32_t saved_timeout_ms;
+            float saved_timeout_brake_a;
+        };
+    };
+
+    /* Storage adapter */
+    union {
+        vesc_host_storage_adapter_t storage;
+        struct {
+            uint8_t flash_mem[2u * FLASH_EMUL_PAGE_SIZE];
+            uint8_t stream_tx_buf[512];
+            size_t stream_tx_len;
+        };
+    };
+
+    /* Input adapter */
+    union {
+        vesc_host_input_adapter_t input;
+        struct {
+            float ppm_pulse_us;
+            float adc_throttle_v;
+            float adc_brake_v;
+            uint8_t pas_level1;
+            uint8_t pas_level2;
+            float pas_torque_ratio;
+            float now_s;
+        };
+    };
+
+    /* Thermal adapter */
+    union {
+        vesc_host_thermal_adapter_t thermal;
+        struct {
+            float fet_temp_raw_c;
+            float motor_temp_raw_c;
+            float fet_temp_c;
+            float motor_temp_c;
+        };
+    };
+
+    /* Comm adapter */
+    union {
+        vesc_host_comm_adapter_t comm;
+        struct {
+            uint32_t last_can_id;
+            uint8_t last_can_data[8];
+            uint8_t last_can_len;
+            char terminal_tx_buf[256];
+        };
+    };
+
+    /* App references */
+    ppm_app_t *ppm;
+    adc_input_app_t *adc;
     struct nunchuk_app *nunchuk;
 
     /*

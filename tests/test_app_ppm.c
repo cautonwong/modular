@@ -446,8 +446,72 @@ static void test_ppm_policy_safe_start_holds(void **state) {
     assert_float_equal(cmd.current, 25.0f, 1e-4f);
 }
 
-int main(void) {
+typedef struct mock_motor_call {
+    float current;
+    float brake;
+    float duty;
+    float rpm;
+} mock_motor_call_t;
 
+static edge_status_t mock_set_current(void *self, float current) {
+    mock_motor_call_t *c = (mock_motor_call_t *)self;
+    c->current = current;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_set_brake(void *self, float brake) {
+    mock_motor_call_t *c = (mock_motor_call_t *)self;
+    c->brake = brake;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_set_duty(void *self, float duty) {
+    mock_motor_call_t *c = (mock_motor_call_t *)self;
+    c->duty = duty;
+    return EDGE_OK;
+}
+
+static edge_status_t mock_set_rpm(void *self, float rpm) {
+    mock_motor_call_t *c = (mock_motor_call_t *)self;
+    c->rpm = rpm;
+    return EDGE_OK;
+}
+
+static void test_ppm_apply_command(void **state) {
+    (void)state;
+    mock_motor_call_t mock = {0};
+    ppm_motor_port_t port = {
+        .self = &mock,
+        .set_current = mock_set_current,
+        .set_current_brake = mock_set_brake,
+        .set_duty = mock_set_duty,
+        .set_rpm = mock_set_rpm,
+    };
+
+    assert_int_equal(ppm_apply_command(NULL, &port), EDGE_EINVAL);
+    assert_int_equal(ppm_apply_command(&(ppm_command_t){0}, NULL), EDGE_EINVAL);
+
+    ppm_command_t cmd = {.kind = PPM_CMD_CURRENT, .current = 15.0f};
+    assert_int_equal(ppm_apply_command(&cmd, &port), EDGE_OK);
+    assert_float_equal(mock.current, 15.0f, 1e-6f);
+
+    cmd = (ppm_command_t){.kind = PPM_CMD_CURRENT, .current = -20.0f, .current_mode_brake = true};
+    assert_int_equal(ppm_apply_command(&cmd, &port), EDGE_OK);
+    assert_float_equal(mock.brake, 20.0f, 1e-6f);
+
+    cmd = (ppm_command_t){.kind = PPM_CMD_DUTY, .duty = 0.5f};
+    assert_int_equal(ppm_apply_command(&cmd, &port), EDGE_OK);
+    assert_float_equal(mock.duty, 0.5f, 1e-6f);
+
+    cmd = (ppm_command_t){.kind = PPM_CMD_PID_SPEED, .pid_speed_erpm = 3000.0f};
+    assert_int_equal(ppm_apply_command(&cmd, &port), EDGE_OK);
+    assert_float_equal(mock.rpm, 3000.0f, 1e-6f);
+
+    cmd = (ppm_command_t){.kind = PPM_CMD_NONE};
+    assert_int_equal(ppm_apply_command(&cmd, &port), EDGE_OK);
+}
+
+int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_ppm_init_validation),
         cmocka_unit_test(test_ppm_hooks_guards_and_read_failure),
@@ -458,6 +522,7 @@ int main(void) {
         cmocka_unit_test(test_ppm_norev_group_remap),
         cmocka_unit_test(test_ppm_policy_modes),
         cmocka_unit_test(test_ppm_policy_safe_start_holds),
+        cmocka_unit_test(test_ppm_apply_command),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
