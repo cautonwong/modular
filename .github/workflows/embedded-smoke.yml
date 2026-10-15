@@ -121,7 +121,7 @@ jobs:
             --max-cycles 4200 \
             --report build-m4-stm32/fast-loop.json
       - name: Upload Cortex-M4 QEMU image
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cortex-m4-qemu-firmware
           path: |
@@ -206,7 +206,7 @@ jobs:
           echo "firmware exit status: $rc"
           test "$rc" -eq 0
       - name: Upload RISC-V QEMU image
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: riscv32-qemu-firmware
           path: |
@@ -296,7 +296,7 @@ jobs:
           echo "firmware exit status: $rc"
           test "$rc" -eq 0
       - name: Upload FreeRTOS image
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: freertos-qemu-firmware
           path: |
