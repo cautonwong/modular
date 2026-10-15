@@ -64,7 +64,8 @@ static bool reset_init_bmi(struct bmi160_dev *sensor, imu_filter_t filter) {
 }
 
 /* applications/imu/bmi160_wrapper.c:93-108. */
-static bool configure(imu_device_t *dev, imu_filter_t filter, bool use_mag) {
+static bool configure(void *self, imu_filter_t filter, bool use_mag) {
+    imu_device_t *dev = (imu_device_t *)self;
     (void)use_mag;
 
     struct bmi160_dev *sensor = dev->priv;
@@ -78,7 +79,8 @@ static bool configure(imu_device_t *dev, imu_filter_t filter, bool use_mag) {
 }
 
 /* applications/imu/bmi160_wrapper.c:109-127: the vendor driver's own read, in its own units. */
-static bool read_sample(imu_device_t *dev, float accel[3], float gyro[3], float mag[3]) {
+static bool read_sample(void *self, float accel[3], float gyro[3], float mag[3]) {
+    imu_device_t *dev = (imu_device_t *)self;
     struct bmi160_dev *sensor = dev->priv;
     struct bmi160_sensor_data a;
     struct bmi160_sensor_data g;
@@ -101,8 +103,8 @@ static bool read_sample(imu_device_t *dev, float accel[3], float gyro[3], float 
 
 /* applications/imu/bmi160_wrapper.c:129-134: the vendor driver recovers by itself, so this only
  * backs off before the next read. */
-static void on_read_fail(imu_device_t *dev) {
-    (void)dev;
+static void on_read_fail(void *self) {
+    (void)self;
     imu_transport_delay_us(m_transport, BMI160_FAIL_DELAY_US);
 }
 

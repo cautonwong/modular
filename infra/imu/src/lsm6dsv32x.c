@@ -76,7 +76,8 @@ static bool write_reg(imu_device_t *dev, uint8_t reg, uint8_t value) {
  * magnetometer. The two console lines the reference prints while probing are not printed here; what
  * they report is the address and the identity, both of which are in what this returns.
  */
-static bool configure(imu_device_t *dev, imu_filter_t filter, bool use_mag) {
+static bool configure(void *self, imu_filter_t filter, bool use_mag) {
+    imu_device_t *dev = (imu_device_t *)self;
     (void)use_mag;
 
     uint8_t id = 0u;
@@ -155,7 +156,8 @@ static bool configure(imu_device_t *dev, imu_filter_t filter, bool use_mag) {
 }
 
 /* applications/imu/lsm6dsv32x.c:199-215: twelve bytes, the gyroscope's three axes first again. */
-static bool read_sample(imu_device_t *dev, float accel[3], float gyro[3], float mag[3]) {
+static bool read_sample(void *self, float accel[3], float gyro[3], float mag[3]) {
+    imu_device_t *dev = (imu_device_t *)self;
     uint8_t rxb[12];
 
     if (!imu_transport_read_reg(dev->transport, dev->dev_addr, REG_OUTX_L_G, rxb, sizeof(rxb))) {
@@ -176,7 +178,8 @@ static bool read_sample(imu_device_t *dev, float accel[3], float gyro[3], float 
 }
 
 /* applications/imu/lsm6dsv32x.c:217-220. */
-static void enable_drdy_output(imu_device_t *dev, bool enable) {
+static void enable_drdy_output(void *self, bool enable) {
+    imu_device_t *dev = (imu_device_t *)self;
     (void)write_reg(dev, REG_INT1_CTRL, enable ? INT1_DRDY_G : 0u);
 }
 

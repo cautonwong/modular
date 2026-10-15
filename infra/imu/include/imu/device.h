@@ -27,13 +27,14 @@ typedef struct imu_device_interface {
     /* Human-readable model name for diagnostics. */
     const char *name;
     /* Probe the device and write its register init sequence; false on failure. */
-    bool (*configure)(imu_device_t *dev, imu_filter_t filter, bool use_mag);
+    bool (*configure)(void *self, imu_filter_t filter, bool use_mag);
     /* Read one sample into engineering units; false if the read failed. */
-    bool (*read_sample)(imu_device_t *dev, float accel[3], float gyro[3], float mag[3]);
+    bool (*read_sample)(void *self, float accel[3], float gyro[3], float mag[3]);
     /* The failure policy - a re-initialisation, say. NULL means retry after a short pause. */
-    void (*on_read_fail)(imu_device_t *dev);
+    void (*on_read_fail)(void *self);
     /* Enable the data-ready signal on the device's own pin. NULL means a timed read. */
-    void (*enable_drdy_output)(imu_device_t *dev, bool enable);
+    void (*enable_drdy_output)(void *self, bool enable);
+    void *self;
 } imu_device_interface_t;
 
 struct imu_device {

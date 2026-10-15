@@ -86,7 +86,8 @@ static void reset_init_mpu(imu_device_t *dev) {
 }
 
 /* applications/imu/mpu9150.c:115-141: probe and identify. The filter is not used by this driver. */
-static bool configure(imu_device_t *dev, imu_filter_t filter, bool use_mag) {
+static bool configure(void *self, imu_filter_t filter, bool use_mag) {
+    imu_device_t *dev = (imu_device_t *)self;
     (void)filter;
 
     mpu9150_state_t *st = dev->priv;
@@ -118,7 +119,8 @@ static bool configure(imu_device_t *dev, imu_filter_t filter, bool use_mag) {
 
 /* applications/imu/mpu9150.c:143-192: one sample, with the stuck-sensor guard and the
  * magnetometer's own decimation. */
-static bool read_sample(imu_device_t *dev, float accel[3], float gyro[3], float mag[3]) {
+static bool read_sample(void *self, float accel[3], float gyro[3], float mag[3]) {
+    imu_device_t *dev = (imu_device_t *)self;
     mpu9150_state_t *st = dev->priv;
     int16_t raw[6];
 
@@ -171,7 +173,8 @@ static bool read_sample(imu_device_t *dev, float accel[3], float gyro[3], float 
 }
 
 /* applications/imu/mpu9150.c:194-197: wait a millisecond, then start the device over. */
-static void on_read_fail(imu_device_t *dev) {
+static void on_read_fail(void *self) {
+    imu_device_t *dev = (imu_device_t *)self;
     imu_transport_delay_us(dev->transport, MPU9150_FAIL_DELAY_US);
     reset_init_mpu(dev);
 }
