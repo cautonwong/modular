@@ -46,7 +46,8 @@ static bool reset_init_icm(imu_device_t *dev) {
 
 /* applications/imu/icm20948.c:52-57: the filter setting is not used by this driver, and neither is
  * the magnetometer flag. */
-static bool configure(imu_device_t *dev, imu_filter_t filter, bool use_mag) {
+static bool configure(void *self, imu_filter_t filter, bool use_mag) {
+    imu_device_t *dev = (imu_device_t *)self;
     (void)filter;
     (void)use_mag;
 
@@ -60,7 +61,8 @@ static bool configure(imu_device_t *dev, imu_filter_t filter, bool use_mag) {
  * reference leaves that as a note to itself - and the part is a six-axis one as far as this port is
  * concerned.
  */
-static bool read_sample(imu_device_t *dev, float accel[3], float gyro[3], float mag[3]) {
+static bool read_sample(void *self, float accel[3], float gyro[3], float mag[3]) {
+    imu_device_t *dev = (imu_device_t *)self;
     uint8_t rxb[12];
 
     if (!read_reg(dev, ICM20948_ACCEL_XOUT_H, rxb, sizeof(rxb))) {
@@ -78,7 +80,8 @@ static bool read_sample(imu_device_t *dev, float accel[3], float gyro[3], float 
 }
 
 /* applications/imu/icm20948.c:78-81: start the part over, then wait ten milliseconds. */
-static void on_read_fail(imu_device_t *dev) {
+static void on_read_fail(void *self) {
+    imu_device_t *dev = (imu_device_t *)self;
     reset_init_icm(dev);
     imu_transport_delay_us(dev->transport, ICM20948_FAIL_DELAY_US);
 }

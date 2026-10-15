@@ -635,13 +635,13 @@ float encoder_tle5012_pos_to_deg(uint16_t pos) {
 }
 
 void encoder_core_begin(encoder_core_t *c, encoder_core_type_t type, float (*read_deg)(void *self),
-                        void *read_self) {
+                        void *self) {
     if (c == (void *)0) {
         return;
     }
     c->type = type;
     c->read_deg = read_deg;
-    c->read_self = read_self;
+    c->self = self;
     c->custom_deg = 0.0f;
 }
 
@@ -650,7 +650,7 @@ float encoder_core_read_deg(const encoder_core_t *c) {
     if (c == (void *)0 || c->read_deg == (void *)0) {
         return 0.0f;
     }
-    return c->read_deg(c->read_self);
+    return c->read_deg(c->self);
 }
 
 /* :136-141's own arithmetic: degrees over a turn, times the counter's own counts. */

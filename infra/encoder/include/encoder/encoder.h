@@ -634,13 +634,13 @@ typedef struct encoder_core {
     encoder_core_type_t type;
     /* The family's own reader, which the caller wires to whichever family it constructed. */
     float (*read_deg)(void *self);
-    void *read_self;
+    void *self;
     float custom_deg;
 } encoder_core_t;
 
 /* :68-267's dispatch is the composition root's; what is here is the bookkeeping around it. */
 void encoder_core_begin(encoder_core_t *c, encoder_core_type_t type, float (*read_deg)(void *self),
-                        void *read_self);
+                        void *self);
 float encoder_core_read_deg(const encoder_core_t *c);
 float encoder_core_read_deg_multiturn(encoder_core_t *c, const encoder_core_port_t *port);
 void encoder_core_set_deg(encoder_core_t *c, const encoder_core_port_t *port, float deg);

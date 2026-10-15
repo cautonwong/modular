@@ -28,15 +28,15 @@ typedef struct imu_transport_interface {
      */
     bool cpu_bound;
     /* The highest sample rate this bus may be driven at; each bus knows its own safe maximum. */
-    uint16_t (*max_sample_rate)(imu_transport_t *self);
-    bool (*read_reg)(imu_transport_t *self, uint8_t dev_addr, uint8_t reg, uint8_t *rx, size_t len);
-    bool (*write_reg)(imu_transport_t *self, uint8_t dev_addr, uint8_t reg, const uint8_t *tx,
-                      size_t len);
+    uint16_t (*max_sample_rate)(void *self);
+    bool (*read_reg)(void *self, uint8_t dev_addr, uint8_t reg, uint8_t *rx, size_t len);
+    bool (*write_reg)(void *self, uint8_t dev_addr, uint8_t reg, const uint8_t *tx, size_t len);
     /* Recover a stuck bus, e.g. a slave still holding the data line low. NULL when unsupported. */
-    void (*recover)(imu_transport_t *self);
-    void (*deinit)(imu_transport_t *self);
+    void (*recover)(void *self);
+    void (*deinit)(void *self);
     /* A short pause, the reference's chThdSleepMicroseconds. */
-    void (*delay_us)(imu_transport_t *self, uint32_t us);
+    void (*delay_us)(void *self, uint32_t us);
+    void *self;
 } imu_transport_interface_t;
 
 struct imu_transport {

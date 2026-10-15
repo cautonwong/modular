@@ -29,8 +29,8 @@ typedef struct mock_imu {
     bool fail_reads;
 } mock_imu_t;
 
-static bool mock_read_reg(imu_transport_t *t, uint8_t dev_addr, uint8_t reg, uint8_t *rx,
-                          size_t len) {
+static bool mock_read_reg(void *self, uint8_t dev_addr, uint8_t reg, uint8_t *rx, size_t len) {
+    imu_transport_t *t = (imu_transport_t *)self;
     mock_imu_t *m = (mock_imu_t *)t->self;
     if (m->fail_reads) {
         return false;
@@ -47,8 +47,9 @@ static bool mock_read_reg(imu_transport_t *t, uint8_t dev_addr, uint8_t reg, uin
     return true;
 }
 
-static bool mock_write_reg(imu_transport_t *t, uint8_t dev_addr, uint8_t reg, const uint8_t *tx,
+static bool mock_write_reg(void *self, uint8_t dev_addr, uint8_t reg, const uint8_t *tx,
                            size_t len) {
+    imu_transport_t *t = (imu_transport_t *)self;
     mock_imu_t *m = (mock_imu_t *)t->self;
     uint8_t *file = (dev_addr == 0x0Cu) ? m->mag_regs : m->regs;
     for (size_t i = 0; i < len; i++) {
@@ -58,17 +59,18 @@ static bool mock_write_reg(imu_transport_t *t, uint8_t dev_addr, uint8_t reg, co
     return true;
 }
 
-static void mock_recover(imu_transport_t *t) {
-    (void)t;
+static void mock_recover(void *self) {
+    (void)self;
 }
 
-static void mock_delay_us(imu_transport_t *t, uint32_t us) {
+static void mock_delay_us(void *self, uint32_t us) {
+    imu_transport_t *t = (imu_transport_t *)self;
     mock_imu_t *m = (mock_imu_t *)t->self;
     m->delayed_us += us;
 }
 
-static uint16_t mock_max_rate(imu_transport_t *t) {
-    (void)t;
+static uint16_t mock_max_rate(void *self) {
+    (void)self;
     return 1000u;
 }
 

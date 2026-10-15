@@ -54,7 +54,8 @@ static bool read_gyro_accel(imu_device_t *dev, uint8_t *res) {
  * printed here - a driver has no console, and the two facts it reports are the address and the
  * identity, both of which are visible in what this returns.
  */
-static bool configure(imu_device_t *dev, imu_filter_t filter, bool use_mag) {
+static bool configure(void *self, imu_filter_t filter, bool use_mag) {
+    imu_device_t *dev = (imu_device_t *)self;
     (void)use_mag;
 
     uint8_t rxb[1];
@@ -187,7 +188,8 @@ static bool configure(imu_device_t *dev, imu_filter_t filter, bool use_mag) {
 }
 
 /* applications/imu/lsm6ds3.c:267-278: twelve bytes, the gyroscope's three axes first. */
-static bool read_sample(imu_device_t *dev, float accel[3], float gyro[3], float mag[3]) {
+static bool read_sample(void *self, float accel[3], float gyro[3], float mag[3]) {
+    imu_device_t *dev = (imu_device_t *)self;
     uint8_t rxb[12];
 
     if (!read_gyro_accel(dev, rxb)) {
@@ -206,7 +208,8 @@ static bool read_sample(imu_device_t *dev, float accel[3], float gyro[3], float 
 }
 
 /* applications/imu/lsm6ds3.c:280-283: the data-ready signal on the device's first interrupt pin. */
-static void enable_drdy_output(imu_device_t *dev, bool enable) {
+static void enable_drdy_output(void *self, bool enable) {
+    imu_device_t *dev = (imu_device_t *)self;
     (void)write_reg(dev, LSM6DS3_ACC_GYRO_INT1_CTRL,
                     enable ? LSM6DS3_ACC_GYRO_INT1_DRDY_G_ENABLED : 0u);
 }

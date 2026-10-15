@@ -131,12 +131,13 @@ def check_opaque_storage_in_file(path: Path, root: Path) -> list:
 def check(root: Path) -> list:
     problems = []
 
-    # 1. Check consumer-defined ports in app/ and edge_module/
-    app_dir = root / "app"
-    if app_dir.is_dir():
-        for path in sorted(app_dir.rglob("*.h")):
-            problems.extend(check_ports_in_file(path, root))
-            problems.extend(check_opaque_storage_in_file(path, root))
+    # 1. Check consumer-defined ports in app/, infra/, board/, and edge_module/
+    for layer in ("app", "infra", "board"):
+        layer_dir = root / layer
+        if layer_dir.is_dir():
+            for path in sorted(layer_dir.rglob("*.h")):
+                problems.extend(check_ports_in_file(path, root))
+                problems.extend(check_opaque_storage_in_file(path, root))
 
     edge_ports = root / "edge_module" / "include" / "edge" / "ports.h"
     if edge_ports.is_file():
