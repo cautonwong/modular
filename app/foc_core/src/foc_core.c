@@ -1862,3 +1862,19 @@ void foc_core_reset_detect_samples(foc_core_t *self) {
     self->detect_v_sum = 0.0f;
     self->detect_samples = 0u;
 }
+
+edge_status_t foc_core_configure_hfi(foc_core_t *self, uint8_t samples) {
+    if (self == (void *)0) {
+        return EDGE_EINVAL;
+    }
+    self->config.hfi_samples = samples;
+    foc_hfi_configure(&self->hfi, samples);
+    return EDGE_OK;
+}
+
+bool foc_core_hfi_is_ready(const foc_core_t *self) {
+    if (self == (void *)0) {
+        return false;
+    }
+    return self->hfi.ready;
+}

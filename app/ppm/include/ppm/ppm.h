@@ -166,6 +166,21 @@ void ppm_override(ppm_app_t *app, float val);
 float ppm_get_override(const ppm_app_t *app);
 edge_module_t *ppm_module(ppm_app_t *app);
 
+typedef struct ppm_motor_port {
+    void *self;
+    edge_status_t (*set_current)(void *self, float current);
+    edge_status_t (*set_current_brake)(void *self, float current);
+    edge_status_t (*set_duty)(void *self, float duty);
+    edge_status_t (*set_rpm)(void *self, float rpm);
+} ppm_motor_port_t;
+
+/**
+ * @brief Dispatch a PPM policy command to a consumer-defined motor port.
+ *
+ * Encapsulates domain command actuation policy out of composition roots.
+ */
+edge_status_t ppm_apply_command(const ppm_command_t *cmd, const ppm_motor_port_t *motor);
+
 #ifdef __cplusplus
 }
 #endif

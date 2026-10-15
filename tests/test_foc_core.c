@@ -2492,6 +2492,19 @@ static void test_foc_hfi_configure(void **state) {
     assert_int_equal(hfi.table_fact, 0);
 
     foc_hfi_configure(NULL, 0u); /* nothing to configure */
+
+    /* Test aggregate root encapsulation methods */
+    foc_core_t foc;
+    memset(&foc, 0, sizeof(foc));
+    assert_int_equal(foc_core_configure_hfi(NULL, 2u), EDGE_EINVAL);
+    assert_false(foc_core_hfi_is_ready(NULL));
+
+    assert_int_equal(foc_core_configure_hfi(&foc, 2u), EDGE_OK);
+    assert_int_equal(foc.config.hfi_samples, 2u);
+    assert_int_equal(foc.hfi.samples, 32);
+    assert_false(foc_core_hfi_is_ready(&foc));
+    foc.hfi.ready = true;
+    assert_true(foc_core_hfi_is_ready(&foc));
 }
 
 /*

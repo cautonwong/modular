@@ -115,6 +115,38 @@ static void test_controller_fields_have_reference_defaults(void **state) {
     assert_int_equal(motor_config_validate(&mc, &app), EDGE_EINVAL);
     mc.foc_observer_type = 4u; /* FOC_OBSERVER_MXV */
     assert_int_equal(motor_config_validate(&mc, &app), EDGE_OK);
+
+    /* Domain invariant tests: electrical safety and limits */
+    mc.l_min_duty = mc.l_max_duty + 0.01f;
+    assert_int_equal(motor_config_validate(&mc, &app), EDGE_EINVAL);
+    mc.l_min_duty = 0.005f;
+
+    mc.l_in_current_max = -5.0f;
+    assert_int_equal(motor_config_validate(&mc, &app), EDGE_EINVAL);
+    mc.l_in_current_max = 60.0f;
+
+    mc.l_in_current_min = mc.l_in_current_max + 1.0f;
+    assert_int_equal(motor_config_validate(&mc, &app), EDGE_EINVAL);
+    mc.l_in_current_min = -20.0f;
+
+    mc.l_abs_current_max = mc.l_current_max - 1.0f;
+    assert_int_equal(motor_config_validate(&mc, &app), EDGE_EINVAL);
+    mc.l_abs_current_max = 130.0f;
+
+    mc.l_battery_cut_start = 20.0f;
+    mc.l_battery_cut_end = 25.0f;
+    assert_int_equal(motor_config_validate(&mc, &app), EDGE_EINVAL);
+    mc.l_battery_cut_start = 34.0f;
+    mc.l_battery_cut_end = 31.0f;
+
+    mc.foc_motor_r = -0.01f;
+    assert_int_equal(motor_config_validate(&mc, &app), EDGE_EINVAL);
+    mc.foc_motor_r = 0.015f;
+
+    mc.foc_motor_l = -1.0f;
+    assert_int_equal(motor_config_validate(&mc, &app), EDGE_EINVAL);
+    mc.foc_motor_l = 7e-6f;
+    assert_int_equal(motor_config_validate(&mc, &app), EDGE_OK);
 }
 
 static void test_controller_fields_survive_a_round_trip(void **state) {

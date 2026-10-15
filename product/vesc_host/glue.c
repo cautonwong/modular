@@ -1,5 +1,6 @@
 #include "glue.h"
 #include "bldc_drive/bldc_drive.h"
+#include "digital_filter/digital_filter.h"
 #include "flash/flash.h"
 #include "motor_config/motor_config.h"
 #include "timeout_guard/timeout_guard.h"
@@ -269,24 +270,14 @@ edge_status_t vesc_host_apply_ppm(vesc_host_glue_state_t *state) {
 
     const ppm_command_t cmd = ppm_policy(state->ppm, ppm_get_output(state->ppm), &in);
 
-    switch (cmd.kind) {
-    case PPM_CMD_CURRENT:
-        if (cmd.current_mode_brake) {
-            return motor_set_current_brake(state->foc, fabsf(cmd.current));
-        }
-        if (fabsf(cmd.current) < 1e-4f) {
-            return EDGE_OK;
-        }
-        return motor_set_current(state->foc, cmd.current);
-    case PPM_CMD_DUTY:
-        return motor_set_duty(state->foc, cmd.duty);
-    case PPM_CMD_PID_SPEED:
-        return motor_set_rpm(state->foc, cmd.pid_speed_erpm);
-    case PPM_CMD_NONE:
-    case PPM_CMD_PID_POSITION:
-    default:
-        return EDGE_OK;
-    }
+    const ppm_motor_port_t motor = {
+        .self = state->foc,
+        .set_current = motor_set_current,
+        .set_current_brake = motor_set_current_brake,
+        .set_duty = motor_set_duty,
+        .set_rpm = motor_set_rpm,
+    };
+    return ppm_apply_command(&cmd, &motor);
 }
 
 static edge_status_t motor_set_pos(void *self, float pos) {
@@ -314,8 +305,8 @@ void vesc_host_sample_temperatures(vesc_host_glue_state_t *state, foc_core_t *fo
         temp_motor = -100.0f;
     }
 
-    state->motor_temp_c -= VESC_HOST_MOTOR_TEMP_LPF * (state->motor_temp_c - temp_motor);
-    state->fet_temp_c -= 0.1 * (state->fet_temp_c - state->fet_temp_raw_c);
+    filter_lp_fast(&state->motor_temp_c, temp_motor, VESC_HOST_MOTOR_TEMP_LPF);
+    filter_lp_fast(&state->fet_temp_c, state->fet_temp_raw_c, 0.1f);
 
     foc_core_set_motor_temperature(foc, state->motor_temp_c);
     foc_core_set_fet_temperature(foc, state->fet_temp_c);
@@ -1934,7 +1925,7 @@ static edge_status_t id_enter_inductance_config(void *self, float duty) {
     if (cfg->f_zv > 30000.0f) {
         cfg->f_zv = 30000.0f;
     }
-    foc_hfi_configure(&s->foc->hfi, cfg->hfi_samples);
+    foc_core_configure_hfi(s->foc, cfg->hfi_samples);
     (void)foc_core_stop(s->foc);
     return EDGE_OK;
 }
@@ -1946,7 +1937,7 @@ static edge_status_t id_leave_inductance_config(void *self) {
     }
     s->foc->config = s->saved_foc_config;
     s->foc_config_saved = false;
-    foc_hfi_configure(&s->foc->hfi, s->foc->config.hfi_samples);
+    foc_core_configure_hfi(s->foc, s->foc->config.hfi_samples);
     return EDGE_OK;
 }
 
@@ -1963,7 +1954,7 @@ static edge_status_t id_is_hfi_ready(void *self, bool *ready) {
     if (s == (void *)0 || s->foc == (void *)0 || ready == (void *)0) {
         return EDGE_EINVAL;
     }
-    *ready = s->foc->hfi.ready;
+    *ready = foc_core_hfi_is_ready(s->foc);
     return EDGE_OK;
 }
 

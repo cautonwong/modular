@@ -27,6 +27,15 @@ void biquad_config(biquad_filter_t *filter, float fc_normalized);
 void biquad_reset(biquad_filter_t *filter);
 float biquad_process(biquad_filter_t *filter, float input);
 
+/*
+ * Fast single-pole IIR lowpass filter: val -= factor * (val - sample).
+ */
+static inline void filter_lp_fast(float *val, float sample, float factor) {
+    if (val != (void *)0) {
+        *val -= factor * (*val - sample);
+    }
+}
+
 #ifdef __cplusplus
 }
 #endif
