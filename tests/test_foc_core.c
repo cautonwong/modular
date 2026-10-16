@@ -155,6 +155,8 @@ static void test_foc_core_construct_contract(void **state) {
     assert_int_equal(foc.module.priority, 10u);
     assert_ptr_equal(foc_core_module(&foc), &foc.module);
     assert_int_equal(foc_core_get_state(&foc), FOC_STATE_UNINITIALIZED);
+    assert_int_equal(foc_core_get_poles(&foc), 14u);
+    assert_true(foc_core_get_electrical_rpm(&foc) == 0.0f);
 
     assert_int_equal(foc_core_init(&foc), EDGE_OK);
     assert_int_equal(foc_core_get_state(&foc), FOC_STATE_IDLE);

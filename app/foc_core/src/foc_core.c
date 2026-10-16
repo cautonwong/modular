@@ -1638,6 +1638,17 @@ void foc_core_get_telemetry(const foc_core_t *self, foc_telemetry_t *out_telem) 
     out_telem->watt_hours_charged = self->watt_seconds_charged / 3600.0f;
 }
 
+float foc_core_get_electrical_rpm(const foc_core_t *self) {
+    if (self == (void *)0) {
+        return 0.0f;
+    }
+    return self->last_rpm * ((float)self->config.si_motor_poles / 2.0f);
+}
+
+uint32_t foc_core_get_poles(const foc_core_t *self) {
+    return self != (void *)0 ? self->config.si_motor_poles : 0u;
+}
+
 void foc_core_get_stats(const foc_core_t *self, foc_stats_t *out_stats) {
     if (self == (void *)0 || out_stats == (void *)0) {
         return;

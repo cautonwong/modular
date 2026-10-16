@@ -252,12 +252,9 @@ edge_status_t vesc_host_apply_ppm(vesc_host_glue_state_t *state) {
         return EDGE_EINVAL;
     }
 
-    foc_telemetry_t telem;
-    foc_core_get_telemetry(state->foc, &telem);
-
     /* The reference reads mc_interface_get_rpm() twice - once as rpm_now and once as rpm_local - so
      * both fields are the same value here, converted the way the values port converts it. */
-    const float rpm = telem.speed_rpm * ((float)state->foc->config.si_motor_poles / 2.0f);
+    const float rpm = foc_core_get_electrical_rpm(state->foc);
     const mc_configuration_t *mc = motor_config_get_mc(state->config);
 
     ppm_policy_in_t in;

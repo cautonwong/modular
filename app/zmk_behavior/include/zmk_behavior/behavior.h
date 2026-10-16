@@ -184,6 +184,7 @@ typedef struct zmk_behavior_app {
 void zmk_behavior_construct(zmk_behavior_app_t *self, uint32_t module_id, uint32_t priority,
                             const zmk_behavior_hid_if_t *hid,
                             const zmk_behavior_keymap_if_t *keymap);
+void zmk_behavior_set_keymap_port(zmk_behavior_app_t *self, const zmk_behavior_keymap_if_t *keymap);
 
 edge_status_t zmk_behavior_init(zmk_behavior_app_t *self);
 edge_status_t zmk_behavior_shutdown(zmk_behavior_app_t *self);

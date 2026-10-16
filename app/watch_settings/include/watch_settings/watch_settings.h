@@ -90,6 +90,17 @@ uint16_t watch_settings_get_shake_wake_threshold(const watch_settings_app_t *sel
 void watch_settings_set_ble_enabled(watch_settings_app_t *self, bool enabled);
 bool watch_settings_get_ble_enabled(const watch_settings_app_t *self);
 
+/**
+ * @brief Validates watch settings domain invariants.
+ */
+bool watch_settings_validate_data(const watch_settings_data_t *data);
+
+/**
+ * @brief Get a copy of the settings data snapshot.
+ */
+edge_status_t watch_settings_get_data(const watch_settings_app_t *self,
+                                      watch_settings_data_t *out_data);
+
 #ifdef __cplusplus
 }
 #endif

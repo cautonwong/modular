@@ -140,11 +140,74 @@ static void test_watch_settings_load_save_and_properties(void **state) {
     assert_true(g_mock_store_data.infineat.show_side_cover);
     assert_int_equal(g_mock_store_data.infineat.color_index, 8);
     assert_int_equal(g_mock_store_data.shake_wake_threshold, 180u);
+
+    watch_settings_data_t snapshot;
+    assert_int_equal(watch_settings_get_data(&app, &snapshot), EDGE_OK);
+    assert_int_equal(snapshot.steps_goal, 12000u);
+}
+
+static void test_watch_settings_invariants(void **state) {
+    (void)state;
+
+    watch_settings_app_t app;
+    watch_settings_construct(&app, EDGE_MOD_WATCH_SETTINGS, 50u, NULL);
+    assert_int_equal(watch_settings_init(&app), EDGE_OK);
+
+    /* Initial defaults */
+    assert_int_equal(watch_settings_get_brightness(&app), 2u);
+    assert_int_equal(watch_settings_get_screen_timeout(&app), 15000u);
+    assert_int_equal(watch_settings_get_watch_face(&app), WATCH_FACE_DIGITAL);
+    assert_int_equal(watch_settings_get_steps_goal(&app), 10000u);
+
+    /* Invalid brightness (out of range [1, 3]) must be rejected */
+    watch_settings_set_brightness(&app, 0u);
+    assert_int_equal(watch_settings_get_brightness(&app), 2u);
+    watch_settings_set_brightness(&app, 10u);
+    assert_int_equal(watch_settings_get_brightness(&app), 2u);
+
+    /* Valid brightness accepted */
+    watch_settings_set_brightness(&app, 3u);
+    assert_int_equal(watch_settings_get_brightness(&app), 3u);
+
+    /* Invalid screen timeout (<1000 or >300000) rejected */
+    watch_settings_set_screen_timeout(&app, 100u);
+    assert_int_equal(watch_settings_get_screen_timeout(&app), 15000u);
+    watch_settings_set_screen_timeout(&app, 500000u);
+    assert_int_equal(watch_settings_get_screen_timeout(&app), 15000u);
+
+    /* Invalid steps goal (0 or >1000000) rejected */
+    watch_settings_set_steps_goal(&app, 0u);
+    assert_int_equal(watch_settings_get_steps_goal(&app), 10000u);
+    watch_settings_set_steps_goal(&app, 2000000u);
+    assert_int_equal(watch_settings_get_steps_goal(&app), 10000u);
+
+    /* Invalid watchface enum rejected */
+    watch_settings_set_watch_face(&app, (watch_face_type_t)99);
+    assert_int_equal(watch_settings_get_watch_face(&app), WATCH_FACE_DIGITAL);
+
+    /* Loading corrupted data from store is rejected */
+    g_mock_store_data = (watch_settings_data_t){
+        .version = SETTINGS_FORMAT_VERSION,
+        .brightness_level = 200u, /* Invalid! */
+        .steps_goal = 5000u,
+        .screen_timeout_ms = 10000u,
+    };
+    const watch_settings_store_if_t store_if = {
+        .load = mock_store_load,
+        .save = mock_store_save,
+        .self = NULL,
+    };
+    watch_settings_app_t corrupted_app;
+    watch_settings_construct(&corrupted_app, EDGE_MOD_WATCH_SETTINGS, 50u, &store_if);
+    assert_int_equal(watch_settings_init(&corrupted_app), EDGE_OK);
+    /* Should retain default 10000u because corrupted loaded data was rejected */
+    assert_int_equal(watch_settings_get_steps_goal(&corrupted_app), 10000u);
 }
 
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_watch_settings_load_save_and_properties),
+        cmocka_unit_test(test_watch_settings_invariants),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

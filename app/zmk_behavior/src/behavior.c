@@ -43,6 +43,13 @@ void zmk_behavior_construct(zmk_behavior_app_t *self, uint32_t module_id, uint32
     self->keymap = keymap;
 }
 
+void zmk_behavior_set_keymap_port(zmk_behavior_app_t *self,
+                                  const zmk_behavior_keymap_if_t *keymap) {
+    if (self != NULL) {
+        self->keymap = keymap;
+    }
+}
+
 edge_status_t zmk_behavior_init(zmk_behavior_app_t *self) {
     if (self == NULL) {
         return EDGE_EINVAL;

@@ -48,6 +48,11 @@ int main(void) {
         return 11;
     }
 
+    /* Wire behavior keymap port */
+    zmk_behavior_keymap_if_t behavior_keymap;
+    product_keyboard_make_behavior_keymap(&behavior_keymap, &keymap_app);
+    zmk_behavior_set_keymap_port(&behavior_app, &behavior_keymap);
+
     /* Set some sample default bindings: Pos 0 -> Key A (0x04), Pos 1 -> Key B (0x05) */
     zmk_keymap_set_binding(&keymap_app, 0, 0, (zmk_behavior_binding_t){ZMK_BHV_KEY_PRESS, 0x04, 0});
     zmk_keymap_set_binding(&keymap_app, 0, 1, (zmk_behavior_binding_t){ZMK_BHV_KEY_PRESS, 0x05, 0});

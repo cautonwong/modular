@@ -83,3 +83,37 @@ void product_keyboard_make_matrix_sink(zmk_matrix_event_sink_if_t *out, zmk_keym
         .post_position_event = glue_post_position,
     };
 }
+
+static edge_status_t glue_layer_activate(void *self, uint8_t layer) {
+    zmk_keymap_app_t *keymap = (zmk_keymap_app_t *)self;
+    return zmk_keymap_layer_activate(keymap, layer);
+}
+
+static edge_status_t glue_layer_deactivate(void *self, uint8_t layer) {
+    zmk_keymap_app_t *keymap = (zmk_keymap_app_t *)self;
+    return zmk_keymap_layer_deactivate(keymap, layer);
+}
+
+static edge_status_t glue_layer_toggle(void *self, uint8_t layer) {
+    zmk_keymap_app_t *keymap = (zmk_keymap_app_t *)self;
+    return zmk_keymap_layer_toggle(keymap, layer);
+}
+
+static edge_status_t glue_layer_to(void *self, uint8_t layer) {
+    zmk_keymap_app_t *keymap = (zmk_keymap_app_t *)self;
+    return zmk_keymap_layer_to(keymap, layer);
+}
+
+void product_keyboard_make_behavior_keymap(zmk_behavior_keymap_if_t *out,
+                                           zmk_keymap_app_t *keymap) {
+    if (out == NULL || keymap == NULL) {
+        return;
+    }
+    *out = (zmk_behavior_keymap_if_t){
+        .self = keymap,
+        .layer_activate = glue_layer_activate,
+        .layer_deactivate = glue_layer_deactivate,
+        .layer_toggle = glue_layer_toggle,
+        .layer_to = glue_layer_to,
+    };
+}
