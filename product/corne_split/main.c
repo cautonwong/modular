@@ -46,6 +46,11 @@ int main(void) {
         return 11;
     }
 
+    /* Wire behavior keymap port */
+    zmk_behavior_keymap_if_t behavior_keymap;
+    product_corne_make_behavior_keymap(&behavior_keymap, &keymap_app);
+    zmk_behavior_set_keymap_port(&behavior_app, &behavior_keymap);
+
     /* Left half key: Pos 0 -> Q (0x14), Right half key: Pos 21 -> P (0x13) */
     zmk_keymap_set_binding(&keymap_app, 0, 0, (zmk_behavior_binding_t){ZMK_BHV_KEY_PRESS, 0x14, 0});
     zmk_keymap_set_binding(&keymap_app, 0, 21,

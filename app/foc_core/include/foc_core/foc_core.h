@@ -711,6 +711,8 @@ edge_status_t foc_core_clear_faults(foc_core_t *self);
 foc_state_t foc_core_get_state(const foc_core_t *self);
 uint32_t foc_core_get_faults(const foc_core_t *self);
 void foc_core_get_telemetry(const foc_core_t *self, foc_telemetry_t *out_telem);
+float foc_core_get_electrical_rpm(const foc_core_t *self);
+uint32_t foc_core_get_poles(const foc_core_t *self);
 
 /*
  * Read the averages selected by channel_mask and reset exactly those accumulators.

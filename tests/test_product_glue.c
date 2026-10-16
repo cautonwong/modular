@@ -184,6 +184,16 @@ static void test_keyboard_host_glue(void **state) {
     product_keyboard_make_matrix_sink(&mat_sink, &keymap);
     assert_non_null(mat_sink.post_position_event);
     assert_int_equal(mat_sink.post_position_event(mat_sink.self, 0, true, 100), EDGE_OK);
+
+    zmk_behavior_keymap_if_t bk_if;
+    product_keyboard_make_behavior_keymap(&bk_if, &keymap);
+    assert_non_null(bk_if.layer_activate);
+    assert_non_null(bk_if.layer_deactivate);
+    assert_non_null(bk_if.layer_toggle);
+    assert_non_null(bk_if.layer_to);
+    zmk_behavior_set_keymap_port(&bhv, &bk_if);
+    assert_int_equal(bk_if.layer_activate(bk_if.self, 1), EDGE_OK);
+    assert_true(zmk_keymap_layer_is_active(&keymap, 1));
 }
 
 static void test_corne_split_glue(void **state) {
@@ -212,7 +222,7 @@ static void test_corne_split_glue(void **state) {
                      EDGE_OK);
 
     zmk_keymap_app_t keymap;
-    zmk_keymap_construct(&keymap, EDGE_MOD_ZMK_KEYMAP, 1u, &kb_if, NULL, 1u, 1u);
+    zmk_keymap_construct(&keymap, EDGE_MOD_ZMK_KEYMAP, 1u, &kb_if, NULL, 2u, 1u);
     assert_int_equal(zmk_keymap_init(&keymap), EDGE_OK);
 
     zmk_matrix_event_sink_if_t mat_sink;
@@ -224,6 +234,16 @@ static void test_corne_split_glue(void **state) {
     product_corne_make_split_receiver(&split_rx, &keymap);
     assert_non_null(split_rx.on_remote_position_changed);
     assert_int_equal(split_rx.on_remote_position_changed(split_rx.self, 0, true, 100), EDGE_OK);
+
+    zmk_behavior_keymap_if_t corne_bk_if;
+    product_corne_make_behavior_keymap(&corne_bk_if, &keymap);
+    assert_non_null(corne_bk_if.layer_activate);
+    assert_non_null(corne_bk_if.layer_deactivate);
+    assert_non_null(corne_bk_if.layer_toggle);
+    assert_non_null(corne_bk_if.layer_to);
+    zmk_behavior_set_keymap_port(&bhv, &corne_bk_if);
+    assert_int_equal(corne_bk_if.layer_activate(corne_bk_if.self, 1), EDGE_OK);
+    assert_true(zmk_keymap_layer_is_active(&keymap, 1));
 }
 
 static void test_glue_factories_are_null_safe(void **state) {
@@ -239,9 +259,11 @@ static void test_glue_factories_are_null_safe(void **state) {
     product_meter_gateway_host_make_modbus(NULL, NULL, &gateway);
     product_keyboard_make_behavior_hid(NULL, NULL);
     product_keyboard_make_keymap_behavior(NULL, NULL);
+    product_keyboard_make_behavior_keymap(NULL, NULL);
     product_keyboard_make_matrix_sink(NULL, NULL);
     product_corne_make_behavior_hid(NULL, NULL);
     product_corne_make_keymap_behavior(NULL, NULL);
+    product_corne_make_behavior_keymap(NULL, NULL);
     product_corne_make_matrix_sink(NULL, NULL);
     product_corne_make_split_receiver(NULL, NULL);
 }

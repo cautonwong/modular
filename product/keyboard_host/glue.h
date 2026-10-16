@@ -13,6 +13,7 @@ extern "C" {
 void product_keyboard_make_behavior_hid(zmk_behavior_hid_if_t *out, hid_report_builder_t *builder);
 void product_keyboard_make_keymap_behavior(zmk_keymap_behavior_if_t *out,
                                            zmk_behavior_app_t *behavior);
+void product_keyboard_make_behavior_keymap(zmk_behavior_keymap_if_t *out, zmk_keymap_app_t *keymap);
 void product_keyboard_make_matrix_sink(zmk_matrix_event_sink_if_t *out, zmk_keymap_app_t *keymap);
 
 #ifdef __cplusplus

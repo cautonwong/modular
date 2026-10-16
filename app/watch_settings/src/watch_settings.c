@@ -80,7 +80,7 @@ edge_status_t watch_settings_init(watch_settings_app_t *self) {
     if (self->store != NULL && self->store->load != NULL) {
         watch_settings_data_t loaded;
         if (self->store->load(self->store->self, &loaded) == EDGE_OK) {
-            if (loaded.version == SETTINGS_FORMAT_VERSION) {
+            if (watch_settings_validate_data(&loaded)) {
                 self->data = loaded;
             }
         }
@@ -111,7 +111,8 @@ edge_status_t watch_settings_save(watch_settings_app_t *self) {
 }
 
 void watch_settings_set_watch_face(watch_settings_app_t *self, watch_face_type_t face) {
-    if (self != NULL && self->data.watch_face != face) {
+    if (self != NULL && (uint32_t)face <= (uint32_t)WATCH_FACE_PRIDE &&
+        self->data.watch_face != face) {
         self->data.watch_face = face;
         self->is_dirty = true;
     }
@@ -122,7 +123,8 @@ watch_face_type_t watch_settings_get_watch_face(const watch_settings_app_t *self
 }
 
 void watch_settings_set_clock_format(watch_settings_app_t *self, clock_format_type_t format) {
-    if (self != NULL && self->data.clock_format != format) {
+    if (self != NULL && (uint32_t)format <= (uint32_t)CLOCK_FORMAT_12H &&
+        self->data.clock_format != format) {
         self->data.clock_format = format;
         self->is_dirty = true;
     }
@@ -133,7 +135,8 @@ clock_format_type_t watch_settings_get_clock_format(const watch_settings_app_t *
 }
 
 void watch_settings_set_notification_mode(watch_settings_app_t *self, notification_mode_t mode) {
-    if (self != NULL && self->data.notification_mode != mode) {
+    if (self != NULL && (uint32_t)mode <= (uint32_t)NOTIF_SLEEP &&
+        self->data.notification_mode != mode) {
         self->data.notification_mode = mode;
         self->is_dirty = true;
     }
@@ -144,7 +147,8 @@ notification_mode_t watch_settings_get_notification_mode(const watch_settings_ap
 }
 
 void watch_settings_set_screen_timeout(watch_settings_app_t *self, uint32_t timeout_ms) {
-    if (self != NULL && self->data.screen_timeout_ms != timeout_ms) {
+    if (self != NULL && timeout_ms >= 1000u && timeout_ms <= 300000u &&
+        self->data.screen_timeout_ms != timeout_ms) {
         self->data.screen_timeout_ms = timeout_ms;
         self->is_dirty = true;
     }
@@ -166,7 +170,7 @@ bool watch_settings_get_always_on_display(const watch_settings_app_t *self) {
 }
 
 void watch_settings_set_steps_goal(watch_settings_app_t *self, uint32_t goal) {
-    if (self != NULL && self->data.steps_goal != goal) {
+    if (self != NULL && goal > 0u && goal <= 1000000u && self->data.steps_goal != goal) {
         self->data.steps_goal = goal;
         self->is_dirty = true;
     }
@@ -198,7 +202,7 @@ bool watch_settings_is_wake_mode_enabled(const watch_settings_app_t *self, uint8
 }
 
 void watch_settings_set_brightness(watch_settings_app_t *self, uint8_t level) {
-    if (self != NULL && self->data.brightness_level != level) {
+    if (self != NULL && level >= 1u && level <= 3u && self->data.brightness_level != level) {
         self->data.brightness_level = level;
         self->is_dirty = true;
     }
@@ -209,7 +213,8 @@ uint8_t watch_settings_get_brightness(const watch_settings_app_t *self) {
 }
 
 void watch_settings_set_weather_format(watch_settings_app_t *self, weather_format_type_t format) {
-    if (self != NULL && self->data.weather_format != format) {
+    if (self != NULL && (uint32_t)format <= (uint32_t)WEATHER_FORMAT_IMPERIAL &&
+        self->data.weather_format != format) {
         self->data.weather_format = format;
         self->is_dirty = true;
     }
@@ -220,7 +225,8 @@ weather_format_type_t watch_settings_get_weather_format(const watch_settings_app
 }
 
 void watch_settings_set_chimes_mode(watch_settings_app_t *self, chimes_mode_t mode) {
-    if (self != NULL && self->data.chimes_mode != mode) {
+    if (self != NULL && (uint32_t)mode <= (uint32_t)CHIMES_HALF_HOURS &&
+        self->data.chimes_mode != mode) {
         self->data.chimes_mode = mode;
         self->is_dirty = true;
     }
@@ -231,7 +237,7 @@ chimes_mode_t watch_settings_get_chimes_mode(const watch_settings_app_t *self) {
 }
 
 void watch_settings_set_pts_settings(watch_settings_app_t *self, const pts_settings_t *pts) {
-    if (self != NULL && pts != NULL) {
+    if (self != NULL && pts != NULL && (uint32_t)pts->gauge_style <= (uint32_t)PTS_GAUGE_NUMERIC) {
         self->data.pts = *pts;
         self->is_dirty = true;
     }
@@ -243,7 +249,8 @@ pts_settings_t watch_settings_get_pts_settings(const watch_settings_app_t *self)
 }
 
 void watch_settings_set_pride_flag(watch_settings_app_t *self, pride_flag_type_t flag) {
-    if (self != NULL && self->data.pride_flag != flag) {
+    if (self != NULL && (uint32_t)flag <= (uint32_t)PRIDE_FLAG_LESBIAN &&
+        self->data.pride_flag != flag) {
         self->data.pride_flag = flag;
         self->is_dirty = true;
     }
@@ -285,4 +292,53 @@ void watch_settings_set_ble_enabled(watch_settings_app_t *self, bool enabled) {
 
 bool watch_settings_get_ble_enabled(const watch_settings_app_t *self) {
     return self ? self->ble_radio_enabled : true;
+}
+
+bool watch_settings_validate_data(const watch_settings_data_t *data) {
+    if (data == NULL) {
+        return false;
+    }
+    if (data->version != SETTINGS_FORMAT_VERSION) {
+        return false;
+    }
+    if (data->steps_goal == 0u || data->steps_goal > 1000000u) {
+        return false;
+    }
+    if (data->screen_timeout_ms < 1000u || data->screen_timeout_ms > 300000u) {
+        return false;
+    }
+    if ((uint32_t)data->clock_format > (uint32_t)CLOCK_FORMAT_12H) {
+        return false;
+    }
+    if ((uint32_t)data->weather_format > (uint32_t)WEATHER_FORMAT_IMPERIAL) {
+        return false;
+    }
+    if ((uint32_t)data->notification_mode > (uint32_t)NOTIF_SLEEP) {
+        return false;
+    }
+    if ((uint32_t)data->watch_face > (uint32_t)WATCH_FACE_PRIDE) {
+        return false;
+    }
+    if ((uint32_t)data->chimes_mode > (uint32_t)CHIMES_HALF_HOURS) {
+        return false;
+    }
+    if ((uint32_t)data->pride_flag > (uint32_t)PRIDE_FLAG_LESBIAN) {
+        return false;
+    }
+    if (data->brightness_level < 1u || data->brightness_level > 3u) {
+        return false;
+    }
+    if ((uint32_t)data->pts.gauge_style > (uint32_t)PTS_GAUGE_NUMERIC) {
+        return false;
+    }
+    return true;
+}
+
+edge_status_t watch_settings_get_data(const watch_settings_app_t *self,
+                                      watch_settings_data_t *out_data) {
+    if (self == NULL || out_data == NULL) {
+        return EDGE_EINVAL;
+    }
+    *out_data = self->data;
+    return EDGE_OK;
 }
