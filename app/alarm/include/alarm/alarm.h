@@ -35,6 +35,7 @@ typedef struct alarm_app {
     const alarm_storage_if_t *storage;
     const alarm_alert_if_t *alert;
 
+    /* Internal domain state (encapsulated; access via setters and alarm_get_settings) */
     alarm_settings_t settings;
     bool is_alerting;
     bool settings_changed;
@@ -49,12 +50,15 @@ typedef struct alarm_app {
     uint8_t snooze_target_minute;
 } alarm_app_t;
 
+bool alarm_validate_settings(const alarm_settings_t *settings);
+
 void alarm_construct(alarm_app_t *self, uint32_t module_id, uint32_t priority,
                      const alarm_storage_if_t *storage, const alarm_alert_if_t *alert);
 
 edge_status_t alarm_init(alarm_app_t *self);
 edge_status_t alarm_shutdown(alarm_app_t *self);
 
+edge_status_t alarm_get_settings(const alarm_app_t *self, alarm_settings_t *out_settings);
 edge_status_t alarm_set_time(alarm_app_t *self, uint8_t hour, uint8_t minute);
 edge_status_t alarm_set_recurrence(alarm_app_t *self, alarm_recurrence_t recurrence);
 edge_status_t alarm_enable(alarm_app_t *self, bool enable);

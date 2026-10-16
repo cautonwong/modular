@@ -46,6 +46,96 @@ void pinetime_glue_init(pinetime_glue_state_t *state) {
         .brightness_level = 2u,
         .heart_rate_background_period_s = 600u,
     };
+
+    state->status_data = (watch_ui_status_data_t){
+        .hour = 12u,
+        .minute = 0u,
+        .second = 0u,
+        .day = 1u,
+        .month = 1u,
+        .year = 2026u,
+        .day_of_week = 1u,
+        .battery_percent = 80u,
+        .battery_charging = false,
+        .ble_connected = true,
+        .heart_rate_bpm = 72u,
+        .step_count = 0u,
+        .weather_temp_c = 22,
+    };
+
+    state->telemetry_module = (edge_module_t){
+        .module_id = 0xFE00u,
+        .priority = 250u,
+        .period = 0u,
+        .budget = 0u,
+        .next_due = 0u,
+        .poll = NULL,
+        .on_event = NULL,
+        .power_off = NULL,
+        .private_data = state,
+    };
+}
+
+#ifndef EDGE_EVT_WATCH_STEP_COUNT
+#define EDGE_EVT_WATCH_STEP_COUNT 0x1604u
+#endif
+#ifndef EDGE_EVT_WATCH_HEART_RATE
+#define EDGE_EVT_WATCH_HEART_RATE 0x1605u
+#endif
+#ifndef EDGE_EVT_WATCH_BATTERY
+#define EDGE_EVT_WATCH_BATTERY 0x1606u
+#endif
+#ifndef EDGE_EVT_WATCH_TIME_TICK
+#define EDGE_EVT_WATCH_TIME_TICK 0x1607u
+#endif
+#ifndef EDGE_EVT_WATCH_BLE_CONNECTED
+#define EDGE_EVT_WATCH_BLE_CONNECTED 0x160Au
+#endif
+#ifndef EDGE_EVT_WATCH_BLE_DISCONNECTED
+#define EDGE_EVT_WATCH_BLE_DISCONNECTED 0x160Bu
+#endif
+
+static edge_status_t glue_telemetry_on_event(edge_module_t *module, const edge_event_t *event) {
+    if (module == NULL || module->private_data == NULL || event == NULL) {
+        return EDGE_EINVAL;
+    }
+    pinetime_glue_state_t *state = (pinetime_glue_state_t *)module->private_data;
+    switch (event->id) {
+    case EDGE_EVT_WATCH_TIME_TICK:
+        state->status_data.hour = (uint8_t)((event->arg0 >> 8u) & 0xFFu);
+        state->status_data.minute = (uint8_t)(event->arg0 & 0xFFu);
+        state->status_data.day_of_week = (uint8_t)((event->arg1 >> 8u) & 0xFFu);
+        state->status_data.day = (uint8_t)(event->arg1 & 0xFFu);
+        break;
+    case EDGE_EVT_WATCH_HEART_RATE:
+        state->status_data.heart_rate_bpm = (uint8_t)event->arg0;
+        break;
+    case EDGE_EVT_WATCH_STEP_COUNT:
+        state->status_data.step_count = (uint32_t)event->arg0;
+        break;
+    case EDGE_EVT_WATCH_BATTERY:
+        state->status_data.battery_percent = (uint8_t)event->arg0;
+        state->battery_pct = (uint8_t)event->arg0;
+        break;
+    case EDGE_EVT_WATCH_BLE_CONNECTED:
+        state->status_data.ble_connected = true;
+        break;
+    case EDGE_EVT_WATCH_BLE_DISCONNECTED:
+        state->status_data.ble_connected = false;
+        break;
+    default:
+        break;
+    }
+    return EDGE_OK;
+}
+
+edge_module_t *pinetime_glue_telemetry_module(pinetime_glue_state_t *state) {
+    if (state == NULL) {
+        return NULL;
+    }
+    state->telemetry_module.on_event = glue_telemetry_on_event;
+    state->telemetry_module.private_data = state;
+    return &state->telemetry_module;
 }
 
 /* Touch Input Port */
@@ -243,10 +333,16 @@ void pinetime_make_gatt_port(ble_gatt_server_if_t *out, pinetime_glue_state_t *s
 static edge_status_t glue_set_time(void *self, uint16_t year, uint8_t month, uint8_t day,
                                    uint8_t hour, uint8_t minute, uint8_t second) {
     pinetime_glue_state_t *state = (pinetime_glue_state_t *)self;
-    if (state == NULL || state->time_app == NULL) {
+    if (state == NULL) {
         return EDGE_EINVAL;
     }
-    return watch_time_set(state->time_app, year, month, day, hour, minute, second);
+    state->status_data.year = year;
+    state->status_data.month = month;
+    state->status_data.day = day;
+    state->status_data.hour = hour;
+    state->status_data.minute = minute;
+    state->status_data.second = second;
+    return EDGE_OK;
 }
 
 void pinetime_make_time_sink_port(ble_time_sink_if_t *out, pinetime_glue_state_t *state) {
@@ -393,9 +489,8 @@ static uint64_t glue_weather_get_time_epoch(void *self) {
 // cppcheck-suppress constParameterCallback ; signature fixed by the consumer port
 static uint32_t glue_weather_get_minute_of_day(void *self) {
     const pinetime_glue_state_t *state = (const pinetime_glue_state_t *)self;
-    if (state != NULL && state->time_app != NULL) {
-        watch_datetime_t dt = watch_time_get(state->time_app);
-        return (uint32_t)dt.hour * 60u + (uint32_t)dt.minute;
+    if (state != NULL) {
+        return (uint32_t)state->status_data.hour * 60u + (uint32_t)state->status_data.minute;
     }
     return 720u;
 }
@@ -741,27 +836,10 @@ static edge_status_t glue_ui_get_status(void *self, watch_ui_status_data_t *out_
     if (state == NULL || out_status == NULL) {
         return EDGE_EINVAL;
     }
-    *out_status = (__typeof__(*out_status)){0};
-    if (state->time_app != NULL) {
-        watch_datetime_t dt = watch_time_get(state->time_app);
-        out_status->hour = dt.hour;
-        out_status->minute = dt.minute;
-        out_status->second = dt.second;
-        out_status->day = dt.day;
-        out_status->month = dt.month;
-        out_status->year = dt.year;
-        out_status->day_of_week = dt.day_of_week;
-    }
+    *out_status = state->status_data;
     out_status->battery_percent = state->battery_pct;
     out_status->battery_charging = state->battery_charging;
     out_status->ble_connected = true;
-    if (state->hr_app != NULL) {
-        out_status->heart_rate_bpm = heart_rate_get_bpm(state->hr_app);
-    }
-    if (state->step_app != NULL) {
-        out_status->step_count = step_counter_get_steps(state->step_app);
-    }
-
     out_status->weather_temp_c = 22;
     return EDGE_OK;
 }

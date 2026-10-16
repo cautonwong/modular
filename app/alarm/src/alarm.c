@@ -76,6 +76,23 @@ void alarm_construct(alarm_app_t *self, uint32_t module_id, uint32_t priority,
     self->snooze_target_minute = 0u;
 }
 
+bool alarm_validate_settings(const alarm_settings_t *settings) {
+    if (settings == NULL) {
+        return false;
+    }
+    if (settings->version != ALARM_FORMAT_VERSION) {
+        return false;
+    }
+    if (settings->hours > 23u || settings->minutes > 59u) {
+        return false;
+    }
+    if (settings->recurrence != ALARM_RECUR_NONE && settings->recurrence != ALARM_RECUR_DAILY &&
+        settings->recurrence != ALARM_RECUR_WEEKDAYS) {
+        return false;
+    }
+    return true;
+}
+
 edge_status_t alarm_init(alarm_app_t *self) {
     if (self == NULL) {
         return EDGE_EINVAL;
@@ -84,7 +101,7 @@ edge_status_t alarm_init(alarm_app_t *self) {
     if (self->storage != NULL && self->storage->load != NULL) {
         alarm_settings_t loaded;
         if (self->storage->load(self->storage->self, &loaded) == EDGE_OK) {
-            if (loaded.version == ALARM_FORMAT_VERSION) {
+            if (alarm_validate_settings(&loaded)) {
                 self->settings = loaded;
             }
         }
@@ -101,6 +118,14 @@ edge_status_t alarm_shutdown(alarm_app_t *self) {
     return alarm_save(self);
 }
 
+edge_status_t alarm_get_settings(const alarm_app_t *self, alarm_settings_t *out_settings) {
+    if (self == NULL || out_settings == NULL) {
+        return EDGE_EINVAL;
+    }
+    *out_settings = self->settings;
+    return EDGE_OK;
+}
+
 edge_status_t alarm_set_time(alarm_app_t *self, uint8_t hour, uint8_t minute) {
     if (self == NULL || hour > 23u || minute > 59u) {
         return EDGE_EINVAL;
@@ -115,6 +140,10 @@ edge_status_t alarm_set_time(alarm_app_t *self, uint8_t hour, uint8_t minute) {
 
 edge_status_t alarm_set_recurrence(alarm_app_t *self, alarm_recurrence_t recurrence) {
     if (self == NULL) {
+        return EDGE_EINVAL;
+    }
+    if (recurrence != ALARM_RECUR_NONE && recurrence != ALARM_RECUR_DAILY &&
+        recurrence != ALARM_RECUR_WEEKDAYS) {
         return EDGE_EINVAL;
     }
     if (self->settings.recurrence != recurrence) {

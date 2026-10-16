@@ -155,13 +155,16 @@ typedef struct pinetime_glue_state {
         };
     };
 
-    /* App references */
-    watch_time_t *time_app;
-    step_counter_t *step_app;
-    heart_rate_t *hr_app;
+    /* Telemetry adapter module for decoupled event consumption */
+    edge_module_t telemetry_module;
+
+    /* Cached status telemetry for watch_ui */
+    watch_ui_status_data_t status_data;
 } pinetime_glue_state_t;
 
 void pinetime_glue_init(pinetime_glue_state_t *state);
+
+edge_module_t *pinetime_glue_telemetry_module(pinetime_glue_state_t *state);
 
 void pinetime_make_touch_port(touch_input_if_t *out, pinetime_glue_state_t *state);
 void pinetime_make_display_power_port(watch_power_display_if_t *out, pinetime_glue_state_t *state);

@@ -73,9 +73,11 @@ static void test_alarm_lifecycle_and_trigger(void **state) {
     alarm_construct(&app, EDGE_MOD_ALARM, 20u, &storage_if, &alert_if);
     assert_int_equal(alarm_init(&app), EDGE_OK);
     assert_int_equal(g_load_count, 1);
-    assert_int_equal(app.settings.hours, 7);
-    assert_int_equal(app.settings.minutes, 30);
-    assert_true(app.settings.is_enabled);
+    alarm_settings_t settings;
+    assert_int_equal(alarm_get_settings(&app, &settings), EDGE_OK);
+    assert_int_equal(settings.hours, 7);
+    assert_int_equal(settings.minutes, 30);
+    assert_true(settings.is_enabled);
 
     /* Time: 07:29 -> does not trigger */
     assert_false(alarm_check_trigger(&app, 7, 29, 1, 1));
@@ -94,7 +96,8 @@ static void test_alarm_lifecycle_and_trigger(void **state) {
     assert_false(app.is_alerting);
     assert_true(g_alert_stopped);
     /* Daily recurrence -> remains enabled */
-    assert_true(app.settings.is_enabled);
+    assert_int_equal(alarm_get_settings(&app, &settings), EDGE_OK);
+    assert_true(settings.is_enabled);
 }
 
 static void test_alarm_snooze_and_weekdays(void **state) {
@@ -139,10 +142,96 @@ static void test_alarm_snooze_and_weekdays(void **state) {
     assert_false(app.is_snoozing);
 }
 
+static edge_status_t mock_alarm_load_corrupted(void *self, alarm_settings_t *out_settings) {
+    (void)self;
+    *out_settings = (alarm_settings_t){
+        .version = ALARM_FORMAT_VERSION,
+        .hours = 25,                          /* Invalid: > 23 */
+        .minutes = 61,                        /* Invalid: > 59 */
+        .recurrence = (alarm_recurrence_t)99, /* Invalid */
+        .is_enabled = true,
+    };
+    return EDGE_OK;
+}
+
+static void test_alarm_invariants(void **state) {
+    (void)state;
+
+    /* 1. Validation function tests */
+    assert_false(alarm_validate_settings(NULL));
+
+    alarm_settings_t valid = {
+        .version = ALARM_FORMAT_VERSION,
+        .hours = 12,
+        .minutes = 30,
+        .recurrence = ALARM_RECUR_DAILY,
+        .is_enabled = true,
+    };
+    assert_true(alarm_validate_settings(&valid));
+
+    alarm_settings_t invalid_ver = valid;
+    invalid_ver.version = 99;
+    assert_false(alarm_validate_settings(&invalid_ver));
+
+    alarm_settings_t invalid_hours = valid;
+    invalid_hours.hours = 24;
+    assert_false(alarm_validate_settings(&invalid_hours));
+
+    alarm_settings_t invalid_mins = valid;
+    invalid_mins.minutes = 60;
+    assert_false(alarm_validate_settings(&invalid_mins));
+
+    alarm_settings_t invalid_recur = valid;
+    invalid_recur.recurrence = (alarm_recurrence_t)5;
+    assert_false(alarm_validate_settings(&invalid_recur));
+
+    /* 2. Setter validation tests */
+    alarm_app_t app;
+    alarm_construct(&app, EDGE_MOD_ALARM, 20u, NULL, NULL);
+
+    assert_int_equal(alarm_set_time(NULL, 10, 10), EDGE_EINVAL);
+    assert_int_equal(alarm_set_time(&app, 24, 0), EDGE_EINVAL);
+    assert_int_equal(alarm_set_time(&app, 0, 60), EDGE_EINVAL);
+    assert_int_equal(alarm_set_time(&app, 23, 59), EDGE_OK);
+
+    assert_int_equal(alarm_set_recurrence(NULL, ALARM_RECUR_NONE), EDGE_EINVAL);
+    assert_int_equal(alarm_set_recurrence(&app, (alarm_recurrence_t)10), EDGE_EINVAL);
+    assert_int_equal(alarm_set_recurrence(&app, ALARM_RECUR_DAILY), EDGE_OK);
+
+    assert_int_equal(alarm_enable(NULL, true), EDGE_EINVAL);
+    assert_int_equal(alarm_enable(&app, true), EDGE_OK);
+
+    alarm_settings_t got;
+    assert_int_equal(alarm_get_settings(NULL, &got), EDGE_EINVAL);
+    assert_int_equal(alarm_get_settings(&app, NULL), EDGE_EINVAL);
+    assert_int_equal(alarm_get_settings(&app, &got), EDGE_OK);
+    assert_int_equal(got.hours, 23);
+    assert_int_equal(got.minutes, 59);
+    assert_int_equal(got.recurrence, ALARM_RECUR_DAILY);
+    assert_true(got.is_enabled);
+
+    /* 3. Rejection of corrupted storage data on init */
+    const alarm_storage_if_t corrupt_storage = {
+        .load = mock_alarm_load_corrupted,
+        .save = NULL,
+        .self = NULL,
+    };
+    alarm_app_t corrupt_app;
+    alarm_construct(&corrupt_app, EDGE_MOD_ALARM, 20u, &corrupt_storage, NULL);
+    assert_int_equal(alarm_init(&corrupt_app), EDGE_OK);
+
+    /* Must retain default settings (07:00, disabled) rather than corrupted values */
+    assert_int_equal(alarm_get_settings(&corrupt_app, &got), EDGE_OK);
+    assert_int_equal(got.hours, 7);
+    assert_int_equal(got.minutes, 0);
+    assert_false(got.is_enabled);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_alarm_lifecycle_and_trigger),
         cmocka_unit_test(test_alarm_snooze_and_weekdays),
+        cmocka_unit_test(test_alarm_invariants),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
 }

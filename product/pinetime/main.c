@@ -10,6 +10,20 @@ int main(void) {
     pinetime_glue_state_t glue;
     pinetime_glue_init(&glue);
 
+    /* System & Event Infrastructure */
+    edge_event_t event_storage[32];
+    edge_event_queue_t event_queue;
+    if (edge_event_queue_init(&event_queue, event_storage, 32u) != EDGE_OK) {
+        return 1;
+    }
+
+    edge_event_sink_t event_sink = {
+        .queue = &event_queue,
+        .clock = NULL,
+        .guard = NULL,
+    };
+    board_pinetime_init(&event_sink);
+
     /* Construct Ports */
     touch_input_if_t touch_port;
     pinetime_make_touch_port(&touch_port, &glue);
@@ -114,21 +128,18 @@ int main(void) {
     if (heart_rate_init(&hr_app) != EDGE_OK) {
         return 13;
     }
-    glue.hr_app = &hr_app;
 
     step_counter_t step_app;
     step_counter_construct(&step_app, EDGE_MOD_STEP_COUNTER, 30u, &imu_port);
     if (step_counter_init(&step_app) != EDGE_OK) {
         return 14;
     }
-    glue.step_app = &step_app;
 
     watch_time_t time_app;
     watch_time_construct(&time_app, EDGE_MOD_WATCH_TIME, 50u, &rtc_port);
     if (watch_time_init(&time_app) != EDGE_OK) {
         return 15;
     }
-    glue.time_app = &time_app;
 
     ble_services_app_t ble_app;
     ble_services_construct(&ble_app, EDGE_MOD_BLE_SERVICES, 60u, &gatt_port, &time_sink_port);
@@ -161,8 +172,8 @@ int main(void) {
     }
 
     ble_weather_t weather_app;
-    ble_weather_construct(&weather_app, EDGE_MOD_BLE_WEATHER, 90u, &weather_time_port, NULL);
-    ble_weather_init(&weather_app, &weather_time_port, NULL);
+    ble_weather_construct(&weather_app, EDGE_MOD_BLE_WEATHER, 90u, &weather_time_port, &event_sink);
+    ble_weather_init(&weather_app, &weather_time_port, &event_sink);
 
     ble_music_t music_app;
     ble_music_construct(&music_app, EDGE_MOD_BLE_MUSIC, 95u, &music_trans_port, NULL);
@@ -170,11 +181,12 @@ int main(void) {
 
     ble_nav_t nav_app;
     ble_nav_construct(&nav_app, EDGE_MOD_BLE_NAV, 100u, NULL);
+    ble_nav_init(&nav_app, &event_sink);
 
     ble_notifications_t notif_app;
     ble_notifications_construct(&notif_app, EDGE_MOD_BLE_NOTIFICATIONS, 105u, &notif_call_port,
-                                NULL);
-    ble_notifications_init(&notif_app, &notif_call_port, NULL);
+                                &event_sink);
+    ble_notifications_init(&notif_app, &notif_call_port, &event_sink);
 
     ble_motion_t motion_app;
     ble_motion_construct(&motion_app, EDGE_MOD_BLE_MOTION, 110u, &motion_notify_port, NULL);
@@ -194,8 +206,9 @@ int main(void) {
     }
 
     firmware_validator_t val_app;
-    firmware_validator_construct(&val_app, EDGE_MOD_FIRMWARE_VALIDATOR, 125u, &val_hw_port, NULL);
-    if (firmware_validator_init(&val_app, &val_hw_port, NULL) != EDGE_OK) {
+    firmware_validator_construct(&val_app, EDGE_MOD_FIRMWARE_VALIDATOR, 125u, &val_hw_port,
+                                 &event_sink);
+    if (firmware_validator_init(&val_app, &val_hw_port, &event_sink) != EDGE_OK) {
         return 23;
     }
 
@@ -280,8 +293,9 @@ int main(void) {
     }
 
     watch_ui_t ui_app;
-    watch_ui_construct(&ui_app, EDGE_MOD_WATCH_UI, 15u, &ui_disp_port, &ui_status_port, NULL);
-    if (watch_ui_init(&ui_app, &ui_disp_port, &ui_status_port, NULL) != EDGE_OK) {
+    watch_ui_construct(&ui_app, EDGE_MOD_WATCH_UI, 15u, &ui_disp_port, &ui_status_port,
+                       &event_sink);
+    if (watch_ui_init(&ui_app, &ui_disp_port, &ui_status_port, &event_sink) != EDGE_OK) {
         return 32;
     }
 
@@ -316,21 +330,6 @@ int main(void) {
     apps[26] = &paint_app.module;
     apps[27] = &ui_app.module;
 
-    /* System & Event Infrastructure */
-    edge_event_t event_storage[32];
-    edge_event_queue_t event_queue;
-    if (edge_event_queue_init(&event_queue, event_storage, 32u) != EDGE_OK) {
-        return 1;
-    }
-
-    edge_event_sink_t event_sink = {
-        .queue = &event_queue,
-        .clock = NULL,
-        .guard = NULL,
-    };
-    board_pinetime_init(&event_sink);
-    ble_nav_init(&nav_app, &event_sink);
-
     edge_sys_subscription_t subs[32];
     edge_sys_t sys;
 
@@ -352,6 +351,15 @@ int main(void) {
     (void)edge_sys_subscribe(&sys, EDGE_EVT_WATCH_HEART_RATE, &ble_app.module);
     (void)edge_sys_subscribe(&sys, EDGE_EVT_WATCH_BATTERY, &ble_app.module);
     (void)edge_sys_subscribe(&sys, EDGE_EVT_WATCH_TIME_TICK, &ui_app.module);
+
+    /* Telemetry events to glue status cache */
+    edge_module_t *telemetry_mod = pinetime_glue_telemetry_module(&glue);
+    (void)edge_sys_subscribe(&sys, EDGE_EVT_WATCH_TIME_TICK, telemetry_mod);
+    (void)edge_sys_subscribe(&sys, EDGE_EVT_WATCH_HEART_RATE, telemetry_mod);
+    (void)edge_sys_subscribe(&sys, EDGE_EVT_WATCH_STEP_COUNT, telemetry_mod);
+    (void)edge_sys_subscribe(&sys, EDGE_EVT_WATCH_BATTERY, telemetry_mod);
+    (void)edge_sys_subscribe(&sys, EDGE_EVT_WATCH_BLE_CONNECTED, telemetry_mod);
+    (void)edge_sys_subscribe(&sys, EDGE_EVT_WATCH_BLE_DISCONNECTED, telemetry_mod);
 
     if (edge_sys_start(&sys) != EDGE_OK) {
         return 3;
