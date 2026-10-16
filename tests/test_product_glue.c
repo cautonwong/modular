@@ -441,7 +441,6 @@ static void test_pinetime_glue(void **state) {
     watch_time_t time_app;
     watch_time_construct(&time_app, EDGE_MOD_WATCH_TIME, 50u, &rtc_port);
     assert_int_equal(watch_time_init(&time_app), EDGE_OK);
-    glue.time_app = &time_app;
 
     ble_time_sink_if_t time_sink;
     pinetime_make_time_sink_port(&time_sink, &glue);
@@ -574,6 +573,20 @@ static void test_pinetime_glue(void **state) {
     watch_ui_status_data_t ustat;
     assert_int_equal(ui_stat.get_status_data(ui_stat.self, &ustat), EDGE_OK);
     assert_int_equal(ustat.battery_percent, 80u);
+
+    /* Test telemetry event reception updates status data */
+    edge_module_t *tel_mod = pinetime_glue_telemetry_module(&glue);
+    assert_non_null(tel_mod);
+    assert_non_null(tel_mod->on_event);
+
+    edge_event_t hr_ev = {.id = 0x1605u /* EDGE_EVT_WATCH_HEART_RATE */, .arg0 = 85u};
+    assert_int_equal(tel_mod->on_event(tel_mod, &hr_ev), EDGE_OK);
+    edge_event_t step_ev = {.id = 0x1604u /* EDGE_EVT_WATCH_STEP_COUNT */, .arg0 = 1234u};
+    assert_int_equal(tel_mod->on_event(tel_mod, &step_ev), EDGE_OK);
+
+    assert_int_equal(ui_stat.get_status_data(ui_stat.self, &ustat), EDGE_OK);
+    assert_int_equal(ustat.heart_rate_bpm, 85u);
+    assert_int_equal(ustat.step_count, 1234u);
 
     /* Mini-apps ports */
     metronome_motor_if_t metro_m;
