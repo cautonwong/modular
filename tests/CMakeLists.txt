@@ -54,7 +54,7 @@ edge_add_host_test(test_modbus_slave SOURCES test_modbus_slave.c DEPS app_modbus
 edge_add_host_test(test_meter_core SOURCES test_meter_core.c DEPS app_meter_core edge_test_contract)
 edge_add_host_test(test_app_interaction SOURCES test_app_interaction.c
     DEPS app_meter_core app_modbus_slave)
-edge_add_host_test(test_ports SOURCES test_ports.c DEPS infra_gpio infra_uart)
+edge_add_host_test(test_ports SOURCES test_ports.c DEPS infra_gpio infra_uart edge_test_contract)
 edge_add_host_test(test_pal_host SOURCES test_pal_host.c DEPS pal_host)
 edge_add_host_test(test_pal_os SOURCES test_pal_os.c DEPS sys_example pal_host pal_os)
 edge_add_host_test(test_pal_cortex_m SOURCES test_pal_cortex_m.c DEPS pal_cortex_m_bare)

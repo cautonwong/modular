@@ -35,4 +35,21 @@ typedef struct edge_byte_writer_contract {
 
 void edge_contract_byte_writer_run(const edge_byte_writer_contract_t *contract);
 
+typedef struct edge_gpio_contract {
+    const char *name;
+    edge_status_t (*write)(void *self, uint8_t pin, bool level);
+    edge_status_t (*read)(void *self, uint8_t pin, bool *level);
+    void *self;
+} edge_gpio_contract_t;
+
+void edge_contract_gpio_run(const edge_gpio_contract_t *contract);
+
+typedef struct edge_byte_reader_contract {
+    const char *name;
+    edge_status_t (*read)(void *self, void *buf, size_t len);
+    void *self;
+} edge_byte_reader_contract_t;
+
+void edge_contract_byte_reader_run(const edge_byte_reader_contract_t *contract);
+
 #endif

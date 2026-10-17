@@ -476,6 +476,8 @@ jobs:
         run: python3 .github/scripts/check_composition_root_wiring.py
       - name: Domain aggregate invariants and encapsulation
         run: python3 .github/scripts/check_aggregate_invariants.py
+      - name: App purity and zero mutable global state
+        run: python3 .github/scripts/check_app_purity.py
       - name: Guard self-test (negative fixtures)
         run: python3 tests/guards/run_guard_selftest.py
       - name: Guard coverage (every checker has a refutation fixture)
