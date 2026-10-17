@@ -128,6 +128,32 @@ def check_opaque_storage_in_file(path: Path, root: Path) -> list:
     return problems
 
 
+def check_port_header_isolation(path: Path, root: Path) -> list:
+    """Consumer port headers must be purely abstract and never leak concrete layers.
+
+    If an app declares `ports.h`, it must only depend on `edge/` or standard headers.
+    Including `infra/`, `board/`, `soc/`, or other `app/` headers directly couples
+    the consumer interface to concrete platform implementations, violating DIP.
+    """
+    rel = path.relative_to(root)
+    text = path.read_text(encoding="utf-8", errors="replace")
+    problems = []
+
+    for match in re.finditer(r'^\s*#\s*include\s*[<"]([^">]+)[">]', text, re.M):
+        inc = match.group(1)
+        first_segment = inc.split("/")[0]
+        if first_segment in {"infra", "board", "soc", "pal", "sys", "product"}:
+            problems.append(
+                f"{rel}: consumer port header must not include concrete layer header '{inc}' "
+                f"(DIP violation: abstract consumer interface must not depend on concrete implementations)"
+            )
+        elif first_segment == "app" and "ports.h" in str(path):
+            problems.append(
+                f"{rel}: consumer port header must not include peer app header '{inc}'"
+            )
+    return problems
+
+
 def check(root: Path) -> list:
     problems = []
 
@@ -138,6 +164,11 @@ def check(root: Path) -> list:
             for path in sorted(layer_dir.rglob("*.h")):
                 problems.extend(check_ports_in_file(path, root))
                 problems.extend(check_opaque_storage_in_file(path, root))
+
+    app_dir = root / "app"
+    if app_dir.is_dir():
+        for ports_h in sorted(app_dir.rglob("ports.h")):
+            problems.extend(check_port_header_isolation(ports_h, root))
 
     edge_ports = root / "edge_module" / "include" / "edge" / "ports.h"
     if edge_ports.is_file():

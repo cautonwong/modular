@@ -339,8 +339,9 @@ int main(void) {
 | 架构设计原则 | 对应的自动化检查器 | 检验规则与失效判定 (Failure Criteria) | 关联自测试反证用例 |
 | :--- | :--- | :--- | :--- |
 | **有界上下文与应用隔离** | [`check_app_isolation.py`](../.github/scripts/check_app_isolation.py) | 扫描 `app/` 中所有源码，若包含底层硬件、OS 寄存器、RTOS 或其他应用私有头文件，立即挂起 CI。 | `tests/guards/isolation_bad_*` |
+| **应用纯洁性与零可变全局状态** | [`check_app_purity.py`](../.github/scripts/check_app_purity.py) | 1. `app/*/src/*.c` 中严禁出现文件作用域可变 static 变量（保证多实例可重入与 Caller-Owned 内存）。<br>2. 严禁直接包含底层硬件平台与板级驱动头文件。 | `tests/guards/app_purity_bad_*` |
 | **依赖层级方向性 (Layer Topology)** | [`check_layer_dependencies.py`](../.github/scripts/check_layer_dependencies.py) | 校验 8 层包含矩阵：`infra -> soc`、`app -> infra`、`sys -> board` 等逆向包含立即报错。 | `tests/guards/layer_bad_*` |
-| **消费者接口与 Caller-Owned 内存** | [`check_consumer_ports.py`](../.github/scripts/check_consumer_ports.py) | 1. 接口必须有 `void *self;` 且回调以 `void *` 为首参。<br>2. 运行时层严禁 `malloc`/`free`。<br>3. 声明内存大小（`*_STORAGE_SIZE`）的模块必须在头文件保持不透明指针。 | `tests/guards/consumer_ports_bad_*` |
+| **消费者接口与 Caller-Owned 内存** | [`check_consumer_ports.py`](../.github/scripts/check_consumer_ports.py) | 1. 接口必须有 `void *self;` 且回调以 `void *` 为首参。<br>2. 运行时层严禁 `malloc`/`free`。<br>3. 声明内存大小（`*_STORAGE_SIZE`）的模块必须在头文件保持不透明指针。<br>4. 消费者接口头文件（`ports.h`）严禁包含具体层（`infra/`, `board/`, `soc/`, `pal/`）头文件（防止实现细节穿透）。 | `tests/guards/consumer_ports_bad_*` |
 | **组合根装配完整性与反黑板** | [`check_composition_root_wiring.py`](../.github/scripts/check_composition_root_wiring.py) | 1. `product/*/main.c` 中事件产出服务初始化严禁传入字面量 `NULL`/`0`。<br>2. `product/*/glue.h` 中胶水状态结构体严禁聚合多个对等业务应用指针。 | `tests/guards/composition_wiring_bad_*` |
 | **聚合根不变性与强状态约束** | [`check_aggregate_invariants.py`](../.github/scripts/check_aggregate_invariants.py) | 1. 凡定义设置结构体必须配有 `<domain>_validate_*` 校验器。<br>2. 必须具备 `<domain>_get_*` 快照读取器。<br>3. 时间等有界 Setter 严禁声明为 `void` 返回类型。 | `tests/guards/aggregate_invariants_bad_*` |
 | **事件载荷纯标量约束** | [`check_event_payload.py`](../.github/scripts/check_event_payload.py) | 验证 `edge_event_t` 大小固定为 24 字节，字段全为标量标量事实，禁止携带裸指针。 | `tests/guards/event_payload_bad` |

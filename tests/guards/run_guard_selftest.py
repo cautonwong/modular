@@ -132,12 +132,16 @@ CASES = [
     ("check_consumer_ports.py", "tests/guards/consumer_ports_bad_no_self", False),
     ("check_consumer_ports.py", "tests/guards/consumer_ports_bad_opaque_storage", False),
     ("check_consumer_ports.py", "tests/guards/consumer_ports_bad_malloc", False),
+    ("check_consumer_ports.py", "tests/guards/consumer_ports_bad_leak_include", False),
     ("check_composition_root_wiring.py", "tests/guards/composition_wiring_good", True),
     ("check_composition_root_wiring.py", "tests/guards/composition_wiring_bad_null_sink", False),
     ("check_composition_root_wiring.py", "tests/guards/composition_wiring_bad_glue_aggregation", False),
     ("check_aggregate_invariants.py", "tests/guards/aggregate_invariants_good", True),
     ("check_aggregate_invariants.py", "tests/guards/aggregate_invariants_bad_missing_validator", False),
     ("check_aggregate_invariants.py", "tests/guards/aggregate_invariants_bad_void_setter", False),
+    ("check_app_purity.py", "tests/guards/app_purity_good", True),
+    ("check_app_purity.py", "tests/guards/app_purity_bad_static_var", False),
+    ("check_app_purity.py", "tests/guards/app_purity_bad_hw_include", False),
 ]
 
 

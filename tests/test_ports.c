@@ -6,6 +6,7 @@
 
 #include <cmocka.h>
 
+#include "contract/port_contract.h"
 #include "edge/ports.h"
 #include "gpio/gpio.h"
 #include "uart/uart.h"
@@ -27,6 +28,24 @@ static void test_uart_port_shape(void **state) {
     assert_int_equal(uart_read(link, NULL, sizeof(rx)), EDGE_EINVAL);
 }
 
+static void test_uart_contract_compliance(void **state) {
+    (void)state;
+    uint8_t link[8] = {0};
+    const edge_byte_writer_contract_t writer_contract = {
+        .name = "uart/byte_writer",
+        .write = uart_write,
+        .self = link,
+    };
+    edge_contract_byte_writer_run(&writer_contract);
+
+    const edge_byte_reader_contract_t reader_contract = {
+        .name = "uart/byte_reader",
+        .read = uart_read,
+        .self = link,
+    };
+    edge_contract_byte_reader_run(&reader_contract);
+}
+
 static void test_gpio_port_shape(void **state) {
     (void)state;
     uint8_t level_state[4] = {0};
@@ -44,6 +63,18 @@ static void test_gpio_port_shape(void **state) {
     assert_int_equal(gpio_read(level_state, 0u, NULL), EDGE_EINVAL);
 }
 
+static void test_gpio_contract_compliance(void **state) {
+    (void)state;
+    uint8_t level_state[4] = {0};
+    const edge_gpio_contract_t gpio_contract = {
+        .name = "gpio/port_contract",
+        .write = gpio_write,
+        .read = gpio_read,
+        .self = level_state,
+    };
+    edge_contract_gpio_run(&gpio_contract);
+}
+
 static void test_canonical_shapes_default_null(void **state) {
     (void)state;
     edge_storage_kv_t kv = {0};
@@ -59,7 +90,9 @@ static void test_canonical_shapes_default_null(void **state) {
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_uart_port_shape),
+        cmocka_unit_test(test_uart_contract_compliance),
         cmocka_unit_test(test_gpio_port_shape),
+        cmocka_unit_test(test_gpio_contract_compliance),
         cmocka_unit_test(test_canonical_shapes_default_null),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
