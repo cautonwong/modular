@@ -66,3 +66,7 @@ struct edge_event {
 A single producer can push directly. If multiple IRQ sources share one sink, the board injects an `edge_irq_guard_t` implemented by the target platform to serialize producers without putting architecture-specific code in the framework.
 
 Cross-module commands use explicit consumer-defined interfaces and direct calls. Events are reserved for facts that have already happened.
+
+## Methodology
+
+For practical engineering guidelines, deductive workflows, and code templates from both the Product Engineer and Module (App) Engineer perspectives, see [`architecture-methodology.md`](architecture-methodology.md).
