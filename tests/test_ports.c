@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include <cmocka.h>
+#include <string.h>
 
 #include "contract/port_contract.h"
 #include "edge/ports.h"
@@ -75,6 +76,163 @@ static void test_gpio_contract_compliance(void **state) {
     edge_contract_gpio_run(&gpio_contract);
 }
 
+typedef struct fake_spi {
+    uint8_t last_tx[16];
+    size_t last_len;
+} fake_spi_t;
+
+static edge_status_t fake_spi_transfer(void *self, const void *tx, void *rx, size_t len) {
+    if (self == NULL) {
+        return EDGE_EINVAL;
+    }
+    if (len == 0u) {
+        return EDGE_OK;
+    }
+    if (tx == NULL && rx == NULL) {
+        return EDGE_EINVAL;
+    }
+    fake_spi_t *s = (fake_spi_t *)self;
+    if (tx != NULL) {
+        size_t c = len < sizeof(s->last_tx) ? len : sizeof(s->last_tx);
+        memcpy(s->last_tx, tx, c);
+    }
+    if (rx != NULL) {
+        memset(rx, 0x5A, len);
+    }
+    s->last_len = len;
+    return EDGE_OK;
+}
+
+typedef struct fake_i2c {
+    uint16_t last_addr;
+    uint8_t mem[32];
+} fake_i2c_t;
+
+static edge_status_t fake_i2c_write(void *self, uint16_t addr, const void *buf, size_t len) {
+    if (self == NULL) {
+        return EDGE_EINVAL;
+    }
+    if (len == 0u) {
+        return EDGE_OK;
+    }
+    if (buf == NULL) {
+        return EDGE_EINVAL;
+    }
+    fake_i2c_t *i2c = (fake_i2c_t *)self;
+    i2c->last_addr = addr;
+    size_t copy_len = len < sizeof(i2c->mem) ? len : sizeof(i2c->mem);
+    memcpy(i2c->mem, buf, copy_len);
+    return EDGE_OK;
+}
+
+static edge_status_t fake_i2c_read(void *self, uint16_t addr, void *buf, size_t len) {
+    if (self == NULL) {
+        return EDGE_EINVAL;
+    }
+    if (len == 0u) {
+        return EDGE_OK;
+    }
+    if (buf == NULL) {
+        return EDGE_EINVAL;
+    }
+    fake_i2c_t *i2c = (fake_i2c_t *)self;
+    i2c->last_addr = addr;
+    size_t copy_len = len < sizeof(i2c->mem) ? len : sizeof(i2c->mem);
+    memcpy(buf, i2c->mem, copy_len);
+    return EDGE_OK;
+}
+
+typedef struct fake_flash {
+    uint8_t storage[4096];
+} fake_flash_t;
+
+static edge_status_t fake_flash_read(void *self, uint32_t offset, void *buf, size_t len) {
+    if (self == NULL) {
+        return EDGE_EINVAL;
+    }
+    if (len == 0u) {
+        return EDGE_OK;
+    }
+    if (buf == NULL) {
+        return EDGE_EINVAL;
+    }
+    fake_flash_t *fl = (fake_flash_t *)self;
+    uint32_t eff_off = offset % sizeof(fl->storage);
+    size_t copy_len =
+        (eff_off + len <= sizeof(fl->storage)) ? len : (sizeof(fl->storage) - eff_off);
+    memcpy(buf, &fl->storage[eff_off], copy_len);
+    return EDGE_OK;
+}
+
+static edge_status_t fake_flash_write(void *self, uint32_t offset, const void *buf, size_t len) {
+    if (self == NULL) {
+        return EDGE_EINVAL;
+    }
+    if (len == 0u) {
+        return EDGE_OK;
+    }
+    if (buf == NULL) {
+        return EDGE_EINVAL;
+    }
+    fake_flash_t *fl = (fake_flash_t *)self;
+    uint32_t eff_off = offset % sizeof(fl->storage);
+    size_t copy_len =
+        (eff_off + len <= sizeof(fl->storage)) ? len : (sizeof(fl->storage) - eff_off);
+    memcpy(&fl->storage[eff_off], buf, copy_len);
+    return EDGE_OK;
+}
+
+static edge_status_t fake_flash_erase(void *self, uint32_t offset, size_t len) {
+    if (self == NULL) {
+        return EDGE_EINVAL;
+    }
+    if (len == 0u) {
+        return EDGE_OK;
+    }
+    fake_flash_t *fl = (fake_flash_t *)self;
+    uint32_t eff_off = offset % sizeof(fl->storage);
+    size_t erase_len =
+        (eff_off + len <= sizeof(fl->storage)) ? len : (sizeof(fl->storage) - eff_off);
+    memset(&fl->storage[eff_off], 0xFF, erase_len);
+    return EDGE_OK;
+}
+
+static void test_spi_contract_compliance(void **state) {
+    (void)state;
+    fake_spi_t spi_dev = {0};
+    const edge_spi_contract_t contract = {
+        .name = "spi/fake",
+        .transfer = fake_spi_transfer,
+        .self = &spi_dev,
+    };
+    edge_contract_spi_run(&contract);
+}
+
+static void test_i2c_contract_compliance(void **state) {
+    (void)state;
+    fake_i2c_t i2c_dev = {0};
+    const edge_i2c_contract_t contract = {
+        .name = "i2c/fake",
+        .write = fake_i2c_write,
+        .read = fake_i2c_read,
+        .self = &i2c_dev,
+    };
+    edge_contract_i2c_run(&contract);
+}
+
+static void test_flash_block_contract_compliance(void **state) {
+    (void)state;
+    fake_flash_t fl_dev = {0};
+    const edge_flash_block_contract_t contract = {
+        .name = "flash_block/fake",
+        .read = fake_flash_read,
+        .write = fake_flash_write,
+        .erase = fake_flash_erase,
+        .self = &fl_dev,
+    };
+    edge_contract_flash_block_run(&contract);
+}
+
 static void test_canonical_shapes_default_null(void **state) {
     (void)state;
     edge_storage_kv_t kv = {0};
@@ -93,6 +251,9 @@ int main(void) {
         cmocka_unit_test(test_uart_contract_compliance),
         cmocka_unit_test(test_gpio_port_shape),
         cmocka_unit_test(test_gpio_contract_compliance),
+        cmocka_unit_test(test_spi_contract_compliance),
+        cmocka_unit_test(test_i2c_contract_compliance),
+        cmocka_unit_test(test_flash_block_contract_compliance),
         cmocka_unit_test(test_canonical_shapes_default_null),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);

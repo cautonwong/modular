@@ -52,4 +52,31 @@ typedef struct edge_byte_reader_contract {
 
 void edge_contract_byte_reader_run(const edge_byte_reader_contract_t *contract);
 
+typedef struct edge_spi_contract {
+    const char *name;
+    edge_status_t (*transfer)(void *self, const void *tx_buf, void *rx_buf, size_t len);
+    void *self;
+} edge_spi_contract_t;
+
+void edge_contract_spi_run(const edge_spi_contract_t *contract);
+
+typedef struct edge_i2c_contract {
+    const char *name;
+    edge_status_t (*write)(void *self, uint16_t addr, const void *buf, size_t len);
+    edge_status_t (*read)(void *self, uint16_t addr, void *buf, size_t len);
+    void *self;
+} edge_i2c_contract_t;
+
+void edge_contract_i2c_run(const edge_i2c_contract_t *contract);
+
+typedef struct edge_flash_block_contract {
+    const char *name;
+    edge_status_t (*read)(void *self, uint32_t offset, void *buf, size_t len);
+    edge_status_t (*write)(void *self, uint32_t offset, const void *buf, size_t len);
+    edge_status_t (*erase)(void *self, uint32_t offset, size_t len);
+    void *self;
+} edge_flash_block_contract_t;
+
+void edge_contract_flash_block_run(const edge_flash_block_contract_t *contract);
+
 #endif
