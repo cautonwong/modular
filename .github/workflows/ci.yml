@@ -480,6 +480,8 @@ jobs:
         run: python3 .github/scripts/check_app_purity.py
       - name: Vendor SDK and precompiled library isolation (#149)
         run: python3 .github/scripts/check_sdk_isolation.py
+      - name: RTOS ISR context and execution safety (#85)
+        run: python3 .github/scripts/check_rtos_isr_safety.py
       - name: Guard self-test (negative fixtures)
         run: python3 tests/guards/run_guard_selftest.py
       - name: Guard coverage (every checker has a refutation fixture)

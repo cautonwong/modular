@@ -90,6 +90,17 @@ jobs:
               -kernel build-m4/meter_mps2_fw || rc=$?
           echo "firmware exit status: $rc"
           test "$rc" -eq 0
+      - name: QEMU MPS2 AN386 EOS peripheral IRQ smoke (#141)
+        run: |
+          rc=0
+          timeout --signal=KILL 10s \
+            qemu-system-arm \
+              -M mps2-an386 \
+              -nographic \
+              -semihosting-config enable=on,target=native \
+              -kernel build-m4/meter_mps2_eos_fw || rc=$?
+          echo "firmware exit status: $rc"
+          test "$rc" -eq 0
       # The VESC6 firmware is its own target: the M4 flag also carries the example product, which
       # pulls the host PAL, so this builds the one target deliberately rather than all of them.
       - name: Configure STM32F4 firmware
@@ -128,6 +139,9 @@ jobs:
             build-m4/meter_mps2_fw
             build-m4/meter_mps2_fw.bin
             build-m4/meter_mps2_fw.map
+            build-m4/meter_mps2_eos_fw
+            build-m4/meter_mps2_eos_fw.bin
+            build-m4/meter_mps2_eos_fw.map
             build-m4/size-report.json
             build-m4/stack-report.json
             build-m4/readelf.txt

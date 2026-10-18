@@ -86,11 +86,11 @@ void vApplicationGetIdleTaskMemory(StaticTask_t **tcb, StackType_t **stack,
     *size = configMINIMAL_STACK_SIZE;
 }
 
-/* Overrun guard (configCHECK_FOR_STACK_OVERFLOW == 2): halt so a stack overflow
- * is an unmistakable CI failure rather than silent corruption. */
+/* Overrun guard (configCHECK_FOR_STACK_OVERFLOW == 2): report to assert framework
+ * so a stack overflow is an unmistakable CI failure rather than silent corruption. */
 void vApplicationStackOverflowHook(TaskHandle_t task, char *name) {
     (void)task;
-    (void)name;
+    edge_rtos_assert_failed(name ? name : "stack_overflow", 0);
     for (;;) {
     }
 }
