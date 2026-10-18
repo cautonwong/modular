@@ -16,6 +16,8 @@
 #define EDGE_MOD_ZMK_SETTINGS ZMK_SETTINGS_MODULE_ID
 #endif
 
+#include "zmk_settings/ports.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -23,13 +25,6 @@ extern "C" {
 #define ZMK_SETTINGS_MAGIC 0x5A4D4B31u /* "ZMK1" */
 #define ZMK_SETTINGS_VERSION 1
 #define ZMK_SETTINGS_MAX_KEY_OVERRIDES 16
-
-typedef struct zmk_settings_storage_if {
-    void *self;
-    edge_status_t (*read)(void *self, uint32_t offset, uint8_t *buf, size_t len);
-    edge_status_t (*write)(void *self, uint32_t offset, const uint8_t *buf, size_t len);
-    edge_status_t (*erase)(void *self, uint32_t offset, size_t len);
-} zmk_settings_storage_if_t;
 
 typedef struct zmk_settings_record {
     uint32_t magic;

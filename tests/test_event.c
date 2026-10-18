@@ -225,6 +225,61 @@ static void test_sink_validates_arguments(void **state) {
     assert_int_equal(edge_event_sink_push_isr(&empty, &event), EDGE_EINVAL);
 }
 
+static void test_queue_continuous_wrap_fuzz(void **state) {
+    (void)state;
+    edge_event_t storage[8];
+    edge_event_queue_t queue;
+    assert_int_equal(edge_event_queue_init(&queue, storage, 8u), EDGE_OK);
+
+    uint32_t seq_in = 0u;
+    uint32_t seq_out = 0u;
+    uint32_t expected_drops = 0u;
+
+    for (uint32_t cycle = 0; cycle < 500u; ++cycle) {
+        /* Deterministic pseudo-random burst pushes */
+        uint32_t to_push = (cycle % 7u) + 1u;
+        for (uint32_t i = 0; i < to_push; ++i) {
+            edge_event_t ev = {.id = 100u, .arg0 = seq_in};
+            edge_status_t rc = edge_event_push_isr(&queue, &ev);
+            if (rc == EDGE_OK) {
+                seq_in++;
+            } else if (rc == EDGE_EOVERFLOW) {
+                expected_drops++;
+            } else {
+                fail_msg("unexpected push error code: %d", (int)rc);
+            }
+        }
+
+        /* Pop a portion of items */
+        uint32_t to_pop = (cycle % 5u);
+        for (uint32_t i = 0; i < to_pop; ++i) {
+            edge_event_t out = {0};
+            edge_status_t rc = edge_event_pop(&queue, &out);
+            if (rc == EDGE_OK) {
+                assert_int_equal(out.id, 100u);
+                assert_int_equal(out.arg0, seq_out);
+                seq_out++;
+            } else if (rc == EDGE_ENOENT) {
+                break;
+            } else {
+                fail_msg("unexpected pop error code: %d", (int)rc);
+            }
+        }
+    }
+
+    /* Drain remainder and verify strict FIFO sequence */
+    edge_event_t out = {0};
+    while (edge_event_pop(&queue, &out) == EDGE_OK) {
+        assert_int_equal(out.id, 100u);
+        assert_int_equal(out.arg0, seq_out);
+        seq_out++;
+    }
+
+    assert_int_equal(seq_in, seq_out);
+    assert_int_equal(edge_event_dropped(&queue), expected_drops);
+    assert_int_equal(edge_event_count(&queue), 0u);
+}
+
 static void test_null_safe_counters(void **state) {
     (void)state;
     assert_int_equal(edge_event_count(NULL), 0u);
@@ -240,6 +295,7 @@ int main(void) {
         cmocka_unit_test(test_bounded_drop_newest_and_counter),
         cmocka_unit_test(test_wraparound_preserves_order),
         cmocka_unit_test(test_full_after_wrap_drops_the_newest),
+        cmocka_unit_test(test_queue_continuous_wrap_fuzz),
         cmocka_unit_test(test_sink_stamps_with_clock_and_guard),
         cmocka_unit_test(test_sink_without_clock_preserves_timestamp),
         cmocka_unit_test(test_sink_validates_arguments),

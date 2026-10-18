@@ -53,10 +53,47 @@ def main() -> int:
             else:
                 print(f"[ok        ] {script} -> {name}")
 
+        # Test tools/scaffold.py generator
+        scaffold_script = ROOT / "tools" / "scaffold.py"
+        if scaffold_script.is_file():
+            res_app = subprocess.run(
+                [sys.executable, str(scaffold_script), "app", "smoke_app", "--root", str(tmp)],
+                capture_output=True,
+                text=True,
+                cwd=ROOT,
+            )
+            res_infra = subprocess.run(
+                [sys.executable, str(scaffold_script), "infra", "smoke_infra", "--root", str(tmp)],
+                capture_output=True,
+                text=True,
+                cwd=ROOT,
+            )
+            purity = subprocess.run(
+                [sys.executable, str(SCRIPTS / "check_app_purity.py"), str(tmp)],
+                capture_output=True,
+                text=True,
+            )
+            ports = subprocess.run(
+                [sys.executable, str(SCRIPTS / "check_consumer_ports.py"), str(tmp)],
+                capture_output=True,
+                text=True,
+            )
+            invariants = subprocess.run(
+                [sys.executable, str(SCRIPTS / "check_aggregate_invariants.py"), str(tmp)],
+                capture_output=True,
+                text=True,
+            )
+            if (res_app.returncode == 0 and res_infra.returncode == 0 and
+                purity.returncode == 0 and ports.returncode == 0 and invariants.returncode == 0):
+                print(f"[ok        ] scaffold.py -> app & infra pass all architecture guard rules")
+            else:
+                print(f"[FAIL      ] scaffold.py self-test failed")
+                failed += 1
+
     if failed:
         print(f"generator self-test: {failed} failure(s)")
         return 1
-    print(f"generator self-test: PASS ({len(GENERATORS)} generators)")
+    print(f"generator self-test: PASS (generators + scaffold)")
     return 0
 
 
