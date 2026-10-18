@@ -81,14 +81,19 @@ void edge_contract_rtos_run(const edge_rtos_contract_t *contract) {
     const edge_os_port_t os = contract->os_port();
     assert_non_null(os.yield);
 
-    /* The high-water mark may be unavailable - 0 - but it must be callable. */
-    (void)contract->task_stack_high_water();
+    /* The high-water mark may be unavailable - 0 - but it must be callable
+     * and report unsigned words remaining or 0 when unsupported. */
+    const uint32_t high_water = contract->task_stack_high_water();
+    (void)high_water;
 
     /* Waking with nothing published is a no-op, not a crash: an ISR must be able to
-     * call this without knowing whether a runner is parked. */
+     * call this without knowing whether a runner is parked. Setting wake target and
+     * waiting for work must be callable, safe, and return a valid boolean. */
     contract->wake_from_isr();
     contract->wake_target_set_self();
-    (void)contract->wait_for_work(1u);
+    const bool work_ready = contract->wait_for_work(1u);
+    (void)work_ready;
+    contract->wake_from_isr();
 
     /*
      * The pinned priority direction, when the harness can advance the scheduler:

@@ -146,6 +146,9 @@ CASES = [
     ("check_sdk_isolation.py", "tests/guards/sdk_isolation_bad_app", False),
     ("check_sdk_isolation.py", "tests/guards/sdk_isolation_bad_infra", False),
     ("check_sdk_isolation.py", "tests/guards/sdk_isolation_bad_precompiled", False),
+    ("check_rtos_isr_safety.py", "tests/guards/rtos_isr_good", True),
+    ("check_rtos_isr_safety.py", "tests/guards/rtos_isr_bad_delay", False),
+    ("check_rtos_isr_safety.py", "tests/guards/rtos_isr_bad_malloc", False),
 ]
 
 
