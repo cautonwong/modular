@@ -23,4 +23,21 @@ typedef struct edge_board_contract {
 
 void edge_contract_board_run(const edge_board_contract_t *contract);
 
+/*
+ * Shared-IRQ board contract (D84):
+ * Tests that an attach function rejects NULL callbacks (EDGE_EINVAL),
+ * handlers run in registration order, line filtering prevents cross-talk,
+ * handler contexts are preserved, unhandled lines are safe,
+ * and capacity limits return EDGE_ENOSPC.
+ */
+typedef struct edge_board_irq_contract {
+    const char *name;
+    edge_status_t (*attach)(uint32_t irq, void (*cb)(void *), void *ctx);
+    void (*dispatch)(uint32_t irq);
+    uint32_t max_handlers;
+    uint32_t (*handler_count)(void);
+} edge_board_irq_contract_t;
+
+void edge_contract_board_irq_run(const edge_board_irq_contract_t *contract);
+
 #endif
