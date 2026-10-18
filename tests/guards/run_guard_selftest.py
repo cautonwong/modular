@@ -142,6 +142,10 @@ CASES = [
     ("check_app_purity.py", "tests/guards/app_purity_good", True),
     ("check_app_purity.py", "tests/guards/app_purity_bad_static_var", False),
     ("check_app_purity.py", "tests/guards/app_purity_bad_hw_include", False),
+    ("check_sdk_isolation.py", "tests/guards/sdk_isolation_good", True),
+    ("check_sdk_isolation.py", "tests/guards/sdk_isolation_bad_app", False),
+    ("check_sdk_isolation.py", "tests/guards/sdk_isolation_bad_infra", False),
+    ("check_sdk_isolation.py", "tests/guards/sdk_isolation_bad_precompiled", False),
 ]
 
 

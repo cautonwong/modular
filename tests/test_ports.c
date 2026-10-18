@@ -7,6 +7,7 @@
 #include <cmocka.h>
 #include <string.h>
 
+#include "contract/board_contract.h"
 #include "contract/port_contract.h"
 #include "edge/ports.h"
 #include "gpio/gpio.h"
@@ -233,6 +234,57 @@ static void test_flash_block_contract_compliance(void **state) {
     edge_contract_flash_block_run(&contract);
 }
 
+typedef struct fake_board_irq_slot {
+    uint32_t irq;
+    void (*cb)(void *ctx);
+    void *ctx;
+} fake_board_irq_slot_t;
+
+#define FAKE_BOARD_MAX_HANDLERS 6u
+static fake_board_irq_slot_t s_fake_board_slots[FAKE_BOARD_MAX_HANDLERS];
+static uint32_t s_fake_board_count = 0u;
+
+static edge_status_t fake_board_attach(uint32_t irq, void (*cb)(void *), void *ctx) {
+    if (cb == NULL) {
+        return EDGE_EINVAL;
+    }
+    if (s_fake_board_count >= FAKE_BOARD_MAX_HANDLERS) {
+        return EDGE_ENOSPC;
+    }
+    s_fake_board_slots[s_fake_board_count++] = (fake_board_irq_slot_t){
+        .irq = irq,
+        .cb = cb,
+        .ctx = ctx,
+    };
+    return EDGE_OK;
+}
+
+static void fake_board_dispatch(uint32_t irq) {
+    for (uint32_t i = 0u; i < s_fake_board_count; ++i) {
+        if (s_fake_board_slots[i].irq == irq && s_fake_board_slots[i].cb != NULL) {
+            s_fake_board_slots[i].cb(s_fake_board_slots[i].ctx);
+        }
+    }
+}
+
+static uint32_t fake_board_handler_count(void) {
+    return s_fake_board_count;
+}
+
+static void test_board_irq_contract_compliance(void **state) {
+    (void)state;
+    s_fake_board_count = 0u;
+    memset(s_fake_board_slots, 0, sizeof(s_fake_board_slots));
+    const edge_board_irq_contract_t contract = {
+        .name = "board/fake_irq",
+        .attach = fake_board_attach,
+        .dispatch = fake_board_dispatch,
+        .max_handlers = FAKE_BOARD_MAX_HANDLERS,
+        .handler_count = fake_board_handler_count,
+    };
+    edge_contract_board_irq_run(&contract);
+}
+
 static void test_canonical_shapes_default_null(void **state) {
     (void)state;
     edge_storage_kv_t kv = {0};
@@ -254,6 +306,7 @@ int main(void) {
         cmocka_unit_test(test_spi_contract_compliance),
         cmocka_unit_test(test_i2c_contract_compliance),
         cmocka_unit_test(test_flash_block_contract_compliance),
+        cmocka_unit_test(test_board_irq_contract_compliance),
         cmocka_unit_test(test_canonical_shapes_default_null),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);

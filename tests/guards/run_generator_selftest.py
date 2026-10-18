@@ -53,7 +53,7 @@ def main() -> int:
             else:
                 print(f"[ok        ] {script} -> {name}")
 
-        # Test tools/scaffold.py generator
+        # Test tools/scaffold.py generator (all 5 layers: app, infra, soc, board, product)
         scaffold_script = ROOT / "tools" / "scaffold.py"
         if scaffold_script.is_file():
             res_app = subprocess.run(
@@ -64,6 +64,24 @@ def main() -> int:
             )
             res_infra = subprocess.run(
                 [sys.executable, str(scaffold_script), "infra", "smoke_infra", "--root", str(tmp)],
+                capture_output=True,
+                text=True,
+                cwd=ROOT,
+            )
+            res_soc = subprocess.run(
+                [sys.executable, str(scaffold_script), "soc", "smoke_soc", "--root", str(tmp)],
+                capture_output=True,
+                text=True,
+                cwd=ROOT,
+            )
+            res_board = subprocess.run(
+                [sys.executable, str(scaffold_script), "board", "smoke_board", "--soc", "smoke_soc", "--root", str(tmp)],
+                capture_output=True,
+                text=True,
+                cwd=ROOT,
+            )
+            res_prod = subprocess.run(
+                [sys.executable, str(scaffold_script), "product", "smoke_prod", "--board", "smoke_board", "--family", "example", "--app", "smoke_app", "--root", str(tmp)],
                 capture_output=True,
                 text=True,
                 cwd=ROOT,
@@ -83,9 +101,15 @@ def main() -> int:
                 capture_output=True,
                 text=True,
             )
+            wiring = subprocess.run(
+                [sys.executable, str(SCRIPTS / "check_composition_root_wiring.py"), str(tmp)],
+                capture_output=True,
+                text=True,
+            )
             if (res_app.returncode == 0 and res_infra.returncode == 0 and
-                purity.returncode == 0 and ports.returncode == 0 and invariants.returncode == 0):
-                print(f"[ok        ] scaffold.py -> app & infra pass all architecture guard rules")
+                res_soc.returncode == 0 and res_board.returncode == 0 and res_prod.returncode == 0 and
+                purity.returncode == 0 and ports.returncode == 0 and invariants.returncode == 0 and wiring.returncode == 0):
+                print(f"[ok        ] scaffold.py -> app, infra, soc, board, product pass all architecture guard rules")
             else:
                 print(f"[FAIL      ] scaffold.py self-test failed")
                 failed += 1
