@@ -253,8 +253,14 @@ jobs:
         run: cmake --build build --parallel
       - name: Run baremetal and RTOS-like runners
         run: |
-          ./build/minimal_host_baremetal
-          ./build/minimal_host_thread
+          ./build/minimal_host_baremetal > /tmp/parity-baremetal.log
+          ./build/minimal_host_thread > /tmp/parity-thread.log
+          cat /tmp/parity-baremetal.log /tmp/parity-thread.log
+      - name: Cross-runner behavioural parity (#242)
+        run: |
+          python3 .github/scripts/check_runner_parity.py . \
+            --log baremetal=/tmp/parity-baremetal.log \
+            --log thread=/tmp/parity-thread.log
       - name: App must be unchanged by any variant
         run: |
           git diff --exit-code -- app/
