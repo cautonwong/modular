@@ -178,6 +178,10 @@ CASES = [
         ["--golden", "golden.log", "--allowlist", "allowlist.json",
          "--log", "ref=ref.log", "--log", "alt=alt.log"],
     ),
+    ("check_conformance_ledger.py", "tests/guards/conformance_good", True),
+    ("check_conformance_ledger.py", "tests/guards/conformance_bad_status", False),
+    ("check_conformance_ledger.py", "tests/guards/conformance_bad_path", False),
+    ("check_conformance_ledger.py", "tests/guards/conformance_bad_adr", False),
 ]
 
 
