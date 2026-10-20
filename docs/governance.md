@@ -3,6 +3,12 @@
 `docs/adr.md` (D1-D85) is the decision record; [`adr-conformance.md`](adr-conformance.md)
 is the status view. This file defines how decisions become **executable gates**.
 
+Who is trusted and what may cross a boundary is a separate map:
+[`threat-model.md`](threat-model.md) covers the trust domains (resident core,
+board/ISR, RTOS, vendor SDK, module image, host tools), the allowed channels, the
+deny list, and the review/CI/board-bring-up checklist that a change in that space
+has to satisfy.
+
 ## Principle
 
 A rule that cannot be automatically checked is a soft rule that will eventually
