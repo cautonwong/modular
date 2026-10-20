@@ -7,17 +7,17 @@
 #include "edge/modules.h"
 #include "example/board.h"
 #include "example/sys.h"
+#include "parity_capsule.h"
 
 #include <stdint.h>
 
 void minimal_product_make_storage(dlt645_storage_if_t *out, void *flash_state);
 
-#define MINIMAL_THREAD_EVENTS 200u
+#define MINIMAL_THREAD_EVENTS PARITY_EVENTS
 
 static edge_event_queue_t g_queue;
 static edge_event_sink_t g_sink;
 static edge_sys_t g_sys;
-static int g_handled;
 
 static uint64_t g_clock_tick;
 
@@ -25,17 +25,10 @@ static uint64_t monotonic_ticks(void *self) {
     return ++(*(uint64_t *)self);
 }
 
-static edge_status_t app_on_event(edge_module_t *module, const edge_event_t *event) {
-    (void)module;
-    (void)event;
-    ++g_handled;
-    return EDGE_OK;
-}
-
 static void *producer(void *arg) {
     (void)arg;
     for (uint32_t i = 0u; i < MINIMAL_THREAD_EVENTS; ++i) {
-        const edge_event_t event = {.id = EDGE_EVT_UART0_RX, .arg0 = i};
+        const edge_event_t event = {.id = PARITY_EVENT_ID, .arg0 = PARITY_EVENT_ARG(i)};
         while (edge_event_sink_push_isr(&g_sink, &event) == EDGE_EOVERFLOW) {
         }
     }
@@ -60,9 +53,8 @@ int main(void) {
 
     minimal_product_make_storage(&storage, flash_state);
     dlt645_construct(&app, EDGE_MOD_DLT645, 100u, &storage);
-    app.module.period = 0u;
-    app.module.on_event = app_on_event;
-    if (dlt645_init(&app) < 0)
+    const int init_status = dlt645_init(&app);
+    if (init_status < 0)
         return 9; /* D51: the composition root initialises the module */
     apps[0] = dlt645_module(&app);
 
@@ -82,7 +74,14 @@ int main(void) {
 
     if (pthread_create(&thread, NULL, producer, NULL) != 0)
         return 6;
-    while (g_handled < (int)MINIMAL_THREAD_EVENTS) {
+    /* Progress is read from the capsule's own counters, not from a hook that would
+     * replace the app's handler: the parity harness compares this runner with the
+     * bare-metal one, so the app has to behave identically in both (#242). */
+    for (;;) {
+        edge_sys_stats_t stats = {0};
+        (void)edge_sys_stats_get(&g_sys, &stats);
+        if (stats.events >= MINIMAL_THREAD_EVENTS)
+            break;
         if (edge_sys_run_once(&g_sys) < 0)
             return 7;
     }
@@ -90,6 +89,8 @@ int main(void) {
 
     if (edge_event_dropped(&g_queue) != 0u)
         return 8;
+
+    parity_emit(&g_sys, &g_queue, EDGE_MOD_DLT645, init_status, app.last_event);
 
     (void)edge_sys_power_off(&g_sys);
     (void)dlt645_deinit(&app);

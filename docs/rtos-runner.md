@@ -131,6 +131,57 @@ lower-priority tasks) and it burns current at the same priority.
   debugging and host tests, the exit status is for CI, and neither is inferred
   from the other.
 
+## 6.5 Cross-runner behavioural parity (#242)
+
+Contract suites prove a port in isolation; the smoke jobs prove one product exits
+`0`. Neither answers the question that matters when the kernel underneath changes:
+*does the same product behave the same way?* That is what the parity harness
+checks, and it is what caught tick-starvation and priority-direction drift during
+ThreadX bring-up.
+
+**One frozen capsule.** `tests/integration/minimal_product/parity_capsule.h` holds
+the capsule contract: the app set, the subscription, and a frozen drive script of
+`PARITY_EVENTS` (`EDGE_EVT_UART0_RX` events whose `arg0` walks `0..63`, so a lost,
+duplicated or reordered event shows up as a shift rather than as a count). The
+runner injects the script through the same sink a board ISR would use; only the
+*pumping* differs (`edge_sys_run_once` in a loop for bare metal, a producer thread
+plus a runner thread for the RTOS-like host runner).
+
+**Observation schema 1** - one line per field, all `OBS1`:
+
+| Field | Meaning |
+|---|---|
+| `schema` | observation format version; a mismatch is a hard failure |
+| `events` | events the capsule dispatched (`edge_sys_stats_t.events`) |
+| `drops`, `errors`, `budget_hits`, `isolated` | the same struct's counters |
+| `queue_dropped` | `edge_event_dropped()` on the capsule queue |
+| `module <id> init <status> last_event <n>` | module lifecycle and the state the events left behind |
+
+Runner-specific numbers are deliberately absent: how many steps the runner needed
+or how often it idled describe the runner, not the capsule, and would turn the
+oracle into a snapshot of one scheduler.
+
+**The gate.** `.github/scripts/check_runner_parity.py` compares each runner's log
+against `ci/parity/minimal_capsule.golden` (recorded from the reference runner) and
+fails on any difference not explained by `ci/parity/allowlist.json`. An allowlist
+entry must carry a `reason` **and** an `adr`/`cause`: a delta is accepted only when
+it was measured, and the count is printed on every run. CI runs the pair in the
+`neutrality` job, where both binaries are already built and executed.
+
+**Matrix** (a cell is a runner that is compared today; a gap names its reason):
+
+| Runner | Compared | Note |
+|---|---|---|
+| bare metal (host) | ✅ reference | `minimal_host_baremetal` |
+| RTOS-like thread (host) | ✅ | `minimal_host_thread` |
+| ThreadX (host) | ⏳ | different capsule today (`meter_threadx`); the row appears when a ThreadX variant of the frozen capsule exists |
+| FreeRTOS / ThreadX / EOS on QEMU | ⏳ | needs a UART-free observation channel that survives `SYS_EXIT_EXTENDED`; the schema is runner-agnostic so the row is additive |
+
+**Adding a third runner:** build the same `parity_capsule.h` script into the new
+runner's main, run it, and add `--log <name>=<path>` to the CI step. If it differs,
+fix the runner or add an allowlist entry with its cause - never edit the golden
+file to match a new runner without a reason.
+
 ## 7. Open
 
 - **Next deadline dynamic sleep**: `edge_sys_next_due()` (`sys/runtime/include/runtime/sys.h`)

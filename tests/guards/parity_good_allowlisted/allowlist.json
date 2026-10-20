@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "entries": [
+    { "key": "drops", "reason": "the thread runner retries a full queue", "adr": "D74" }
+  ]
+}

@@ -1,0 +1,8 @@
+OBS1 schema 1
+OBS1 events 64
+OBS1 drops 0
+OBS1 errors 0
+OBS1 budget_hits 0
+OBS1 isolated 0
+OBS1 queue_dropped 0
+OBS1 module 4096 init 0 last_event 257
