@@ -149,6 +149,10 @@ CASES = [
     ("check_rtos_isr_safety.py", "tests/guards/rtos_isr_good", True),
     ("check_rtos_isr_safety.py", "tests/guards/rtos_isr_bad_delay", False),
     ("check_rtos_isr_safety.py", "tests/guards/rtos_isr_bad_malloc", False),
+    ("check_conformance_ledger.py", "tests/guards/conformance_good", True),
+    ("check_conformance_ledger.py", "tests/guards/conformance_bad_status", False),
+    ("check_conformance_ledger.py", "tests/guards/conformance_bad_path", False),
+    ("check_conformance_ledger.py", "tests/guards/conformance_bad_adr", False),
     # Runner parity (#242): the same capsule log under two runners, one oracle.
     (
         "check_runner_parity.py",
