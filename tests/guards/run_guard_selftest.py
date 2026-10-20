@@ -149,6 +149,35 @@ CASES = [
     ("check_rtos_isr_safety.py", "tests/guards/rtos_isr_good", True),
     ("check_rtos_isr_safety.py", "tests/guards/rtos_isr_bad_delay", False),
     ("check_rtos_isr_safety.py", "tests/guards/rtos_isr_bad_malloc", False),
+    # Runner parity (#242): the same capsule log under two runners, one oracle.
+    (
+        "check_runner_parity.py",
+        "tests/guards/parity_good",
+        True,
+        ["--golden", "golden.log", "--allowlist", "allowlist.json",
+         "--log", "ref=ref.log", "--log", "alt=alt.log"],
+    ),
+    (
+        "check_runner_parity.py",
+        "tests/guards/parity_bad",
+        False,
+        ["--golden", "golden.log", "--allowlist", "allowlist.json",
+         "--log", "ref=ref.log", "--log", "alt=alt.log"],
+    ),
+    (
+        "check_runner_parity.py",
+        "tests/guards/parity_good_allowlisted",
+        True,
+        ["--golden", "golden.log", "--allowlist", "allowlist.json",
+         "--log", "ref=ref.log", "--log", "alt=alt.log"],
+    ),
+    (
+        "check_runner_parity.py",
+        "tests/guards/parity_bad_allowlist",
+        False,
+        ["--golden", "golden.log", "--allowlist", "allowlist.json",
+         "--log", "ref=ref.log", "--log", "alt=alt.log"],
+    ),
 ]
 
 

@@ -5,6 +5,7 @@
 #include "edge/modules.h"
 #include "example/board.h"
 #include "example/sys.h"
+#include "parity_capsule.h"
 
 #include <stdint.h>
 
@@ -35,7 +36,8 @@ int main(void) {
 
     minimal_product_make_storage(&storage, flash_state);
     dlt645_construct(&app, EDGE_MOD_DLT645, 100u, &storage);
-    if (dlt645_init(&app) < 0)
+    const int init_status = dlt645_init(&app);
+    if (init_status < 0)
         return 9; /* D51: the composition root initialises the module */
     apps[0] = dlt645_module(&app);
 
@@ -53,12 +55,17 @@ int main(void) {
     if (edge_sys_start(&sys) < 0)
         return 5;
 
-    for (unsigned step = 0u; step < 50u; ++step) {
-        if (edge_sys_run_once(&sys) < 0)
+    /* Frozen parity capsule (#242): the runner injects exactly the script the other
+     * runner injects, through the same sink a board ISR would use. */
+    for (unsigned step = 0u; step < PARITY_EVENTS; ++step) {
+        const edge_event_t parity_event = {.id = PARITY_EVENT_ID, .arg0 = PARITY_EVENT_ARG(step)};
+        if (edge_event_sink_push_isr(&event_sink, &parity_event) != EDGE_OK)
             return 6;
-        if (step == 5u)
-            board_example_irq_uart0_rx(3u);
+        if (edge_sys_run_once(&sys) < 0)
+            return 7;
     }
+
+    parity_emit(&sys, &event_queue, EDGE_MOD_DLT645, init_status, app.last_event);
 
     (void)edge_sys_power_off(&sys);
     (void)dlt645_deinit(&app);

@@ -1,0 +1,5 @@
+{
+  "schema": 1,
+  "_comment": "Deltas the parity harness accepts between runners for the frozen capsule (#242). An entry is a MEASURED semantic difference with a cause, not a silenced failure: both fields are required and the count is reported on every run. Prefer fixing the runner over adding an entry here.",
+  "entries": []
+}
