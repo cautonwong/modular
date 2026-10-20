@@ -255,5 +255,6 @@ edge_add_product(
 
 - `docs/adr.md`：**唯一决策源**，D1-D85（含 PAL / 并发 / 多驱动模型 / 中立性蓝图）。
 - `docs/adr-conformance.md`：决策与实现的唯一差异视图（含未闭合项与 wontfix）。
+- `docs/threat-model.md`：信任边界与威胁模型——域/通道/禁区 + 设计·CI·板级清单（非认证声明）。
 - `docs/bldc-migration.md`：BLDC/VESC 迁移的任务、六项完成判据与阶段路线（计划，不是差异视图）。
 - 根目录 `todo.md`：历史存档（早期 D1-D45 冻结子集），不再更新。
