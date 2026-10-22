@@ -132,12 +132,16 @@ def is_storage_block(body: str) -> bool:
     char storage[X_STORAGE_SIZE]; }` hides every field just as well, and callers keep
     declaring it by value. What the rule forbids is a *reachable field*, so a body
     that is nothing but the storage array is accepted (#256).
+
+    Comments are stripped and newlines treated as spaces: documenting the array
+    inside the struct, or putting the attribute on its own line, must not turn a
+    valid contract into a violation.
     """
     cleaned = re.sub(r"/\*.*?\*/", " ", body, flags=re.S)
     cleaned = re.sub(r"//[^\n]*", " ", cleaned)
-    fields = [line.strip() for line in cleaned.splitlines() if line.strip()]
-    return len(fields) == 1 and re.fullmatch(
-        r"(_Alignas\([^)]*\)\s*)?unsigned\s+char\s+[A-Za-z_]\w*\s*\[[^]]*\]\s*;", fields[0]
+    return re.fullmatch(
+        r"\s*(_Alignas\([^)]*\)\s*)?unsigned\s+char\s+[A-Za-z_]\w*\s*\[[^]]*\]\s*;\s*",
+        cleaned,
     ) is not None
 
 
