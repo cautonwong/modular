@@ -9,6 +9,73 @@ static uint32_t g_reset_count;
 static edge_event_sink_t *g_event_sink;
 static board_pinetime_hw_t *g_hw_inst;
 
+/*
+ * ISR-side mask for the event sink (#262).
+ *
+ * This board pushes from three interrupt paths (button, touch, IMU data-ready) into
+ * one queue. That queue is single-producer/single-consumer, so two of those
+ * interrupts interleaving inside a push would lose a write - and the sink's `guard`
+ * is the seam that makes the push atomic. The composition root injects it (D14);
+ * nothing in `edge_module` may know how this core masks.
+ *
+ * Nesting is counted, and the outermost exit restores the PRIMASK that was current
+ * on entry rather than clearing it: an interrupt that entered with masks already
+ * held must not hand back an unmasked core.
+ */
+static uint32_t g_irq_depth;
+static uint32_t g_irq_primask;
+
+static uint32_t primask_read(void) {
+#if defined(__arm__) || defined(EDGE_TARGET_ARM32)
+    uint32_t primask = 0u;
+    __asm volatile("mrs %0, primask" : "=r"(primask));
+    return primask;
+#else
+    return 0u; /* host tests are single-threaded */
+#endif
+}
+
+static void primask_write(uint32_t primask) {
+#if defined(__arm__) || defined(EDGE_TARGET_ARM32)
+    __asm volatile("msr primask, %0" ::"r"(primask) : "memory");
+#else
+    (void)primask;
+#endif
+}
+
+static void irq_guard_enter(void *self) {
+    (void)self;
+    if (g_irq_depth == 0u)
+        g_irq_primask = primask_read();
+#if defined(__arm__) || defined(EDGE_TARGET_ARM32)
+    __asm volatile("cpsid i" ::: "memory");
+#endif
+    ++g_irq_depth;
+}
+
+static void irq_guard_exit(void *self) {
+    (void)self;
+    if (g_irq_depth > 0u)
+        --g_irq_depth;
+    if (g_irq_depth == 0u)
+        primask_write(g_irq_primask);
+}
+
+/* Test hook: the nesting counter is otherwise unobservable, and the property worth
+ * asserting is that a nested enter/exit pair returns the core to its prior state. */
+uint32_t board_pinetime_irq_depth(void) {
+    return g_irq_depth;
+}
+
+edge_irq_guard_t board_pinetime_irq_guard(void) {
+    const edge_irq_guard_t guard = {
+        .enter = irq_guard_enter,
+        .exit = irq_guard_exit,
+        .self = NULL,
+    };
+    return guard;
+}
+
 void board_pinetime_init(edge_event_sink_t *sink) {
     g_event_sink = sink;
     g_low_power_entries = 0u;

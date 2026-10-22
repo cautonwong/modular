@@ -78,9 +78,41 @@ static void test_board_pinetime_hw_initialization(void **state) {
     assert_int_equal(hw.wdt_watchdog.rr[0], SOC_NRF52_WDT_RR_VALUE);
 }
 
+/*
+ * The guard the product injects into the event sink (#262). This board pushes from
+ * three interrupt paths into one single-producer queue, so the push must be atomic
+ * against the others; the property that makes that safe is that nesting returns the
+ * core to the state it had on entry, not that the mask is ever cleared.
+ */
+static void test_board_pinetime_irq_guard_nests(void **state) {
+    (void)state;
+    edge_irq_guard_t guard = board_pinetime_irq_guard();
+    assert_non_null(guard.enter);
+    assert_non_null(guard.exit);
+    assert_int_equal(board_pinetime_irq_depth(), 0u);
+
+    guard.enter(guard.self);
+    assert_int_equal(board_pinetime_irq_depth(), 1u);
+    guard.enter(guard.self);
+    assert_int_equal(board_pinetime_irq_depth(), 2u);
+    guard.exit(guard.self);
+    assert_int_equal(board_pinetime_irq_depth(), 1u);
+    guard.exit(guard.self);
+    assert_int_equal(board_pinetime_irq_depth(), 0u);
+
+    /* An unbalanced exit must not wrap the counter: a wrapped depth would leave the
+     * next enter believing a section is already held and skip the mask. */
+    guard.exit(guard.self);
+    assert_int_equal(board_pinetime_irq_depth(), 0u);
+    guard.enter(guard.self);
+    assert_int_equal(board_pinetime_irq_depth(), 1u);
+    guard.exit(guard.self);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_board_pinetime_irq_events),
+        cmocka_unit_test(test_board_pinetime_irq_guard_nests),
         cmocka_unit_test(test_board_pinetime_hw_initialization),
     };
     return cmocka_run_group_tests(tests, NULL, NULL);
