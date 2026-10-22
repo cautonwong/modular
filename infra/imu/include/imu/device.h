@@ -42,23 +42,61 @@ typedef struct imu_device_interface {
  * caller cannot desynchronise `dev_addr` / `sample_rate_hz` from the device they
  * describe. The factories still return it by value.
  */
+/* 24 bytes of real state on a 32-bit target, 40 on an LP64 host; the static
+ * assertions in src/imu_internal.h keep both honest. */
+#if UINTPTR_MAX > 0xFFFFFFFFu
 #define IMU_DEVICE_STORAGE_SIZE 48u
+#else
+#define IMU_DEVICE_STORAGE_SIZE 32u
+#endif
 #define IMU_DEVICE_STORAGE_ALIGN 8u
 
 typedef struct imu_device {
     _Alignas(IMU_DEVICE_STORAGE_ALIGN) unsigned char storage[IMU_DEVICE_STORAGE_SIZE];
 } imu_device_t;
 
+/* The construction-time prefix of the handle. Publishing it is what lets the hot
+ * path stay inline: a sample read costs no extra call, while the mutable state
+ * (`dev_addr`, `sample_rate_hz`, ...) stays private. src/imu_internal.h asserts the
+ * real struct starts with exactly these members. */
+typedef struct imu_device_prefix {
+    const imu_device_interface_t *interface;
+    imu_transport_t *transport;
+} imu_device_prefix_t;
+
 void imu_device_construct(imu_device_t *dev, const imu_device_interface_t *interface,
                           imu_transport_t *transport, void *priv);
 
-bool imu_device_configure(imu_device_t *dev, imu_filter_t filter, bool use_mag);
-bool imu_device_read_sample(imu_device_t *dev, float accel[3], float gyro[3], float mag[3]);
-void imu_device_on_read_fail(imu_device_t *dev);
-void imu_device_enable_drdy_output(imu_device_t *dev, bool enable);
+static inline const imu_device_prefix_t *imu_device_prefix(const imu_device_t *dev) {
+    return (const imu_device_prefix_t *)(const void *)(uintptr_t)dev;
+}
+
+static inline const imu_device_interface_t *imu_device_interface(const imu_device_t *dev) {
+    return dev != (const imu_device_t *)0 ? imu_device_prefix(dev)->interface : (const imu_device_interface_t *)0;
+}
+
+static inline bool imu_device_configure(imu_device_t *dev, imu_filter_t filter, bool use_mag) {
+    return imu_device_prefix(dev)->interface->configure(dev, filter, use_mag);
+}
+
+static inline bool imu_device_read_sample(imu_device_t *dev, float accel[3], float gyro[3],
+                                          float mag[3]) {
+    return imu_device_prefix(dev)->interface->read_sample(dev, accel, gyro, mag);
+}
+
+static inline void imu_device_on_read_fail(imu_device_t *dev) {
+    if (imu_device_prefix(dev)->interface->on_read_fail != (void *)0) {
+        imu_device_prefix(dev)->interface->on_read_fail(dev);
+    }
+}
+
+static inline void imu_device_enable_drdy_output(imu_device_t *dev, bool enable) {
+    if (imu_device_prefix(dev)->interface->enable_drdy_output != (void *)0) {
+        imu_device_prefix(dev)->interface->enable_drdy_output(dev, enable);
+    }
+}
 
 /* What a caller may observe; the fields themselves stay private. */
-const imu_device_interface_t *imu_device_interface(const imu_device_t *dev);
 const char *imu_device_variant(const imu_device_t *dev);
 uint8_t imu_device_address(const imu_device_t *dev);
 uint16_t imu_device_sample_rate(const imu_device_t *dev);

@@ -17,6 +17,7 @@
 #include "imu/device.h"
 #include "imu/transport.h"
 
+#include <stddef.h>
 #include <stdint.h>
 
 struct imu_transport_internal {
@@ -33,6 +34,21 @@ struct imu_device_internal {
     bool use_drdy;
     void *priv;
 };
+
+/* The inline wrappers in the public headers read the first two members through
+ * `imu_device_prefix_t` / `imu_transport_prefix_t`; these keep that promise. */
+_Static_assert(offsetof(struct imu_device_internal, interface) ==
+                   offsetof(imu_device_prefix_t, interface),
+               "the inline wrappers read `interface` through the prefix view");
+_Static_assert(offsetof(struct imu_device_internal, transport) ==
+                   offsetof(imu_device_prefix_t, transport),
+               "the prefix view must keep `transport` in place");
+_Static_assert(offsetof(struct imu_transport_internal, interface) ==
+                   offsetof(imu_transport_prefix_t, interface),
+               "the inline wrappers read `interface` through the prefix view");
+_Static_assert(offsetof(struct imu_transport_internal, self) ==
+                   offsetof(imu_transport_prefix_t, self),
+               "the prefix view must keep `self` in place");
 
 _Static_assert(sizeof(struct imu_device_internal) <= IMU_DEVICE_STORAGE_SIZE,
                "IMU_DEVICE_STORAGE_SIZE is stale: the caller would under-allocate");
