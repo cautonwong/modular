@@ -133,7 +133,9 @@ def is_storage_block(body: str) -> bool:
     declaring it by value. What the rule forbids is a *reachable field*, so a body
     that is nothing but the storage array is accepted (#256).
     """
-    fields = [line.strip() for line in body.splitlines() if line.strip()]
+    cleaned = re.sub(r"/\*.*?\*/", " ", body, flags=re.S)
+    cleaned = re.sub(r"//[^\n]*", " ", cleaned)
+    fields = [line.strip() for line in cleaned.splitlines() if line.strip()]
     return len(fields) == 1 and re.fullmatch(
         r"(_Alignas\([^)]*\)\s*)?unsigned\s+char\s+[A-Za-z_]\w*\s*\[[^]]*\]\s*;", fields[0]
     ) is not None
