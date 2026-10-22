@@ -65,6 +65,45 @@ def check_ports_in_file(path: Path, root: Path) -> list:
     return problems
 
 
+def strip_comments(text: str) -> list:
+    """Return lines with `/* ... */` and `// ...` removed, keeping line numbers.
+
+    A comment that *mentions* `malloc(` is prose, not an allocation; and the one
+    place in the tree that does is the composition root explaining why it must not
+    (product/meter_mps2_freertos/main.c). Line numbers are preserved so a finding
+    still points at the offending line.
+    """
+    lines = []
+    in_block = False
+    for line in text.splitlines():
+        out = []
+        index = 0
+        while index < len(line):
+            if in_block:
+                end = line.find("*/", index)
+                if end < 0:
+                    index = len(line)
+                    break
+                in_block = False
+                index = end + 2
+                continue
+            start = line.find("/*", index)
+            slash = line.find("//", index)
+            if slash >= 0 and (start < 0 or slash < start):
+                out.append(line[index:slash])
+                index = len(line)
+                break
+            if start < 0:
+                out.append(line[index:])
+                index = len(line)
+                break
+            out.append(line[index:start])
+            in_block = True
+            index = start + 2
+        lines.append("".join(out))
+    return lines
+
+
 def check_allocations_in_dir(scan_dir: Path, root: Path) -> list:
     problems = []
     if not scan_dir.is_dir():
@@ -76,7 +115,7 @@ def check_allocations_in_dir(scan_dir: Path, root: Path) -> list:
         rel = path.relative_to(root)
         text = path.read_text(encoding="utf-8", errors="replace")
 
-        for lineno, line in enumerate(text.splitlines(), 1):
+        for lineno, line in enumerate(strip_comments(text), 1):
             if "N5-allow" in line or "ponytail:allow-alloc" in line:
                 continue
             if BANNED_ALLOC.search(line):
@@ -175,7 +214,14 @@ def check(root: Path) -> list:
         problems.extend(check_ports_in_file(edge_ports, root))
 
     # 2. Check zero runtime dynamic allocation across runtime layers
-    for layer in ("app", "infra", "sys", "pal", "edge_module", "board", "soc"):
+    #
+    # `product/` is included because the composition root is where every object in
+    # the system is instantiated: it is the one place that could quietly reintroduce
+    # a heap (README: no runtime dynamic allocation, D21). The policy is the same
+    # everywhere - no malloc/calloc/realloc/strdup/alloca, and no `free` either,
+    # since nothing allocates on this side of the boundary - so one pattern covers
+    # all layers rather than a per-layer table (#257).
+    for layer in ("app", "infra", "sys", "pal", "edge_module", "board", "soc", "product"):
         problems.extend(check_allocations_in_dir(root / layer, root))
 
     return problems
