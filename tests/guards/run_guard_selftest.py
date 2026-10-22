@@ -4,10 +4,10 @@
 This proves the guard scripts actually fail when a violation is introduced,
 satisfying the architecture requirement that refutation tests exist.
 """
-from pathlib import Path
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / ".github" / "scripts"
@@ -136,6 +136,8 @@ CASES = [
     ("check_composition_root_wiring.py", "tests/guards/composition_wiring_good", True),
     ("check_composition_root_wiring.py", "tests/guards/composition_wiring_bad_null_sink", False),
     ("check_composition_root_wiring.py", "tests/guards/composition_wiring_bad_glue_aggregation", False),
+    ("check_composition_root_wiring.py", "tests/guards/composition_wiring_bad_signature_null", False),
+    ("check_composition_root_wiring.py", "tests/guards/composition_wiring_bad_nested_args", False),
     ("check_aggregate_invariants.py", "tests/guards/aggregate_invariants_good", True),
     ("check_aggregate_invariants.py", "tests/guards/aggregate_invariants_bad_missing_validator", False),
     ("check_aggregate_invariants.py", "tests/guards/aggregate_invariants_bad_void_setter", False),
