@@ -23,6 +23,8 @@ import re
 import sys
 from pathlib import Path
 
+from guard_common import strip_c_comments
+
 DEFAULT_ROOT = Path(__file__).resolve().parents[2]
 
 # Port types that must receive a real object in a composition root. Add a type here
@@ -145,7 +147,10 @@ def is_null_literal(arg: str) -> bool:
 
 def check_event_sink_wiring_in_file(path: Path, root: Path, sinks: dict) -> list:
     rel = path.relative_to(root)
-    text = path.read_text(encoding="utf-8", errors="replace")
+    raw = path.read_text(encoding="utf-8", errors="replace")
+    # A commented-out call is prose, not assembly (#262 finding 3). Stripping keeps
+    # line numbers, so a finding still points at the line to open.
+    text = "\n".join(strip_c_comments(raw))
     problems = []
 
     for name, positions in sinks.items():
@@ -163,9 +168,11 @@ def check_event_sink_wiring_in_file(path: Path, root: Path, sinks: dict) -> list
     return problems
 
 
+
 def check_glue_state_in_file(path: Path, root: Path) -> list:
     rel = path.relative_to(root)
-    text = path.read_text(encoding="utf-8", errors="replace")
+    raw = path.read_text(encoding="utf-8", errors="replace")
+    text = "\n".join(strip_c_comments(raw))
     problems = []
 
     for _tag, body, struct_name in STRUCT_DEF.findall(text):

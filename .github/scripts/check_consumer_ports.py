@@ -20,6 +20,8 @@ import re
 import sys
 from pathlib import Path
 
+from guard_common import is_vendored, strip_c_comments
+
 DEFAULT_ROOT = Path(__file__).resolve().parents[2]
 
 # Banned dynamic memory allocation functions in runtime modules
@@ -72,51 +74,14 @@ def check_ports_in_file(path: Path, root: Path) -> list:
     return problems
 
 
-def strip_comments(text: str) -> list:
-    """Return lines with `/* ... */` and `// ...` removed, keeping line numbers.
-
-    A comment that *mentions* `malloc(` is prose, not an allocation; and the one
-    place in the tree that does is the composition root explaining why it must not
-    (product/meter_mps2_freertos/main.c). Line numbers are preserved so a finding
-    still points at the offending line.
-    """
-    lines = []
-    in_block = False
-    for line in text.splitlines():
-        out = []
-        index = 0
-        while index < len(line):
-            if in_block:
-                end = line.find("*/", index)
-                if end < 0:
-                    index = len(line)
-                    break
-                in_block = False
-                index = end + 2
-                continue
-            start = line.find("/*", index)
-            slash = line.find("//", index)
-            if slash >= 0 and (start < 0 or slash < start):
-                out.append(line[index:slash])
-                index = len(line)
-                break
-            if start < 0:
-                out.append(line[index:])
-                index = len(line)
-                break
-            out.append(line[index:start])
-            in_block = True
-            index = start + 2
-        lines.append("".join(out))
-    return lines
-
-
 def check_allocations_in_dir(scan_dir: Path, root: Path, found: list) -> list:
     problems = []
     if not scan_dir.is_dir():
         return problems
 
     for path in sorted(scan_dir.rglob("*")):
+        if is_vendored(path):
+            continue
         if path.suffix not in {".c", ".h"}:
             continue
         rel = path.relative_to(root)
@@ -125,7 +90,7 @@ def check_allocations_in_dir(scan_dir: Path, root: Path, found: list) -> list:
         # The marker lives in a comment, the allocation lives in code: read the raw
         # line for the marker and the comment-stripped line for the call, or stripping
         # comments deletes the very exemption it is meant to find.
-        code_lines = strip_comments(text)
+        code_lines = strip_c_comments(text)
         for lineno, raw_line in enumerate(text.splitlines(), 1):
             line = code_lines[lineno - 1]
             marker = EXEMPT_MARKER.search(raw_line)
@@ -307,6 +272,8 @@ def check(root: Path) -> list:
         layer_dir = root / layer
         if layer_dir.is_dir():
             for path in sorted(layer_dir.rglob("*.h")):
+                if is_vendored(path):
+                    continue
                 problems.extend(check_ports_in_file(path, root))
                 problems.extend(check_opaque_storage_in_file(path, root))
 

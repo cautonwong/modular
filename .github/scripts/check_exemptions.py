@@ -20,6 +20,8 @@ from pathlib import Path
 import json
 import sys
 
+from guard_common import strip_cmake_comments
+
 DEFAULT_ROOT = Path(__file__).resolve().parents[2]
 REGISTER = "ci/exemptions.json"
 
@@ -47,14 +49,9 @@ HELPERS = (
 REQUIRED_FIELDS = ("target", "where", "owner", "reason", "exit", "issue")
 
 
-def strip_comments(text: str) -> str:
-    """Comments mention RAW (see cmake/EdgeTargets.cmake); only real calls count."""
-    return "\n".join(line.split("#", 1)[0] for line in text.splitlines())
-
-
 def raw_calls(text: str) -> list:
     """Names passed to a helper call whose arguments contain RAW as a bare word."""
-    flat = strip_comments(text)
+    flat = strip_cmake_comments(text)
     names = []
     for helper in HELPERS:
         start = 0
