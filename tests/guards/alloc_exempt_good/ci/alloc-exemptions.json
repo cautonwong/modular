@@ -1,0 +1,11 @@
+{
+  "max": 1,
+  "entries": [
+    {
+      "path": "app/demo/src/demo.c",
+      "contains": "the demo fixture needs one allocation",
+      "reason": "fixture: proves a registered exemption passes",
+      "issue": "#259"
+    }
+  ]
+}

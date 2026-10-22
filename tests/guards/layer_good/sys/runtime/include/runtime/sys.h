@@ -1,0 +1,6 @@
+#ifndef GUARD_RUNTIME_SYS_H
+#define GUARD_RUNTIME_SYS_H
+
+#define GUARD_RUNTIME_SYS 1
+
+#endif

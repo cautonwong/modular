@@ -15,6 +15,7 @@ Checks:
 
 Usage: check_consumer_ports.py [root]
 """
+import json
 import re
 import sys
 from pathlib import Path
@@ -25,6 +26,12 @@ DEFAULT_ROOT = Path(__file__).resolve().parents[2]
 BANNED_ALLOC = re.compile(
     r'\b(?:malloc|calloc|realloc|free|strdup|alloca)\s*\('
 )
+
+# An allocation exemption is a line marker plus a registry entry (#259). The marker
+# alone used to be enough, so a marker that stopped describing an allocation stayed
+# in the tree unnoticed, and nobody could answer "how many exemptions do we have".
+EXEMPT_MARKER = re.compile(r"(?:N5-allow|ponytail:allow-alloc)\s*:?\s*(.*)$")
+ALLOC_REGISTRY = "ci/alloc-exemptions.json"
 
 # Struct definitions ending in port / interface conventions
 PORT_STRUCT = re.compile(
@@ -65,7 +72,46 @@ def check_ports_in_file(path: Path, root: Path) -> list:
     return problems
 
 
-def check_allocations_in_dir(scan_dir: Path, root: Path) -> list:
+def strip_comments(text: str) -> list:
+    """Return lines with `/* ... */` and `// ...` removed, keeping line numbers.
+
+    A comment that *mentions* `malloc(` is prose, not an allocation; and the one
+    place in the tree that does is the composition root explaining why it must not
+    (product/meter_mps2_freertos/main.c). Line numbers are preserved so a finding
+    still points at the offending line.
+    """
+    lines = []
+    in_block = False
+    for line in text.splitlines():
+        out = []
+        index = 0
+        while index < len(line):
+            if in_block:
+                end = line.find("*/", index)
+                if end < 0:
+                    index = len(line)
+                    break
+                in_block = False
+                index = end + 2
+                continue
+            start = line.find("/*", index)
+            slash = line.find("//", index)
+            if slash >= 0 and (start < 0 or slash < start):
+                out.append(line[index:slash])
+                index = len(line)
+                break
+            if start < 0:
+                out.append(line[index:])
+                index = len(line)
+                break
+            out.append(line[index:start])
+            in_block = True
+            index = start + 2
+        lines.append("".join(out))
+    return lines
+
+
+def check_allocations_in_dir(scan_dir: Path, root: Path, found: list) -> list:
     problems = []
     if not scan_dir.is_dir():
         return problems
@@ -76,13 +122,109 @@ def check_allocations_in_dir(scan_dir: Path, root: Path) -> list:
         rel = path.relative_to(root)
         text = path.read_text(encoding="utf-8", errors="replace")
 
-        for lineno, line in enumerate(text.splitlines(), 1):
-            if "N5-allow" in line or "ponytail:allow-alloc" in line:
+        # The marker lives in a comment, the allocation lives in code: read the raw
+        # line for the marker and the comment-stripped line for the call, or stripping
+        # comments deletes the very exemption it is meant to find.
+        code_lines = strip_comments(text)
+        for lineno, raw_line in enumerate(text.splitlines(), 1):
+            line = code_lines[lineno - 1]
+            marker = EXEMPT_MARKER.search(raw_line)
+            if marker:
+                if not BANNED_ALLOC.search(line):
+                    problems.append(
+                        f"{rel}:{lineno}: allocation exemption on a line with no allocation "
+                        f"(stale exemption: delete it, or move it to the call it excuses)"
+                    )
+                    continue
+                found.append({"path": rel.as_posix(), "line": lineno, "reason": marker.group(1).strip()})
+                if not marker.group(1).strip():
+                    problems.append(f"{rel}:{lineno}: allocation exemption without a reason")
                 continue
             if BANNED_ALLOC.search(line):
                 problems.append(
                     f"{rel}:{lineno}: banned dynamic memory call (caller-owned storage rule: zero runtime allocation)"
                 )
+    return problems
+
+
+def is_storage_block(body: str) -> bool:
+    """True when the whole struct body is an aligned storage array (the blob shape).
+
+    A type may be opaque without being incomplete: `struct x { _Alignas(N) unsigned
+    char storage[X_STORAGE_SIZE]; }` hides every field just as well, and callers keep
+    declaring it by value. What the rule forbids is a *reachable field*, so a body
+    that is nothing but the storage array is accepted (#256).
+
+    Comments are stripped and newlines treated as spaces: documenting the array
+    inside the struct, or putting the attribute on its own line, must not turn a
+    valid contract into a violation.
+    """
+    cleaned = re.sub(r"/\*.*?\*/", " ", body, flags=re.S)
+    cleaned = re.sub(r"//[^\n]*", " ", cleaned)
+    return re.fullmatch(
+        r"\s*(_Alignas\([^)]*\)\s*)?unsigned\s+char\s+[A-Za-z_]\w*\s*\[[^]]*\]\s*;\s*",
+        cleaned,
+    ) is not None
+
+
+def check_alloc_exemptions(root: Path, found: list) -> list:
+    """Every marker needs a registry entry, and every entry needs a marker (#259).
+
+    The registry is where "how many allocation exemptions do we have, and why" is
+    answered. `max` is the ceiling: at 0 the tree is allocation-free by construction,
+    and raising it is a deliberate edit to this file rather than a line marker
+    somebody added in passing.
+    """
+    problems = []
+    registry_path = root / ALLOC_REGISTRY
+    if not registry_path.is_file():
+        # Nothing to register and no registry: a tree with no exemptions needs no file.
+        if not found:
+            return []
+        return [f"{ALLOC_REGISTRY} is missing (allocation exemptions must be registered)"]
+    try:
+        registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        return [f"{ALLOC_REGISTRY}: not valid JSON ({error.msg})"]
+
+    entries = registry.get("entries", [])
+    limit = registry.get("max")
+    if not isinstance(limit, int):
+        problems.append(f"{ALLOC_REGISTRY}: 'max' must be an integer ceiling")
+    elif len(found) > limit:
+        problems.append(
+            f"{ALLOC_REGISTRY}: {len(found)} allocation exemption(s) exceed the ceiling of {limit}"
+        )
+
+    # Match by spot, not by path: one file may legitimately carry two exemptions, and
+    # keying on the path would make the second one impossible to register.
+    registered = set()
+    for index, entry in enumerate(entries):
+        path = entry.get("path")
+        contains = entry.get("contains")
+        reason = (entry.get("reason") or "").strip()
+        issue = (entry.get("issue") or "").strip()
+        if not path or not contains or not reason or not issue:
+            problems.append(f"{ALLOC_REGISTRY}: entry {index} needs path, contains, reason and issue")
+            continue
+        matches = [
+            spot_index
+            for spot_index, spot in enumerate(found)
+            if spot["path"] == path and contains in spot["reason"] and spot_index not in registered
+        ]
+        if not matches:
+            problems.append(
+                f"{ALLOC_REGISTRY}: entry {index} ('{path}', '{contains}') matches no exemption in the tree"
+            )
+            continue
+        registered.add(matches[0])
+
+    for spot_index, spot in enumerate(found):
+        if spot_index not in registered:
+            problems.append(
+                f"{spot['path']}:{spot['line']}: allocation exemption is not registered in "
+                f"{ALLOC_REGISTRY} ('{spot['reason']}')"
+            )
     return problems
 
 
@@ -112,13 +254,14 @@ def check_opaque_storage_in_file(path: Path, root: Path) -> list:
                 f"(a size contract without an alignment is incomplete)"
             )
 
-        if re.search(rf"\bstruct\s+{type_name}\s*\{{", text):
+        match = re.search(rf"\bstruct\s+{type_name}\s*\{{([^}}]*)\}}", text)
+        if match and not is_storage_block(match.group(1)):
             problems.append(
                 f"{rel}:{lineno}: {macro}_STORAGE_SIZE is declared but struct {type_name} "
                 f"is defined in the same public header (opaque-storage rule: move the "
                 f"definition to src/ and forward-declare the type)"
             )
-        elif not re.search(rf"typedef\s+struct\s+{type_name}\s+[A-Za-z_][A-Za-z0-9_]*\s*;", text):
+        elif not match and not re.search(rf"typedef\s+struct\s+{type_name}\s+[A-Za-z_][A-Za-z0-9_]*\s*;", text):
             problems.append(
                 f"{rel}:{lineno}: {macro}_STORAGE_SIZE is declared but 'struct {type_name}' "
                 f"is not forward-declared (add 'typedef struct {type_name} <alias>;' so the "
@@ -157,8 +300,10 @@ def check_port_header_isolation(path: Path, root: Path) -> list:
 def check(root: Path) -> list:
     problems = []
 
-    # 1. Check consumer-defined ports in app/, infra/, board/, and edge_module/
-    for layer in ("app", "infra", "board"):
+    # 1. Check consumer-defined ports in every layer that declares one, plus
+    #    edge_module/. sys/pal/soc/product were previously unchecked: their ports
+    #    happened to comply, but nothing would have said so (#255).
+    for layer in ("app", "infra", "board", "sys", "pal", "soc", "product"):
         layer_dir = root / layer
         if layer_dir.is_dir():
             for path in sorted(layer_dir.rglob("*.h")):
@@ -175,8 +320,17 @@ def check(root: Path) -> list:
         problems.extend(check_ports_in_file(edge_ports, root))
 
     # 2. Check zero runtime dynamic allocation across runtime layers
-    for layer in ("app", "infra", "sys", "pal", "edge_module", "board", "soc"):
-        problems.extend(check_allocations_in_dir(root / layer, root))
+    #
+    # `product/` is included because the composition root is where every object in
+    # the system is instantiated: it is the one place that could quietly reintroduce
+    # a heap (README: no runtime dynamic allocation, D21). The policy is the same
+    # everywhere - no malloc/calloc/realloc/strdup/alloca, and no `free` either,
+    # since nothing allocates on this side of the boundary - so one pattern covers
+    # all layers rather than a per-layer table (#257).
+    exemptions = []
+    for layer in ("app", "infra", "sys", "pal", "edge_module", "board", "soc", "product"):
+        problems.extend(check_allocations_in_dir(root / layer, root, exemptions))
+    problems.extend(check_alloc_exemptions(root, exemptions))
 
     return problems
 

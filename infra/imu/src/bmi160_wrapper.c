@@ -1,4 +1,5 @@
 #include "imu/bmi160_wrapper.h"
+#include "imu_internal.h"
 
 #include <stddef.h>
 
@@ -68,11 +69,11 @@ static bool configure(void *self, imu_filter_t filter, bool use_mag) {
     imu_device_t *dev = (imu_device_t *)self;
     (void)use_mag;
 
-    struct bmi160_dev *sensor = dev->priv;
-    m_transport = dev->transport;
+    struct bmi160_dev *sensor = imu_device_state(dev)->priv;
+    m_transport = imu_device_state(dev)->transport;
 
-    sensor->interface = (dev->dev_addr != 0u) ? BMI160_I2C_INTF : BMI160_SPI_INTF;
-    sensor->id = dev->dev_addr;
+    sensor->interface = (imu_device_state(dev)->dev_addr != 0u) ? BMI160_I2C_INTF : BMI160_SPI_INTF;
+    sensor->id = imu_device_state(dev)->dev_addr;
     sensor->read = bmi_read;
     sensor->write = bmi_write;
     return reset_init_bmi(sensor, filter);
@@ -81,7 +82,7 @@ static bool configure(void *self, imu_filter_t filter, bool use_mag) {
 /* applications/imu/bmi160_wrapper.c:109-127: the vendor driver's own read, in its own units. */
 static bool read_sample(void *self, float accel[3], float gyro[3], float mag[3]) {
     imu_device_t *dev = (imu_device_t *)self;
-    struct bmi160_dev *sensor = dev->priv;
+    struct bmi160_dev *sensor = imu_device_state(dev)->priv;
     struct bmi160_sensor_data a;
     struct bmi160_sensor_data g;
 
@@ -119,10 +120,8 @@ static const imu_device_interface_t bmi160_interface = {
 
 imu_device_t bmi160_device(imu_transport_t *transport, uint8_t interface,
                            struct bmi160_dev *sensor) {
-    return (imu_device_t){
-        .interface = &bmi160_interface,
-        .transport = transport,
-        .priv = sensor,
-        .dev_addr = (interface == BMI160_I2C_INTF) ? BMI160_I2C_ADDR : 0u,
-    };
+    imu_device_t dev;
+    imu_device_construct(&dev, &bmi160_interface, transport, sensor);
+    imu_device_state(&dev)->dev_addr = (interface == BMI160_I2C_INTF) ? BMI160_I2C_ADDR : 0u;
+    return dev;
 }

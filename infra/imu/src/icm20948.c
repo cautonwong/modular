@@ -1,4 +1,5 @@
 #include "imu/icm20948.h"
+#include "imu_internal.h"
 
 #include <stddef.h>
 
@@ -10,11 +11,13 @@
 #define ICM20948_FAIL_DELAY_US 10000u
 
 static bool read_reg(imu_device_t *dev, uint8_t reg, uint8_t *rx, size_t len) {
-    return imu_transport_read_reg(dev->transport, dev->dev_addr, reg, rx, len);
+    return imu_transport_read_reg(imu_device_state(dev)->transport, imu_device_state(dev)->dev_addr,
+                                  reg, rx, len);
 }
 
 static bool write_reg(imu_device_t *dev, uint8_t reg, uint8_t value) {
-    return imu_transport_write_reg(dev->transport, dev->dev_addr, reg, &value, 1u);
+    return imu_transport_write_reg(imu_device_state(dev)->transport,
+                                   imu_device_state(dev)->dev_addr, reg, &value, 1u);
 }
 
 /*
@@ -24,8 +27,8 @@ static bool write_reg(imu_device_t *dev, uint8_t reg, uint8_t value) {
  * does this. Its magnetometer bypass is commented out there and is left out here.
  */
 static bool reset_init_icm(imu_device_t *dev) {
-    imu_transport_recover(dev->transport);
-    imu_transport_delay_us(dev->transport, ICM20948_RESET_DELAY_US);
+    imu_transport_recover(imu_device_state(dev)->transport);
+    imu_transport_delay_us(imu_device_state(dev)->transport, ICM20948_RESET_DELAY_US);
 
     /* The clock source, on the lowest bank. */
     (void)write_reg(dev, ICM20948_BANK_SEL, 0u << 4);
@@ -51,7 +54,7 @@ static bool configure(void *self, imu_filter_t filter, bool use_mag) {
     (void)filter;
     (void)use_mag;
 
-    dev->dev_addr = ICM20948_I2C_ADDR1;
+    imu_device_state(dev)->dev_addr = ICM20948_I2C_ADDR1;
     return reset_init_icm(dev);
 }
 
@@ -83,7 +86,7 @@ static bool read_sample(void *self, float accel[3], float gyro[3], float mag[3])
 static void on_read_fail(void *self) {
     imu_device_t *dev = (imu_device_t *)self;
     reset_init_icm(dev);
-    imu_transport_delay_us(dev->transport, ICM20948_FAIL_DELAY_US);
+    imu_transport_delay_us(imu_device_state(dev)->transport, ICM20948_FAIL_DELAY_US);
 }
 
 static const imu_device_interface_t icm20948_interface = {
@@ -96,5 +99,7 @@ static const imu_device_interface_t icm20948_interface = {
 };
 
 imu_device_t icm20948_device(imu_transport_t *transport) {
-    return (imu_device_t){.interface = &icm20948_interface, .transport = transport};
+    imu_device_t dev;
+    imu_device_construct(&dev, &icm20948_interface, transport, (void *)0);
+    return dev;
 }

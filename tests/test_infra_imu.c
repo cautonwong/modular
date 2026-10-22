@@ -31,7 +31,7 @@ typedef struct mock_imu {
 
 static bool mock_read_reg(void *self, uint8_t dev_addr, uint8_t reg, uint8_t *rx, size_t len) {
     imu_transport_t *t = (imu_transport_t *)self;
-    mock_imu_t *m = (mock_imu_t *)t->self;
+    mock_imu_t *m = (mock_imu_t *)imu_transport_self(t);
     if (m->fail_reads) {
         return false;
     }
@@ -50,7 +50,7 @@ static bool mock_read_reg(void *self, uint8_t dev_addr, uint8_t reg, uint8_t *rx
 static bool mock_write_reg(void *self, uint8_t dev_addr, uint8_t reg, const uint8_t *tx,
                            size_t len) {
     imu_transport_t *t = (imu_transport_t *)self;
-    mock_imu_t *m = (mock_imu_t *)t->self;
+    mock_imu_t *m = (mock_imu_t *)imu_transport_self(t);
     uint8_t *file = (dev_addr == 0x0Cu) ? m->mag_regs : m->regs;
     for (size_t i = 0; i < len; i++) {
         file[(reg + i) & 0x7Fu] = tx[i];
@@ -65,7 +65,7 @@ static void mock_recover(void *self) {
 
 static void mock_delay_us(void *self, uint32_t us) {
     imu_transport_t *t = (imu_transport_t *)self;
-    mock_imu_t *m = (mock_imu_t *)t->self;
+    mock_imu_t *m = (mock_imu_t *)imu_transport_self(t);
     m->delayed_us += us;
 }
 
@@ -101,25 +101,26 @@ static void test_mpu9150_probe_and_variants(void **state) {
     (void)state;
     mock_imu_t m;
     memset(&m, 0, sizeof(m));
-    imu_transport_t transport = {.interface = &mock_interface, .self = &m};
+    imu_transport_t transport;
+    imu_transport_construct(&transport, &mock_interface, &m);
     mpu9150_state_t st;
     imu_device_t dev = mpu9150_device(&transport, &st);
 
-    assert_string_equal(dev.interface->name, "MPU9X50");
+    assert_string_equal(imu_device_interface(&dev)->name, "MPU9X50");
 
     m.who = 0x68u;
     assert_true(imu_device_configure(&dev, IMU_FILTER_LOW, false));
-    assert_string_equal(dev.variant, "9150");
+    assert_string_equal(imu_device_variant(&dev), "9150");
 
     m.who = 0x71u;
     assert_true(imu_device_configure(&dev, IMU_FILTER_LOW, false));
-    assert_string_equal(dev.variant, "9250");
+    assert_string_equal(imu_device_variant(&dev), "9250");
 
     /* The undocumented identity is accepted and names no variant of its own - and, as the reference
      * leaves it, one that was named before stays named. */
     m.who = 0x69u;
     assert_true(imu_device_configure(&dev, IMU_FILTER_LOW, false));
-    assert_string_equal(dev.variant, "9250");
+    assert_string_equal(imu_device_variant(&dev), "9250");
 
     /* And an identity that is none of them is refused. */
     m.who = 0x99u;
@@ -131,7 +132,8 @@ static void test_mpu9150_scales_and_magnetometer(void **state) {
     mock_imu_t m;
     memset(&m, 0, sizeof(m));
     m.who = 0x68u;
-    imu_transport_t transport = {.interface = &mock_interface, .self = &m};
+    imu_transport_t transport;
+    imu_transport_construct(&transport, &mock_interface, &m);
     mpu9150_state_t st;
     imu_device_t dev = mpu9150_device(&transport, &st);
     assert_true(imu_device_configure(&dev, IMU_FILTER_LOW, true));
@@ -184,7 +186,8 @@ static void test_mpu9150_stuck_sensor_and_failure(void **state) {
     mock_imu_t m;
     memset(&m, 0, sizeof(m));
     m.who = 0x68u;
-    imu_transport_t transport = {.interface = &mock_interface, .self = &m};
+    imu_transport_t transport;
+    imu_transport_construct(&transport, &mock_interface, &m);
     mpu9150_state_t st;
     imu_device_t dev = mpu9150_device(&transport, &st);
     assert_true(imu_device_configure(&dev, IMU_FILTER_LOW, false));
@@ -218,18 +221,19 @@ static void test_lsm6ds3_probe_and_scales(void **state) {
     (void)state;
     mock_imu_t m;
     memset(&m, 0, sizeof(m));
-    imu_transport_t transport = {.interface = &mock_interface, .self = &m};
+    imu_transport_t transport;
+    imu_transport_construct(&transport, &mock_interface, &m);
     imu_device_t dev = lsm6ds3_device(&transport);
 
-    assert_string_equal(dev.interface->name, "LSM6DS3");
-    assert_null(dev.interface->on_read_fail); /* the reference has none for this one */
+    assert_string_equal(imu_device_interface(&dev)->name, "LSM6DS3");
+    assert_null(imu_device_interface(&dev)->on_read_fail); /* the reference has none for this one */
 
     /* The TR-C is the identity 0x6A; the others are accepted without a variant of their own. */
     m.regs[LSM6DS3_ACC_GYRO_WHO_AM_I_REG] = 0x6Au;
-    dev.sample_rate_hz = 1000u;
+    imu_device_set_sample_rate(&dev, 1000u);
     assert_true(imu_device_configure(&dev, IMU_FILTER_LOW, false));
-    assert_string_equal(dev.variant, "TR-C");
-    assert_int_equal(dev.dev_addr, LSM6DS3_ACC_GYRO_ADDR_A);
+    assert_string_equal(imu_device_variant(&dev), "TR-C");
+    assert_int_equal(imu_device_address(&dev), LSM6DS3_ACC_GYRO_ADDR_A);
 
     m.regs[LSM6DS3_ACC_GYRO_WHO_AM_I_REG] = 0x69u;
     assert_true(imu_device_configure(&dev, IMU_FILTER_LOW, false));
@@ -240,7 +244,7 @@ static void test_lsm6ds3_probe_and_scales(void **state) {
     /* Gyroscope first, at seventy millidegrees a second per bit; then the accelerometer, at
      * four hundred and eighty-eight microgee per bit. Half of each full scale is half the range. */
     m.regs[LSM6DS3_ACC_GYRO_WHO_AM_I_REG] = 0x6Au;
-    dev.sample_rate_hz = 1000u;
+    imu_device_set_sample_rate(&dev, 1000u);
     assert_true(imu_device_configure(&dev, IMU_FILTER_LOW, false));
     const uint8_t out = LSM6DS3_ACC_GYRO_OUTX_L_G;
     for (int axis = 0; axis < 3; axis++) {
@@ -278,28 +282,30 @@ static void test_lsm6dsv32x_probe_and_scales(void **state) {
     (void)state;
     mock_imu_t m;
     memset(&m, 0, sizeof(m));
-    imu_transport_t transport = {.interface = &mock_interface, .self = &m};
+    imu_transport_t transport;
+    imu_transport_construct(&transport, &mock_interface, &m);
     imu_device_t dev = lsm6dsv32x_device(&transport);
 
-    assert_string_equal(dev.interface->name, "LSM6DSV32X");
+    assert_string_equal(imu_device_interface(&dev)->name, "LSM6DSV32X");
 
     m.regs[0x0Fu] = 0x70u; /* its identity register */
-    dev.sample_rate_hz = 1000u;
+    imu_device_set_sample_rate(&dev, 1000u);
     assert_true(imu_device_configure(&dev, IMU_FILTER_LOW, false));
-    assert_int_equal(dev.dev_addr, 0x6Au);
-    assert_int_equal(dev.sample_rate_hz, 1000u); /* polling does not change what was asked for */
+    assert_int_equal(imu_device_address(&dev), 0x6Au);
+    assert_int_equal(imu_device_sample_rate(&dev),
+                     1000u); /* polling does not change what was asked for */
 
     m.regs[0x0Fu] = 0x99u;
     assert_false(imu_device_configure(&dev, IMU_FILTER_LOW, false));
 
     /* In a data-ready mode the rate is quantised up to one the part has, and that is reported. */
     m.regs[0x0Fu] = 0x70u;
-    dev.use_drdy = true;
-    dev.sample_rate_hz = 500u;
+    imu_device_set_use_drdy(&dev, true);
+    imu_device_set_sample_rate(&dev, 500u);
     assert_true(imu_device_configure(&dev, IMU_FILTER_LOW, false));
-    assert_int_equal(dev.sample_rate_hz, 960u);
-    dev.use_drdy = false;
-    dev.sample_rate_hz = 1000u;
+    assert_int_equal(imu_device_sample_rate(&dev), 960u);
+    imu_device_set_use_drdy(&dev, false);
+    imu_device_set_sample_rate(&dev, 1000u);
     assert_true(imu_device_configure(&dev, IMU_FILTER_LOW, false));
 
     /* The active pair of full scales, in the reference's own choice: four thousand degrees a second
@@ -338,15 +344,17 @@ static void test_icm20948_order_and_failure_policy(void **state) {
     (void)state;
     mock_imu_t m;
     memset(&m, 0, sizeof(m));
-    imu_transport_t transport = {.interface = &mock_interface, .self = &m};
+    imu_transport_t transport;
+    imu_transport_construct(&transport, &mock_interface, &m);
     imu_device_t dev = icm20948_device(&transport);
 
-    assert_string_equal(dev.interface->name, "ICM20948");
-    assert_null(dev.interface->enable_drdy_output); /* the reference wires none for this one */
+    assert_string_equal(imu_device_interface(&dev)->name, "ICM20948");
+    assert_null(
+        imu_device_interface(&dev)->enable_drdy_output); /* the reference wires none for this one */
 
     /* This driver probes nothing: it takes the one address it knows and starts the part over. */
     assert_true(imu_device_configure(&dev, IMU_FILTER_LOW, false));
-    assert_int_equal(dev.dev_addr, 0x68u);
+    assert_int_equal(imu_device_address(&dev), 0x68u);
     assert_int_equal(m.regs[0x7Fu], 0u); /* left on the bank the data registers live in */
 
     /* Six bytes of accelerometer then six of gyroscope, with the ends of both ranges to tell the
@@ -389,29 +397,31 @@ static void test_bmi160_bus_and_dead_bus(void **state) {
     (void)state;
     mock_imu_t m;
     memset(&m, 0, sizeof(m));
-    imu_transport_t transport = {.interface = &mock_interface, .self = &m};
+    imu_transport_t transport;
+    imu_transport_construct(&transport, &mock_interface, &m);
 
     struct bmi160_dev sensor;
     memset(&sensor, 0, sizeof(sensor));
     imu_device_t dev = bmi160_device(&transport, BMI160_I2C_INTF, &sensor);
 
-    assert_string_equal(dev.interface->name, "BMI160");
-    assert_null(
-        dev.interface->enable_drdy_output); /* the reference wires none for this one either */
-    assert_true(dev.priv == &sensor); /* the caller's structure, not one of the driver's own */
-    assert_int_equal(dev.dev_addr, BMI160_I2C_ADDR); /* an I2C address... */
+    assert_string_equal(imu_device_interface(&dev)->name, "BMI160");
+    assert_null(imu_device_interface(&dev)
+                    ->enable_drdy_output); /* the reference wires none for this one either */
+    assert_true(imu_device_priv(&dev) ==
+                &sensor); /* the caller's structure, not one of the driver's own */
+    assert_int_equal(imu_device_address(&dev), BMI160_I2C_ADDR); /* an I2C address... */
 
     /* ...and none at all for SPI, which is how the wrapper tells the two apart. */
     struct bmi160_dev spi_sensor;
     memset(&spi_sensor, 0, sizeof(spi_sensor));
     imu_device_t spi = bmi160_device(&transport, BMI160_SPI_INTF, &spi_sensor);
-    assert_int_equal(spi.dev_addr, 0u);
+    assert_int_equal(imu_device_address(&spi), 0u);
 
     /* A bus that answers nothing cannot be configured, and the vendor driver is what discovers it.
      */
     m.fail_reads = true;
     assert_false(imu_device_configure(&dev, IMU_FILTER_LOW, false));
-    assert_int_equal(dev.dev_addr, BMI160_I2C_ADDR);
+    assert_int_equal(imu_device_address(&dev), BMI160_I2C_ADDR);
 
     /* Its failure policy is a back-off, since the vendor driver recovers on its own. */
     m.delayed_us = 0u;

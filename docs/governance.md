@@ -30,6 +30,48 @@ the consumer" is a design intent, not a predicate. So the target is **not**
 
 `must_gate` = D7, D14, D18, D21, D26, D31, D37, D44, D48, D55, D68, D86, D87.
 
+## Allocation exemptions are registered (#259)
+
+The zero-allocation rule (D21) allows one way to excuse a line: the marker `N5-allow:`
+plus a reason. A marker is not self-validating - it used to be enough on its own, so a
+marker that stopped describing an allocation stayed in the tree, and "how many
+exemptions do we have" had no answer.
+
+`check_consumer_ports.py` now requires three things:
+
+- the marker sits on a line that really contains a banned call (`malloc`, `calloc`,
+  `realloc`, `free`, `strdup`, `alloca`) - otherwise it is a **stale exemption** and
+  fails;
+- the marker carries a reason;
+- the marker is registered in `ci/alloc-exemptions.json` with `path`, a `contains`
+  fragment of its reason, a `reason` and an `issue`. An entry that matches nothing in
+  the tree also fails, so the registry cannot drift into decoration.
+
+`max` in that file is the ceiling. It is `0`: the tree is allocation-free by
+construction, so adding an exemption means raising the number in a reviewed diff
+rather than adding a comment somewhere. Fixtures: `tests/guards/alloc_exempt_*`.
+
+## Conformance ledger gate (#244)
+
+`adr-conformance.md` is a ledger, not a snapshot: `check_conformance_ledger.py`
+fails when a row contradicts the decision source or the tree.
+
+- every ADR id in a row must exist in `adr.md`, so a renumber cannot leave an orphan row;
+- every row's status must be one of the legend marks (✅ 🟡 ❌ ⛔ 🚫) - a row that
+  degrades into free text (`done`, `OK`) stops being readable by human and script alike;
+- every path-shaped token in the evidence cell (a backticked token containing `/`)
+  must resolve to a tracked file or directory at HEAD, so moving a module or a script
+  cannot leave evidence pointing at nothing. Bare names (`errors.h`, `FreeRTOS.h`) are
+  symbol citations and stay review-only;
+- with `GITHUB_TOKEN` present the issue-state rules apply: a ✅ row may only link
+  closed issues, and a 🟡/❌/⛔ row needs an open linked issue or a `deferred:` /
+  `tracked-out-of-band` token. Without the token (forks, local runs) the API check is
+  skipped and the report says `issue state: not checked`, so the gate never needs a
+  secret to go green.
+
+A deliberately exempt row carries `<!-- conformance:ignore reason=... -->` and is
+counted in the report. Fixtures live in `tests/guards/conformance_*`.
+
 ## Layer dependency matrix
 
 The topology is executable, not prose. `check_layer_dependencies.py` resolves every

@@ -203,6 +203,7 @@ void pinetime_make_ui_display_port(watch_ui_display_port_t *out, pinetime_glue_s
 void pinetime_make_ui_status_port(watch_ui_status_port_t *out, pinetime_glue_state_t *state);
 
 void pinetime_make_metronome_motor_port(metronome_motor_if_t *out, pinetime_glue_state_t *state);
+void pinetime_make_metronome_clock_port(metronome_clock_if_t *out, pinetime_glue_state_t *state);
 void pinetime_make_dice_entropy_port(dice_entropy_if_t *out, pinetime_glue_state_t *state);
 void pinetime_make_dice_motor_port(dice_motor_if_t *out, pinetime_glue_state_t *state);
 

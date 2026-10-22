@@ -1,0 +1,5 @@
+{
+  "note": "Every zero-allocation exemption in the tree is registered here (#259). A line carrying `N5-allow:` (or the older `ponytail:allow-alloc`) must also appear below with its path, a `contains` fragment of its reason, a reason and a ticket; the gate fails on an unregistered marker, on a marker whose line has no allocation call (a stale exemption), and on an entry that no longer matches anything. `max` is the ceiling: the repository is allocation-free by construction (README, D21), so raising this number is a deliberate edit here, not a line marker added in passing.",
+  "max": 0,
+  "entries": []
+}

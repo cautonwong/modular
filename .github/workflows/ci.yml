@@ -492,6 +492,10 @@ jobs:
         run: python3 tests/guards/run_guard_selftest.py
       - name: Guard coverage (every checker has a refutation fixture)
         run: python3 .github/scripts/check_guard_coverage.py
+      - name: Conformance ledger matches ADRs, paths and issue state (#244)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 .github/scripts/check_conformance_ledger.py
       - name: CI artifact generators (smoke)
         run: python3 tests/guards/run_generator_selftest.py
       - name: Pre-commit hook is present and valid
