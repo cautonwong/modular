@@ -41,11 +41,14 @@ typedef struct imu_transport_interface {
  * The handle is an opaque, caller-owned storage block (#258), same shape as
  * `imu_device_t`; the two fields live in src/imu_internal.h.
  */
+/* Measured: 16 bytes on an LP64 host, 8 on a 32-bit target - two pointers, no
+ * margin, which is also the assertion in src/imu_internal.h. */
 #if UINTPTR_MAX > 0xFFFFFFFFu
 #define IMU_TRANSPORT_STORAGE_SIZE 16u
 #else
 #define IMU_TRANSPORT_STORAGE_SIZE 8u
 #endif
+#define IMU_TRANSPORT_STORAGE_MARGIN 0u
 #define IMU_TRANSPORT_STORAGE_ALIGN 8u
 
 typedef struct imu_transport {

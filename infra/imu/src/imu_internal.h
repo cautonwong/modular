@@ -50,12 +50,17 @@ _Static_assert(offsetof(struct imu_transport_internal, self) ==
                    offsetof(imu_transport_prefix_t, self),
                "the prefix view must keep `self` in place");
 
-_Static_assert(sizeof(struct imu_device_internal) <= IMU_DEVICE_STORAGE_SIZE,
-               "IMU_DEVICE_STORAGE_SIZE is stale: the caller would under-allocate");
+/* Exact margins, measured on both ABIs, so a new field fails the build with a
+ * message that says what to re-measure rather than quietly shrinking the slack. */
+_Static_assert(IMU_DEVICE_STORAGE_SIZE - sizeof(struct imu_device_internal) ==
+                   IMU_DEVICE_STORAGE_MARGIN,
+               "imu_device_t storage drifted: re-measure IMU_DEVICE_STORAGE_SIZE and _MARGIN");
 _Static_assert(_Alignof(struct imu_device_internal) <= IMU_DEVICE_STORAGE_ALIGN,
                "IMU_DEVICE_STORAGE_ALIGN is stale: the storage would be under-aligned");
-_Static_assert(sizeof(struct imu_transport_internal) <= IMU_TRANSPORT_STORAGE_SIZE,
-               "IMU_TRANSPORT_STORAGE_SIZE is stale: the caller would under-allocate");
+_Static_assert(
+    IMU_TRANSPORT_STORAGE_SIZE - sizeof(struct imu_transport_internal) ==
+        IMU_TRANSPORT_STORAGE_MARGIN,
+    "imu_transport_t storage drifted: it is exactly two pointers, so a field is a redesign");
 _Static_assert(_Alignof(struct imu_transport_internal) <= IMU_TRANSPORT_STORAGE_ALIGN,
                "IMU_TRANSPORT_STORAGE_ALIGN is stale: the storage would be under-aligned");
 

@@ -43,7 +43,16 @@ typedef void (*edge_sys_idle_fn)(void *ctx);
  * is fixed and checked there against the real struct, so a field added to the
  * implementation cannot silently outgrow the block.
  */
+/* Measured: 168 bytes on an LP64 host, 112 on a 32-bit target. The margin below is
+ * asserted exactly in src/sys_internal.h, so "how much slack is left" is answered by
+ * the build rather than by a measurement session. */
+#if UINTPTR_MAX > 0xFFFFFFFFu
 #define EDGE_SYS_STORAGE_SIZE 192u
+#define EDGE_SYS_STORAGE_MARGIN 24u
+#else
+#define EDGE_SYS_STORAGE_SIZE 128u
+#define EDGE_SYS_STORAGE_MARGIN 16u
+#endif
 #define EDGE_SYS_STORAGE_ALIGN 8u
 
 typedef struct edge_sys {
