@@ -22,6 +22,25 @@ INCLUDE = re.compile(r'^\s*#\s*include\s*[<"]([^">]+)[">]', re.M)
 
 LAYER_DIRS = ("edge_module", "app", "sys", "board", "infra", "soc", "pal", "product")
 SUBDIR_LAYERS = ("app", "sys", "board", "infra", "soc", "product")
+# Layers whose subdirectory is an ownership boundary, and the one owner inside a
+# layer that a sibling may legitimately sit on (a hub, not a peer). Everything not
+# listed is a peer edge and is rejected:
+#
+#   app   - no peer edges: app/a -> app/b is a backdoor bus (D78/D79)
+#   sys   - every family wrapper (meter, watch, keyboard, bldc, example) is built
+#           on `runtime`, so sys/<family> -> sys/runtime is the layer's shape
+#   board, infra, soc - peers: a board is not built on another board
+#   pal   - deliberately absent: pal/os, pal/rtos and pal/eos are three roles of
+#           one abstraction, and an implementation including a sibling's port
+#           header is the intended form (D46/D85)
+#   product - a composition root, not a library: it may reach every layer (ALLOWED)
+OWNER_EDGES = {
+    "app": frozenset(),
+    "sys": frozenset({"runtime"}),
+    "board": frozenset(),
+    "infra": frozenset(),
+    "soc": frozenset(),
+}
 
 ALLOWED = {
     "edge_module": {"edge_module"},
@@ -151,11 +170,14 @@ def check(root):
                     continue
                 if target not in ALLOWED[layer]:
                     problems.append(f"{rel}: {layer} -> {target} via '{include}'")
-                elif layer == "app" and target == "app":
-                    owner = owner_of(path, root, "app")
-                    reached = owner_of(resolved, root, "app")
-                    if owner != reached:
-                        problems.append(f"{rel}: app '{owner}' -> app '{reached}' via '{include}'")
+                elif layer == target and layer in OWNER_EDGES:
+                    owner = owner_of(path, root, layer)
+                    reached = owner_of(resolved, root, layer)
+                    if owner != reached and reached not in OWNER_EDGES[layer]:
+                        problems.append(
+                            f"{rel}: {layer} '{owner}' -> {layer} '{reached}' via '{include}' "
+                            f"(peer edge within a layer; see OWNER_EDGES)"
+                        )
 
     for layer, rel, dep_layer, dep in declared_deps(root):
         # `edge_module` is bookkeeping, not a dependency: the helper requires a DEPS
