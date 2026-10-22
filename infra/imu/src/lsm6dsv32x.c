@@ -1,4 +1,5 @@
 #include "imu/lsm6dsv32x.h"
+#include "imu_internal.h"
 
 #include <stddef.h>
 
@@ -64,11 +65,13 @@ static const struct {
 #define LSM6DSV32X_ODR_LADDER_N (sizeof(odr_ladder) / sizeof(odr_ladder[0]))
 
 static bool read_reg(imu_device_t *dev, uint8_t reg, uint8_t *res) {
-    return imu_transport_read_reg(dev->transport, dev->dev_addr, reg, res, 1u);
+    return imu_transport_read_reg(imu_device_state(dev)->transport, imu_device_state(dev)->dev_addr,
+                                  reg, res, 1u);
 }
 
 static bool write_reg(imu_device_t *dev, uint8_t reg, uint8_t value) {
-    return imu_transport_write_reg(dev->transport, dev->dev_addr, reg, &value, 1u);
+    return imu_transport_write_reg(imu_device_state(dev)->transport,
+                                   imu_device_state(dev)->dev_addr, reg, &value, 1u);
 }
 
 /*
@@ -81,10 +84,10 @@ static bool configure(void *self, imu_filter_t filter, bool use_mag) {
     (void)use_mag;
 
     uint8_t id = 0u;
-    dev->dev_addr = LSM6DSV32X_ADDR_A;
+    imu_device_state(dev)->dev_addr = LSM6DSV32X_ADDR_A;
     bool ok = read_reg(dev, REG_WHO_AM_I, &id);
     if (!ok || id != WHO_AM_I_VAL) {
-        dev->dev_addr = LSM6DSV32X_ADDR_B;
+        imu_device_state(dev)->dev_addr = LSM6DSV32X_ADDR_B;
         ok = read_reg(dev, REG_WHO_AM_I, &id);
         if (!ok || id != WHO_AM_I_VAL) {
             return false;
@@ -97,13 +100,13 @@ static bool configure(void *self, imu_filter_t filter, bool use_mag) {
      * that each edge drives exactly one read - and that rate is then the real output rate.
      */
     uint8_t odr_idx = LSM6DSV32X_ODR_LADDER_N - 1u;
-    if (dev->use_drdy) {
+    if (imu_device_state(dev)->use_drdy) {
         odr_idx = 0u;
         while (odr_idx < LSM6DSV32X_ODR_LADDER_N - 1u &&
-               odr_ladder[odr_idx].hz < dev->sample_rate_hz) {
+               odr_ladder[odr_idx].hz < imu_device_state(dev)->sample_rate_hz) {
             odr_idx++;
         }
-        dev->sample_rate_hz = odr_ladder[odr_idx].hz;
+        imu_device_state(dev)->sample_rate_hz = odr_ladder[odr_idx].hz;
     }
     const uint16_t odr_hz = odr_ladder[odr_idx].hz;
     const uint8_t odr = odr_ladder[odr_idx].code;
@@ -116,7 +119,7 @@ static bool configure(void *self, imu_filter_t filter, bool use_mag) {
     const uint8_t divisor = (filter == IMU_FILTER_HIGH)     ? 8u
                             : (filter == IMU_FILTER_MEDIUM) ? 4u
                                                             : 2u;
-    const uint16_t cutoff = dev->sample_rate_hz / divisor;
+    const uint16_t cutoff = imu_device_state(dev)->sample_rate_hz / divisor;
 
     const bool lpf2_en = (odr_hz / 2u) > cutoff;
     uint8_t lpf2_bw = 0u;
@@ -146,7 +149,7 @@ static bool configure(void *self, imu_filter_t filter, bool use_mag) {
     ok = ok && write_reg(dev, REG_CTRL7, lpf1_en ? CTRL7_LPF1_G_EN : 0u);
 
     /* In a data-ready mode the signal is masked until the filters have settled. */
-    ok = ok && write_reg(dev, REG_CTRL4, dev->use_drdy ? CTRL4_DRDY_MASK : 0u);
+    ok = ok && write_reg(dev, REG_CTRL4, imu_device_state(dev)->use_drdy ? CTRL4_DRDY_MASK : 0u);
 
     /* The sensors are enabled last: writing the rate is what powers them up. */
     ok = ok && write_reg(dev, REG_CTRL1, odr);
@@ -160,7 +163,8 @@ static bool read_sample(void *self, float accel[3], float gyro[3], float mag[3])
     imu_device_t *dev = (imu_device_t *)self;
     uint8_t rxb[12];
 
-    if (!imu_transport_read_reg(dev->transport, dev->dev_addr, REG_OUTX_L_G, rxb, sizeof(rxb))) {
+    if (!imu_transport_read_reg(imu_device_state(dev)->transport, imu_device_state(dev)->dev_addr,
+                                REG_OUTX_L_G, rxb, sizeof(rxb))) {
         return false;
     }
 
@@ -192,5 +196,7 @@ static const imu_device_interface_t lsm6dsv32x_interface = {
 };
 
 imu_device_t lsm6dsv32x_device(imu_transport_t *transport) {
-    return (imu_device_t){.interface = &lsm6dsv32x_interface, .transport = transport};
+    imu_device_t dev;
+    imu_device_construct(&dev, &lsm6dsv32x_interface, transport, (void *)0);
+    return dev;
 }

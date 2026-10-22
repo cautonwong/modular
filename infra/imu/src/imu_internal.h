@@ -1,0 +1,63 @@
+#ifndef IMU_INTERNAL_H
+#define IMU_INTERNAL_H
+
+/*
+ * The two IMU aggregate types, kept out of the public headers (#258).
+ *
+ * `imu_device_t` and `imu_transport_t` are opaque, aligned storage blocks in
+ * `imu/device.h` and `imu/transport.h`; this is what lives in them. The public
+ * structs published `dev_addr`, `variant`, `sample_rate_hz` and `use_drdy`, which a
+ * driver's `configure` rewrites - state a caller could reach into and desynchronise
+ * from the device it describes.
+ *
+ * The types are still returned by value from their factories, so the storage block
+ * (not a forward declaration) is what keeps `imu_device_t dev = lsm6ds3_device(...)`
+ * working while the fields become unreachable.
+ */
+#include "imu/device.h"
+#include "imu/transport.h"
+
+#include <stdint.h>
+
+struct imu_transport_internal {
+    const imu_transport_interface_t *interface;
+    void *self;
+};
+
+struct imu_device_internal {
+    const imu_device_interface_t *interface;
+    imu_transport_t *transport;
+    const char *variant;
+    uint8_t dev_addr;
+    uint16_t sample_rate_hz;
+    bool use_drdy;
+    void *priv;
+};
+
+_Static_assert(sizeof(struct imu_device_internal) <= IMU_DEVICE_STORAGE_SIZE,
+               "IMU_DEVICE_STORAGE_SIZE is stale: the caller would under-allocate");
+_Static_assert(_Alignof(struct imu_device_internal) <= IMU_DEVICE_STORAGE_ALIGN,
+               "IMU_DEVICE_STORAGE_ALIGN is stale: the storage would be under-aligned");
+_Static_assert(sizeof(struct imu_transport_internal) <= IMU_TRANSPORT_STORAGE_SIZE,
+               "IMU_TRANSPORT_STORAGE_SIZE is stale: the caller would under-allocate");
+_Static_assert(_Alignof(struct imu_transport_internal) <= IMU_TRANSPORT_STORAGE_ALIGN,
+               "IMU_TRANSPORT_STORAGE_ALIGN is stale: the storage would be under-aligned");
+
+static inline struct imu_device_internal *imu_device_state(const imu_device_t *handle) {
+    return (struct imu_device_internal *)(void *)(uintptr_t)handle;
+}
+
+static inline struct imu_transport_internal *imu_transport_state(const imu_transport_t *handle) {
+    return (struct imu_transport_internal *)(void *)(uintptr_t)handle;
+}
+
+static inline const struct imu_device_internal *imu_device_state_const(const imu_device_t *handle) {
+    return (const struct imu_device_internal *)(const void *)(uintptr_t)handle;
+}
+
+static inline const struct imu_transport_internal *
+imu_transport_state_const(const imu_transport_t *handle) {
+    return (const struct imu_transport_internal *)(const void *)(uintptr_t)handle;
+}
+
+#endif /* IMU_INTERNAL_H */

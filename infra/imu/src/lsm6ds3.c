@@ -1,4 +1,5 @@
 #include "imu/lsm6ds3.h"
+#include "imu_internal.h"
 
 #include <stddef.h>
 
@@ -35,16 +36,18 @@ static uint8_t odr_index(uint16_t rate_hz, uint16_t max_hz) {
 }
 
 static bool read_reg(imu_device_t *dev, uint8_t reg, uint8_t *res) {
-    return imu_transport_read_reg(dev->transport, dev->dev_addr, reg, res, 1u);
+    return imu_transport_read_reg(imu_device_state(dev)->transport, imu_device_state(dev)->dev_addr,
+                                  reg, res, 1u);
 }
 
 static bool write_reg(imu_device_t *dev, uint8_t reg, uint8_t value) {
-    return imu_transport_write_reg(dev->transport, dev->dev_addr, reg, &value, 1u);
+    return imu_transport_write_reg(imu_device_state(dev)->transport,
+                                   imu_device_state(dev)->dev_addr, reg, &value, 1u);
 }
 
 static bool read_gyro_accel(imu_device_t *dev, uint8_t *res) {
-    return imu_transport_read_reg(dev->transport, dev->dev_addr, LSM6DS3_ACC_GYRO_OUTX_L_G, res,
-                                  12u);
+    return imu_transport_read_reg(imu_device_state(dev)->transport, imu_device_state(dev)->dev_addr,
+                                  LSM6DS3_ACC_GYRO_OUTX_L_G, res, 12u);
 }
 
 /*
@@ -60,10 +63,10 @@ static bool configure(void *self, imu_filter_t filter, bool use_mag) {
 
     uint8_t rxb[1];
 
-    dev->dev_addr = LSM6DS3_ACC_GYRO_ADDR_A;
+    imu_device_state(dev)->dev_addr = LSM6DS3_ACC_GYRO_ADDR_A;
     bool ok = read_reg(dev, LSM6DS3_ACC_GYRO_WHO_AM_I_REG, rxb);
     if (!ok || (rxb[0] != 0x69u && rxb[0] != 0x6Au && rxb[0] != 0x6Cu)) {
-        dev->dev_addr = LSM6DS3_ACC_GYRO_ADDR_B;
+        imu_device_state(dev)->dev_addr = LSM6DS3_ACC_GYRO_ADDR_B;
         ok = read_reg(dev, LSM6DS3_ACC_GYRO_WHO_AM_I_REG, rxb);
         if (!ok || (rxb[0] != 0x69u && rxb[0] != 0x6Au && rxb[0] != 0x6Cu)) {
             return false;
@@ -73,7 +76,7 @@ static bool configure(void *self, imu_filter_t filter, bool use_mag) {
     bool is_trc = false;
     if (rxb[0] == 0x6Au) {
         is_trc = true;
-        dev->variant = "TR-C";
+        imu_device_state(dev)->variant = "TR-C";
     }
 
     const uint16_t gyro_max = is_trc ? 6660u : 1660u;
@@ -86,14 +89,15 @@ static bool configure(void *self, imu_filter_t filter, bool use_mag) {
      */
     uint8_t accel_odr;
     uint8_t gyro_odr;
-    if (dev->use_drdy) {
-        const uint8_t idx = odr_index(dev->sample_rate_hz, gyro_max);
+    if (imu_device_state(dev)->use_drdy) {
+        const uint8_t idx = odr_index(imu_device_state(dev)->sample_rate_hz, gyro_max);
         accel_odr = gyro_odr = odr_ladder[idx].code;
-        dev->sample_rate_hz = odr_ladder[idx].hz; /* the real output rate is the quantised one */
+        imu_device_state(dev)->sample_rate_hz =
+            odr_ladder[idx].hz; /* the real output rate is the quantised one */
     } else {
         accel_odr = gyro_odr = odr_ladder[LSM6DS3_ODR_LADDER_N - 1u].code;
         if (!is_trc) {
-            gyro_odr = odr_ladder[odr_index(dev->sample_rate_hz, gyro_max)].code;
+            gyro_odr = odr_ladder[odr_index(imu_device_state(dev)->sample_rate_hz, gyro_max)].code;
         }
     }
 
@@ -107,7 +111,7 @@ static bool configure(void *self, imu_filter_t filter, bool use_mag) {
         regv |= LSM6DS3TRC_BW0_XL;
         /* Running at the sample rate, the digital filter anti-aliases: half the rate or a quarter.
          */
-        if (dev->use_drdy && filter == IMU_FILTER_MEDIUM) {
+        if (imu_device_state(dev)->use_drdy && filter == IMU_FILTER_MEDIUM) {
             regv |= LSM6DS3TRC_LPF1_BW_SEL;
         }
     } else {
@@ -116,9 +120,10 @@ static bool configure(void *self, imu_filter_t filter, bool use_mag) {
          * hundred hertz poll rate the automatic one is not used, so it is chosen by hand here and
          * enabled in CTRL4_C below.
          */
-        const uint16_t scaled_rate = filter == IMU_FILTER_HIGH     ? dev->sample_rate_hz / 2u
-                                     : filter == IMU_FILTER_MEDIUM ? dev->sample_rate_hz
-                                                                   : dev->sample_rate_hz * 2u;
+        const uint16_t scaled_rate =
+            filter == IMU_FILTER_HIGH     ? imu_device_state(dev)->sample_rate_hz / 2u
+            : filter == IMU_FILTER_MEDIUM ? imu_device_state(dev)->sample_rate_hz
+                                          : imu_device_state(dev)->sample_rate_hz * 2u;
         if (scaled_rate <= 208u) {
             regv |= LSM6DS3_ACC_GYRO_BW_XL_50Hz;
         } else if (scaled_rate <= 416u) {
@@ -137,7 +142,7 @@ static bool configure(void *self, imu_filter_t filter, bool use_mag) {
 #define LSM6DS3TRC_HPCF_XL_ODR50 0x00u
 #define LSM6DS3TRC_HPCF_XL_ODR100 0x20u
         regv = 0u;
-        if (dev->use_drdy) {
+        if (imu_device_state(dev)->use_drdy) {
             /* At the sample rate the highest setting is the tighter second filter instead. */
             if (filter == IMU_FILTER_HIGH) {
                 regv |= LSM6DS3TRC_LPF2_XL_EN | LSM6DS3TRC_HPCF_XL_ODR9;
@@ -175,7 +180,7 @@ static bool configure(void *self, imu_filter_t filter, bool use_mag) {
     }
 #define LSM6DS3_ACC_GYRO_DRDY_MASK                                                                 \
     0x08u /* hold the data-ready signal off until the filters settle */
-    if (dev->use_drdy) {
+    if (imu_device_state(dev)->use_drdy) {
         regv |= LSM6DS3_ACC_GYRO_DRDY_MASK;
     }
     ok = ok && write_reg(dev, LSM6DS3_ACC_GYRO_CTRL4_C, regv);
@@ -223,5 +228,7 @@ static const imu_device_interface_t lsm6ds3_interface = {
 };
 
 imu_device_t lsm6ds3_device(imu_transport_t *transport) {
-    return (imu_device_t){.interface = &lsm6ds3_interface, .transport = transport};
+    imu_device_t dev;
+    imu_device_construct(&dev, &lsm6ds3_interface, transport, (void *)0);
+    return dev;
 }
