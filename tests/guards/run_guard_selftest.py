@@ -130,6 +130,7 @@ CASES = [
     ("check_consumer_ports.py", "tests/guards/consumer_ports_good", True),
     ("check_consumer_ports.py", "tests/guards/consumer_ports_good_opaque_storage", True),
     ("check_consumer_ports.py", "tests/guards/consumer_ports_bad_no_self", False),
+    ("check_consumer_ports.py", "tests/guards/consumer_ports_bad_sys_port", False),
     ("check_consumer_ports.py", "tests/guards/consumer_ports_bad_opaque_storage", False),
     ("check_consumer_ports.py", "tests/guards/consumer_ports_bad_malloc", False),
     ("check_consumer_ports.py", "tests/guards/product_malloc", False),

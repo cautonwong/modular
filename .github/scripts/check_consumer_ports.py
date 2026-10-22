@@ -196,8 +196,10 @@ def check_port_header_isolation(path: Path, root: Path) -> list:
 def check(root: Path) -> list:
     problems = []
 
-    # 1. Check consumer-defined ports in app/, infra/, board/, and edge_module/
-    for layer in ("app", "infra", "board"):
+    # 1. Check consumer-defined ports in every layer that declares one, plus
+    #    edge_module/. sys/pal/soc/product were previously unchecked: their ports
+    #    happened to comply, but nothing would have said so (#255).
+    for layer in ("app", "infra", "board", "sys", "pal", "soc", "product"):
         layer_dir = root / layer
         if layer_dir.is_dir():
             for path in sorted(layer_dir.rglob("*.h")):
