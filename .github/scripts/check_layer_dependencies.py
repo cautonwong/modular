@@ -12,15 +12,35 @@ OS/RTOS-bound code in `pal/<os>/`, and the binding happens in `product/<name>/gl
 
 Usage: check_layer_dependencies.py [root]
 """
-from pathlib import Path
 import re
 import sys
+import time
+from pathlib import Path
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[2]
 INCLUDE = re.compile(r'^\s*#\s*include\s*[<"]([^">]+)[">]', re.M)
 
 LAYER_DIRS = ("edge_module", "app", "sys", "board", "infra", "soc", "pal", "product")
 SUBDIR_LAYERS = ("app", "sys", "board", "infra", "soc", "product")
+# Layers whose subdirectory is an ownership boundary, and the one owner inside a
+# layer that a sibling may legitimately sit on (a hub, not a peer). Everything not
+# listed is a peer edge and is rejected:
+#
+#   app   - no peer edges: app/a -> app/b is a backdoor bus (D78/D79)
+#   sys   - every family wrapper (meter, watch, keyboard, bldc, example) is built
+#           on `runtime`, so sys/<family> -> sys/runtime is the layer's shape
+#   board, infra, soc - peers: a board is not built on another board
+#   pal   - deliberately absent: pal/os, pal/rtos and pal/eos are three roles of
+#           one abstraction, and an implementation including a sibling's port
+#           header is the intended form (D46/D85)
+#   product - a composition root, not a library: it may reach every layer (ALLOWED)
+OWNER_EDGES = {
+    "app": frozenset(),
+    "sys": frozenset({"runtime"}),
+    "board": frozenset(),
+    "infra": frozenset(),
+    "soc": frozenset(),
+}
 
 ALLOWED = {
     "edge_module": {"edge_module"},
@@ -45,6 +65,35 @@ def include_roots(root):
         if product.is_dir():
             roots.append(product.resolve())
     return roots
+
+
+def include_index(roots):
+    """basename -> resolved paths, built once instead of one stat per (include, root).
+
+    Resolving an include used to cost one `is_file()` per root, and there are ~100
+    roots, so a full run was O(includes x roots) syscalls - measured at 8m51s wall
+    on a network filesystem against 65s of CPU. One walk per root makes it
+    O(files + includes) (#253). Root order is preserved so the first match is still
+    the same file the root-order scan picked.
+    """
+    index = {}
+    for inc_root in roots:
+        for path in sorted(inc_root.rglob("*")):
+            if path.is_file():
+                index.setdefault(path.name, []).append(path.resolve())
+    return index
+
+
+def resolve_include(path, include, index):
+    """Resolve an include the way the compiler would, in the historical order."""
+    local = path.parent / include
+    if local.is_file():
+        return local.resolve()
+    suffix = "/" + include.replace("\\", "/")
+    for candidate in index.get(Path(include).name, ()):
+        if candidate.as_posix().endswith(suffix):
+            return candidate
+    return None
 
 
 def layer_of(path, root):
@@ -101,7 +150,7 @@ def declared_deps(root):
 
 def check(root):
     root = root.resolve()
-    roots = include_roots(root)
+    index = include_index(include_roots(root))
     problems = []
 
     for layer in LAYER_DIRS:
@@ -112,16 +161,7 @@ def check(root):
             text = path.read_text(encoding="utf-8", errors="replace")
             rel = path.relative_to(root)
             for include in INCLUDE.findall(text):
-                resolved = None
-                local = path.parent / include
-                if local.is_file():
-                    resolved = local.resolve()
-                if resolved is None:
-                    for inc_root in roots:
-                        candidate = inc_root / include
-                        if candidate.is_file():
-                            resolved = candidate.resolve()
-                            break
+                resolved = resolve_include(path, include, index)
                 if resolved is None:
                     continue  # standard/toolchain/external header
 
@@ -130,11 +170,14 @@ def check(root):
                     continue
                 if target not in ALLOWED[layer]:
                     problems.append(f"{rel}: {layer} -> {target} via '{include}'")
-                elif layer == "app" and target == "app":
-                    owner = owner_of(path, root, "app")
-                    reached = owner_of(resolved, root, "app")
-                    if owner != reached:
-                        problems.append(f"{rel}: app '{owner}' -> app '{reached}' via '{include}'")
+                elif layer == target and layer in OWNER_EDGES:
+                    owner = owner_of(path, root, layer)
+                    reached = owner_of(resolved, root, layer)
+                    if owner != reached and reached not in OWNER_EDGES[layer]:
+                        problems.append(
+                            f"{rel}: {layer} '{owner}' -> {layer} '{reached}' via '{include}' "
+                            f"(peer edge within a layer; see OWNER_EDGES)"
+                        )
 
     for layer, rel, dep_layer, dep in declared_deps(root):
         # `edge_module` is bookkeeping, not a dependency: the helper requires a DEPS
@@ -155,10 +198,16 @@ def check(root):
 
 
 def main(argv):
-    root = Path(argv[1]).resolve() if len(argv) > 1 else DEFAULT_ROOT
+    timing = "--timing" in argv
+    args = [arg for arg in argv[1:] if not arg.startswith("--")]
+    root = Path(args[0]).resolve() if args else DEFAULT_ROOT
+    started = time.monotonic()
     code, messages = check(root)
     for message in messages:
         print(message)
+    if timing:
+        # stderr, so the pass/fail line stays byte-identical (#253)
+        print(f"elapsed {time.monotonic() - started:.2f}s", file=sys.stderr)
     return code
 
 

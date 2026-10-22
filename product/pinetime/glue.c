@@ -866,6 +866,14 @@ void pinetime_make_metronome_motor_port(metronome_motor_if_t *out, pinetime_glue
     out->run_duration_ms = glue_metronome_vibrate;
 }
 
+void pinetime_make_metronome_clock_port(metronome_clock_if_t *out, pinetime_glue_state_t *state) {
+    if (out == NULL) {
+        return;
+    }
+    out->self = state;
+    out->get_tick_ms = glue_timer_get_tick_ms;
+}
+
 static uint32_t glue_dice_get_random(void *self) {
     pinetime_glue_state_t *state = (pinetime_glue_state_t *)self;
     if (state != NULL) {

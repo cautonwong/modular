@@ -176,11 +176,11 @@ int main(void) {
     ble_weather_init(&weather_app, &weather_time_port, &event_sink);
 
     ble_music_t music_app;
-    ble_music_construct(&music_app, EDGE_MOD_BLE_MUSIC, 95u, &music_trans_port, NULL);
-    ble_music_init(&music_app, &music_trans_port, NULL);
+    ble_music_construct(&music_app, EDGE_MOD_BLE_MUSIC, 95u, &music_trans_port, &event_sink);
+    ble_music_init(&music_app, &music_trans_port, &event_sink);
 
     ble_nav_t nav_app;
-    ble_nav_construct(&nav_app, EDGE_MOD_BLE_NAV, 100u, NULL);
+    ble_nav_construct(&nav_app, EDGE_MOD_BLE_NAV, 100u, &event_sink);
     ble_nav_init(&nav_app, &event_sink);
 
     ble_notifications_t notif_app;
@@ -189,19 +189,20 @@ int main(void) {
     ble_notifications_init(&notif_app, &notif_call_port, &event_sink);
 
     ble_motion_t motion_app;
-    ble_motion_construct(&motion_app, EDGE_MOD_BLE_MOTION, 110u, &motion_notify_port, NULL);
-    ble_motion_init(&motion_app, &motion_notify_port, NULL);
+    ble_motion_construct(&motion_app, EDGE_MOD_BLE_MOTION, 110u, &motion_notify_port, &event_sink);
+    ble_motion_init(&motion_app, &motion_notify_port, &event_sink);
 
     ble_fs_t fs_app;
-    ble_fs_construct(&fs_app, EDGE_MOD_BLE_FS, 115u, &fs_store_port, &fs_tx_port, NULL);
-    if (ble_fs_init(&fs_app, &fs_store_port, &fs_tx_port, NULL) != EDGE_OK) {
+    ble_fs_construct(&fs_app, EDGE_MOD_BLE_FS, 115u, &fs_store_port, &fs_tx_port, &event_sink);
+    if (ble_fs_init(&fs_app, &fs_store_port, &fs_tx_port, &event_sink) != EDGE_OK) {
         return 21;
     }
 
     ble_dfu_t dfu_app;
     ble_dfu_construct(&dfu_app, EDGE_MOD_BLE_DFU, 120u, &dfu_flash_port, &dfu_notify_port,
-                      &dfu_sys_port, NULL);
-    if (ble_dfu_init(&dfu_app, &dfu_flash_port, &dfu_notify_port, &dfu_sys_port, NULL) != EDGE_OK) {
+                      &dfu_sys_port, &event_sink);
+    if (ble_dfu_init(&dfu_app, &dfu_flash_port, &dfu_notify_port, &dfu_sys_port, &event_sink) !=
+        EDGE_OK) {
         return 22;
     }
 
@@ -215,9 +216,13 @@ int main(void) {
     metronome_motor_if_t metronome_motor_port;
     pinetime_make_metronome_motor_port(&metronome_motor_port, &glue);
 
+    metronome_clock_if_t metronome_clock_port;
+    pinetime_make_metronome_clock_port(&metronome_clock_port, &glue);
+
     metronome_app_t metronome_app;
-    metronome_construct(&metronome_app, EDGE_MOD_METRONOME, 130u, &metronome_motor_port, NULL);
-    if (metronome_init(&metronome_app, &metronome_motor_port, NULL) != EDGE_OK) {
+    metronome_construct(&metronome_app, EDGE_MOD_METRONOME, 130u, &metronome_motor_port,
+                        &metronome_clock_port);
+    if (metronome_init(&metronome_app, &metronome_motor_port, &metronome_clock_port) != EDGE_OK) {
         return 24;
     }
 

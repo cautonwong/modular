@@ -4,10 +4,10 @@
 This proves the guard scripts actually fail when a violation is introduced,
 satisfying the architecture requirement that refutation tests exist.
 """
-from pathlib import Path
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / ".github" / "scripts"
@@ -42,6 +42,7 @@ CASES = [
     ("check_layer_dependencies.py", "tests/guards/layer_bad_app", False),
     ("check_layer_dependencies.py", "tests/guards/layer_bad_infra_soc", False),
     ("check_layer_dependencies.py", "tests/guards/layer_bad_cmake", False),
+    ("check_layer_dependencies.py", "tests/guards/layer_bad_sys_peer", False),
     ("check_cmake_apps.py", "tests/guards/cmake_good", True),
     ("check_cmake_apps.py", "tests/guards/cmake_bad", False),
     ("check_event_ids.py", "tests/guards/events_good", True),
@@ -130,12 +131,21 @@ CASES = [
     ("check_consumer_ports.py", "tests/guards/consumer_ports_good", True),
     ("check_consumer_ports.py", "tests/guards/consumer_ports_good_opaque_storage", True),
     ("check_consumer_ports.py", "tests/guards/consumer_ports_bad_no_self", False),
+    ("check_consumer_ports.py", "tests/guards/consumer_ports_bad_sys_port", False),
     ("check_consumer_ports.py", "tests/guards/consumer_ports_bad_opaque_storage", False),
     ("check_consumer_ports.py", "tests/guards/consumer_ports_bad_malloc", False),
+    ("check_consumer_ports.py", "tests/guards/product_malloc", False),
+    ("check_consumer_ports.py", "tests/guards/storage_blob_comment", True),
+    ("check_consumer_ports.py", "tests/guards/storage_blob_extra_field", False),
+    ("check_consumer_ports.py", "tests/guards/alloc_exempt_good", True),
+    ("check_consumer_ports.py", "tests/guards/alloc_exempt_stale", False),
+    ("check_consumer_ports.py", "tests/guards/alloc_exempt_unregistered", False),
     ("check_consumer_ports.py", "tests/guards/consumer_ports_bad_leak_include", False),
     ("check_composition_root_wiring.py", "tests/guards/composition_wiring_good", True),
     ("check_composition_root_wiring.py", "tests/guards/composition_wiring_bad_null_sink", False),
     ("check_composition_root_wiring.py", "tests/guards/composition_wiring_bad_glue_aggregation", False),
+    ("check_composition_root_wiring.py", "tests/guards/composition_wiring_bad_signature_null", False),
+    ("check_composition_root_wiring.py", "tests/guards/composition_wiring_bad_nested_args", False),
     ("check_aggregate_invariants.py", "tests/guards/aggregate_invariants_good", True),
     ("check_aggregate_invariants.py", "tests/guards/aggregate_invariants_bad_missing_validator", False),
     ("check_aggregate_invariants.py", "tests/guards/aggregate_invariants_bad_void_setter", False),
@@ -178,6 +188,10 @@ CASES = [
         ["--golden", "golden.log", "--allowlist", "allowlist.json",
          "--log", "ref=ref.log", "--log", "alt=alt.log"],
     ),
+    ("check_conformance_ledger.py", "tests/guards/conformance_good", True),
+    ("check_conformance_ledger.py", "tests/guards/conformance_bad_status", False),
+    ("check_conformance_ledger.py", "tests/guards/conformance_bad_path", False),
+    ("check_conformance_ledger.py", "tests/guards/conformance_bad_adr", False),
 ]
 
 

@@ -1,4 +1,5 @@
 #include "runtime/sys.h"
+#include "sys_internal.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -33,16 +34,18 @@ static edge_status_t validate_apps(edge_module_t **apps, size_t count) {
 }
 
 static uint64_t now_ticks(edge_sys_t *sys) {
-    if (sys->clock != NULL && sys->clock->monotonic_ticks != NULL)
-        return sys->clock->monotonic_ticks(sys->clock->self);
-    return ++sys->tick;
+    if (edge_sys_state(sys)->clock != NULL && edge_sys_state(sys)->clock->monotonic_ticks != NULL)
+        return edge_sys_state(sys)->clock->monotonic_ticks(edge_sys_state(sys)->clock->self);
+    return ++edge_sys_state(sys)->tick;
 }
 
 /* Const-safe current tick: never advances the fallback counter. */
 static uint64_t peek_ticks(const edge_sys_t *sys) {
-    if (sys->clock != NULL && sys->clock->monotonic_ticks != NULL)
-        return sys->clock->monotonic_ticks(sys->clock->self);
-    return sys->tick;
+    if (edge_sys_state_const(sys)->clock != NULL &&
+        edge_sys_state_const(sys)->clock->monotonic_ticks != NULL)
+        return edge_sys_state_const(sys)->clock->monotonic_ticks(
+            edge_sys_state_const(sys)->clock->self);
+    return edge_sys_state_const(sys)->tick;
 }
 
 static bool tick_due(uint64_t now, uint64_t due) {
@@ -50,13 +53,14 @@ static bool tick_due(uint64_t now, uint64_t due) {
 }
 
 static edge_status_t pending_pop(edge_sys_t *sys, edge_event_t *out) {
-    if (sys->pending == NULL || sys->pending_capacity < 2u ||
-        sys->pending_tail == sys->pending_head)
+    if (edge_sys_state(sys)->pending == NULL || edge_sys_state(sys)->pending_capacity < 2u ||
+        edge_sys_state(sys)->pending_tail == edge_sys_state(sys)->pending_head)
         return EDGE_ENOENT;
-    *out = sys->pending[sys->pending_tail];
-    sys->pending_tail = (sys->pending_tail + 1u) % sys->pending_capacity;
-    if (sys->pending_count > 0u)
-        --sys->pending_count;
+    *out = edge_sys_state(sys)->pending[edge_sys_state(sys)->pending_tail];
+    edge_sys_state(sys)->pending_tail =
+        (edge_sys_state(sys)->pending_tail + 1u) % edge_sys_state(sys)->pending_capacity;
+    if (edge_sys_state(sys)->pending_count > 0u)
+        --edge_sys_state(sys)->pending_count;
     return EDGE_OK;
 }
 
@@ -115,26 +119,26 @@ edge_status_t edge_sys_init(edge_sys_t *sys, edge_module_t **apps, size_t count)
     const edge_status_t rc = validate_apps(apps, count);
     if (rc < 0)
         return rc;
-    sys->apps = apps;
-    sys->app_count = count;
-    sys->subscriptions = NULL;
-    sys->subscription_count = 0u;
-    sys->subscription_capacity = 0u;
-    sys->required_ids = NULL;
-    sys->required_count = 0u;
-    sys->events = NULL;
-    sys->clock = NULL;
-    sys->max_events_per_run = 8u;
-    sys->tick = 0u;
-    sys->stats = (edge_sys_stats_t){0};
-    sys->state = EDGE_SYS_CONSTRUCTED;
-    sys->pending = NULL;
-    sys->pending_capacity = 0u;
-    sys->pending_head = 0u;
-    sys->pending_tail = 0u;
-    sys->pending_count = 0u;
-    sys->idle_hook = NULL;
-    sys->idle_ctx = NULL;
+    edge_sys_state(sys)->apps = apps;
+    edge_sys_state(sys)->app_count = count;
+    edge_sys_state(sys)->subscriptions = NULL;
+    edge_sys_state(sys)->subscription_count = 0u;
+    edge_sys_state(sys)->subscription_capacity = 0u;
+    edge_sys_state(sys)->required_ids = NULL;
+    edge_sys_state(sys)->required_count = 0u;
+    edge_sys_state(sys)->events = NULL;
+    edge_sys_state(sys)->clock = NULL;
+    edge_sys_state(sys)->max_events_per_run = 8u;
+    edge_sys_state(sys)->tick = 0u;
+    edge_sys_state(sys)->stats = (edge_sys_stats_t){0};
+    edge_sys_state(sys)->state = EDGE_SYS_CONSTRUCTED;
+    edge_sys_state(sys)->pending = NULL;
+    edge_sys_state(sys)->pending_capacity = 0u;
+    edge_sys_state(sys)->pending_head = 0u;
+    edge_sys_state(sys)->pending_tail = 0u;
+    edge_sys_state(sys)->pending_count = 0u;
+    edge_sys_state(sys)->idle_hook = NULL;
+    edge_sys_state(sys)->idle_ctx = NULL;
     for (size_t i = 0u; i < count; ++i) {
         apps[i]->running = 0u;
         apps[i]->failed = 0u;
@@ -149,12 +153,12 @@ edge_status_t edge_sys_bind_event_queue(edge_sys_t *sys, edge_event_queue_t *que
                                         edge_sys_subscription_t *subscriptions, size_t capacity) {
     if (sys == NULL || queue == NULL || (subscriptions == NULL && capacity != 0u))
         return EDGE_EINVAL;
-    if (sys->state != EDGE_SYS_CONSTRUCTED)
+    if (edge_sys_state(sys)->state != EDGE_SYS_CONSTRUCTED)
         return EDGE_ESTATE;
-    sys->events = queue;
-    sys->subscriptions = subscriptions;
-    sys->subscription_count = 0u;
-    sys->subscription_capacity = capacity;
+    edge_sys_state(sys)->events = queue;
+    edge_sys_state(sys)->subscriptions = subscriptions;
+    edge_sys_state(sys)->subscription_count = 0u;
+    edge_sys_state(sys)->subscription_capacity = capacity;
     return EDGE_OK;
 }
 
@@ -162,79 +166,83 @@ edge_status_t edge_sys_bind_pending_queue(edge_sys_t *sys, edge_event_t *storage
                                           uint32_t capacity) {
     if (sys == NULL || storage == NULL || capacity < 2u)
         return EDGE_EINVAL;
-    if (sys->state != EDGE_SYS_CONSTRUCTED)
+    if (edge_sys_state(sys)->state != EDGE_SYS_CONSTRUCTED)
         return EDGE_ESTATE;
-    sys->pending = storage;
-    sys->pending_capacity = capacity;
-    sys->pending_head = 0u;
-    sys->pending_tail = 0u;
-    sys->pending_count = 0u;
+    edge_sys_state(sys)->pending = storage;
+    edge_sys_state(sys)->pending_capacity = capacity;
+    edge_sys_state(sys)->pending_head = 0u;
+    edge_sys_state(sys)->pending_tail = 0u;
+    edge_sys_state(sys)->pending_count = 0u;
     return EDGE_OK;
 }
 
 edge_status_t edge_sys_set_clock(edge_sys_t *sys, const edge_clock_port_t *clock) {
     if (sys == NULL)
         return EDGE_EINVAL;
-    if (sys->state != EDGE_SYS_CONSTRUCTED)
+    if (edge_sys_state(sys)->state != EDGE_SYS_CONSTRUCTED)
         return EDGE_ESTATE;
-    sys->clock = clock;
+    edge_sys_state(sys)->clock = clock;
     return EDGE_OK;
 }
 
 edge_status_t edge_sys_set_event_budget(edge_sys_t *sys, uint32_t max_events_per_run) {
     if (sys == NULL || max_events_per_run == 0u)
         return EDGE_EINVAL;
-    if (sys->state != EDGE_SYS_CONSTRUCTED)
+    if (edge_sys_state(sys)->state != EDGE_SYS_CONSTRUCTED)
         return EDGE_ESTATE;
-    sys->max_events_per_run = max_events_per_run;
+    edge_sys_state(sys)->max_events_per_run = max_events_per_run;
     return EDGE_OK;
 }
 
 edge_status_t edge_sys_set_required(edge_sys_t *sys, const uint32_t *ids, size_t count) {
     if (sys == NULL || (ids == NULL && count != 0u))
         return EDGE_EINVAL;
-    if (sys->state != EDGE_SYS_CONSTRUCTED)
+    if (edge_sys_state(sys)->state != EDGE_SYS_CONSTRUCTED)
         return EDGE_ESTATE;
-    sys->required_ids = ids;
-    sys->required_count = count;
+    edge_sys_state(sys)->required_ids = ids;
+    edge_sys_state(sys)->required_count = count;
     return EDGE_OK;
 }
 
 edge_status_t edge_sys_set_idle(edge_sys_t *sys, edge_sys_idle_fn hook, void *ctx) {
     if (sys == NULL)
         return EDGE_EINVAL;
-    if (sys->state != EDGE_SYS_CONSTRUCTED)
+    if (edge_sys_state(sys)->state != EDGE_SYS_CONSTRUCTED)
         return EDGE_ESTATE;
-    sys->idle_hook = hook;
-    sys->idle_ctx = ctx;
+    edge_sys_state(sys)->idle_hook = hook;
+    edge_sys_state(sys)->idle_ctx = ctx;
     return EDGE_OK;
 }
 
 edge_status_t edge_sys_subscribe(edge_sys_t *sys, uint32_t event_id, edge_module_t *app) {
-    if (sys == NULL || app == NULL || sys->subscriptions == NULL || event_id == 0u)
+    if (sys == NULL || app == NULL || edge_sys_state(sys)->subscriptions == NULL || event_id == 0u)
         return EDGE_EINVAL;
-    if (sys->state != EDGE_SYS_CONSTRUCTED)
+    if (edge_sys_state(sys)->state != EDGE_SYS_CONSTRUCTED)
         return EDGE_ESTATE;
-    if (sys->subscription_count >= sys->subscription_capacity)
+    if (edge_sys_state(sys)->subscription_count >= edge_sys_state(sys)->subscription_capacity)
         return EDGE_ENOSPC;
-    for (size_t i = sys->subscription_count; i-- > 0u;) {
-        if (sys->subscriptions[i].event_id == event_id && sys->subscriptions[i].app == app)
+    for (size_t i = edge_sys_state(sys)->subscription_count; i-- > 0u;) {
+        if (edge_sys_state(sys)->subscriptions[i].event_id == event_id &&
+            edge_sys_state(sys)->subscriptions[i].app == app)
             return EDGE_EBUSY;
     }
-    sys->subscriptions[sys->subscription_count++] = (edge_sys_subscription_t){event_id, app};
+    edge_sys_state(sys)->subscriptions[edge_sys_state(sys)->subscription_count++] =
+        (edge_sys_subscription_t){event_id, app};
     return EDGE_OK;
 }
 
 edge_status_t edge_sys_unsubscribe(edge_sys_t *sys, uint32_t event_id, const edge_module_t *app) {
-    if (sys == NULL || app == NULL || sys->subscriptions == NULL)
+    if (sys == NULL || app == NULL || edge_sys_state(sys)->subscriptions == NULL)
         return EDGE_EINVAL;
-    if (sys->state != EDGE_SYS_CONSTRUCTED && sys->state != EDGE_SYS_RUNNING)
+    if (edge_sys_state(sys)->state != EDGE_SYS_CONSTRUCTED &&
+        edge_sys_state(sys)->state != EDGE_SYS_RUNNING)
         return EDGE_ESTATE;
-    for (size_t i = sys->subscription_count; i-- > 0u;) {
-        if (sys->subscriptions[i].event_id == event_id && sys->subscriptions[i].app == app) {
-            for (size_t j = i + 1u; j < sys->subscription_count; ++j)
-                sys->subscriptions[j - 1u] = sys->subscriptions[j];
-            --sys->subscription_count;
+    for (size_t i = edge_sys_state(sys)->subscription_count; i-- > 0u;) {
+        if (edge_sys_state(sys)->subscriptions[i].event_id == event_id &&
+            edge_sys_state(sys)->subscriptions[i].app == app) {
+            for (size_t j = i + 1u; j < edge_sys_state(sys)->subscription_count; ++j)
+                edge_sys_state(sys)->subscriptions[j - 1u] = edge_sys_state(sys)->subscriptions[j];
+            --edge_sys_state(sys)->subscription_count;
             return EDGE_OK;
         }
     }
@@ -244,36 +252,39 @@ edge_status_t edge_sys_unsubscribe(edge_sys_t *sys, uint32_t event_id, const edg
 edge_status_t edge_sys_publish(edge_sys_t *sys, const edge_event_t *event) {
     if (sys == NULL || event == NULL)
         return EDGE_EINVAL;
-    if (sys->state != EDGE_SYS_RUNNING)
+    if (edge_sys_state(sys)->state != EDGE_SYS_RUNNING)
         return EDGE_ESTATE;
-    if (sys->pending == NULL || sys->pending_capacity < 2u)
+    if (edge_sys_state(sys)->pending == NULL || edge_sys_state(sys)->pending_capacity < 2u)
         return EDGE_ENOTSUP;
 
     edge_event_t stamped = *event;
-    if (sys->clock != NULL && sys->clock->monotonic_ticks != NULL)
-        stamped.timestamp = sys->clock->monotonic_ticks(sys->clock->self);
+    if (edge_sys_state(sys)->clock != NULL && edge_sys_state(sys)->clock->monotonic_ticks != NULL)
+        stamped.timestamp =
+            edge_sys_state(sys)->clock->monotonic_ticks(edge_sys_state(sys)->clock->self);
 
-    const uint32_t next = (sys->pending_head + 1u) % sys->pending_capacity;
-    if (next == sys->pending_tail) {
-        ++sys->stats.drops;
+    const uint32_t next =
+        (edge_sys_state(sys)->pending_head + 1u) % edge_sys_state(sys)->pending_capacity;
+    if (next == edge_sys_state(sys)->pending_tail) {
+        ++edge_sys_state(sys)->stats.drops;
         return EDGE_EOVERFLOW;
     }
-    sys->pending[sys->pending_head] = stamped;
-    sys->pending_head = next;
-    if (sys->pending_count < sys->pending_capacity)
-        ++sys->pending_count;
-    if (sys->pending_count > sys->stats.pending_high_water)
-        sys->stats.pending_high_water = sys->pending_count;
+    edge_sys_state(sys)->pending[edge_sys_state(sys)->pending_head] = stamped;
+    edge_sys_state(sys)->pending_head = next;
+    if (edge_sys_state(sys)->pending_count < edge_sys_state(sys)->pending_capacity)
+        ++edge_sys_state(sys)->pending_count;
+    if (edge_sys_state(sys)->pending_count > edge_sys_state(sys)->stats.pending_high_water)
+        edge_sys_state(sys)->stats.pending_high_water = edge_sys_state(sys)->pending_count;
     return EDGE_OK;
 }
 
 edge_status_t edge_sys_validate_required(const edge_sys_t *sys) {
     if (sys == NULL)
         return EDGE_EINVAL;
-    for (size_t r = 0u; r < sys->required_count; ++r) {
+    for (size_t r = 0u; r < edge_sys_state_const(sys)->required_count; ++r) {
         size_t matches = 0u;
-        for (size_t i = 0u; i < sys->app_count; ++i) {
-            if (sys->apps[i]->module_id == sys->required_ids[r])
+        for (size_t i = 0u; i < edge_sys_state_const(sys)->app_count; ++i) {
+            if (edge_sys_state_const(sys)->apps[i]->module_id ==
+                edge_sys_state_const(sys)->required_ids[r])
                 ++matches;
         }
         if (matches != 1u)
@@ -283,7 +294,7 @@ edge_status_t edge_sys_validate_required(const edge_sys_t *sys) {
 }
 
 edge_status_t edge_sys_start(edge_sys_t *sys) {
-    if (sys == NULL || sys->state != EDGE_SYS_CONSTRUCTED)
+    if (sys == NULL || edge_sys_state(sys)->state != EDGE_SYS_CONSTRUCTED)
         return EDGE_ESTATE;
     const edge_status_t rc = edge_sys_validate_required(sys);
     if (rc < 0)
@@ -292,38 +303,38 @@ edge_status_t edge_sys_start(edge_sys_t *sys) {
     /* D51: module init is the composition root's job, so start only schedules.
      * A required module that the product failed to assemble is caught above. */
     const uint64_t now = now_ticks(sys);
-    for (size_t i = 0u; i < sys->app_count; ++i) {
-        edge_module_t *app = sys->apps[i];
+    for (size_t i = 0u; i < edge_sys_state(sys)->app_count; ++i) {
+        edge_module_t *app = edge_sys_state(sys)->apps[i];
         app->next_due = now + app->period;
         app->running = app->failed ? 0u : 1u;
     }
-    sys->state = EDGE_SYS_RUNNING;
+    edge_sys_state(sys)->state = EDGE_SYS_RUNNING;
     return EDGE_OK;
 }
 
 edge_status_t edge_sys_dispatch_events(edge_sys_t *sys) {
-    if (sys == NULL || sys->events == NULL)
+    if (sys == NULL || edge_sys_state(sys)->events == NULL)
         return EDGE_EINVAL;
-    if (sys->state != EDGE_SYS_RUNNING)
+    if (edge_sys_state(sys)->state != EDGE_SYS_RUNNING)
         return EDGE_ESTATE;
 
     edge_status_t first_error = EDGE_OK;
     uint32_t handled = 0u;
-    while (handled < sys->max_events_per_run) {
+    while (handled < edge_sys_state(sys)->max_events_per_run) {
         edge_event_t event;
-        edge_status_t pop_rc = edge_event_pop(sys->events, &event);
+        edge_status_t pop_rc = edge_event_pop(edge_sys_state(sys)->events, &event);
         if (pop_rc == EDGE_ENOENT)
             pop_rc = pending_pop(sys, &event);
         if (pop_rc == EDGE_ENOENT)
             break;
         if (pop_rc < 0) {
-            ++sys->stats.errors;
+            ++edge_sys_state(sys)->stats.errors;
             if (first_error == EDGE_OK)
                 first_error = pop_rc;
             break;
         }
         ++handled;
-        ++sys->stats.events;
+        ++edge_sys_state(sys)->stats.events;
         /*
          * Reverse iteration, because an `on_event` callback may unsubscribe - which
          * removes an entry and shifts the array left. Going forward would then visit
@@ -331,15 +342,15 @@ edge_status_t edge_sys_dispatch_events(edge_sys_t *sys) {
          * entirely; going backwards only ever steps into slots a left shift cannot
          * have changed underneath us.
          */
-        for (size_t i = sys->subscription_count; i-- > 0u;) {
-            edge_sys_subscription_t *sub = &sys->subscriptions[i];
+        for (size_t i = edge_sys_state(sys)->subscription_count; i-- > 0u;) {
+            edge_sys_subscription_t *sub = &edge_sys_state(sys)->subscriptions[i];
             if (sub->event_id == event.id && sub->app != NULL && sub->app->on_event != NULL &&
                 !sub->app->failed && !sub->app->suspended) {
                 const edge_status_t rc = sub->app->on_event(sub->app, &event);
                 if (rc < 0) {
                     sub->app->failed = 1u;
-                    ++sys->stats.errors;
-                    ++sys->stats.isolated;
+                    ++edge_sys_state(sys)->stats.errors;
+                    ++edge_sys_state(sys)->stats.isolated;
                     if (first_error == EDGE_OK)
                         first_error = rc;
                 }
@@ -350,22 +361,22 @@ edge_status_t edge_sys_dispatch_events(edge_sys_t *sys) {
 }
 
 edge_status_t edge_sys_run_once(edge_sys_t *sys) {
-    if (sys == NULL || sys->state != EDGE_SYS_RUNNING)
+    if (sys == NULL || edge_sys_state(sys)->state != EDGE_SYS_RUNNING)
         return EDGE_ESTATE;
 
-    const uint32_t events_before = sys->stats.events;
-    const uint32_t polls_before = sys->stats.polls;
+    const uint32_t events_before = edge_sys_state(sys)->stats.events;
+    const uint32_t polls_before = edge_sys_state(sys)->stats.polls;
 
     edge_status_t first_error = EDGE_OK;
-    if (sys->events != NULL) {
+    if (edge_sys_state(sys)->events != NULL) {
         const edge_status_t rc = edge_sys_dispatch_events(sys);
         if (rc < 0)
             first_error = rc;
     }
 
     const uint64_t now = now_ticks(sys);
-    for (size_t i = 0u; i < sys->app_count; ++i) {
-        edge_module_t *app = sys->apps[i];
+    for (size_t i = 0u; i < edge_sys_state(sys)->app_count; ++i) {
+        edge_module_t *app = edge_sys_state(sys)->apps[i];
         if (app->failed || app->suspended || app->poll == NULL || app->period == 0u)
             continue;
         if (!tick_due(now, app->next_due))
@@ -374,25 +385,26 @@ edge_status_t edge_sys_run_once(edge_sys_t *sys) {
         const uint64_t start = now_ticks(sys);
         const edge_status_t rc = app->poll(app);
         const uint64_t elapsed = now_ticks(sys) - start;
-        ++sys->stats.polls;
+        ++edge_sys_state(sys)->stats.polls;
         app->next_due += app->period;
         if (app->budget != 0u && elapsed > app->budget) {
-            ++sys->stats.budget_hits;
+            ++edge_sys_state(sys)->stats.budget_hits;
             if (first_error == EDGE_OK)
                 first_error = EDGE_EOVERFLOW;
         }
         if (rc < 0) {
             app->failed = 1u;
-            ++sys->stats.errors;
-            ++sys->stats.isolated;
+            ++edge_sys_state(sys)->stats.errors;
+            ++edge_sys_state(sys)->stats.isolated;
             if (first_error == EDGE_OK)
                 first_error = rc;
         }
     }
 
     /* D52: nothing to do this step -> hand the context to the idle hook. */
-    if (sys->state == EDGE_SYS_RUNNING && sys->stats.events == events_before &&
-        sys->stats.polls == polls_before)
+    if (edge_sys_state(sys)->state == EDGE_SYS_RUNNING &&
+        edge_sys_state(sys)->stats.events == events_before &&
+        edge_sys_state(sys)->stats.polls == polls_before)
         (void)edge_sys_idle(sys);
 
     return first_error;
@@ -406,12 +418,12 @@ edge_status_t edge_sys_run(edge_sys_t *sys) {
     if (sys == NULL)
         return EDGE_EINVAL;
     edge_status_t first_error = EDGE_OK;
-    bool running = sys->state == EDGE_SYS_RUNNING;
+    bool running = edge_sys_state(sys)->state == EDGE_SYS_RUNNING;
     while (running) {
         const edge_status_t rc = edge_sys_run_once(sys);
         if (rc < 0 && first_error == EDGE_OK)
             first_error = rc;
-        running = sys->state == EDGE_SYS_RUNNING;
+        running = edge_sys_state(sys)->state == EDGE_SYS_RUNNING;
     }
     return first_error;
 }
@@ -419,26 +431,26 @@ edge_status_t edge_sys_run(edge_sys_t *sys) {
 edge_status_t edge_sys_idle(edge_sys_t *sys) {
     if (sys == NULL)
         return EDGE_EINVAL;
-    ++sys->stats.idle_calls;
-    if (sys->idle_hook != NULL)
-        sys->idle_hook(sys->idle_ctx);
+    ++edge_sys_state(sys)->stats.idle_calls;
+    if (edge_sys_state(sys)->idle_hook != NULL)
+        edge_sys_state(sys)->idle_hook(edge_sys_state(sys)->idle_ctx);
     return EDGE_OK;
 }
 
 edge_status_t edge_sys_suspend_all(edge_sys_t *sys) {
-    if (sys == NULL || sys->state != EDGE_SYS_RUNNING)
+    if (sys == NULL || edge_sys_state(sys)->state != EDGE_SYS_RUNNING)
         return EDGE_ESTATE;
     edge_status_t first_error = EDGE_OK;
-    for (size_t i = 0u; i < sys->app_count; ++i) {
-        edge_module_t *app = sys->apps[i];
+    for (size_t i = 0u; i < edge_sys_state(sys)->app_count; ++i) {
+        edge_module_t *app = edge_sys_state(sys)->apps[i];
         if (app->failed || app->suspended)
             continue;
         if (app->suspend != NULL) {
             const edge_status_t rc = app->suspend(app);
             if (rc < 0) {
                 app->failed = 1u;
-                ++sys->stats.errors;
-                ++sys->stats.isolated;
+                ++edge_sys_state(sys)->stats.errors;
+                ++edge_sys_state(sys)->stats.isolated;
                 if (first_error == EDGE_OK)
                     first_error = rc;
                 continue;
@@ -450,19 +462,19 @@ edge_status_t edge_sys_suspend_all(edge_sys_t *sys) {
 }
 
 edge_status_t edge_sys_resume_all(edge_sys_t *sys) {
-    if (sys == NULL || sys->state != EDGE_SYS_RUNNING)
+    if (sys == NULL || edge_sys_state(sys)->state != EDGE_SYS_RUNNING)
         return EDGE_ESTATE;
     edge_status_t first_error = EDGE_OK;
-    for (size_t i = sys->app_count; i > 0u; --i) {
-        edge_module_t *app = sys->apps[i - 1u];
+    for (size_t i = edge_sys_state(sys)->app_count; i > 0u; --i) {
+        edge_module_t *app = edge_sys_state(sys)->apps[i - 1u];
         if (app->failed || !app->suspended)
             continue;
         if (app->resume != NULL) {
             const edge_status_t rc = app->resume(app);
             if (rc < 0) {
                 app->failed = 1u;
-                ++sys->stats.errors;
-                ++sys->stats.isolated;
+                ++edge_sys_state(sys)->stats.errors;
+                ++edge_sys_state(sys)->stats.isolated;
                 if (first_error == EDGE_OK)
                     first_error = rc;
                 continue;
@@ -474,16 +486,17 @@ edge_status_t edge_sys_resume_all(edge_sys_t *sys) {
 }
 
 edge_status_t edge_sys_power_off(edge_sys_t *sys) {
-    if (sys == NULL || (sys->state != EDGE_SYS_RUNNING && sys->state != EDGE_SYS_FAILED))
+    if (sys == NULL || (edge_sys_state(sys)->state != EDGE_SYS_RUNNING &&
+                        edge_sys_state(sys)->state != EDGE_SYS_FAILED))
         return EDGE_ESTATE;
     edge_status_t first_error = EDGE_OK;
-    for (size_t i = sys->app_count; i > 0u; --i) {
-        edge_module_t *app = sys->apps[i - 1u];
+    for (size_t i = edge_sys_state(sys)->app_count; i > 0u; --i) {
+        edge_module_t *app = edge_sys_state(sys)->apps[i - 1u];
         if (app->running && app->power_off != NULL) {
             const edge_status_t rc = app->power_off(app);
             if (rc < 0) {
                 app->failed = 1u;
-                ++sys->stats.errors;
+                ++edge_sys_state(sys)->stats.errors;
                 if (first_error == EDGE_OK)
                     first_error = rc;
             }
@@ -491,59 +504,60 @@ edge_status_t edge_sys_power_off(edge_sys_t *sys) {
         app->running = 0u;
         app->suspended = 0u;
     }
-    sys->state = EDGE_SYS_STOPPED;
+    edge_sys_state(sys)->state = EDGE_SYS_STOPPED;
     return first_error;
 }
 
 edge_status_t edge_sys_deinit(edge_sys_t *sys) {
-    if (sys == NULL || sys->state == EDGE_SYS_RUNNING)
+    if (sys == NULL || edge_sys_state(sys)->state == EDGE_SYS_RUNNING)
         return EDGE_ESTATE;
     /* D51: tearing down module state is the composition root's job (reverse
      * order); sys only stops scheduling. */
-    for (size_t i = 0u; i < sys->app_count; ++i) {
-        sys->apps[i]->running = 0u;
-        sys->apps[i]->suspended = 0u;
+    for (size_t i = 0u; i < edge_sys_state(sys)->app_count; ++i) {
+        edge_sys_state(sys)->apps[i]->running = 0u;
+        edge_sys_state(sys)->apps[i]->suspended = 0u;
     }
-    sys->state = EDGE_SYS_STOPPED;
+    edge_sys_state(sys)->state = EDGE_SYS_STOPPED;
     return EDGE_OK;
 }
 
 edge_status_t edge_sys_stats_get(const edge_sys_t *sys, edge_sys_stats_t *out) {
     if (sys == NULL || out == NULL)
         return EDGE_EINVAL;
-    *out = sys->stats;
-    if (sys->events != NULL)
-        out->drops += edge_event_dropped(sys->events);
+    *out = edge_sys_state_const(sys)->stats;
+    if (edge_sys_state_const(sys)->events != NULL)
+        out->drops += edge_event_dropped(edge_sys_state_const(sys)->events);
     return EDGE_OK;
 }
 
 edge_status_t edge_sys_stats_reset(edge_sys_t *sys) {
     if (sys == NULL)
         return EDGE_EINVAL;
-    sys->stats = (edge_sys_stats_t){0};
+    edge_sys_state(sys)->stats = (edge_sys_stats_t){0};
     return EDGE_OK;
 }
 
 bool edge_sys_healthy(const edge_sys_t *sys) {
     if (sys == NULL)
         return false;
-    for (size_t i = 0u; i < sys->app_count; ++i) {
-        if (sys->apps[i]->failed != 0u)
+    for (size_t i = 0u; i < edge_sys_state_const(sys)->app_count; ++i) {
+        if (edge_sys_state_const(sys)->apps[i]->failed != 0u)
             return false;
     }
-    return sys->state == EDGE_SYS_RUNNING;
+    return edge_sys_state_const(sys)->state == EDGE_SYS_RUNNING;
 }
 
 bool edge_sys_pending(const edge_sys_t *sys) {
     if (sys == NULL)
         return false;
-    if (sys->events != NULL && edge_event_count(sys->events) > 0u)
+    if (edge_sys_state_const(sys)->events != NULL &&
+        edge_event_count(edge_sys_state_const(sys)->events) > 0u)
         return true;
-    if (sys->pending_count > 0u)
+    if (edge_sys_state_const(sys)->pending_count > 0u)
         return true;
     const uint64_t now = peek_ticks(sys);
-    for (size_t i = 0u; i < sys->app_count; ++i) {
-        const edge_module_t *app = sys->apps[i];
+    for (size_t i = 0u; i < edge_sys_state_const(sys)->app_count; ++i) {
+        const edge_module_t *app = edge_sys_state_const(sys)->apps[i];
         if (app->failed != 0u || app->suspended != 0u || app->poll == NULL || app->period == 0u)
             continue;
         if (tick_due(now, app->next_due))
@@ -555,17 +569,19 @@ bool edge_sys_pending(const edge_sys_t *sys) {
 edge_status_t edge_sys_next_due(const edge_sys_t *sys, uint64_t now, uint64_t *next_due) {
     if (sys == NULL || next_due == NULL)
         return EDGE_EINVAL;
-    if (sys->state != EDGE_SYS_RUNNING) {
+    if (edge_sys_state_const(sys)->state != EDGE_SYS_RUNNING) {
         *next_due = now;
         return EDGE_ESTATE;
     }
-    if ((sys->events != NULL && edge_event_count(sys->events) > 0u) || sys->pending_count > 0u) {
+    if ((edge_sys_state_const(sys)->events != NULL &&
+         edge_event_count(edge_sys_state_const(sys)->events) > 0u) ||
+        edge_sys_state_const(sys)->pending_count > 0u) {
         *next_due = now;
         return EDGE_OK;
     }
     uint64_t earliest = UINT64_MAX;
-    for (size_t i = 0u; i < sys->app_count; ++i) {
-        const edge_module_t *app = sys->apps[i];
+    for (size_t i = 0u; i < edge_sys_state_const(sys)->app_count; ++i) {
+        const edge_module_t *app = edge_sys_state_const(sys)->apps[i];
         if (app->failed != 0u || app->suspended != 0u || app->poll == NULL || app->period == 0u)
             continue;
         if (tick_due(now, app->next_due)) {

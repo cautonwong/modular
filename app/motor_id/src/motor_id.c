@@ -1662,12 +1662,10 @@ static void motor_id_hall_tick(motor_id_app_t *app) {
 
         const float rad = (float)(forward ? app->hall_step_index : 360 - app->hall_step_index) *
                           (float)(3.14159265358979323846 / 180.0);
+        /* The reference computes the swept angle's sine and cosine itself
+         * (mcpwm_foc.c:2441), and no infra layer offers a fast pair. */
         motor_id_hall_accumulate(app->hall_sin_sum, app->hall_cos_sum, app->hall_iterations,
-                                 reading, sinf(rad),
-                                 cosf(rad)); /* N5-allow: the reference computes the swept
-                                               angle's sine and cosine itself
-                                               (mcpwm_foc.c:2441), and no infra
-                                               layer offers a fast pair. */
+                                 reading, sinf(rad), cosf(rad));
 
         /* A pass is the way out and back; three of them each way, as the reference loops. */
         const int last_step = forward ? 359 : 360;

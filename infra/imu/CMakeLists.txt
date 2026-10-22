@@ -27,6 +27,7 @@ edge_add_infra(imu
         src/bmi160_wrapper.c
         src/icm20948.c
         src/imu.c
+        src/imu_device.c
         src/lsm6ds3.c
         src/lsm6dsv32x.c
         src/mpu9150.c

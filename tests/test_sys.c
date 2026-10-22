@@ -13,6 +13,12 @@
 #include "meter/sys.h"
 #include "watch/sys.h"
 
+/* White-box test: the state lives in src/sys_internal.h so that products cannot
+ * reach it (#256). The test is inside the implementation boundary on purpose. */
+#include "../sys/runtime/src/sys_internal.h"
+
+#define SYS_STATE(handle) edge_sys_state(handle)
+
 #define TEST_EVENT_EXTRA 0x1001u
 
 typedef struct fake_app {
@@ -148,12 +154,12 @@ static void test_start_sorts_by_priority_then_id(void **state) {
     edge_sys_t sys;
 
     assert_int_equal(edge_sys_init(&sys, apps, 3u), EDGE_OK);
-    assert_int_equal(sys.apps[0]->module_id, 20u);
-    assert_int_equal(sys.apps[1]->module_id, 30u);
-    assert_int_equal(sys.apps[2]->module_id, 10u);
+    assert_int_equal(SYS_STATE(&sys)->apps[0]->module_id, 20u);
+    assert_int_equal(SYS_STATE(&sys)->apps[1]->module_id, 30u);
+    assert_int_equal(SYS_STATE(&sys)->apps[2]->module_id, 10u);
     assert_int_equal(edge_sys_start(&sys), EDGE_OK);
-    assert_int_equal(sys.apps[0]->running, 1u);
-    assert_int_equal(sys.apps[0]->next_due, 2u);
+    assert_int_equal(SYS_STATE(&sys)->apps[0]->running, 1u);
+    assert_int_equal(SYS_STATE(&sys)->apps[0]->next_due, 2u);
 }
 
 static void test_validation(void **state) {
@@ -417,7 +423,7 @@ static void test_required_missing(void **state) {
     assert_int_equal(edge_sys_set_required(&sys, missing, 1u), EDGE_OK);
     assert_int_equal(edge_sys_validate_required(&sys), EDGE_EDEPEND);
     assert_int_equal(edge_sys_start(&sys), EDGE_EDEPEND);
-    assert_int_equal(sys.state, EDGE_SYS_CONSTRUCTED);
+    assert_int_equal(SYS_STATE(&sys)->state, EDGE_SYS_CONSTRUCTED);
 }
 
 static void test_dispatch_event_failure_and_pop_error(void **state) {
@@ -746,7 +752,7 @@ static void test_step_and_run_shutdown(void **state) {
     g_shutdown_sys = &sys;
     g_shutdown_after_polls = 3;
     assert_int_equal(edge_sys_run(&sys), EDGE_OK);
-    assert_int_equal(sys.state, EDGE_SYS_STOPPED);
+    assert_int_equal(SYS_STATE(&sys)->state, EDGE_SYS_STOPPED);
     assert_int_equal(a.poll_count, 3);
     assert_int_equal(edge_sys_step(NULL), EDGE_ESTATE);
 }
@@ -884,13 +890,13 @@ static void test_suspend_resume_and_pending(void **state) {
     /* An app whose suspend fails is isolated, and its error is the one reported. */
     b.suspend_rc = EDGE_EIO;
     assert_int_equal(edge_sys_suspend_all(&sys), EDGE_EIO);
-    assert_true(sys.stats.isolated >= 1u);
+    assert_true(SYS_STATE(&sys)->stats.isolated >= 1u);
     assert_int_equal(edge_sys_resume_all(&sys), EDGE_OK);
 
     /* Pending: a pending count answers true, and so does an app whose next due time has passed. */
-    sys.pending_count = 1u;
+    SYS_STATE(&sys)->pending_count = 1u;
     assert_true(edge_sys_pending(&sys));
-    sys.pending_count = 0u;
+    SYS_STATE(&sys)->pending_count = 0u;
     a.module.failed = 0u;
     a.module.suspended = 0u;
     a.module.next_due = 0u;
