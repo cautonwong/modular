@@ -34,27 +34,20 @@ typedef struct edge_sys_stats {
 /* Idle hook: called from the runner when a step had no event and no poll (D52). */
 typedef void (*edge_sys_idle_fn)(void *ctx);
 
+/*
+ * The system handle is an opaque, caller-owned storage block (#256).
+ *
+ * The composition root declares one (`edge_sys_t sys;`) and hands `&sys` to the
+ * API; the layout lives in `src/sys_internal.h`, so the ring-queue invariants
+ * (`pending_*`) and the subscription table cannot be edited from outside. The size
+ * is fixed and checked there against the real struct, so a field added to the
+ * implementation cannot silently outgrow the block.
+ */
+#define EDGE_SYS_STORAGE_SIZE 192u
+#define EDGE_SYS_STORAGE_ALIGN 8u
+
 typedef struct edge_sys {
-    edge_module_t **apps;
-    size_t app_count;
-    edge_sys_subscription_t *subscriptions;
-    size_t subscription_count;
-    size_t subscription_capacity;
-    const uint32_t *required_ids;
-    size_t required_count;
-    edge_event_queue_t *events;
-    const edge_clock_port_t *clock;
-    uint32_t max_events_per_run;
-    uint64_t tick;
-    edge_sys_stats_t stats;
-    edge_sys_state_t state;
-    edge_event_t *pending;
-    uint32_t pending_capacity;
-    uint32_t pending_head;
-    uint32_t pending_tail;
-    uint32_t pending_count;
-    edge_sys_idle_fn idle_hook;
-    void *idle_ctx;
+    _Alignas(EDGE_SYS_STORAGE_ALIGN) unsigned char storage[EDGE_SYS_STORAGE_SIZE];
 } edge_sys_t;
 
 /* Declarative system configuration manifest for composition roots. */

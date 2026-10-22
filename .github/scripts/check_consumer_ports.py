@@ -125,6 +125,20 @@ def check_allocations_in_dir(scan_dir: Path, root: Path) -> list:
     return problems
 
 
+def is_storage_block(body: str) -> bool:
+    """True when the whole struct body is an aligned storage array (the blob shape).
+
+    A type may be opaque without being incomplete: `struct x { _Alignas(N) unsigned
+    char storage[X_STORAGE_SIZE]; }` hides every field just as well, and callers keep
+    declaring it by value. What the rule forbids is a *reachable field*, so a body
+    that is nothing but the storage array is accepted (#256).
+    """
+    fields = [line.strip() for line in body.splitlines() if line.strip()]
+    return len(fields) == 1 and re.fullmatch(
+        r"(_Alignas\([^)]*\)\s*)?unsigned\s+char\s+[A-Za-z_]\w*\s*\[[^]]*\]\s*;", fields[0]
+    ) is not None
+
+
 def check_opaque_storage_in_file(path: Path, root: Path) -> list:
     """A declared storage contract means the type must stay opaque.
 
@@ -151,13 +165,14 @@ def check_opaque_storage_in_file(path: Path, root: Path) -> list:
                 f"(a size contract without an alignment is incomplete)"
             )
 
-        if re.search(rf"\bstruct\s+{type_name}\s*\{{", text):
+        match = re.search(rf"\bstruct\s+{type_name}\s*\{{([^}}]*)\}}", text)
+        if match and not is_storage_block(match.group(1)):
             problems.append(
                 f"{rel}:{lineno}: {macro}_STORAGE_SIZE is declared but struct {type_name} "
                 f"is defined in the same public header (opaque-storage rule: move the "
                 f"definition to src/ and forward-declare the type)"
             )
-        elif not re.search(rf"typedef\s+struct\s+{type_name}\s+[A-Za-z_][A-Za-z0-9_]*\s*;", text):
+        elif not match and not re.search(rf"typedef\s+struct\s+{type_name}\s+[A-Za-z_][A-Za-z0-9_]*\s*;", text):
             problems.append(
                 f"{rel}:{lineno}: {macro}_STORAGE_SIZE is declared but 'struct {type_name}' "
                 f"is not forward-declared (add 'typedef struct {type_name} <alias>;' so the "
