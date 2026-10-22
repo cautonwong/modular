@@ -103,10 +103,6 @@ edge_status_t edge_sys_validate_required(const edge_sys_t *sys);
 edge_status_t edge_sys_start(edge_sys_t *sys);
 edge_status_t edge_sys_dispatch_events(edge_sys_t *sys);
 edge_status_t edge_sys_run_once(edge_sys_t *sys);
-/* Decomposable runner step (D47); `run_once` is kept as the historical name. */
-edge_status_t edge_sys_step(edge_sys_t *sys);
-/* Bare-metal loop: `while (state == RUNNING) step()` (D47/D52). */
-edge_status_t edge_sys_run(edge_sys_t *sys);
 edge_status_t edge_sys_idle(edge_sys_t *sys);
 edge_status_t edge_sys_suspend_all(edge_sys_t *sys);
 edge_status_t edge_sys_resume_all(edge_sys_t *sys);

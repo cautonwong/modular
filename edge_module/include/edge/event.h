@@ -3,6 +3,7 @@
 
 #include "clock.h"
 #include "module.h"
+#include <stdatomic.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -34,9 +35,12 @@ _Static_assert(sizeof(edge_event_t) == 24u, "edge_event_t ABI changed");
 typedef struct edge_event_queue {
     edge_event_t *items;
     uint32_t capacity;
-    volatile uint32_t head;
-    volatile uint32_t tail;
-    volatile uint32_t dropped;
+    /* Indices are atomic so the release/acquire pair in src/event.c is a real
+     * happens-before edge: a C11 fence orders atomic accesses, not plain ones, so
+     * `volatile` here was a promise the standard does not make (#audit). */
+    _Atomic uint32_t head;
+    _Atomic uint32_t tail;
+    _Atomic uint32_t dropped;
 } edge_event_queue_t;
 
 typedef void (*edge_irq_enter_fn)(void *self);
