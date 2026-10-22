@@ -30,6 +30,27 @@ the consumer" is a design intent, not a predicate. So the target is **not**
 
 `must_gate` = D7, D14, D18, D21, D26, D31, D37, D44, D48, D55, D68, D86, D87.
 
+## Allocation exemptions are registered (#259)
+
+The zero-allocation rule (D21) allows one way to excuse a line: the marker `N5-allow:`
+plus a reason. A marker is not self-validating - it used to be enough on its own, so a
+marker that stopped describing an allocation stayed in the tree, and "how many
+exemptions do we have" had no answer.
+
+`check_consumer_ports.py` now requires three things:
+
+- the marker sits on a line that really contains a banned call (`malloc`, `calloc`,
+  `realloc`, `free`, `strdup`, `alloca`) - otherwise it is a **stale exemption** and
+  fails;
+- the marker carries a reason;
+- the marker is registered in `ci/alloc-exemptions.json` with `path`, a `contains`
+  fragment of its reason, a `reason` and an `issue`. An entry that matches nothing in
+  the tree also fails, so the registry cannot drift into decoration.
+
+`max` in that file is the ceiling. It is `0`: the tree is allocation-free by
+construction, so adding an exemption means raising the number in a reviewed diff
+rather than adding a comment somewhere. Fixtures: `tests/guards/alloc_exempt_*`.
+
 ## Conformance ledger gate (#244)
 
 `adr-conformance.md` is a ledger, not a snapshot: `check_conformance_ledger.py`

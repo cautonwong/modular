@@ -15,6 +15,7 @@ Checks:
 
 Usage: check_consumer_ports.py [root]
 """
+import json
 import re
 import sys
 from pathlib import Path
@@ -25,6 +26,12 @@ DEFAULT_ROOT = Path(__file__).resolve().parents[2]
 BANNED_ALLOC = re.compile(
     r'\b(?:malloc|calloc|realloc|free|strdup|alloca)\s*\('
 )
+
+# An allocation exemption is a line marker plus a registry entry (#259). The marker
+# alone used to be enough, so a marker that stopped describing an allocation stayed
+# in the tree unnoticed, and nobody could answer "how many exemptions do we have".
+EXEMPT_MARKER = re.compile(r"(?:N5-allow|ponytail:allow-alloc)\s*:?\s*(.*)$")
+ALLOC_REGISTRY = "ci/alloc-exemptions.json"
 
 # Struct definitions ending in port / interface conventions
 PORT_STRUCT = re.compile(
@@ -104,7 +111,7 @@ def strip_comments(text: str) -> list:
     return lines
 
 
-def check_allocations_in_dir(scan_dir: Path, root: Path) -> list:
+def check_allocations_in_dir(scan_dir: Path, root: Path, found: list) -> list:
     problems = []
     if not scan_dir.is_dir():
         return problems
@@ -115,8 +122,23 @@ def check_allocations_in_dir(scan_dir: Path, root: Path) -> list:
         rel = path.relative_to(root)
         text = path.read_text(encoding="utf-8", errors="replace")
 
-        for lineno, line in enumerate(strip_comments(text), 1):
-            if "N5-allow" in line or "ponytail:allow-alloc" in line:
+        # The marker lives in a comment, the allocation lives in code: read the raw
+        # line for the marker and the comment-stripped line for the call, or stripping
+        # comments deletes the very exemption it is meant to find.
+        code_lines = strip_comments(text)
+        for lineno, raw_line in enumerate(text.splitlines(), 1):
+            line = code_lines[lineno - 1]
+            marker = EXEMPT_MARKER.search(raw_line)
+            if marker:
+                if not BANNED_ALLOC.search(line):
+                    problems.append(
+                        f"{rel}:{lineno}: allocation exemption on a line with no allocation "
+                        f"(stale exemption: delete it, or move it to the call it excuses)"
+                    )
+                    continue
+                found.append({"path": rel.as_posix(), "line": lineno, "reason": marker.group(1).strip()})
+                if not marker.group(1).strip():
+                    problems.append(f"{rel}:{lineno}: allocation exemption without a reason")
                 continue
             if BANNED_ALLOC.search(line):
                 problems.append(
@@ -143,6 +165,67 @@ def is_storage_block(body: str) -> bool:
         r"\s*(_Alignas\([^)]*\)\s*)?unsigned\s+char\s+[A-Za-z_]\w*\s*\[[^]]*\]\s*;\s*",
         cleaned,
     ) is not None
+
+
+def check_alloc_exemptions(root: Path, found: list) -> list:
+    """Every marker needs a registry entry, and every entry needs a marker (#259).
+
+    The registry is where "how many allocation exemptions do we have, and why" is
+    answered. `max` is the ceiling: at 0 the tree is allocation-free by construction,
+    and raising it is a deliberate edit to this file rather than a line marker
+    somebody added in passing.
+    """
+    problems = []
+    registry_path = root / ALLOC_REGISTRY
+    if not registry_path.is_file():
+        # Nothing to register and no registry: a tree with no exemptions needs no file.
+        if not found:
+            return []
+        return [f"{ALLOC_REGISTRY} is missing (allocation exemptions must be registered)"]
+    try:
+        registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        return [f"{ALLOC_REGISTRY}: not valid JSON ({error.msg})"]
+
+    entries = registry.get("entries", [])
+    limit = registry.get("max")
+    if not isinstance(limit, int):
+        problems.append(f"{ALLOC_REGISTRY}: 'max' must be an integer ceiling")
+    elif len(found) > limit:
+        problems.append(
+            f"{ALLOC_REGISTRY}: {len(found)} allocation exemption(s) exceed the ceiling of {limit}"
+        )
+
+    # Match by spot, not by path: one file may legitimately carry two exemptions, and
+    # keying on the path would make the second one impossible to register.
+    registered = set()
+    for index, entry in enumerate(entries):
+        path = entry.get("path")
+        contains = entry.get("contains")
+        reason = (entry.get("reason") or "").strip()
+        issue = (entry.get("issue") or "").strip()
+        if not path or not contains or not reason or not issue:
+            problems.append(f"{ALLOC_REGISTRY}: entry {index} needs path, contains, reason and issue")
+            continue
+        matches = [
+            spot_index
+            for spot_index, spot in enumerate(found)
+            if spot["path"] == path and contains in spot["reason"] and spot_index not in registered
+        ]
+        if not matches:
+            problems.append(
+                f"{ALLOC_REGISTRY}: entry {index} ('{path}', '{contains}') matches no exemption in the tree"
+            )
+            continue
+        registered.add(matches[0])
+
+    for spot_index, spot in enumerate(found):
+        if spot_index not in registered:
+            problems.append(
+                f"{spot['path']}:{spot['line']}: allocation exemption is not registered in "
+                f"{ALLOC_REGISTRY} ('{spot['reason']}')"
+            )
+    return problems
 
 
 def check_opaque_storage_in_file(path: Path, root: Path) -> list:
@@ -244,8 +327,10 @@ def check(root: Path) -> list:
     # everywhere - no malloc/calloc/realloc/strdup/alloca, and no `free` either,
     # since nothing allocates on this side of the boundary - so one pattern covers
     # all layers rather than a per-layer table (#257).
+    exemptions = []
     for layer in ("app", "infra", "sys", "pal", "edge_module", "board", "soc", "product"):
-        problems.extend(check_allocations_in_dir(root / layer, root))
+        problems.extend(check_allocations_in_dir(root / layer, root, exemptions))
+    problems.extend(check_alloc_exemptions(root, exemptions))
 
     return problems
 
