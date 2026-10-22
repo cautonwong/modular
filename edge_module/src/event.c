@@ -10,7 +10,7 @@ edge_status_t edge_event_queue_init(edge_event_queue_t *queue, edge_event_t *sto
     queue->capacity = capacity;
     atomic_store_explicit(&queue->head, 0u, memory_order_relaxed);
     atomic_store_explicit(&queue->tail, 0u, memory_order_relaxed);
-    atomic_store_explicit(&queue->dropped, 0u, memory_order_relaxed);
+    queue->dropped = 0u;
     return EDGE_OK;
 }
 
@@ -20,7 +20,7 @@ edge_status_t edge_event_push_isr(edge_event_queue_t *queue, const edge_event_t 
     const uint32_t head = atomic_load_explicit(&queue->head, memory_order_relaxed);
     const uint32_t next = (head + 1u) % queue->capacity;
     if (next == atomic_load_explicit(&queue->tail, memory_order_acquire)) {
-        atomic_fetch_add_explicit(&queue->dropped, 1u, memory_order_relaxed);
+        ++queue->dropped;
         return EDGE_EOVERFLOW;
     }
     queue->items[head] = *event;
@@ -69,9 +69,9 @@ size_t edge_event_count(const edge_event_queue_t *queue) {
 
 void edge_event_queue_reset_dropped(edge_event_queue_t *queue) {
     if (queue != NULL)
-        atomic_store_explicit(&queue->dropped, 0u, memory_order_relaxed);
+        queue->dropped = 0u;
 }
 
 uint32_t edge_event_dropped(const edge_event_queue_t *queue) {
-    return queue != NULL ? atomic_load_explicit(&queue->dropped, memory_order_relaxed) : 0u;
+    return queue != NULL ? queue->dropped : 0u;
 }

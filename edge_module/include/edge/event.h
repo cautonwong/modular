@@ -40,7 +40,11 @@ typedef struct edge_event_queue {
      * `volatile` here was a promise the standard does not make (#audit). */
     _Atomic uint32_t head;
     _Atomic uint32_t tail;
-    _Atomic uint32_t dropped;
+    /* Diagnostic counter, deliberately not atomic: a read-modify-write on Cortex-M0
+     * has no exclusive instruction and would pull in libatomic for a number nobody
+     * decides anything safety-related on. The push itself is masked, so the counter
+     * is accurate whenever the queue is used as designed. */
+    volatile uint32_t dropped;
 } edge_event_queue_t;
 
 typedef void (*edge_irq_enter_fn)(void *self);
