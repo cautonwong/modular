@@ -607,6 +607,40 @@ static void test_publish_overflow_and_binding(void **state) {
     assert_int_equal(stats.pending_high_water, 1u);
 }
 
+/*
+ * A window reading (#262 finding 5): stats_get() folds the queue's cumulative drop
+ * count into `drops`, so stats_reset() has to clear that counter too - otherwise a
+ * product measuring "drops since the last checkpoint" reports the lifetime value.
+ */
+static void test_stats_reset_clears_queue_drops(void **state) {
+    (void)state;
+    fake_app_t a;
+    make_app(&a, 1u, 1u);
+    edge_module_t *apps[] = {&a.module};
+    edge_event_t storage[2];
+    edge_event_queue_t queue;
+    edge_sys_subscription_t subs[2];
+    edge_sys_t sys;
+    edge_sys_stats_t stats;
+    const edge_event_t ev = {.id = EDGE_EVT_UART0_RX};
+
+    assert_int_equal(edge_event_queue_init(&queue, storage, 2u), EDGE_OK);
+    assert_int_equal(edge_sys_init(&sys, apps, 1u), EDGE_OK);
+    assert_int_equal(edge_sys_bind_event_queue(&sys, &queue, subs, 2u), EDGE_OK);
+    assert_int_equal(edge_sys_start(&sys), EDGE_OK);
+
+    /* One slot is usable, so the second push overflows and the queue counts it. */
+    assert_int_equal(edge_event_sink_push_isr(&(edge_event_sink_t){.queue = &queue}, &ev), EDGE_OK);
+    assert_int_equal(edge_event_sink_push_isr(&(edge_event_sink_t){.queue = &queue}, &ev),
+                     EDGE_EOVERFLOW);
+    assert_int_equal(edge_sys_stats_get(&sys, &stats), EDGE_OK);
+    assert_int_equal(stats.drops, 1u);
+
+    assert_int_equal(edge_sys_stats_reset(&sys), EDGE_OK);
+    assert_int_equal(edge_sys_stats_get(&sys, &stats), EDGE_OK);
+    assert_int_equal(stats.drops, 0u);
+}
+
 static void test_unsubscribe(void **state) {
     (void)state;
     fake_app_t a;
@@ -740,7 +774,7 @@ static void test_idle_hook(void **state) {
     assert_int_equal(stats.idle_calls, 1u);
 }
 
-static void test_step_and_run_shutdown(void **state) {
+static void test_run_once_shutdown(void **state) {
     (void)state;
     fake_app_t a;
     make_app(&a, 1u, 1u);
@@ -751,10 +785,14 @@ static void test_step_and_run_shutdown(void **state) {
     assert_int_equal(edge_sys_start(&sys), EDGE_OK);
     g_shutdown_sys = &sys;
     g_shutdown_after_polls = 3;
-    assert_int_equal(edge_sys_run(&sys), EDGE_OK);
+    /* The blocking `edge_sys_run()` loop is gone (#262 - nothing in the tree used it);
+     * the same shutdown sequence is driven one step at a time, with a bound so a
+     * product that never stops shows up as a failure rather than a hang. */
+    for (unsigned step = 0u; step < 10u && SYS_STATE(&sys)->state == EDGE_SYS_RUNNING; ++step)
+        assert_int_equal(edge_sys_run_once(&sys), EDGE_OK);
     assert_int_equal(SYS_STATE(&sys)->state, EDGE_SYS_STOPPED);
     assert_int_equal(a.poll_count, 3);
-    assert_int_equal(edge_sys_step(NULL), EDGE_ESTATE);
+    assert_int_equal(edge_sys_run_once(NULL), EDGE_ESTATE);
 }
 
 static void test_stats_reset(void **state) {
@@ -799,8 +837,7 @@ static void test_new_api_argument_guards(void **state) {
     assert_int_equal(edge_sys_unsubscribe(&sys, 1u, &a.module), EDGE_EINVAL);
     assert_int_equal(edge_sys_idle(NULL), EDGE_EINVAL);
     assert_int_equal(edge_sys_stats_reset(NULL), EDGE_EINVAL);
-    assert_int_equal(edge_sys_step(NULL), EDGE_ESTATE);
-    assert_int_equal(edge_sys_run(NULL), EDGE_EINVAL);
+    assert_int_equal(edge_sys_run_once(NULL), EDGE_ESTATE);
     assert_int_equal(edge_sys_suspend_all(NULL), EDGE_ESTATE);
     assert_int_equal(edge_sys_resume_all(NULL), EDGE_ESTATE);
     assert_int_equal(edge_sys_start(&sys), EDGE_OK);
@@ -926,13 +963,14 @@ int main(void) {
         TEST(test_keyboard_wrapper),
         TEST(test_publish_deferred_queue),
         TEST(test_publish_overflow_and_binding),
+        TEST(test_stats_reset_clears_queue_drops),
         TEST(test_unsubscribe),
         TEST(test_unsubscribe_during_dispatch_delivers_to_the_rest),
         TEST(test_required_list_is_borrowed_not_copied),
         TEST(test_suspend_resume),
         TEST(test_suspend_resume_and_pending),
         TEST(test_idle_hook),
-        TEST(test_step_and_run_shutdown),
+        TEST(test_run_once_shutdown),
         TEST(test_stats_reset),
         TEST(test_new_api_argument_guards),
         TEST(test_sys_configure),

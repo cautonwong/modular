@@ -546,7 +546,7 @@ int main(void) {
      * the control path through the ppm and adc_input apps above, which is where the reference
      * applies the same curve (app_ppm.c / app_adc.c). Constructed with no input port it returned
      * EDGE_EINVAL from every poll - a failure that went unseen until the step's result stopped
-     * being dropped, because edge_sys_step() was answering EDGE_ESTATE the whole time.
+     * being dropped, because edge_sys_run_once() was answering EDGE_ESTATE the whole time.
      */
     edge_module_t *apps[14];
     apps[0] = foc_core_module(&foc);
@@ -576,7 +576,7 @@ int main(void) {
         return 1;
     }
     /*
-     * Nothing polls until the system is started: edge_sys_step() answers EDGE_ESTATE while the
+     * Nothing polls until the system is started: edge_sys_run_once() answers EDGE_ESTATE while the
      * state is not EDGE_SYS_RUNNING. Until this call existed, every step below returned that
      * error and its result was dropped, so no module poll and no event dispatch ever ran - the
      * FOC loop turned the motor by itself, which is why the run looked healthy while the
@@ -605,7 +605,7 @@ int main(void) {
          * instead of dropping it the way the previous unchecked call did. The module that failed
          * is named: with fourteen modules polling, the error code alone does not say whose.
          */
-        const edge_status_t step_rc = edge_sys_step(&sys);
+        const edge_status_t step_rc = edge_sys_run_once(&sys);
         /* applications/app_ppm.c:218-440, applied: the module has just polled, so what it decided
          * is applied here, where the motor interface is. */
         const edge_status_t ppm_rc = vesc_host_apply_ppm(&glue_state);

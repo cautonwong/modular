@@ -66,6 +66,10 @@ edge_status_t edge_event_pop(edge_event_queue_t *queue, edge_event_t *event);
 size_t edge_event_count(const edge_event_queue_t *queue);
 uint32_t edge_event_dropped(const edge_event_queue_t *queue);
 
+/* Zero the drop counter. It is cumulative by design - a queue that loses an event
+ * should keep saying so - so resetting it is an explicit act, for a window reading. */
+void edge_event_queue_reset_dropped(edge_event_queue_t *queue);
+
 #ifdef __cplusplus
 }
 #endif

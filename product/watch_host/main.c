@@ -173,7 +173,7 @@ int main(void) {
         }
 
         /* Periodic scheduler step */
-        const edge_status_t step_rc = edge_sys_step(&sys);
+        const edge_status_t step_rc = edge_sys_run_once(&sys);
         if (step_rc != EDGE_OK) {
             printf("FAIL: scheduler step returned 0x%x at cycle %d\n", (unsigned)step_rc, cycle);
             return 30;

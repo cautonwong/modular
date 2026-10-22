@@ -67,6 +67,11 @@ size_t edge_event_count(const edge_event_queue_t *queue) {
     return (size_t)((head + queue->capacity - tail) % queue->capacity);
 }
 
+void edge_event_queue_reset_dropped(edge_event_queue_t *queue) {
+    if (queue != NULL)
+        atomic_store_explicit(&queue->dropped, 0u, memory_order_relaxed);
+}
+
 uint32_t edge_event_dropped(const edge_event_queue_t *queue) {
     return queue != NULL ? atomic_load_explicit(&queue->dropped, memory_order_relaxed) : 0u;
 }
