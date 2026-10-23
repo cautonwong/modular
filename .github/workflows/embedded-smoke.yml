@@ -28,15 +28,25 @@ jobs:
           key: ${{ runner.os }}-m4-ccache-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-m4-ccache-
-      # shortcut: gcc-arm-none-eabi is a 57.5 MB download; the mirror has been
-      # seen at ~50 KB/s, which alone takes ~19 minutes. Cache the .debs or move
-      # to a faster mirror before trimming this budget (issue #264).
+      # gcc-arm-none-eabi is 57.5 MB and the mirror has been seen at ~50 KB/s,
+      # so a cold fetch needs ~19 minutes. The restored .debs sit in apt's own
+      # archive dir, which apt installs from without downloading.
+      # shortcut: bump the key suffix when Ubuntu ships a new toolchain, else the
+      # cached .debs never match and every run pays the slow path again (#264).
+      - name: Restore apt package cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/apt-cache
+          key: ${{ runner.os }}-apt-arm-m4-v1
       - name: Install ARM GNU toolchain and QEMU
         run: |
+          sudo cp "${{ runner.temp }}"/apt-cache/*.deb /var/cache/apt/archives/ 2>/dev/null || true
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build gcc-arm-none-eabi binutils-arm-none-eabi \
             libnewlib-arm-none-eabi qemu-system-arm ccache
+          mkdir -p "${{ runner.temp }}/apt-cache"
+          cp /var/cache/apt/archives/*.deb "${{ runner.temp }}/apt-cache/" 2>/dev/null || true
       - name: Verify tools
         run: |
           arm-none-eabi-gcc --version
@@ -164,12 +174,20 @@ jobs:
           key: ${{ runner.os }}-rv-ccache-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-rv-ccache-
+      - name: Restore apt package cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/apt-cache
+          key: ${{ runner.os }}-apt-riscv-v1
       - name: Install RISC-V toolchain and QEMU
         run: |
+          sudo cp "${{ runner.temp }}"/apt-cache/*.deb /var/cache/apt/archives/ 2>/dev/null || true
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build gcc-riscv64-unknown-elf binutils-riscv64-unknown-elf \
             qemu-system-misc ccache
+          mkdir -p "${{ runner.temp }}/apt-cache"
+          cp /var/cache/apt/archives/*.deb "${{ runner.temp }}/apt-cache/" 2>/dev/null || true
       - name: Verify tools
         run: |
           riscv64-unknown-elf-gcc --version
@@ -251,12 +269,20 @@ jobs:
           key: ${{ runner.os }}-freertos-${{ hashFiles('CMakeLists.txt') }}
           restore-keys: |
             ${{ runner.os }}-freertos-
+      - name: Restore apt package cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/apt-cache
+          key: ${{ runner.os }}-apt-arm-freertos-v1
       - name: Install ARM GNU toolchain and QEMU
         run: |
+          sudo cp "${{ runner.temp }}"/apt-cache/*.deb /var/cache/apt/archives/ 2>/dev/null || true
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build git gcc-arm-none-eabi binutils-arm-none-eabi \
             libnewlib-arm-none-eabi qemu-system-arm ccache
+          mkdir -p "${{ runner.temp }}/apt-cache"
+          cp /var/cache/apt/archives/*.deb "${{ runner.temp }}/apt-cache/" 2>/dev/null || true
       - name: Verify tools
         run: |
           arm-none-eabi-gcc --version
