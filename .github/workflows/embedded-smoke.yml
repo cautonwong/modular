@@ -17,7 +17,7 @@ jobs:
   cortex-m4-qemu:
     name: Cortex-M4 + QEMU peripheral IRQ smoke
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -28,6 +28,9 @@ jobs:
           key: ${{ runner.os }}-m4-ccache-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-m4-ccache-
+      # shortcut: gcc-arm-none-eabi is a 57.5 MB download; the mirror has been
+      # seen at ~50 KB/s, which alone takes ~19 minutes. Cache the .debs or move
+      # to a faster mirror before trimming this budget (issue #264).
       - name: Install ARM GNU toolchain and QEMU
         run: |
           sudo apt-get update
@@ -150,7 +153,7 @@ jobs:
   riscv32-qemu:
     name: RISC-V 32 + QEMU (virt) smoke
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -235,7 +238,7 @@ jobs:
   freertos-qemu:
     name: FreeRTOS host + QEMU smoke
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
