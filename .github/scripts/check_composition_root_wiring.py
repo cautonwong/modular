@@ -168,7 +168,6 @@ def check_event_sink_wiring_in_file(path: Path, root: Path, sinks: dict) -> list
     return problems
 
 
-
 def check_glue_state_in_file(path: Path, root: Path) -> list:
     rel = path.relative_to(root)
     raw = path.read_text(encoding="utf-8", errors="replace")

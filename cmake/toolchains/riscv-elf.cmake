@@ -1,4 +1,10 @@
-# RISC-V 32 bare-metal toolchain (SiFive/`virt` QEMU, RV32IMC).
+# RISC-V 32 bare-metal toolchain (QEMU `virt`, RV32IMAC).
+#
+# The A extension is not decoration: on `-march=rv32imc` this target's smoke hung and
+# was killed by its ten-second timeout (`firmware exit status: 137`). The event ring's
+# indices are `_Atomic`, and without the A extension the compiler does not inline a
+# 4-byte atomic access - clang emits `call __atomic_load_4` / `__atomic_store_4`, whose
+# libatomic fallback has no way to make progress on bare metal (#262).
 #
 # Usage:
 #   cmake -S . -B build-rv -G Ninja \
@@ -13,9 +19,9 @@ set(CMAKE_C_COMPILER riscv64-unknown-elf-gcc CACHE FILEPATH "RISC-V bare-metal C
 set(CMAKE_OBJCOPY riscv64-unknown-elf-objcopy CACHE FILEPATH "RISC-V objcopy")
 set(CMAKE_SIZE riscv64-unknown-elf-size CACHE FILEPATH "RISC-V size")
 
-# RV32IMC / ilp32 applies to every object, including static libraries.
-set(CMAKE_C_FLAGS_INIT "-march=rv32imc_zicsr -mabi=ilp32 -mcmodel=medany -fstack-usage")
-set(CMAKE_ASM_FLAGS_INIT "-march=rv32imc_zicsr -mabi=ilp32 -mcmodel=medany")
-set(CMAKE_EXE_LINKER_FLAGS_INIT "-march=rv32imc_zicsr -mabi=ilp32 -mcmodel=medany")
+# RV32IMAC / ilp32 applies to every object, including static libraries.
+set(CMAKE_C_FLAGS_INIT "-march=rv32imac_zicsr -mabi=ilp32 -mcmodel=medany -fstack-usage")
+set(CMAKE_ASM_FLAGS_INIT "-march=rv32imac_zicsr -mabi=ilp32 -mcmodel=medany")
+set(CMAKE_EXE_LINKER_FLAGS_INIT "-march=rv32imac_zicsr -mabi=ilp32 -mcmodel=medany")
 
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
