@@ -38,8 +38,8 @@ typedef struct edge_event_queue {
     /* Indices are atomic so the release/acquire pair in src/event.c is a real
      * happens-before edge: a C11 fence orders atomic accesses, not plain ones, so
      * `volatile` here was a promise the standard does not make (#audit). */
-    _Atomic uint32_t head;
-    _Atomic uint32_t tail;
+    uint32_t head;
+    uint32_t tail;
     /* Diagnostic counter, deliberately not atomic: a read-modify-write on Cortex-M0
      * has no exclusive instruction and would pull in libatomic for a number nobody
      * decides anything safety-related on. The push itself is masked, so the counter
