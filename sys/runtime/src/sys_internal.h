@@ -42,16 +42,25 @@ struct edge_sys_internal {
     void *idle_ctx;
 };
 
-_Static_assert(sizeof(struct edge_sys_internal) <= EDGE_SYS_STORAGE_SIZE,
-               "EDGE_SYS_STORAGE_SIZE is stale: the composition root would under-allocate");
+/* Exact, not `<=`: the margin above is a measured number, so a field added to the
+ * struct fails here and says to re-measure both constants, instead of silently
+ * eating the slack until the day the caller under-allocates. */
+_Static_assert(EDGE_SYS_STORAGE_SIZE - sizeof(struct edge_sys_internal) == EDGE_SYS_STORAGE_MARGIN,
+               "edge_sys_t storage drifted: re-measure EDGE_SYS_STORAGE_SIZE and _MARGIN");
 _Static_assert(EDGE_SYS_STORAGE_ALIGN >= _Alignof(struct edge_sys_internal),
                "EDGE_SYS_STORAGE_ALIGN is stale: the storage would be under-aligned");
 
-/* The public handle is storage; this is where the implementation reaches the state.
- * One function, not two: the handle is caller-owned bytes, so the cast is the only
- * const-ness involved and pretending otherwise produced a second accessor that had
- * to be flipped per call site. A function rather than a macro keeps the call site
- * short enough to read (`edge_sys_state(sys)->pending_tail`) and the cast in one place. */
+/* The public handle is caller-owned bytes; these are how the implementation reaches
+ * the state inside them.
+ *
+ * Two accessors, because the const qualifier on a parameter is a promise to the
+ * caller and it is worth keeping: `edge_sys_state_const()` is what a read-only
+ * entry point uses, `edge_sys_state()` is for the ones that write. Both cast a byte
+ * block to a struct pointer - the practice every caller-alloc contract in this tree
+ * relies on - so type safety here comes from the assertions below, not from the
+ * cast. The mutable accessor accepts a const handle because the C type system cannot
+ * express "these bytes are mine": treat a `const edge_sys_t *` reaching the mutable
+ * accessor as a bug in the caller, not as permission. */
 static inline struct edge_sys_internal *edge_sys_state(const edge_sys_t *handle) {
     return (struct edge_sys_internal *)(void *)(uintptr_t)handle;
 }
