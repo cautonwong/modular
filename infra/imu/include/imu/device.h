@@ -42,13 +42,15 @@ typedef struct imu_device_interface {
  * caller cannot desynchronise `dev_addr` / `sample_rate_hz` from the device they
  * describe. The factories still return it by value.
  */
-/* 24 bytes of real state on a 32-bit target, 40 on an LP64 host; the static
- * assertions in src/imu_internal.h keep both honest. */
+/* Measured: 40 bytes of real state on an LP64 host, 24 on a 32-bit target, so 8
+ * bytes of margin either way. The margin is asserted exactly in src/imu_internal.h:
+ * a field added to the struct fails the build instead of eating the slack. */
 #if UINTPTR_MAX > 0xFFFFFFFFu
 #define IMU_DEVICE_STORAGE_SIZE 48u
 #else
 #define IMU_DEVICE_STORAGE_SIZE 32u
 #endif
+#define IMU_DEVICE_STORAGE_MARGIN 8u
 #define IMU_DEVICE_STORAGE_ALIGN 8u
 
 typedef struct imu_device {
