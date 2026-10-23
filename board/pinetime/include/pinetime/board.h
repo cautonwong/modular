@@ -65,6 +65,11 @@ typedef struct board_pinetime_hw {
 
 /* Board lifecycle & IRQ capture */
 void board_pinetime_init(edge_event_sink_t *sink);
+
+/* Mask for the event sink: this board pushes from three interrupt paths into one
+ * single-producer queue, so the push has to be atomic against the others. */
+edge_irq_guard_t board_pinetime_irq_guard(void);
+uint32_t board_pinetime_irq_depth(void);
 bool board_pinetime_hw_init(board_pinetime_hw_t *hw);
 void board_pinetime_irq_button(bool pressed);
 void board_pinetime_irq_touch(void);

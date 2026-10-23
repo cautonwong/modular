@@ -288,7 +288,7 @@ int main(void) {
     if (sys_bldc_init(&sys, apps, 3u, &event_queue, subscriptions, 8u) != EDGE_OK) {
         return 2;
     }
-    /* Nothing polls until the system is started: edge_sys_step() answers EDGE_ESTATE while the
+    /* Nothing polls until the system is started: edge_sys_run_once() answers EDGE_ESTATE while the
      * state is not EDGE_SYS_RUNNING. */
     if (edge_sys_start(&sys) != EDGE_OK) {
         return 3;
@@ -302,7 +302,7 @@ int main(void) {
      * assembled, initialized and idle.
      */
     for (unsigned i = 0u; i < 1000u; ++i) {
-        if (edge_sys_step(&sys) != EDGE_OK) {
+        if (edge_sys_run_once(&sys) != EDGE_OK) {
             (void)edge_sys_power_off(&sys);
             return 20;
         }

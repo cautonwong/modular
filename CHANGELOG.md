@@ -43,6 +43,23 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- The RISC-V target is built for **RV32IMAC** instead of RV32IMC. On the old target the
+  firmware hung and the QEMU smoke was killed by its ten-second timeout: the event ring
+  publishes through `_Atomic` indices, and without the A extension the compiler does not
+  inline a 4-byte atomic access - clang emits `call __atomic_load_4` / `__atomic_store_4`,
+  whose libatomic fallback cannot make progress on bare metal. Anyone building this target
+  with their own toolchain has to add `a` to `-march` (#262).
+- `edge_sys_stats_reset()` also zeroes the event queue's cumulative drop counter
+  (`edge_sys_stats_get()` samples the same number). The queue's counter is a cumulative
+  gauge by design, so a reset discards drops that landed between the two calls; the
+  header now says so instead of leaving it to be discovered (#262).
+- The event ring's `head` and `tail` are `_Atomic uint32_t` in the public header
+  (`edge_module/include/edge/event.h`) rather than plain `volatile`. `volatile` orders
+  nothing with respect to another thread, so the release/acquire pair in
+  `edge_module/src/event.c` was a promise the standard did not make; with atomics it is a
+  real happens-before edge. `dropped` stays plain - a read-modify-write on Cortex-M0 has no
+  exclusive instruction and would pull in libatomic for a diagnostic counter (#262).
+
 - Tests reset their module state **before every case** instead of at the end of a
   function: a cmocka assertion longjmps out of the test, so an end-of-test reset is
   skipped exactly when the state has already gone wrong and the next case inherits it.
@@ -87,6 +104,10 @@ All notable changes to this project are documented here. The format follows
   `MODBUS_SLAVE_MAX_QTY` with PDU arrays sized for that maximum and a bounded
   `send_pdu` (see the closing comments for the indices).
 ### Removed
+
+- `edge_sys_step()` and `edge_sys_run()`. The former duplicated `edge_sys_run_once()`
+  and the latter was an unbounded loop that only ever meant "call `run_once` in a while";
+  every product already drove the loop itself. Callers use `edge_sys_run_once()` (#262).
 
 - `docs/todo-status.md`: a **second** area-level status table, while `CONTRIBUTING.md`
   declares `docs/adr-conformance.md` the *only* decision-vs-implementation view. Two
@@ -479,7 +500,7 @@ All notable changes to this project are documented here. The format follows
   `-99 .. 0`, zero-segment `EDGE_ERR` allocations and module-error collisions;
   positive/negative fixtures wired into CI and the guard self-test. Per-layer
   error sets are documented in `docs/error-model.md`.
-- RISC-V 32 (`rv32imc_zicsr`) bare-metal target: `cmake/toolchains/riscv-elf.cmake`,
+- RISC-V 32 (`rv32imac_zicsr`) bare-metal target: `cmake/toolchains/riscv-elf.cmake`,
   `board/riscv_virt` (CLINT machine timer + QEMU test finisher), `product/riscv_meter`
   and a `riscv32-qemu` CI job that builds and runs it under `qemu-system-riscv32 -M virt`.
   It reuses the same `app/dlt645` source with zero app changes.
@@ -494,7 +515,8 @@ All notable changes to this project are documented here. The format follows
 - Canonical narrow port shapes (`edge/ports.h`): byte reader/writer and storage KV,
   and now `edge_uart_port_t`/`edge_gpio_port_t` with an `infra/uart` host fake and
   `gpio_read`, exercised by `tests/test_ports.c`.
-- Runtime API completion for the ADR catalogue: `edge_sys_step`/`edge_sys_run`,
+- Runtime API completion for the ADR catalogue: `edge_sys_run_once` (the
+  `edge_sys_step`/`edge_sys_run` aliases it started as are gone, see *Removed*),
   `edge_sys_idle` plus an injectable idle hook, `edge_sys_publish` with a
   runner-owned deferred queue (`edge_sys_bind_pending_queue`),
   `edge_sys_unsubscribe`, `edge_sys_suspend_all`/`edge_sys_resume_all`, and

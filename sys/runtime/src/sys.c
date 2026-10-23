@@ -410,24 +410,6 @@ edge_status_t edge_sys_run_once(edge_sys_t *sys) {
     return first_error;
 }
 
-edge_status_t edge_sys_step(edge_sys_t *sys) {
-    return edge_sys_run_once(sys);
-}
-
-edge_status_t edge_sys_run(edge_sys_t *sys) {
-    if (sys == NULL)
-        return EDGE_EINVAL;
-    edge_status_t first_error = EDGE_OK;
-    bool running = edge_sys_state(sys)->state == EDGE_SYS_RUNNING;
-    while (running) {
-        const edge_status_t rc = edge_sys_run_once(sys);
-        if (rc < 0 && first_error == EDGE_OK)
-            first_error = rc;
-        running = edge_sys_state(sys)->state == EDGE_SYS_RUNNING;
-    }
-    return first_error;
-}
-
 edge_status_t edge_sys_idle(edge_sys_t *sys) {
     if (sys == NULL)
         return EDGE_EINVAL;
@@ -534,6 +516,10 @@ edge_status_t edge_sys_stats_reset(edge_sys_t *sys) {
     if (sys == NULL)
         return EDGE_EINVAL;
     edge_sys_state(sys)->stats = (edge_sys_stats_t){0};
+    /* stats_get() adds the queue's cumulative drop count in, so a window reading
+     * would otherwise include everything dropped before the reset. */
+    if (edge_sys_state(sys)->events != NULL)
+        edge_event_queue_reset_dropped(edge_sys_state(sys)->events);
     return EDGE_OK;
 }
 

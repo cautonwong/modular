@@ -17,10 +17,13 @@ int main(void) {
         return 1;
     }
 
+    /* Three interrupt paths push into this one queue (button, touch, IMU), so the
+     * sink masks around the push; see board_pinetime_irq_guard(). */
+    edge_irq_guard_t irq_guard = board_pinetime_irq_guard();
     edge_event_sink_t event_sink = {
         .queue = &event_queue,
         .clock = NULL,
-        .guard = NULL,
+        .guard = &irq_guard,
     };
     board_pinetime_init(&event_sink);
 
@@ -376,7 +379,7 @@ int main(void) {
     for (int cycle = 0; cycle < 50; cycle++) {
         glue.rtc_ticks += 100u;
 
-        const edge_status_t step_rc = edge_sys_step(&sys);
+        const edge_status_t step_rc = edge_sys_run_once(&sys);
         if (step_rc != EDGE_OK) {
             printf("FAIL: scheduler step returned 0x%x at cycle %d\n", (unsigned)step_rc, cycle);
             (void)edge_sys_power_off(&sys);

@@ -44,7 +44,7 @@ Legend: ✅ implemented · 🟡 partial · ❌ not implemented · ⛔ contradict
 
 | ADR | Decision | Status | Evidence |
 |---|---|---|---|
-| D47 | Single runner context; `sys_step()` decomposable | ✅ | `edge_sys_step()` + `edge_sys_run()`; on an RTOS the runner parks on a notification and is woken from the ISR instead of polling, with the yield policy, the module-vs-task suspend boundary and the priority mapping written down in `docs/rtos-runner.md` |
+| D47 | Single runner context; `sys_step()` decomposable | ✅ | `edge_sys_run_once()` (one iteration; the product owns the loop) — the old `edge_sys_step()`/`edge_sys_run()` aliases are gone; on an RTOS the runner parks on a notification and is woken from the ISR instead of polling, with the yield policy, the module-vs-task suspend boundary and the priority mapping written down in `docs/rtos-runner.md` |
 | D51 | `poll`/`on_event` (+ optional `suspend`/`resume`); `init`/`deinit` outside the struct | ✅ | `edge_module_t` carries `poll`/`on_event`/`power_off`/`suspend`/`resume` only; the composition root calls `<app>_init(self)` / `<app>_deinit(self)` (products do, reverse order at shutdown). Enforced by `check_module_contract.py`. `power_off` stays in the struct because *ordering* is a `sys` duty (D11) |
 | D52 | Event-driven + periodic mixed scheduling; idle -> board | ✅ | `period`/`budget`/`edge_sys_idle` hook; the product idle hook feeds the watchdog and calls the board low-power action, then the atomic PAL wait. On the RTOS the idle hook is reached while the runner is parked, and the scheduler's tickless sleep sits below it |
 | D53 | Non-fatal init failure skipped and recorded | ✅ | `fatal` flag: default skip, `fatal` rolls back |

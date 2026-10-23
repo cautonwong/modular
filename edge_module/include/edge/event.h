@@ -3,6 +3,7 @@
 
 #include "clock.h"
 #include "module.h"
+#include <stdatomic.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -34,8 +35,15 @@ _Static_assert(sizeof(edge_event_t) == 24u, "edge_event_t ABI changed");
 typedef struct edge_event_queue {
     edge_event_t *items;
     uint32_t capacity;
-    volatile uint32_t head;
-    volatile uint32_t tail;
+    /* Indices are atomic so the release/acquire pair in src/event.c is a real
+     * happens-before edge: a C11 fence orders atomic accesses, not plain ones, so
+     * `volatile` here was a promise the standard does not make (#audit). */
+    _Atomic uint32_t head;
+    _Atomic uint32_t tail;
+    /* Diagnostic counter, deliberately not atomic: a read-modify-write on Cortex-M0
+     * has no exclusive instruction and would pull in libatomic for a number nobody
+     * decides anything safety-related on. The push itself is masked, so the counter
+     * is accurate whenever the queue is used as designed. */
     volatile uint32_t dropped;
 } edge_event_queue_t;
 
@@ -61,6 +69,14 @@ edge_status_t edge_event_sink_push_isr(edge_event_sink_t *sink, const edge_event
 edge_status_t edge_event_pop(edge_event_queue_t *queue, edge_event_t *event);
 size_t edge_event_count(const edge_event_queue_t *queue);
 uint32_t edge_event_dropped(const edge_event_queue_t *queue);
+
+/* Zero the drop counter. It is cumulative by design - a queue that loses an event
+ * should keep saying so - so resetting it is an explicit act, for a window reading.
+ * `edge_sys_stats_reset()` performs that act on the queue a runtime is bound to, so
+ * a product that samples both sees one window, not two. A drop that arrives between
+ * that sample and that reset belongs to neither window: the count is a gauge, not a
+ * ledger, and no cumulative total survives the reset. */
+void edge_event_queue_reset_dropped(edge_event_queue_t *queue);
 
 #ifdef __cplusplus
 }

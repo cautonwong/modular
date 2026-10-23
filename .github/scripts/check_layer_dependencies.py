@@ -17,6 +17,8 @@ import sys
 import time
 from pathlib import Path
 
+from guard_common import is_vendored
+
 DEFAULT_ROOT = Path(__file__).resolve().parents[2]
 INCLUDE = re.compile(r'^\s*#\s*include\s*[<"]([^">]+)[">]', re.M)
 
@@ -158,6 +160,8 @@ def check(root):
         if not base.is_dir():
             continue
         for path in sorted(list(base.rglob("*.c")) + list(base.rglob("*.h"))):
+            if is_vendored(path):
+                continue
             text = path.read_text(encoding="utf-8", errors="replace")
             rel = path.relative_to(root)
             for include in INCLUDE.findall(text):

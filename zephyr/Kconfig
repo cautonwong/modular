@@ -15,7 +15,7 @@ config MODULAR_RUNNER_STACK_SIZE
     int "Runner task stack size in bytes"
     default 2048
     help
-      Stack size allocated for the modular runner task executing edge_sys_step().
+      Stack size allocated for the modular runner task executing edge_sys_run_once().
 
 config MODULAR_RUNNER_PRIORITY
     int "Runner task priority (0 is highest preemptible)"

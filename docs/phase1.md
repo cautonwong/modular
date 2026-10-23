@@ -9,7 +9,7 @@
 
 | 维度 | 阶段 1 选择 | 验证形态 |
 |---|---|---|
-| CPU 架构 | ARM Cortex-M4（MPS2-AN386）、RISC-V 32IMC（`sifive_e`）、host（x86_64/ARM64） | QEMU / 本地 |
+| CPU 架构 | ARM Cortex-M4（MPS2-AN386）、RISC-V 32IMAC（QEMU `virt`）、host（x86_64/ARM64） | QEMU / 本地 |
 | 运行宿主 | bare-metal superloop、FreeRTOS 单任务“确定性执行舱” | QEMU / host |
 | 外设端口 | UART、Storage(KV)、GPIO、Clock（框架只定契约，不写厂商寄存器驱动） | QEMU / host 假实现 |
 | 产品领域 | `app/dlt645`（电表）、`app/modbus_slave`（工业现场总线） | 双协议共存 |
@@ -33,7 +33,7 @@
 
 ## Definition of Done
 
-- [ ] ARM MPS2 与 RISC-V `sifive_e` 在 CI 全自动编译 + QEMU 冒烟绿灯
+- [ ] ARM MPS2 与 RISC-V `virt` 在 CI 全自动编译 + QEMU 冒烟绿灯
 - [ ] FreeRTOS 单任务宿主压力：连续 ≥100k 事件/中断调度，无死锁、无泄漏
 - [ ] 双协议共存产品（单 runner）执行预算违规 = 0，N1–N5 守卫通过
 - [ ] 行覆盖率 ≥ 95%，map 分层预算不超标，反例自测全绿
@@ -42,7 +42,7 @@
 
 - #43 `pal/os` + RTOS runner；#44 RISC-V QEMU；#32 中立性验收
 - #14 端口命名对齐；#15 全量组合矩阵；#30 HIL（非门禁）
-- 工具链可行性（已验证）：`gcc-riscv64-unknown-elf` 支持 `-march=rv32imc_zicsr -mabi=ilp32`；`qemu-system-misc` 提供 `qemu-system-riscv32 -M virt`。
+- 工具链可行性（已验证）：`gcc-riscv64-unknown-elf` 支持 `-march=rv32imac_zicsr -mabi=ilp32`；`qemu-system-misc` 提供 `qemu-system-riscv32 -M virt`。A 扩展不是可选项：`edge_event_queue_t` 用 `_Atomic` 索引发布，不带 A 时编译器不内联 4 字节原子访问，固件在 QEMU 冒烟里挂死，详见 `cmake/toolchains/riscv-elf.cmake`（#262）。
 
 ## 进度
 
