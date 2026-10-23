@@ -71,7 +71,11 @@ size_t edge_event_count(const edge_event_queue_t *queue);
 uint32_t edge_event_dropped(const edge_event_queue_t *queue);
 
 /* Zero the drop counter. It is cumulative by design - a queue that loses an event
- * should keep saying so - so resetting it is an explicit act, for a window reading. */
+ * should keep saying so - so resetting it is an explicit act, for a window reading.
+ * `edge_sys_stats_reset()` performs that act on the queue a runtime is bound to, so
+ * a product that samples both sees one window, not two. A drop that arrives between
+ * that sample and that reset belongs to neither window: the count is a gauge, not a
+ * ledger, and no cumulative total survives the reset. */
 void edge_event_queue_reset_dropped(edge_event_queue_t *queue);
 
 #ifdef __cplusplus

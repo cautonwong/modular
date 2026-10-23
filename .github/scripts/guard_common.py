@@ -16,6 +16,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # Third-party trees are checked in but not owned here: a guard must not turn red
 # because an upstream header happens to match one of our shapes (#262 finding 4).
+# The match is by path component, so it also skips a driver we vendored and do
+# patch (`infra/imu/vendor/Fusion`): narrowing that needs a per-checker allow-list,
+# not a shared helper.
 VENDOR_PARTS = ("vendor",)
 
 
@@ -29,12 +32,17 @@ def strip_c_comments(text: str) -> list:
     Line numbers are preserved, so a finding still points at the line the reader
     will open. A comment that mentions a call is prose, not code: without this a
     commented-out assembly line fails the composition-root gate (#262 finding 3).
+
+    A quote is not a comment: `"http://host"` contains `//`, and a URL literal cut
+    there takes the rest of its line with it - including a call the guard exists to
+    find. So the scan tracks which quote it is inside and leaves those bytes alone.
     """
     lines = []
     in_block = False
     for line in text.splitlines():
         out = []
         index = 0
+        quote = ""  # string or character literal open at this point; C cannot span lines
         while index < len(line):
             if in_block:
                 end = line.find("*/", index)
@@ -44,19 +52,25 @@ def strip_c_comments(text: str) -> list:
                 in_block = False
                 index = end + 2
                 continue
-            start = line.find("/*", index)
-            slash = line.find("//", index)
-            if slash >= 0 and (start < 0 or slash < start):
-                out.append(line[index:slash])
+            char = line[index]
+            if quote:
+                if char == "\\":
+                    out.append(line[index:index + 2])
+                    index += 2
+                    continue
+                if char == quote:
+                    quote = ""
+            elif char in "\"'":
+                quote = char
+            elif line.startswith("//", index):
                 index = len(line)
                 break
-            if start < 0:
-                out.append(line[index:])
-                index = len(line)
-                break
-            out.append(line[index:start])
-            in_block = True
-            index = start + 2
+            elif line.startswith("/*", index):
+                in_block = True
+                index += 2
+                continue
+            out.append(char)
+            index += 1
         lines.append("".join(out))
     return lines
 
@@ -64,11 +78,6 @@ def strip_c_comments(text: str) -> list:
 def strip_cmake_comments(text: str) -> str:
     """Return CMake source with `#` comments removed, line numbering preserved."""
     return "\n".join(line.split("#", 1)[0] for line in text.splitlines())
-
-
-def iter_files(root: Path, pattern: str) -> list:
-    """Sorted files under `root` matching `pattern`, third-party trees excluded."""
-    return [path for path in sorted(root.rglob(pattern)) if not is_vendored(path)]
 
 
 def split_top_level(text: str) -> list:

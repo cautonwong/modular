@@ -540,7 +540,7 @@ int main(void) {
         return 20;                        /* distinct exit code, inspectable in QEMU */
     if (edge_module_host_start(&g_slot0, &sys) != EDGE_OK)
         return 21;
-    edge_sys_run(&sys, ...);              /* existing runner: slot modules are just modules */
+    edge_sys_run_once(&sys);              /* existing runner: slot modules are just modules */
     return 0;
 }
 ```

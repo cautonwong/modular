@@ -23,7 +23,7 @@
     "D50": { "file": ".github/scripts/check_app_isolation.py", "marker": "FreeRTOS" },
     "D85": { "file": ".github/scripts/check_layer_dependencies.py" },
     "D51": { "file": ".github/scripts/check_module_contract.py" },
-    "D47": { "file": "sys/runtime/include/runtime/sys.h", "marker": "edge_sys_run" },
+    "D47": { "file": "sys/runtime/include/runtime/sys.h", "marker": "edge_sys_run_once" },
     "D52": { "file": "sys/runtime/src/sys.c", "marker": "edge_sys_idle" },
     "D53": { "file": "sys/runtime/src/sys.c", "marker": "stats.isolated" },
     "D55": { "file": ".github/scripts/check_module_ids.py" },

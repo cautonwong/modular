@@ -135,6 +135,7 @@ CASES = [
     ("check_consumer_ports.py", "tests/guards/consumer_ports_good_vendor", True),
     ("check_consumer_ports.py", "tests/guards/consumer_ports_bad_opaque_storage", False),
     ("check_consumer_ports.py", "tests/guards/consumer_ports_bad_malloc", False),
+    ("check_consumer_ports.py", "tests/guards/consumer_ports_bad_alloc_after_string", False),
     ("check_consumer_ports.py", "tests/guards/product_malloc", False),
     ("check_consumer_ports.py", "tests/guards/storage_blob_comment", True),
     ("check_consumer_ports.py", "tests/guards/storage_blob_extra_field", False),
