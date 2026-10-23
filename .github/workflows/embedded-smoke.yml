@@ -209,6 +209,14 @@ jobs:
             -DEDGE_MODULE_ENABLE_WERROR=ON
       - name: Build RISC-V ELF and binary
         run: cmake --build build-rv --target riscv_meter --parallel
+      - name: DEBUG codegen dump
+        run: |
+          grep -o -- '-march=[^ ]*' build-rv/build.ninja | sort -u
+          riscv64-unknown-elf-readelf -A build-rv/riscv_meter || true
+          riscv64-unknown-elf-objdump -d build-rv/riscv_meter | tee build-rv/disasm.txt | \
+            sed -n '/<edge_event_push_isr>:/,/^$/p;/<edge_event_queue_init>:/,/^$/p'
+          grep -n '__atomic_' build-rv/disasm.txt || echo "no __atomic_ symbols in disassembly"
+          riscv64-unknown-elf-nm -u build-rv/riscv_meter || true
       - name: Verify RISC-V ELF
         env:
           SIZE_TOOL: riscv64-unknown-elf-size
